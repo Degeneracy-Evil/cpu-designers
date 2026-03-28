@@ -1,8 +1,9 @@
 //*************************************************************************
 //   > 文件名: alu_display.v
 //   > 描述  ：ALU显示模块，调用FPGA板上的IO接口和触摸屏
-//   > 作者  : LOONGSON
-//   > 日期  : 2016-04-14
+//   > 修改了alu操作数位宽允许32位以方便使用独热码
+//   > 作者  : yjy
+//   > 日期  : 2026年3月28日
 //*************************************************************************
 module alu_display(
     //时钟与复位信号
@@ -28,7 +29,7 @@ module alu_display(
     output ct_rstn
     );
 //-----{调用ALU模块}begin
-    reg   [11:0] alu_control;  // ALU控制信号
+    reg   [31:0] alu_control;  // ALU控制信号
     reg   [31:0] alu_src1;     // ALU操作数1
     reg   [31:0] alu_src2;     // ALU操作数2
     wire  [31:0] alu_result;   // ALU结果
@@ -74,7 +75,7 @@ module alu_display(
         .ct_sda         (ct_sda        ),
         .ct_scl         (ct_scl        ),
         .ct_rstn        (ct_rstn       )
-    ); 
+    );
 //-----{实例化触摸屏}end
 
 //-----{从触摸屏获取输入}begin
@@ -85,14 +86,14 @@ module alu_display(
     begin
         if (!resetn)
         begin
-            alu_control <= 12'd0;
+            alu_control <= 32'd0;
         end
         else if (input_valid && input_sel==2'b00)
         begin
-            alu_control <= input_value[11:0];
+            alu_control <= input_value[31:0];
         end
     end
-    
+
     //当input_sel为10时，表示输入数为源操作数1，即alu_src1
     always @(posedge clk)
     begin
@@ -143,7 +144,7 @@ module alu_display(
             begin
                 display_valid <= 1'b1;
                 display_name  <= "CONTR";
-                display_value <={20'd0, alu_control};
+                display_value <= alu_control;
             end
             6'd4 :
             begin

@@ -174,25 +174,45 @@ module alu_32bit(
     wire [31:0] mul_result_low;
     assign mul_result_low = mul_result[31:0];
     
-    assign result = alu_mul  ? mul_result_low :
-                    alu_div  ? div_quotient :
-                    alu_not  ? not_result :
-                    alu_add  ? add_result :
-                    alu_sub  ? sub_result :
-                    alu_slt  ? slt_result :
-                    alu_sltu ? sltu_result :
-                    alu_and  ? and_result :
-                    alu_nor  ? nor_result :
-                    alu_or   ? or_result :
-                    alu_xor  ? xor_result :
-                    alu_sll  ? sll_result :
-                    alu_srl  ? srl_result :
-                    alu_sra  ? sra_result :
-                    alu_lui  ? lui_result :
-                    32'b0;
+    alu_result_selector result_mux(
+        .mul_result(mul_result_low),
+        .div_result(div_quotient),
+        .not_result(not_result),
+        .add_result(add_result),
+        .sub_result(sub_result),
+        .slt_result(slt_result),
+        .sltu_result(sltu_result),
+        .and_result(and_result),
+        .nor_result(nor_result),
+        .or_result(or_result),
+        .xor_result(xor_result),
+        .sll_result(sll_result),
+        .srl_result(srl_result),
+        .sra_result(sra_result),
+        .lui_result(lui_result),
+        .sel(alu_control),
+        .y(result)
+    );
     
-    assign done = alu_mul ? mul_done : 
-                  alu_div ? div_done : 
-                  1'b1;
+    wire done_comb;
+    wire done_mul_sel;
+    wire done_div_sel;
+    wire done_default;
+    
+    assign done_default = 1'b1;
+    
+    mux_2to1 #(1) mux_done_0(
+        .a(done_default),
+        .b(div_done),
+        .sel(alu_div),
+        .y(done_div_sel)
+    );
+    
+    mux_2to1 #(1) mux_done_1(
+        .a(done_div_sel),
+        .b(mul_done),
+        .sel(alu_mul),
+        .y(done)
+    );
 
 endmodule

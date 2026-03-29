@@ -33,11 +33,15 @@ module alu_display(
     reg   [31:0] alu_src1;     // ALU操作数1
     reg   [31:0] alu_src2;     // ALU操作数2
     wire  [31:0] alu_result;   // ALU结果
-    alu alu_module(
-        .alu_control(alu_control),
-        .alu_src1   (alu_src1   ),
-        .alu_src2   (alu_src2   ),
-        .alu_result (alu_result )
+    wire         alu_done;
+    alu_32bit alu_module(
+        .clk        (clk              ),
+        .reset      (~resetn          ),
+        .alu_control(alu_control[15:0]),
+        .src1       (alu_src1         ),
+        .src2       (alu_src2         ),
+        .result     (alu_result       ),
+        .done       (alu_done         )
     );
 //-----{调用ALU模块}end
 

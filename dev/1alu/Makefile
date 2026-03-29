@@ -22,6 +22,7 @@ CFLAGS = -Wall
 
 # RTL files
 RTL_FILES = $(RTL_DIR)/basic_gates.v \
+            $(RTL_DIR)/mux.v \
             $(RTL_DIR)/cla_adder_4bit.v \
             $(RTL_DIR)/cla_adder_16bit.v \
             $(RTL_DIR)/cla_adder_32bit.v \
@@ -31,6 +32,7 @@ RTL_FILES = $(RTL_DIR)/basic_gates.v \
             $(RTL_DIR)/lui.v \
             $(RTL_DIR)/booth_multiplier.v \
             $(RTL_DIR)/non_restoring_divider.v \
+            $(RTL_DIR)/alu_result_selector.v \
             $(RTL_DIR)/alu_32bit.v
 
 # Testbench files

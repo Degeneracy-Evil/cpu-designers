@@ -5,7 +5,7 @@ module gate_and(
     input  b,
     output y
 );
-    assign y = a & b;
+    and u_and(y, a, b);
 endmodule
 
 module gate_or(
@@ -13,14 +13,14 @@ module gate_or(
     input  b,
     output y
 );
-    assign y = a | b;
+    or u_or(y, a, b);
 endmodule
 
 module gate_not(
     input  a,
     output y
 );
-    assign y = ~a;
+    not u_not(y, a);
 endmodule
 
 module gate_xor(
@@ -28,7 +28,7 @@ module gate_xor(
     input  b,
     output y
 );
-    assign y = a ^ b;
+    xor u_xor(y, a, b);
 endmodule
 
 module gate_nor(
@@ -36,7 +36,7 @@ module gate_nor(
     input  b,
     output y
 );
-    assign y = ~(a | b);
+    nor u_nor(y, a, b);
 endmodule
 
 module gate_nand(
@@ -44,7 +44,7 @@ module gate_nand(
     input  b,
     output y
 );
-    assign y = ~(a & b);
+    nand u_nand(y, a, b);
 endmodule
 
 module gate_xnor(
@@ -52,7 +52,7 @@ module gate_xnor(
     input  b,
     output y
 );
-    assign y = ~(a ^ b);
+    xnor u_xnor(y, a, b);
 endmodule
 
 module gate_and_32bit(
@@ -60,7 +60,12 @@ module gate_and_32bit(
     input  [31:0] b,
     output [31:0] y
 );
-    assign y = a & b;
+    genvar i;
+    generate
+        for (i = 0; i < 32; i = i + 1) begin : and_gate
+            and u_and(y[i], a[i], b[i]);
+        end
+    endgenerate
 endmodule
 
 module gate_or_32bit(
@@ -68,14 +73,24 @@ module gate_or_32bit(
     input  [31:0] b,
     output [31:0] y
 );
-    assign y = a | b;
+    genvar i;
+    generate
+        for (i = 0; i < 32; i = i + 1) begin : or_gate
+            or u_or(y[i], a[i], b[i]);
+        end
+    endgenerate
 endmodule
 
 module gate_not_32bit(
     input  [31:0] a,
     output [31:0] y
 );
-    assign y = ~a;
+    genvar i;
+    generate
+        for (i = 0; i < 32; i = i + 1) begin : not_gate
+            not u_not(y[i], a[i]);
+        end
+    endgenerate
 endmodule
 
 module gate_xor_32bit(
@@ -83,7 +98,12 @@ module gate_xor_32bit(
     input  [31:0] b,
     output [31:0] y
 );
-    assign y = a ^ b;
+    genvar i;
+    generate
+        for (i = 0; i < 32; i = i + 1) begin : xor_gate
+            xor u_xor(y[i], a[i], b[i]);
+        end
+    endgenerate
 endmodule
 
 module gate_nor_32bit(
@@ -91,7 +111,12 @@ module gate_nor_32bit(
     input  [31:0] b,
     output [31:0] y
 );
-    assign y = ~(a | b);
+    genvar i;
+    generate
+        for (i = 0; i < 32; i = i + 1) begin : nor_gate
+            nor u_nor(y[i], a[i], b[i]);
+        end
+    endgenerate
 endmodule
 
 module full_adder(

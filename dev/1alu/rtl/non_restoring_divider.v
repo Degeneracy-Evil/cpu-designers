@@ -56,8 +56,25 @@ module non_restoring_divider(
     wire [31:0] abs_dividend_comb;
     wire [31:0] abs_divisor_comb;
     
-    assign abs_dividend_comb = dividend[31] ? (~dividend + 1'b1) : dividend;
-    assign abs_divisor_comb = divisor[31] ? (~divisor + 1'b1) : divisor;
+    wire [31:0] neg_dividend;
+    wire [31:0] neg_divisor;
+    
+    assign neg_dividend = ~dividend + 1'b1;
+    assign neg_divisor = ~divisor + 1'b1;
+    
+    mux_2to1 #(32) mux_abs_dividend(
+        .a(dividend),
+        .b(neg_dividend),
+        .sel(dividend[31]),
+        .y(abs_dividend_comb)
+    );
+    
+    mux_2to1 #(32) mux_abs_divisor(
+        .a(divisor),
+        .b(neg_divisor),
+        .sel(divisor[31]),
+        .y(abs_divisor_comb)
+    );
     
     always @(posedge clk or posedge reset) begin
         if (reset) begin
@@ -112,8 +129,25 @@ module non_restoring_divider(
     wire [31:0] final_quotient;
     wire [31:0] final_remainder;
     
-    assign final_quotient = result_sign ? (~Q + 1'b1) : Q;
-    assign final_remainder = sign_dividend ? (~R + 1'b1) : R;
+    wire [31:0] neg_Q;
+    wire [31:0] neg_R;
+    
+    assign neg_Q = ~Q + 1'b1;
+    assign neg_R = ~R + 1'b1;
+    
+    mux_2to1 #(32) mux_final_quotient(
+        .a(Q),
+        .b(neg_Q),
+        .sel(result_sign),
+        .y(final_quotient)
+    );
+    
+    mux_2to1 #(32) mux_final_remainder(
+        .a(R),
+        .b(neg_R),
+        .sel(sign_dividend),
+        .y(final_remainder)
+    );
     
     assign quotient = final_quotient;
     assign remainder = final_remainder;

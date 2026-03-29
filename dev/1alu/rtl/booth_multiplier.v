@@ -32,10 +32,31 @@ module booth_multiplier(
     wire [31:0] add_op_b;
     wire add_cin;
     
-    assign add_op_b = (booth_pair == 2'b01) ? M :
-                      (booth_pair == 2'b10) ? (~M) :
-                      32'b0;
-    assign add_cin = (booth_pair == 2'b10) ? 1'b1 : 1'b0;
+    wire [31:0] booth_pair_01_op;
+    wire [31:0] booth_pair_10_op;
+    wire [31:0] booth_pair_00_op;
+    
+    assign booth_pair_00_op = 32'b0;
+    assign booth_pair_01_op = M;
+    assign booth_pair_10_op = ~M;
+    
+    mux_4to1 #(32) mux_add_op_b(
+        .in0(booth_pair_00_op),
+        .in1(booth_pair_01_op),
+        .in2(booth_pair_10_op),
+        .in3(booth_pair_00_op),
+        .sel(booth_pair),
+        .y(add_op_b)
+    );
+    
+    mux_4to1 #(1) mux_add_cin(
+        .in0(1'b0),
+        .in1(1'b0),
+        .in2(1'b1),
+        .in3(1'b0),
+        .sel(booth_pair),
+        .y(add_cin)
+    );
     
     cla_adder_32bit adder(
         .a(A),

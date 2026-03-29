@@ -1,12 +1,6 @@
-#set title("求相反数")
-#set page(header: align(right, [_技术文档 - 求相反数_]))
-#set text(size: 18pt)
-#show heading: it => {
-  block([#sym.section *#it.body*], below: 0.8em)
-}
-#set par(first-line-indent: (amount: 2em, all: true))
-#show strong: text.with(font: ("Microsoft YaHei"))
-#show emph: text.with(font: ("Calibri","LiSu"))
+#import "tbook.typ"
+
+#show: doc => tbook.tbook([求相反数], doc)
 
 = 求相反数
 

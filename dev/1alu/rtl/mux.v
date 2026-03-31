@@ -1,5 +1,8 @@
 `timescale 1ns / 1ps
 
+// 2选1多路选择器 - 门级实现
+// 功能: y = sel ? b : a
+// 实现: 使用门级原语，避免被综合为IP核
 module mux_2to1 #(
     parameter WIDTH = 32
 )(
@@ -12,6 +15,7 @@ module mux_2to1 #(
     wire [WIDTH-1:0] b_masked;
     wire [WIDTH-1:0] not_sel_vec;
     
+    // 对每一位独立实现: y[i] = (a[i] & ~sel) | (b[i] & sel)
     genvar i;
     generate
         for (i = 0; i < WIDTH; i = i + 1) begin : mux_bit
@@ -23,6 +27,8 @@ module mux_2to1 #(
     endgenerate
 endmodule
 
+// 4选1多路选择器 - 层次化实现
+// 使用3个2选1MUX构建
 module mux_4to1 #(
     parameter WIDTH = 32
 )(
@@ -36,6 +42,7 @@ module mux_4to1 #(
     wire [WIDTH-1:0] mux0_out;
     wire [WIDTH-1:0] mux1_out;
     
+    // 第一级: 根据sel[0]选择in0/in1和in2/in3
     mux_2to1 #(WIDTH) mux0(
         .a(in0),
         .b(in1),
@@ -50,6 +57,7 @@ module mux_4to1 #(
         .y(mux1_out)
     );
     
+    // 第二级: 根据sel[1]选择mux0_out或mux1_out
     mux_2to1 #(WIDTH) mux_final(
         .a(mux0_out),
         .b(mux1_out),
@@ -58,6 +66,8 @@ module mux_4to1 #(
     );
 endmodule
 
+// 8选1多路选择器 - 层次化实现
+// 使用2个4选1MUX和1个2选1MUX构建
 module mux_8to1 #(
     parameter WIDTH = 32
 )(
@@ -75,6 +85,7 @@ module mux_8to1 #(
     wire [WIDTH-1:0] mux0_out;
     wire [WIDTH-1:0] mux1_out;
     
+    // 低4输入和高4输入分别选择
     mux_4to1 #(WIDTH) mux0(
         .in0(in0),
         .in1(in1),
@@ -93,6 +104,7 @@ module mux_8to1 #(
         .y(mux1_out)
     );
     
+    // 最终选择
     mux_2to1 #(WIDTH) mux_final(
         .a(mux0_out),
         .b(mux1_out),
@@ -101,6 +113,8 @@ module mux_8to1 #(
     );
 endmodule
 
+// 16选1多路选择器 - 层次化实现
+// 使用2个8选1MUX和1个2选1MUX构建
 module mux_16to1 #(
     parameter WIDTH = 32
 )(
@@ -126,6 +140,7 @@ module mux_16to1 #(
     wire [WIDTH-1:0] mux0_out;
     wire [WIDTH-1:0] mux1_out;
     
+    // 低8输入和高8输入分别选择
     mux_8to1 #(WIDTH) mux0(
         .in0(in0),
         .in1(in1),
@@ -152,6 +167,7 @@ module mux_16to1 #(
         .y(mux1_out)
     );
     
+    // 最终选择
     mux_2to1 #(WIDTH) mux_final(
         .a(mux0_out),
         .b(mux1_out),

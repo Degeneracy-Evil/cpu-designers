@@ -6,22 +6,22 @@ module cla_adder_32bit(
     input         cin,
     output [31:0] sum,
     output        cout
-);
-    wire c15;
-    
-    cla_adder_16bit cla0(
-        .a(a[15:0]),
-        .b(b[15:0]),
-        .cin(cin),
-        .sum(sum[15:0]),
-        .cout(c15)
-    );
-    
-    cla_adder_16bit cla1(
-        .a(a[31:16]),
-        .b(b[31:16]),
-        .cin(c15),
-        .sum(sum[31:16]),
-        .cout(cout)
-    );
+  );
+  wire c16;
+
+  cla_adder_16bit cla0(
+                    .a(a[15:0]),
+                    .b(b[15:0]),
+                    .cin(cin),
+                    .sum(sum[15:0]),
+                    .cout(c16)
+                  );
+
+  cla_adder_16bit cla1(
+                    .a(a[31:16]),
+                    .b(b[31:16]),
+                    .cin(c16),
+                    .sum(sum[31:16]),
+                    .cout(cout)
+                  );
 endmodule

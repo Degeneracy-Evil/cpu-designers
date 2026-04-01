@@ -21,8 +21,7 @@ WAVE_FILE = alu_wave.vcd
 CFLAGS = -Wall
 
 # RTL files
-RTL_FILES = $(RTL_DIR)/basic_gates.v \
-            $(RTL_DIR)/mux.v \
+RTL_FILES = $(RTL_DIR)/mux.v \
             $(RTL_DIR)/cla_adder_4bit.v \
             $(RTL_DIR)/cla_adder_16bit.v \
             $(RTL_DIR)/cla_adder_32bit.v \

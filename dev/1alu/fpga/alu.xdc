@@ -1,6 +1,9 @@
 # FPGA约束文件 - ALU测试
-# 作者: CPU Designers
-# 日期: 2026年3月31日
+
+# 时钟约束
+#create_clock -period 10.000 -name sys_clk -waveform {0.000 5.000} [get_ports clk]
+#set_clock_uncertainty -setup 0.050 [get_clocks sys_clk]
+#set_clock_uncertainty -hold  0.050 [get_clocks sys_clk]
 
 # 时钟信号连接 (100MHz)
 set_property PACKAGE_PIN AC19 [get_ports clk]
@@ -11,14 +14,14 @@ set_property PACKAGE_PIN Y3 [get_ports resetn]
 # 拨码开关连接，用于输入选择，反着写的目的是便于人类阅读从左到右
 # input_sel[0] -> SW1
 # input_sel[1] -> SW0
-set_property PACKAGE_PIN AD24 [get_ports input_sel[0]]
-set_property PACKAGE_PIN AC21 [get_ports input_sel[1]]
+set_property PACKAGE_PIN AD24 [get_ports {input_sel[0]}]
+set_property PACKAGE_PIN AC21 [get_ports {input_sel[1]}]
 
 # IO标准设置
 set_property IOSTANDARD LVCMOS33 [get_ports clk]
 set_property IOSTANDARD LVCMOS33 [get_ports resetn]
-set_property IOSTANDARD LVCMOS33 [get_ports input_sel[1]]
-set_property IOSTANDARD LVCMOS33 [get_ports input_sel[0]]
+set_property IOSTANDARD LVCMOS33 [get_ports {input_sel[1]}]
+set_property IOSTANDARD LVCMOS33 [get_ports {input_sel[0]}]
 
 # 触摸屏引脚连接
 set_property PACKAGE_PIN J25 [get_ports lcd_rst]

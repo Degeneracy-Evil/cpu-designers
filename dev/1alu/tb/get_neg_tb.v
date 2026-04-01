@@ -28,11 +28,13 @@ module get_neg_tb;
     source = 32'h80000000;
     #10;
 
-    for (i = 0; i < 16; i = i + 1) begin
+    for (i = 0; i < 16; i = i + 1)
+    begin
       source = i;
       #1;
       expected = -source;
-      if (out !== expected) begin
+      if (out !== expected)
+      begin
         $display("ERROR source=%h out=%h expected=%h", source, out, expected);
         $finish;
       end

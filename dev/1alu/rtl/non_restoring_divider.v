@@ -1,8 +1,5 @@
 `timescale 1ns / 1ps
 
-// 非恢复余数除法器 - 支持32位有符号数除法
-// 算法: Restoring Division算法
-// 周期: 32个时钟周期完成
 module non_restoring_divider(
     input         clk,
     input         reset,
@@ -16,55 +13,25 @@ module non_restoring_divider(
 
   // 状态机状态定义
   localparam IDLE    = 2'b00;  // 空闲状态
-  localparam COMPUTE = 2'b01;  // 计算状态
-  localparam FINISH  = 2'b10;  // 完成状态
+  localparam COMPUTE = 2'b01;  // 非恢复余数迭代
+  localparam FIX     = 2'b10;  // 终态余数修正
+  localparam FINISH  = 2'b11;  // 完成状态
 
   reg [1:0] state;
-  reg [5:0] count;         // 迭代计数器
-  reg [31:0] R;            // 余数寄存器
-  reg [31:0] Q;            // 商寄存器
-  reg [31:0] D;            // 除数寄存器
-  reg sign_dividend;       // 被除数符号
-  reg sign_divisor;        // 除数符号
-
-  // 移位后的R和Q
-  wire [31:0] shifted_R;
-  wire shifted_Q_msb;
-
-  assign shifted_R = {R[30:0], Q[31]};  // R左移1位，低位补Q[31]
-  assign shifted_Q_msb = Q[30];
-
-  // 减法和加法结果
-  wire [31:0] sub_result;
-  wire [31:0] add_result;
-  wire sub_cout;
-  wire add_cout;
-
-  wire [31:0] sub_op;
-  assign sub_op = ~D;  // 用于减法
-
-  // 减法器: shifted_R - D
-  cla_adder_32bit subtracter(
-                    .a(shifted_R),
-                    .b(sub_op),
-                    .cin(1'b1),
-                    .sum(sub_result),
-                    .cout(sub_cout)
-                  );
-
-  // 加法器: sub_result + D (用于恢复)
-  cla_adder_32bit adder(
-                    .a(sub_result),
-                    .b(D),
-                    .cin(1'b0),
-                    .sum(add_result),
-                    .cout(add_cout)
-                  );
+  reg [5:0] count;            // 迭代计数器
+  reg [31:0] R;               // 余数寄存器
+  reg [31:0] Q;               // 商寄存器(绝对值)
+  reg [31:0] D;               // 除数绝对值
+  reg sign_dividend;          // 被除数符号
+  reg sign_divisor;           // 除数符号
+  reg div_zero_case;          // 除零标志
+  reg div_overflow_case;      // INT_MIN / -1 溢出标志
+  reg [31:0] dividend_reg;    // 缓存原始被除数
+  reg [31:0] divisor_reg;     // 缓存原始除数
 
   // 计算绝对值 - 使用MUX选择，避免?:运算符
   wire [31:0] abs_dividend_comb;
   wire [31:0] abs_divisor_comb;
-
   wire [31:0] neg_dividend;
   wire [31:0] neg_divisor;
 
@@ -74,7 +41,7 @@ module non_restoring_divider(
   mux_2to1 #(32) mux_abs_dividend(
              .a(dividend),
              .b(neg_dividend),
-             .sel(dividend[31]),  // 如果为负，选择负值(即绝对值)
+             .sel(dividend[31]),
              .y(abs_dividend_comb)
            );
 
@@ -84,6 +51,59 @@ module non_restoring_divider(
              .sel(divisor[31]),
              .y(abs_divisor_comb)
            );
+
+  // 非恢复余数核心：先整体左移，再按当前R符号选择R-D或R+D
+  wire [31:0] shifted_R;
+  assign shifted_R = {R[30:0], Q[31]};
+
+  wire [31:0] r_sub_d;
+  wire [31:0] r_add_d;
+  wire [31:0] r_next;
+  wire q_next_bit;
+
+  wire [31:0] sub_op;
+  wire sub_cout;
+  wire add_cout;
+
+  assign sub_op = ~D;
+
+  cla_adder_32bit subtracter(
+                    .a(shifted_R),
+                    .b(sub_op),
+                    .cin(1'b1),
+                    .sum(r_sub_d),
+                    .cout(sub_cout)
+                  );
+
+  cla_adder_32bit adder(
+                    .a(shifted_R),
+                    .b(D),
+                    .cin(1'b0),
+                    .sum(r_add_d),
+                    .cout(add_cout)
+                  );
+
+  mux_2to1 #(32) mux_r_next(
+             .a(r_sub_d),
+             .b(r_add_d),
+             .sel(R[31]),
+             .y(r_next)
+           );
+
+  // 新余数非负，上商1；新余数为负，上商0
+  assign q_next_bit = ~r_next[31];
+
+  // FIX阶段：终态余数为负时执行 R = R + D
+  wire [31:0] r_fix_add;
+  wire fix_add_cout;
+
+  cla_adder_32bit fix_adder(
+                    .a(R),
+                    .b(D),
+                    .cin(1'b0),
+                    .sum(r_fix_add),
+                    .cout(fix_add_cout)
+                  );
 
   // 状态机
   always @(posedge clk or posedge reset)
@@ -97,6 +117,10 @@ module non_restoring_divider(
       D <= 32'b0;
       sign_dividend <= 1'b0;
       sign_divisor <= 1'b0;
+      div_zero_case <= 1'b0;
+      div_overflow_case <= 1'b0;
+      dividend_reg <= 32'b0;
+      divisor_reg <= 32'b0;
     end
     else
     begin
@@ -105,39 +129,67 @@ module non_restoring_divider(
         begin
           if (start)
           begin
-            state <= COMPUTE;
-            count <= 6'b0;
-            R <= 32'b0;
-            Q <= abs_dividend_comb;  // 使用绝对值计算
-            D <= abs_divisor_comb;
+            dividend_reg <= dividend;
+            divisor_reg <= divisor;
             sign_dividend <= dividend[31];
             sign_divisor <= divisor[31];
+
+            if (divisor == 32'b0)
+            begin
+              // 除零约定：商=0，余数=被除数
+              state <= FINISH;
+              count <= 6'b0;
+              R <= dividend;
+              Q <= 32'b0;
+              D <= 32'b0;
+              div_zero_case <= 1'b1;
+              div_overflow_case <= 1'b0;
+            end
+            else if ((dividend == 32'h8000_0000) && (divisor == 32'hFFFF_FFFF))
+            begin
+              // 显式处理 INT_MIN / -1 溢出，采用二补码截断语义
+              state <= FINISH;
+              count <= 6'b0;
+              R <= 32'b0;
+              Q <= 32'h8000_0000;
+              D <= 32'b0;
+              div_zero_case <= 1'b0;
+              div_overflow_case <= 1'b1;
+            end
+            else
+            begin
+              state <= COMPUTE;
+              count <= 6'b0;
+              R <= 32'b0;
+              Q <= abs_dividend_comb;
+              D <= abs_divisor_comb;
+              div_zero_case <= 1'b0;
+              div_overflow_case <= 1'b0;
+            end
           end
         end
 
         COMPUTE:
         begin
-          if (count < 32)
+          if (count < 6'd32)
           begin
-            // Restoring Division核心算法
-            if (sub_result[31])
-            begin
-              // R < 0: 恢复R，Q[0]=0
-              R <= shifted_R;
-              Q <= {Q[30:0], 1'b0};
-            end
-            else
-            begin
-              // R >= 0: 不恢复，Q[0]=1
-              R <= sub_result;
-              Q <= {Q[30:0], 1'b1};
-            end
+            R <= r_next;
+            Q <= {Q[30:0], q_next_bit};
             count <= count + 1'b1;
           end
           else
           begin
-            state <= FINISH;
+            state <= FIX;
           end
+        end
+
+        FIX:
+        begin
+          if (R[31])
+          begin
+            R <= r_fix_add;
+          end
+          state <= FINISH;
         end
 
         FINISH:
@@ -151,36 +203,123 @@ module non_restoring_divider(
     end
   end
 
-  // 处理结果符号
+  // 结果符号处理
   wire result_sign;
-  assign result_sign = sign_dividend ^ sign_divisor;  // 商的符号
-
-  wire [31:0] final_quotient;
-  wire [31:0] final_remainder;
+  assign result_sign = sign_dividend ^ sign_divisor;
 
   wire [31:0] neg_Q;
   wire [31:0] neg_R;
+  wire [31:0] final_quotient;
+  wire [31:0] final_remainder;
 
   assign neg_Q = ~Q + 1'b1;
   assign neg_R = ~R + 1'b1;
 
-  // 根据符号选择最终结果 - 使用MUX避免?:运算符
   mux_2to1 #(32) mux_final_quotient(
              .a(Q),
              .b(neg_Q),
-             .sel(result_sign),  // 如果符号不同，取负
+             .sel(result_sign),
              .y(final_quotient)
            );
 
   mux_2to1 #(32) mux_final_remainder(
              .a(R),
              .b(neg_R),
-             .sel(sign_dividend),  // 余数符号与被除数相同
+             .sel(sign_dividend),
              .y(final_remainder)
            );
 
-  assign quotient = final_quotient;
-  assign remainder = final_remainder;
+  // 参考C实现的两类整除特殊修正
+  wire operand_same_sign;
+  assign operand_same_sign = ~(sign_dividend ^ sign_divisor);
+
+  // 同号整除修正: remainder == divisor -> quotient += 1, remainder -= divisor
+  wire same_sign_special_hit;
+  assign same_sign_special_hit = (~div_zero_case) & (~div_overflow_case) & operand_same_sign &
+         (final_remainder == divisor_reg);
+
+  wire [31:0] rem_minus_divisor;
+  wire [31:0] rem_sub_op;
+  wire rem_minus_divisor_cout;
+  assign rem_sub_op = ~divisor_reg;
+
+  cla_adder_32bit rem_minus_divisor_adder(
+                    .a(final_remainder),
+                    .b(rem_sub_op),
+                    .cin(1'b1),
+                    .sum(rem_minus_divisor),
+                    .cout(rem_minus_divisor_cout)
+                  );
+
+  wire [31:0] quot_plus_one;
+  wire quot_plus_one_cout;
+  cla_adder_32bit quot_plus_one_adder(
+                    .a(final_quotient),
+                    .b(32'b0),
+                    .cin(1'b1),
+                    .sum(quot_plus_one),
+                    .cout(quot_plus_one_cout)
+                  );
+
+  // 异号整除修正: remainder + divisor == 0 -> quotient -= 1, remainder = 0
+  wire [31:0] rem_plus_divisor;
+  wire rem_plus_divisor_cout;
+  cla_adder_32bit rem_plus_divisor_adder(
+                    .a(final_remainder),
+                    .b(divisor_reg),
+                    .cin(1'b0),
+                    .sum(rem_plus_divisor),
+                    .cout(rem_plus_divisor_cout)
+                  );
+
+  wire diff_sign_special_hit;
+  assign diff_sign_special_hit = (~div_zero_case) & (~div_overflow_case) & (~operand_same_sign) &
+         (rem_plus_divisor == 32'b0);
+
+  wire [31:0] quot_minus_one;
+  wire quot_minus_one_cout;
+  cla_adder_32bit quot_minus_one_adder(
+                    .a(final_quotient),
+                    .b(32'hFFFF_FFFF),
+                    .cin(1'b0),
+                    .sum(quot_minus_one),
+                    .cout(quot_minus_one_cout)
+                  );
+
+  reg [31:0] corrected_quotient;
+  reg [31:0] corrected_remainder;
+
+  always @(*)
+  begin
+    corrected_quotient = final_quotient;
+    corrected_remainder = final_remainder;
+
+    if (same_sign_special_hit)
+    begin
+      corrected_quotient = quot_plus_one;
+      corrected_remainder = rem_minus_divisor;
+    end
+    else if (diff_sign_special_hit)
+    begin
+      corrected_quotient = quot_minus_one;
+      corrected_remainder = 32'b0;
+    end
+
+    if (div_zero_case)
+    begin
+      corrected_quotient = 32'b0;
+      corrected_remainder = dividend_reg;
+    end
+
+    if (div_overflow_case)
+    begin
+      corrected_quotient = 32'h8000_0000;
+      corrected_remainder = 32'b0;
+    end
+  end
+
+  assign quotient = corrected_quotient;
+  assign remainder = corrected_remainder;
   assign done = (state == FINISH);
 
 endmodule

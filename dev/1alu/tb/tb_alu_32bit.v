@@ -290,7 +290,47 @@ module tb_alu_32bit;
     wait_for_done();
     check_result(32'hffffff72, "DIV: 1000 / -7");
 
-    // Test 26: ADD - Zero
+    // Test 26: DIV - Division (negative / negative)
+    $display("Test %0d: DIV - Division (negative / negative)", test_count + 1);
+    src1 = 32'hfffffc18; // -1000
+    src2 = 32'hfffffff9; // -7
+    #10;
+    alu_control = 16'b0100_0000_0000_0000; // DIV
+    #10;
+    wait_for_done();
+    check_result(32'd142, "DIV: -1000 / -7");
+
+    // Test 27: DIV - Exact division (negative / positive)
+    $display("Test %0d: DIV - Exact division (negative / positive)", test_count + 1);
+    src1 = 32'hfffffff8; // -8
+    src2 = 32'd2;
+    #10;
+    alu_control = 16'b0100_0000_0000_0000; // DIV
+    #10;
+    wait_for_done();
+    check_result(32'hfffffffc, "DIV: -8 / 2");
+
+    // Test 28: DIV - Exact division (negative / negative)
+    $display("Test %0d: DIV - Exact division (negative / negative)", test_count + 1);
+    src1 = 32'hfffffff8; // -8
+    src2 = 32'hfffffff8; // -8
+    #10;
+    alu_control = 16'b0100_0000_0000_0000; // DIV
+    #10;
+    wait_for_done();
+    check_result(32'd1, "DIV: -8 / -8");
+
+    // Test 29: DIV - Division by zero convention
+    $display("Test %0d: DIV - Division by zero convention", test_count + 1);
+    src1 = 32'd123;
+    src2 = 32'd0;
+    #10;
+    alu_control = 16'b0100_0000_0000_0000; // DIV
+    #10;
+    wait_for_done();
+    check_result(32'd0, "DIV: 123 / 0 -> quotient=0");
+
+    // Test 30: ADD - Zero
     $display("Test %0d: ADD - Zero", test_count + 1);
     alu_control = 16'b0001_0000_0000_0000; // ADD
     src1 = 32'd0;
@@ -298,7 +338,7 @@ module tb_alu_32bit;
     #10;
     check_result(32'd0, "ADD: 0 + 0");
 
-    // Test 27: SUB - Same value
+    // Test 31: SUB - Same value
     $display("Test %0d: SUB - Same value", test_count + 1);
     alu_control = 16'b0000_1000_0000_0000; // SUB
     src1 = 32'd12345;
@@ -306,7 +346,7 @@ module tb_alu_32bit;
     #10;
     check_result(32'd0, "SUB: 12345 - 12345");
 
-    // Test 28: SLL - Shift by zero
+    // Test 32: SLL - Shift by zero
     $display("Test %0d: SLL - Shift by zero", test_count + 1);
     alu_control = 16'b0000_0000_0001_0000; // SLL
     src1 = 32'd0; // Shift amount
@@ -314,7 +354,7 @@ module tb_alu_32bit;
     #10;
     check_result(32'h12345678, "SLL: 0x12345678 << 0");
 
-    // Test 29: SRL - Shift by 31
+    // Test 33: SRL - Shift by 31
     $display("Test %0d: SRL - Shift by 31", test_count + 1);
     alu_control = 16'b0000_0000_0000_1000; // SRL
     src1 = 32'd31; // Shift amount
@@ -322,7 +362,7 @@ module tb_alu_32bit;
     #10;
     check_result(32'd1, "SRL: 0x80000000 >> 31");
 
-    // Test 30: AND - All ones
+    // Test 34: AND - All ones
     $display("Test %0d: AND - All ones", test_count + 1);
     alu_control = 16'b0000_0001_0000_0000; // AND
     src1 = 32'hffffffff;

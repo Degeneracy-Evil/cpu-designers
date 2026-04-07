@@ -10,37 +10,84 @@
 
 $ N = "DQ" + R, quad |R| < |D| $
 
-二进制迭代除法的核心思想是“左移余数并试减除数”：
+非恢复余数（non-restoring）算法的核心是“按当前余数符号决定加减”，而不是“试减失败再恢复”。
 
-1. 先把余数与商寄存器做联合左移。
-2. 计算$R' = R - D$。
-3. 若$R' >= 0$，则本位商为1并保留$R'$；若$R' < 0$，则本位商为0并恢复为原左移后的$R$。
+对每一轮迭代，执行顺序为：
 
-重复32轮后得到无符号幅值的商和余数，再依据输入符号做补码修正。
+1. 组合左移：$R_s = {R[30:0], Q[31]}$。
+2. 按当前余数符号选择运算：
+	+ 若$R >= 0$，执行$R_n = R_s - D$。
+	+ 若$R < 0$，执行$R_n = R_s + D$。
+3. 按新余数符号写商位：
+	+ 若$R_n >= 0$，则本位商为1。
+	+ 若$R_n < 0$，则本位商为0。
 
-== 实现要点
+迭代32轮后，若终态余数仍为负，则执行一次修正：$R = R + D$。
 
-`rtl/non_restoring_divider.v`同样采用`IDLE -> COMPUTE -> FINISH`三态结构。
+本实现在主循环中使用绝对值幅值运算，循环后再进行符号恢复与特殊修正。
 
-+ `IDLE`：在`start`时锁存输入，记录`sign_dividend/sign_divisor`，并将被除数与除数转为绝对值幅值运算。
-+ `COMPUTE`：执行32轮“左移 + 试减 + 判符号 + 写商位”。
-+ `FINISH`：输出有效并返回空闲。
+== 状态机与数据通路
 
-数据通路中的关键组合量：
+当前`rtl/non_restoring_divider.v`采用四态结构：
 
-+ `shifted_R = {R[30:0], Q[31]}`，表示联合左移后新的余数候选。
-+ `sub_result = shifted_R + (~D) + 1`，用CLA实现$"shifted_R" - D$。
++ `IDLE`：等待`start`，锁存输入与符号信息。
++ `COMPUTE`：执行32轮 non-restoring 迭代。
++ `FIX`：终态余数修正（仅当`R[31]==1`时做`R=R+D`）。
++ `FINISH`：输出有效，下一拍回到`IDLE`。
 
-判定逻辑以`sub_result[31]`为符号位：
+关键组合信号：
 
-+ 若为1（负），说明试减失败：$R <= "shifted_R"$，`Q `$<=$` {Q[30:0], 1'b0}`。
-+ 若为0（非负），说明试减成功：$R <= "sub_result"$，`Q `$<=$` {Q[30:0], 1'b1}`。
++ `shifted_R = {R[30:0], Q[31]}`
++ `r_sub_d = shifted_R - D`
++ `r_add_d = shifted_R + D`
++ `r_next`由`R[31]`选择：`R>=0`选`r_sub_d`，`R<0`选`r_add_d`
++ `q_next_bit = ~r_next[31]`
 
-符号修正阶段：
+这对应“按当前余数符号选加减，按新余数符号上商位”的标准 non-restoring 规则。
 
-+ 商符号为`sign_dividend ^ sign_divisor`，若为负则对`Q`取补码。
-+ 余数符号与被除数一致，若被除数为负则对`R`取补码。
+== 异常与边界处理
 
-因此输出满足有符号除法常见约定：商按异号为负，余数同被除数符号。最终`done`在`FINISH`态拉高。
+当前实现包含两类显式边界分支：
 
-详细代码见`rtl/non_restoring_divider.v`。
++ 除零：若`divisor == 0`，输出`quotient = 0`、`remainder = dividend`。
++ 溢出：若`dividend == 0x8000_0000`且`divisor == 0xFFFF_FFFF`（即$-2^31 / -1$），输出截断语义`quotient = 0x8000_0000`、`remainder = 0`。
+
+其中$-2^31 / -1$在32位有符号整数下不可表示，模块采用“二补码截断”约定。
+
+== 符号恢复与特殊修正
+
+主循环结束后先做符号恢复：
+
++ 商符号：`sign_dividend ^ sign_divisor`
++ 余数符号：与被除数同号
+
+随后做两类特殊修正（参考`docs/div.c`中的约定）：
+
++ 同号整除修正：若`final_remainder == divisor`，执行`quotient += 1`、`remainder -= divisor`。
++ 异号整除修正：若`final_remainder + divisor == 0`，执行`quotient -= 1`、`remainder = 0`。
+
+这两类修正在除零与溢出场景下会被屏蔽，避免互相覆盖。
+
+== 时序与完成信号
+
+`done`定义为`state == FINISH`。
+
++ 常规路径：`IDLE -> COMPUTE(32轮) -> FIX -> FINISH`，最多33拍结束。
++ 除零与溢出路径：`IDLE -> FINISH`快速完成。
+
+== 验证情况
+
+除ALU顶层回归外，已增加模块级测试：`tb/tb_non_restoring_divider.v`。
+
+该测试覆盖：
+
++ 常规有符号除法：`1000/7`、`-1000/7`、`1000/-7`、`-1000/-7`
++ INT_MIN边界：`INT_MIN/1`、`INT_MIN/-1`、`INT_MIN/2`、`INT_MIN/3`、`INT_MIN/-3`
++ 约定场景：`123/0`、`0/7`
+
+当前构建命令：
+
+`python mk.py --top dev/1alu/tb/tb_non_restoring_divider.v`
+
+当前结果：11/11全部通过。
+

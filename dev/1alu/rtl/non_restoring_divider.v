@@ -34,9 +34,24 @@ module non_restoring_divider(
   wire [31:0] abs_divisor_comb;
   wire [31:0] neg_dividend;
   wire [31:0] neg_divisor;
+  wire neg_dividend_cout;
+  wire neg_divisor_cout;
 
-  assign neg_dividend = ~dividend + 1'b1;
-  assign neg_divisor = ~divisor + 1'b1;
+  cla_adder_32bit neg_dividend_adder(
+                    .a(~dividend),
+                    .b(32'b0),
+                    .cin(1'b1),
+                    .sum(neg_dividend),
+                    .cout(neg_dividend_cout)
+                  );
+
+  cla_adder_32bit neg_divisor_adder(
+                    .a(~divisor),
+                    .b(32'b0),
+                    .cin(1'b1),
+                    .sum(neg_divisor),
+                    .cout(neg_divisor_cout)
+                  );
 
   mux_2to1 #(32) mux_abs_dividend(
              .a(dividend),
@@ -64,8 +79,12 @@ module non_restoring_divider(
   wire [31:0] sub_op;
   wire sub_cout;
   wire add_cout;
+  wire [31:0] count_ext;
+  wire [31:0] count_inc_ext;
+  wire count_inc_cout;
 
   assign sub_op = ~D;
+  assign count_ext = {26'b0, count};
 
   cla_adder_32bit subtracter(
                     .a(shifted_R),
@@ -81,6 +100,14 @@ module non_restoring_divider(
                     .cin(1'b0),
                     .sum(r_add_d),
                     .cout(add_cout)
+                  );
+
+  cla_adder_32bit count_incrementer(
+                    .a(count_ext),
+                    .b(32'b0),
+                    .cin(1'b1),
+                    .sum(count_inc_ext),
+                    .cout(count_inc_cout)
                   );
 
   mux_2to1 #(32) mux_r_next(
@@ -175,7 +202,7 @@ module non_restoring_divider(
           begin
             R <= r_next;
             Q <= {Q[30:0], q_next_bit};
-            count <= count + 1'b1;
+            count <= count_inc_ext[5:0];
           end
           else
           begin
@@ -211,9 +238,24 @@ module non_restoring_divider(
   wire [31:0] neg_R;
   wire [31:0] final_quotient;
   wire [31:0] final_remainder;
+  wire neg_q_cout;
+  wire neg_r_cout;
 
-  assign neg_Q = ~Q + 1'b1;
-  assign neg_R = ~R + 1'b1;
+  cla_adder_32bit neg_q_adder(
+                    .a(~Q),
+                    .b(32'b0),
+                    .cin(1'b1),
+                    .sum(neg_Q),
+                    .cout(neg_q_cout)
+                  );
+
+  cla_adder_32bit neg_r_adder(
+                    .a(~R),
+                    .b(32'b0),
+                    .cin(1'b1),
+                    .sum(neg_R),
+                    .cout(neg_r_cout)
+                  );
 
   mux_2to1 #(32) mux_final_quotient(
              .a(Q),

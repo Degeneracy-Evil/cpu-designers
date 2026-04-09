@@ -208,16 +208,6 @@ Booth乘法器实际上是使用Booth编码的乘法器，布斯编码可以减�
   - *同号相除且能整除*（如 $(-8) / (-8)$）：若余数等于除数，则余数减去除数，商加 1。
   - *异号相除且能整除*（如 $(-8) / 2$）：若余数加上除数为 0，则商减 1，余数置 0。
 
-== 完成信号原理
-
-`done` 信号分两类（高电平有效）：
-
-- 非乘除法操作：`done = 1`（默认立即完成）。
-- DIV：`done = div_done`。
-- MUL：`done = mul_done`。
-
-顶层通过多路选择结构根据`alu_control`码选择对应上述信号进行输出，实现统一时序语义。
-
 = 功能实现
 
 == 模块划分
@@ -248,7 +238,6 @@ Booth乘法器实际上是使用Booth编码的乘法器，布斯编码可以减�
   caption: [ALU顶层模块架构图],
   cetz.canvas({
     import cetz.draw: *
-
     set-style(stroke: (paint: black, thickness: 0.8pt), fill: rgb("f7f7f7"))
 
     rect((0, 0), (5, 2.5), name: "in")
@@ -263,10 +252,19 @@ Booth乘法器实际上是使用Booth编码的乘法器，布斯编码可以减�
     rect((rel: (0.5, 0), to: "comb.south-east"), (rel: (4.5, 2), to: "comb.south-east"), name: "sel")
     content("sel", [结果选择器\ alu_result_selector])
 
+    rect(
+      (rel: (1, 1.5), to: "sel.east"),
+      (rel: (6, -5), to: "sel.east"),
+      fill: rgb("#e1effd"),
+      stroke: (dash: "dashed"),
+      name: "out-part",
+    )
+    content((rel: (1.2, 1.5), to: "out-part"), [输出])
+
     rect((rel: (1, 0), to: "seq.south-east"), (rel: (4.5, 2), to: "seq.south-east"), name: "done")
     content("done", [done合成\ default/div/mul])
 
-    rect((rel: (1, 0), to: "sel.south-east"), (rel: (3, 2), to: "sel.south-east"), name: "out")
+    rect((rel: (1.5, 0), to: "sel.south-east"), (rel: (3.5, 2), to: "sel.south-east"), name: "out")
     content("out", [result])
 
     line("in", "comb", mark: (end: "straight"))
@@ -300,36 +298,279 @@ Booth乘法器实际上是使用Booth编码的乘法器，布斯编码可以减�
 
 最终使用一个 `mux_4to1` 部件由 `shift_type` 在三类结果中选择输出。
 
+#figure(
+  caption: [桶形移位器],
+  cetz.canvas({
+    import cetz.draw: *
+    set-style(stroke: (paint: black, thickness: 0.8pt), fill: rgb("f7f7f7"))
+
+    rect((0, 0), (1.5, 1.5), name: "in")
+    content("in", [输入])
+
+    rect((rel: (0.5, 1), to: "in.east"), (rel: (2, 2), to: "in.east"), name: "SLL1")
+    content("SLL1", [SLL-1])
+
+    rect((rel: (0.5, -0.5), to: "in.east"), (rel: (2, 0.5), to: "in.east"), name: "SRL1")
+    content("SRL1", [SRL-1])
+
+    rect((rel: (0.5, -2), to: "in.east"), (rel: (2, -1), to: "in.east"), name: "SRA1")
+    content("SRA1", [SRA-1])
+
+    //SLL
+    rect((rel: (0.5, -0.5), to: "SLL1.east"), (rel: (2, 0.5), to: "SLL1.east"), name: "SLL2")
+    content("SLL2", [SLL-2])
+
+    rect((rel: (0.5, -0.5), to: "SLL2.east"), (rel: (2, 0.5), to: "SLL2.east"), name: "SLL4")
+    content("SLL4", [SLL-4])
+
+    rect((rel: (0.5, -0.5), to: "SLL4.east"), (rel: (2, 0.5), to: "SLL4.east"), name: "SLL8")
+    content("SLL8", [SLL-8])
+
+    rect((rel: (0.5, -0.5), to: "SLL8.east"), (rel: (2, 0.5), to: "SLL8.east"), name: "SLL16")
+    content("SLL16", [SLL-16])
+    //SRL
+    rect((rel: (0.5, -0.5), to: "SRL1.east"), (rel: (2, 0.5), to: "SRL1.east"), name: "SRL2")
+    content("SRL2", [SRL-2])
+
+    rect((rel: (0.5, -0.5), to: "SRL2.east"), (rel: (2, 0.5), to: "SRL2.east"), name: "SRL4")
+    content("SRL4", [SRL-4])
+
+    rect((rel: (0.5, -0.5), to: "SRL4.east"), (rel: (2, 0.5), to: "SRL4.east"), name: "SRL8")
+    content("SRL8", [SRL-8])
+
+    rect((rel: (0.5, -0.5), to: "SRL8.east"), (rel: (2, 0.5), to: "SRL8.east"), name: "SRL16")
+    content("SRL16", [SRL-16])
+    //SRA
+    rect((rel: (0.5, -0.5), to: "SRA1.east"), (rel: (2, 0.5), to: "SRA1.east"), name: "SRA2")
+    content("SRA2", [SRA-2])
+
+    rect((rel: (0.5, -0.5), to: "SRA2.east"), (rel: (2, 0.5), to: "SRA2.east"), name: "SRA4")
+    content("SRA4", [SRA-4])
+
+    rect((rel: (0.5, -0.5), to: "SRA4.east"), (rel: (2, 0.5), to: "SRA4.east"), name: "SRA8")
+    content("SRA8", [SRA-8])
+
+    rect((rel: (0.5, -0.5), to: "SRA8.east"), (rel: (2, 0.5), to: "SRA8.east"), name: "SRA16")
+    content("SRA16", [SRA-16])
+
+    rect((rel: (0.5, -1), to: "SRL16.east"), (rel: (2, 1), to: "SRL16.east"), name: "out")
+    content("out", [mux\ 4to1])
+
+    line("in.east", "SLL1.west")
+    line("in.east", "SRL1.west")
+    line("in.east", "SRA1.west")
+    line("SLL1", "SLL2")
+    line("SLL2", "SLL4")
+    line("SLL4", "SLL8")
+    line("SLL8", "SLL16")
+    line("SRL1", "SRL2")
+    line("SRL2", "SRL4")
+    line("SRL4", "SRL8")
+    line("SRL8", "SRL16")
+    line("SRA1", "SRA2")
+    line("SRA2", "SRA4")
+    line("SRA4", "SRA8")
+    line("SRA8", "SRA16")
+    line("SLL16.east", "out.west")
+    line("SRL16.east", "out.west")
+    line("SRA16.east", "out.west")
+  }),
+  kind: "graph",
+  supplement: [图],
+)
+
+
 == 超前进位加法器（CLA）
 
 4位超前进位加法器完全和原理部分列出的表达式相同，同时它们也输出内部的进位计算结果`G,P`，所以16位的CLA就可以基于其构建：
 
 #figure(
   [```verilog
-module cla_adder_16bit(
-  input  [15:0] a,
-  input  [15:0] b,
-  input         cin,
-  output [15:0] sum,
-  output        cout
-  );
-  wire [3:0] g0, p0, g1, p1, g2, p2, g3, p3;
-  wire c4, c8, c12;
-  cla_adder_4bit cla0(.a(a[3:0]), .b(b[3:0]), .cin(cin),
-  .sum(sum[3:0]), .cout(c4), .g(g0), .p(p0));
-  cla_adder_4bit cla1(.a(a[7:4]), .b(b[7:4]), .cin(c4),
-  .sum(sum[7:4]), .cout(c8), .g(g1), .p(p1));
-  cla_adder_4bit cla2(.a(a[11:8]), .b(b[11:8]), .cin(c8),
-  .sum(sum[11:8]), .cout(c12), .g(g2), .p(p2));
-  cla_adder_4bit cla3(.a(a[15:12]), .b(b[15:12]), .cin(c12),
-  .sum(sum[15:12]), .cout(cout), .g(g3), .p(p3));
-endmodule```],
+  module cla_adder_16bit(
+    input  [15:0] a,
+    input  [15:0] b,
+    input         cin,
+    output [15:0] sum,
+    output        cout
+    );
+    wire [3:0] g0, p0, g1, p1, g2, p2, g3, p3;
+    wire c4, c8, c12;
+    cla_adder_4bit cla0(.a(a[3:0]), .b(b[3:0]), .cin(cin),
+    .sum(sum[3:0]), .cout(c4), .g(g0), .p(p0));
+    cla_adder_4bit cla1(.a(a[7:4]), .b(b[7:4]), .cin(c4),
+    .sum(sum[7:4]), .cout(c8), .g(g1), .p(p1));
+    cla_adder_4bit cla2(.a(a[11:8]), .b(b[11:8]), .cin(c8),
+    .sum(sum[11:8]), .cout(c12), .g(g2), .p(p2));
+    cla_adder_4bit cla3(.a(a[15:12]), .b(b[15:12]), .cin(c12),
+    .sum(sum[15:12]), .cout(cout), .g(g3), .p(p3));
+  endmodule```],
   caption: [16位超前进位加法器构建],
   kind: "code",
   supplement: [代码],
 )
 
 需要注意的是，32位我们没有使用进位生成器，而是使用了一种类似于串行的方法，因为这一层只需要2个16位超前进位加法器，时延问题并不明显。
+
+#figure(
+  cetz.canvas({
+    import cetz.draw: *
+    set-style(stroke: (paint: black, thickness: 0.8pt), fill: rgb("f7f7f7"))
+
+    let top_16 = 5
+    let a_len = 1
+    let pack = 0.1
+    let ll_cont = 0
+
+    rect((-pack, -pack), ((a_len + pack) * 4, top_16), name: "16t")
+    content((rel: (0, -0.4), to: "16t.north"), [16bit])
+    rect((0, 0), (a_len, a_len), name: "41")
+    content("41", [4bit])
+    ll_cont = ll_cont + a_len + pack
+    rect((ll_cont, 0), (a_len + ll_cont, a_len), name: "42")
+    ll_cont = ll_cont + a_len + pack
+    content("42", [4bit])
+    rect((ll_cont, 0), (a_len + ll_cont, a_len), name: "43")
+    ll_cont = ll_cont + a_len + pack
+    content("43", [4bit])
+    rect((ll_cont, 0), (a_len + ll_cont, a_len), name: "44")
+    ll_cont = ll_cont + a_len + pack
+    content("44", [4bit])
+
+    rect((0, a_len + pack), ((a_len + pack) * 4 - pack, top_16 - 1), fill: rgb("#cdfffc"), name: "16-4io1")
+    content((rel: (0, -0.4), to: "16-4io1.north"), [io])
+
+    //in表
+    line(
+      (ll_cont / 4 - 0.5, a_len * 2),
+      (ll_cont / 4 - 0.5, a_len + pack * 2),
+      stroke: (paint: green, thickness: 2pt),
+      mark: (end: "straight"),
+      name: "16-4ia",
+    )
+    content((rel: (0.2, 0.1), to: "16-4ia.mid"), [a])
+    line(
+      (ll_cont / 2 - 0.5, a_len * 2),
+      (ll_cont / 2 - 0.5, a_len + pack * 2),
+      stroke: (paint: green, thickness: 2pt),
+      mark: (end: "straight"),
+      name: "16-4ib",
+    )
+    content((rel: (0.2, 0.1), to: "16-4ib.mid"), [b])
+    line(
+      (ll_cont * 3 / 4 - 0.5, a_len * 2),
+      (ll_cont * 3 / 4 - 0.5, a_len + pack * 2),
+      stroke: (paint: green, thickness: 2pt),
+      mark: (end: "straight"),
+      name: "16-4icin",
+    )
+    content((rel: (0.4, 0.1), to: "16-4icin.mid"), [cin])
+    //out表
+    line(
+      (ll_cont / 6 - 0.2, a_len * 4 - pack * 7),
+      (ll_cont / 6 - 0.2, a_len * 3 - pack * 5),
+      stroke: (paint: red, thickness: 2pt),
+      mark: (start: "straight"),
+      name: "16-4osum",
+    )
+    content((rel: (0, -0.1), to: "16-4osum.end"), [sum])
+    line(
+      (ll_cont / 3, a_len * 4 - pack * 7),
+      (ll_cont / 3, a_len * 3 - pack * 5),
+      stroke: (paint: red, thickness: 2pt),
+      mark: (start: "straight"),
+      name: "16-4ocout",
+    )
+    content((rel: (0, -0.1), to: "16-4ocout.end"), [cout])
+    line(
+      (ll_cont / 2 + 0.2, a_len * 4 - pack * 7),
+      (ll_cont / 2 + 0.2, a_len * 3 - pack * 5),
+      stroke: (paint: red, thickness: 2pt),
+      mark: (start: "straight"),
+      name: "16-4ocout",
+    )
+    content((rel: (0, -0.1), to: "16-4ocout.end"), [cout])
+    line(
+      (ll_cont * 2 / 3 + 0.2, a_len * 4 - pack * 7),
+      (ll_cont * 2 / 3 + 0.2, a_len * 3 - pack * 5),
+      stroke: (paint: red, thickness: 2pt),
+      mark: (start: "straight"),
+      name: "16-4og",
+    )
+    content((rel: (0, -0.1), to: "16-4og.end"), [g])
+    line(
+      (ll_cont * 5 / 6 + 0.1, a_len * 4 - pack * 7),
+      (ll_cont * 5 / 6 + 0.1, a_len * 3 - pack * 5),
+      stroke: (paint: red, thickness: 2pt),
+      mark: (start: "straight"),
+      name: "16-4op",
+    )
+    content((rel: (0, -0.1), to: "16-4op.end"), [p])
+
+    //32
+    ll_cont = ll_cont + pack * 4
+
+    rect((ll_cont - pack, -pack), (ll_cont + a_len * 5 + pack * 2, top_16), name: "32t")
+    content((rel: (0, -0.4), to: "32t.north"), [32bit])
+
+    let p32iol = ll_cont
+    let p32ior = ll_cont + a_len * 5 + pack
+    let p32iodev = p32ior - p32iol
+    rect((p32iol, a_len + pack), (p32ior, top_16 - 1), fill: rgb("#cdfffc"), name: "32-16io1")
+    content((rel: (0, -0.4), to: "32-16io1.north"), [io])
+
+    rect((ll_cont, 0), (ll_cont + a_len * 2, a_len), name: "161")
+    content("161", [16bit])
+    ll_cont = ll_cont + a_len * 3 + pack
+    rect((ll_cont, 0), (ll_cont + a_len * 2, a_len), name: "162")
+    content("162", [16bit])
+    line("161", "162", stroke: (paint: blue, thickness: 2pt), mark: (end: "straight"))
+    //in表
+    line(
+      (p32iodev / 4 - 0.5 + p32iol, a_len * 2),
+      (p32iodev / 4 - 0.5 + p32iol, a_len + pack * 2),
+      stroke: (paint: green, thickness: 2pt),
+      mark: (end: "straight"),
+      name: "16-4ia",
+    )
+    content((rel: (0.2, 0.1), to: "16-4ia.mid"), [a])
+    line(
+      (p32iodev / 2 - 0.5 + p32iol, a_len * 2),
+      (p32iodev / 2 - 0.5 + p32iol, a_len + pack * 2),
+      stroke: (paint: green, thickness: 2pt),
+      mark: (end: "straight"),
+      name: "16-4ib",
+    )
+    content((rel: (0.2, 0.1), to: "16-4ib.mid"), [b])
+    line(
+      (p32iodev * 3 / 4 - 0.5 + p32iol, a_len * 2),
+      (p32iodev * 3 / 4 - 0.5 + p32iol, a_len + pack * 2),
+      stroke: (paint: green, thickness: 2pt),
+      mark: (end: "straight"),
+      name: "16-4icin",
+    )
+    content((rel: (0.4, 0.1), to: "16-4icin.mid"), [cin])
+    //out表
+    line(
+      (p32iodev / 4 + p32iol, a_len * 4 - pack * 7),
+      (p32iodev / 4 + p32iol, a_len * 3 - pack * 5),
+      stroke: (paint: red, thickness: 2pt),
+      mark: (start: "straight"),
+      name: "16-4osum",
+    )
+    content((rel: (0, -0.1), to: "16-4osum.end"), [sum])
+    line(
+      (p32iodev * 3 / 4 + p32iol, a_len * 4 - pack * 7),
+      (p32iodev * 3 / 4 + p32iol, a_len * 3 - pack * 5),
+      stroke: (paint: red, thickness: 2pt),
+      mark: (start: "straight"),
+      name: "16-4ocout",
+    )
+    content((rel: (0, -0.1), to: "16-4ocout.end"), [cout])
+  }),
+  caption: [超前进位加法器层间组合结构],
+  kind: "graph",
+  supplement: [图],
+)
 
 == 多路选择器（MUX）
 
@@ -339,28 +580,27 @@ endmodule```],
 
 #figure(
   [```verilog
-module mux_2to1 #(parameter WIDTH = 32)(
-    input  [WIDTH-1:0] a,
-    input  [WIDTH-1:0] b,
-    input              sel,
-    output [WIDTH-1:0] y
-  );
-  wire [WIDTH-1:0] a_masked;
-  wire [WIDTH-1:0] b_masked;
-  wire [WIDTH-1:0] not_sel_vec;
-
-  // 对每一位独立实现: y[i] = (a[i] & ~sel) | (b[i] & sel)
-  genvar i;
-  generate
-    for (i = 0; i < WIDTH; i = i + 1)
-    begin : mux_bit
-      not u_not_sel(not_sel_vec[i], sel);
-      and u_and_a(a_masked[i], a[i], not_sel_vec[i]);
-      and u_and_b(b_masked[i], b[i], sel);
-      or  u_or_y(y[i], a_masked[i], b_masked[i]);
-    end
-  endgenerate
-endmodule```],
+  module mux_2to1 #(parameter WIDTH = 32)(
+      input  [WIDTH-1:0] a,
+      input  [WIDTH-1:0] b,
+      input              sel,
+      output [WIDTH-1:0] y
+    );
+    wire [WIDTH-1:0] a_masked;
+    wire [WIDTH-1:0] b_masked;
+    wire [WIDTH-1:0] not_sel_vec;
+    // 对每一位独立实现: y[i] = (a[i] & ~sel) | (b[i] & sel)
+    genvar i;
+    generate
+      for (i = 0; i < WIDTH; i = i + 1)
+      begin : mux_bit
+        not u_not_sel(not_sel_vec[i], sel);
+        and u_and_a(a_masked[i], a[i], not_sel_vec[i]);
+        and u_and_b(b_masked[i], b[i], sel);
+        or  u_or_y(y[i], a_masked[i], b_masked[i]);
+      end
+    endgenerate
+  endmodule```],
   caption: [2-1选择器],
   kind: "code",
   supplement: [代码],
@@ -467,7 +707,7 @@ endmodule```],
 
     rect((0, 4), (3.5, 6.1), name: "abs")
     content("abs", [绝对值预处理\ dividend/divisor\ 除零与溢出判断])
-    
+
     rect((rel: (0.3, -0.5), to: "abs.east"), (rel: (2.5, 1), to: "abs.east"), name: "d")
     content("d", [D寄存器\ 除数])
 
@@ -480,7 +720,7 @@ endmodule```],
     rect((6.5, 4.0), (10.5, 5.5), name: "core")
     content("core", [非恢复余数主循环\ 左移 + 加/减选择])
 
-    rect((rel: (-1.5, -1.5), to: "core.south"), (rel: (1.5, -0.3), to: "core.south"), name: "fix")
+    rect((rel: (-1.5, -2), to: "core.south"), (rel: (1.5, -0.5), to: "core.south"), name: "fix")
     content("fix", [FIX阶段\ R < 0 时恢复])
 
     rect((rel: (0.4, -0.7), to: "core.east"), (rel: (4, 0.7), to: "core.east"), name: "sign")
@@ -505,4 +745,31 @@ endmodule```],
   }),
   kind: "graph",
   supplement: [图],
+)
+
+== 完成信号原理
+
+`done` 信号分两类（高电平有效）：
+
+- 非乘除法操作：`done = 1`（默认立即完成）。
+- DIV：`done = div_done`。
+- MUL：`done = mul_done`。
+
+顶层通过多路选择结构根据`alu_control`码选择对应上述信号进行输出，实现统一时序语义。
+
+#figure(
+  [```verilog
+    wire done_comb;
+    wire done_mul_sel;
+    wire done_div_sel;
+    wire done_default;
+    assign done_default = 1'b1;  // 组合逻辑运算立即完成
+    mux_2to1 #(1) mux_done_0(.a(done_default), .b(div_done),
+               .sel(alu_div), .y(done_div_sel) );
+    mux_2to1 #(1) mux_done_1(.a(done_div_sel), .b(mul_done),
+               .sel(alu_mul), .y(done) );
+  ```],
+  caption: [done信号处理],
+  kind: "code",
+  supplement: [代码],
 )

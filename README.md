@@ -1,7 +1,5 @@
 # CPU Designers
 
-
-
 ## 项目结构说明
 
 ```txt
@@ -66,4 +64,3 @@ python mk.py --top dev/1alu/tb/tb_alu_32bit.v --top-module tb_alu_32bit
 # 指定输出目录（默认 build）
 python mk.py --top dev/1alu/tb/tb_alu_32bit.v --build-dir build
 ```
-

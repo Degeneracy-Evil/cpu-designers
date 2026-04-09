@@ -84,7 +84,32 @@
 
 == 超前进位加法器（CLA）
 
-加法模块采用 32 位层次化超前进位结构：4 位 CLA 组成 16 位 CLA，再由两个 16 位 CLA 构成 32 位加法器。其核心思想是提前并行计算进位，而不是像行波进位那样逐位传播。
+对于一般的行波进位加法器中的每一个组件（全加器），我们有：
+
+$cases(
+  S_i=A plus.o B plus.o C_i,
+  C_(i+1)=A_i circle.filled.tiny B_i + A_i circle.filled.tiny C_i + B_i circle.filled.tiny C_i
+)$
+
+令~$G_i=A_i circle.filled.tiny B_i, P_i=A_i+B_i$，则~$C_(i+1)=G_i+P_i circle.filled.tiny C_i$~。
+
+可见，进位中的~$G_i$~和~$P_i$~不依赖前面的数据，仅依赖本位数据，于是，我们可以将行波进位加法器改为：
+
+$cases(
+  C_1&=G_0+P_0 circle.filled.tiny C_("in"),
+  C_2&=G_1+P_1 circle.filled.tiny C_1, &=G_1+P_1 circle.filled.tiny G_0 + P_0 circle.filled.tiny P_1 circle.filled.tiny C_("in"),
+  C_3&=G_2+P_2 circle.filled.tiny C_2,
+  &=G_2+P_2 circle.filled.tiny G_1 + P_1 circle.filled.tiny P_2 circle.filled.tiny G_0+P_0 circle.filled.tiny P_1 circle.filled.tiny P_2 circle.filled.tiny C_("in"),
+  C_4&=G_3+P_3 circle.filled.tiny C_3,
+  &=G_3+P_3 circle.filled.tiny G_2+P_2 circle.filled.tiny P_3 circle.filled.tiny G_1+P_1 circle.filled.tiny P_2 circle.filled.tiny P_3 circle.filled.tiny G_0+P_0 circle.filled.tiny P_1 circle.filled.tiny P_2 circle.filled.tiny P_3 circle.filled.tiny C_("in"),
+  C_("out")&=C_4
+)$
+
+可见，这个四位行波进位加法器其实不需要一个一个计算，每一个进位实际上都可以直接通过输入数据进行计算。
+
+又由于$S_i=A plus.o B plus.o C_i$，我们可以构建一个四位超前进位加法器。
+
+32位超前进位加法器虽然也可以直接构建（通过找规律），但是这样对于芯片面积的消耗太大，也不利于布线，所以我们加法模块采用 32 位层次化超前进位结构：4 位 CLA 组成 16 位 CLA，再由两个 16 位 CLA 构成 32 位加法器。其核心思想是提前并行计算进位，而不是像行波进位那样逐位传播。
 
 对第 $i$ 位定义：
 
@@ -97,7 +122,13 @@ CLA 的优点是进位计算层次化并行，可显著降低长位宽加法延�
 
 == 桶形移位器
 
-移位模块采用 5 级桶形位移结构，每一级对应一个二次幂移位量：1、2、4、8、16。通过 `shamt[4:0]` 控制各级是否生效，最终实现 0 到 31 位任意移位。
+固定位的位移很简单，就是将输入输出线对应连接好就行，见`SHL_x.v`，问题在于不固定位数的位移器。
+
+参考人民币币值的设计，不固定位数的位移器也可以使用多个固定位的位移完成。
+
+在设计上来说，以~$2^n$~作为划分是一个很好的想法，一方面每个位移最多只需要一个就可以完成任意大小的位移，另一方面可以直接读取二进制位判断需不需要当前位数的位移。
+
+具体来说，移位模块采用 5 级桶形位移结构，每一级对应一个二次幂移位量：1、2、4、8、16。通过 `shamt[4:0]` 控制各级是否生效，最终实现 0 到 31 位任意移位。
 
 具体实现方式如下：
 
@@ -127,7 +158,7 @@ SLT 与 SLTU 都输出 32 位，其中低位 `bit0` 为比较结果，其余位�
 
 代码等价表达为：
 
-$"slt" = (a_(31) dot overline(b_(31))) + (overline(a_(31) plus.o b_(31)) dot "sub"_(31))$
+$"slt" = (a_(31) and overline(b_(31))) + (overline(a_(31) plus.o b_(31)) and "sub"_(31))$
 
 2. SLTU（无符号小于）
 无符号比较通过减法进位判断。令 $a + (~ b + 1)$ 的最终进位为 `cout`：
@@ -146,7 +177,7 @@ $"slt" = (a_(31) dot overline(b_(31))) + (overline(a_(31) plus.o b_(31)) dot "su
 - `Q_1`：扩展位。
 - `M`：被乘数寄存器。
 
-每个计算周期检查二位组合 `(Q[0], Q_1)`：
+每个计算周期检查二位组合 $(Q[0], Q_1)$：
 
 - `00` 或 `11`：不加减，仅算术右移。
 - `01`：执行 `A = A + M`，再算术右移。

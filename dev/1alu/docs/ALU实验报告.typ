@@ -78,7 +78,7 @@
     [#text(orange)[1]000 0000 0000 0000], [MUL],
   )])
 
-输入数据经过所有模块的并行计算后通过`alu_result_selector`模块选择输出。
+输入数据经过所有模块的并行计算后通过`alu_result_selector`多选一模块选择输出。
 
 对于多周期操作的同步问题，我们通过done信号线进行完成控制，且区分了组合操作和时序操作的done信号。
 
@@ -130,22 +130,6 @@ CLA 的优点是进位计算层次化并行，可显著降低长位宽加法延�
 
 具体来说，移位模块采用 5 级桶形位移结构，每一级对应一个二次幂移位量：1、2、4、8、16。通过 `shamt[4:0]` 控制各级是否生效，最终实现 0 到 31 位任意移位。
 
-具体实现方式如下：
-
-- 第 1 级根据 `shamt[0]` 决定是否移 1 位。
-- 第 2 级根据 `shamt[1]` 决定是否移 2 位。
-- 第 3 级根据 `shamt[2]` 决定是否移 4 位。
-- 第 4 级根据 `shamt[3]` 决定是否移 8 位。
-- 第 5 级根据 `shamt[4]` 决定是否移 16 位。
-
-同一套级联结构并行计算三类结果：
-
-- SLL：左移，低位补 0。
-- SRL：右移，高位补 0。
-- SRA：算术右移，高位补符号位。
-
-最终由 `shift_type` 在三类结果中选择输出。
-
 == 小于置位（SLT/SLTU）判断方法
 
 SLT 与 SLTU 都输出 32 位，其中低位 `bit0` 为比较结果，其余位清零。
@@ -158,10 +142,12 @@ SLT 与 SLTU 都输出 32 位，其中低位 `bit0` 为比较结果，其余位�
 
 代码等价表达为：
 
-$"slt" = (a_(31) and overline(b_(31))) + (overline(a_(31) plus.o b_(31)) and "sub"_(31))$
+$"slt" = (a_(31) and overline(b_(31))) or (overline(a_(31) plus.o b_(31)) and "sub"_(31))$
 
 2. SLTU（无符号小于）
-无符号比较通过减法进位判断。令 $a + (~ b + 1)$ 的最终进位为 `cout`：
+无符号比较通过减法借位判断，而由于是补码表示，减法转化为加法，所以最终是比较进位。
+
+令 $a + (~ b + 1)$ 的最终进位为 `cout`：
 
 - `cout = 1` 表示无借位，即 $a >= b$；
 - `cout = 0` 表示有借位，即 $a < b$。
@@ -170,74 +156,79 @@ $"slt" = (a_(31) and overline(b_(31))) + (overline(a_(31) plus.o b_(31)) and "su
 
 == 乘法算法（Booth）
 
-乘法器采用 Booth 有符号乘法算法，状态机为 `IDLE -> COMPUTE -> FINISH`。寄存器含义如下：
+Booth乘法器实际上是使用Booth编码的乘法器，布斯编码可以减少部分积的数目，用来计算有符号乘法，提高乘法运算的速度。
 
-- `A`：部分积累加器。
-- `Q`：乘数寄存器。
-- `Q_1`：扩展位。
-- `M`：被乘数寄存器。
+考虑一个由若干个0包围着若干个1的正的二进制乘数，比如00111110，与另一个乘数M的积可以表达为:$ M times [00111110]_B = M times (2^5+2^4+2^3+2^2+2^1)=M times 62 $
 
-每个计算周期检查二位组合 $(Q[0], Q_1)$：
+按照类手算算法需要至少5次乘法计算，而乘法而变形为下面的方式可以让计算次数减少为两次：$ M times [010000(-1)0]_B=M times (2^6-2^1)=M times 62 $
 
-- `00` 或 `11`：不加减，仅算术右移。
-- `01`：执行 `A = A + M`，再算术右移。
-- `10`：执行 `A = A - M`，再算术右移。
+事实上，任何二进制数中连续的1可以被分解为两个二进制数之差：$ (dots 0overbrace(1 dots 1, n)0 dots)_B=(dots 1overbrace(0 dots 0, n)0 dots)_B-(dots 0overbrace(0 dots 1, n)0 dots)_B $
 
-共迭代 32 次后进入 FINISH，输出 `product = (A, Q)`，顶层取低 32 位作为 ALU 的 MUL 结果。
+因此,我们可以用更简单的运算来替换原数中连续为1的数字的乘法，通过加上乘数，对部分积进行移位运算，最后再将之从乘数中减去。它利用了我们在针对为零的位做乘法时，不需要做其他运算，只需移位这一特点，这很像我们在做和99的乘法时利用99=100-1这一性质。这种模式可以扩展应用于任何一串数字中连续为1的部分(包括只有一个1的情况)。
+
+布斯算法遵从这种模式，它在遇到一串数字中的第一组从0到1的变化时(即遇到01时)执行加法，在遇到这一串连续1的尾部时(即遇到10时)执行减法。这在乘数为负时同样有效。当乘数中的连续1比较多时(形成比较长的1串时)，布斯算法较一般的乘法算法执行的加减法运算少。
 
 == 非恢复余数除法器
 
-除法器采用非恢复余数法（Non-Restoring Division），状态机分为 `IDLE -> COMPUTE -> FIX -> FINISH` 四个阶段。与恢复余数法相比，它在主循环中根据当前余数的符号决定执行加法或减法，避免每一步都显式恢复，因此更适合用统一的加减器数据通路实现。
+非恢复余数除法器是恢复余数除法器的优化版本，通过延迟恢复与后续操作合并的操作，节省了每一步的恢复步骤，并且数据通路更加连贯，复用性更高，使得其拥有更高的性能。
 
-1. 预处理
-- 在 `IDLE` 状态接收 `start` 后，缓存原始被除数与除数；
-- 记录二者符号位，随后将操作数转换为绝对值进入主循环；
-- 若除数为 0，则直接进入 `FINISH`，约定商为 0，余数为被除数；
-- 若出现 `INT_MIN / -1`，则直接进入 `FINISH`，按二补码截断语义输出商为 `0x8000_0000`、余数为 0。
+算法步骤（以 $n$ 位运算为例）
 
-2. 主循环（32 次）
-- 组合寄存器采用 `{R, Q}` 形式，其中 `R` 为余数寄存器，`Q` 为商寄存器；
-- 每一轮先整体左移一位，形成 `shifted_R = {R[30:0], Q[31]}`；
-- 若当前 `R` 为非负，则执行 `shifted_R - D`；若当前 `R` 为负，则执行 `shifted_R + D`；
-- 根据新余数的符号位决定本轮商位：新余数非负则 `Q[0] = 1`，否则 `Q[0] = 0`。
++ 初始化
+  - 将除数存入寄存器 $Y$（$n$ 位补码）。
+  - 将 $-Y$ 存入寄存器（取补码）。
+  - 将被除数符号扩展后装入 $R$（高 $n$ 位）和 $Q$（低 $n$ 位）。
 
-这一过程由 `cla_adder_32bit` 同时构造减法器和加法器完成，再通过 MUX 选择下一拍的余数结果。
++ 循环迭代（共 $n-1$ 次）\
+  对于 $i = 1$ 到 $n-1$：
 
-3. 终态修正
-- 32 次迭代结束后进入 `FIX` 阶段；
-- 若最终余数为负，则执行 `R = R + D`，使余数回到非负范围；
-- 随后进入 `FINISH`，完成基础非恢复余数运算。
+  - 左移：将 $(R, Q)$ 组合左移一位，相当于 $R = 2R$ 并移入 $Q$ 的最高位，$Q$ 左移一位。
+  - 运算选择：
+    - 若当前 $R_i$ 与 $Y$ *同号*，则 $R_(i+1) = 2R_i - Y$（减法）；
+    - 若当前 $R_i$ 与 $Y$ *异号*，则 $R_(i+1) = 2R_i + Y$（加法）。
+  - 上商：
+    - 若新余数 $R_(i+1)$ 与 $Y$ *同号*，则商位为 1；
+    - 否则商位为 0。
+  - 将商位移入 $Q$ 的最低位。
 
-4. 符号恢复与特殊修正
-- 商的符号由被除数与除数符号异或得到；
-- 余数的符号与被除数相同；
-- 若同号除法出现 `remainder == divisor`，则说明结果可再进一位，模块执行 `quotient += 1`、`remainder -= divisor`；
-- 若异号除法出现 `remainder + divisor == 0`，则执行 `quotient -= 1`、`remainder = 0`；
-- 对除零和溢出情形，后级直接覆盖最终商和余数。
++ 第 $n$ 次操作
+  - 完成第 $n$ 次左移和加减后，仅将商位写入 $Q$，不再对 $R$ 进行下一轮更新（因为已得到 $n$ 位商）。
 
-因此，该除法器并不是简单的“试减-恢复”结构，而是“非恢复余数主循环 + 终态修正 + 特殊商余数校正”的实现方式。最终 `quotient` 作为 ALU 的 DIV 输出，`remainder` 作为附加输出，`done` 在状态机进入 `FINISH` 后置位。
++ 商修正
+  - 若*被除数*与*除数*异号，则最终的商需要加 1（即对未修正的商求补码）。
+  - 若同号，商不变。
+
++ 余数修正
+  - 若最终*余数* $R$ 与*被除数*同号，则无需修正。
+  - 若异号：
+    - 若*被除数*与*除数**同号*，则余数*加*除数；
+    - 若被除数与除数*异号*，则余数*减*除数。
+
++ 特殊情形修正
+  - *同号相除且能整除*（如 $(-8) / (-8)$）：若余数等于除数，则余数减去除数，商加 1。
+  - *异号相除且能整除*（如 $(-8) / 2$）：若余数加上除数为 0，则商减 1，余数置 0。
 
 == 完成信号原理
 
-`done` 信号分两类：
+`done` 信号分两类（高电平有效）：
 
 - 非乘除法操作：`done = 1`（默认立即完成）。
 - DIV：`done = div_done`。
 - MUL：`done = mul_done`。
 
-顶层通过多路选择结构组合上述信号，实现统一时序语义。
+顶层通过多路选择结构根据`alu_control`码选择对应上述信号进行输出，实现统一时序语义。
 
 = 功能实现
 
 == 模块划分
 
-`alu_32bit.v` 在结构上采用“并行计算 + 统一选择”的实现方式，主要由以下子模块组成：
+`alu_32bit.v` 在结构上采用“并行计算 + 统一选择”的实现方式，主要由以下子模块组成（每一个都是独立的`.v`文件）：
 
-- `cla_adder_32bit`：ADD 主运算通路。
-- `subtractor`：SUB 运算通路。
-- `logic_unit`：AND/OR/NOT/XOR/NOR/SLT/SLTU。
-- `shifter`（3 次实例化）：分别实现 SLL、SRL、SRA。
-- `lui`：LUI 运算。
+- `cla_adder_32bit`：32位超前进位加法器顶层模块。
+- `subtractor`：SUB 运算（内部调用ADD）。
+- `logic_unit`：AND/OR/NOT/XOR/NOR/SLT/SLTU集成模块。
+- `shifter`实现 SLL、SRL、SRA。
+- `lui`：高位装载运算。
 - `booth_multiplier`：有符号乘法，多周期。
 - `non_restoring_divider`：有符号除法，多周期。
 - `alu_result_selector`：对 15 路候选结果进行选择输出。
@@ -252,8 +243,6 @@ $"slt" = (a_(31) and overline(b_(31))) + (overline(a_(31) plus.o b_(31)) and "su
 4. 乘法输出取 `product[31:0]` 参与最终选择；除法输出取 `quotient` 参与最终选择。
 5. 由 `alu_result_selector` 按控制位输出最终 `result`。
 6. 由 `mul_done/div_done` 与默认完成路径合成 `done`。
-
-== 顶层模块架构图
 
 #figure(
   caption: [ALU顶层模块架构图],
@@ -280,18 +269,119 @@ $"slt" = (a_(31) and overline(b_(31))) + (overline(a_(31) plus.o b_(31)) and "su
     rect((rel: (1, 0), to: "sel.south-east"), (rel: (3, 2), to: "sel.south-east"), name: "out")
     content("out", [result])
 
-    line("in", "comb")
-    line("in", "seq")
-    line("comb", "sel")
-    line("seq", "sel")
-    line("sel", "out")
-    line("seq", "done")
+    line("in", "comb", mark: (end: "straight"))
+    line("in", "seq", mark: (end: "straight"))
+    line("comb", "sel", mark: (end: "straight"))
+    line("seq", "sel", mark: (end: "straight"))
+    line("sel", "out", mark: (end: "straight"))
+    line("seq", "done", mark: (end: "straight"))
   }),
   kind: "graph",
   supplement: [图],
 )
 
-== Booth乘法器架构图
+== 桶形移位器
+
+移位模块采用 5 级桶形位移结构，每一级对应一个二次幂移位量：1、2、4、8、16。通过 `shamt[4:0]` 控制各级是否生效，最终实现 0 到 31 位任意移位。
+
+具体实现方式如下：
+
+- 第 1 级根据 `shamt[0]` 决定是否移 1 位。
+- 第 2 级根据 `shamt[1]` 决定是否移 2 位。
+- 第 3 级根据 `shamt[2]` 决定是否移 4 位。
+- 第 4 级根据 `shamt[3]` 决定是否移 8 位。
+- 第 5 级根据 `shamt[4]` 决定是否移 16 位。
+
+需要注意的是，我们硬件上将SLL/SRL/SRA作为三条独立的部件进行实现，功能分别是：
+
+- SLL：左移，低位补 0。
+- SRL：右移，高位补 0。
+- SRA：算术右移，高位补符号位。
+
+最终使用一个 `mux_4to1` 部件由 `shift_type` 在三类结果中选择输出。
+
+== 超前进位加法器（CLA）
+
+4位超前进位加法器完全和原理部分列出的表达式相同，同时它们也输出内部的进位计算结果`G,P`，所以16位的CLA就可以基于其构建：
+
+#figure(
+  [```verilog
+module cla_adder_16bit(
+  input  [15:0] a,
+  input  [15:0] b,
+  input         cin,
+  output [15:0] sum,
+  output        cout
+  );
+  wire [3:0] g0, p0, g1, p1, g2, p2, g3, p3;
+  wire c4, c8, c12;
+  cla_adder_4bit cla0(.a(a[3:0]), .b(b[3:0]), .cin(cin),
+  .sum(sum[3:0]), .cout(c4), .g(g0), .p(p0));
+  cla_adder_4bit cla1(.a(a[7:4]), .b(b[7:4]), .cin(c4),
+  .sum(sum[7:4]), .cout(c8), .g(g1), .p(p1));
+  cla_adder_4bit cla2(.a(a[11:8]), .b(b[11:8]), .cin(c8),
+  .sum(sum[11:8]), .cout(c12), .g(g2), .p(p2));
+  cla_adder_4bit cla3(.a(a[15:12]), .b(b[15:12]), .cin(c12),
+  .sum(sum[15:12]), .cout(cout), .g(g3), .p(p3));
+endmodule```],
+  caption: [16位超前进位加法器构建],
+  kind: "code",
+  supplement: [代码],
+)
+
+需要注意的是，32位我们没有使用进位生成器，而是使用了一种类似于串行的方法，因为这一层只需要2个16位超前进位加法器，时延问题并不明显。
+
+== 多路选择器（MUX）
+
+多路选择器的基础--二路选择器是由门构造的，更高层次的$2^n$选1选择器是由2-1选择器构造的。
+
+并且，我们使用了Verilog-2001 标准引入的参数化模块定义语法（类似于模板函数），使得其拥有更强的适应性。
+
+#figure(
+  [```verilog
+module mux_2to1 #(parameter WIDTH = 32)(
+    input  [WIDTH-1:0] a,
+    input  [WIDTH-1:0] b,
+    input              sel,
+    output [WIDTH-1:0] y
+  );
+  wire [WIDTH-1:0] a_masked;
+  wire [WIDTH-1:0] b_masked;
+  wire [WIDTH-1:0] not_sel_vec;
+
+  // 对每一位独立实现: y[i] = (a[i] & ~sel) | (b[i] & sel)
+  genvar i;
+  generate
+    for (i = 0; i < WIDTH; i = i + 1)
+    begin : mux_bit
+      not u_not_sel(not_sel_vec[i], sel);
+      and u_and_a(a_masked[i], a[i], not_sel_vec[i]);
+      and u_and_b(b_masked[i], b[i], sel);
+      or  u_or_y(y[i], a_masked[i], b_masked[i]);
+    end
+  endgenerate
+endmodule```],
+  caption: [2-1选择器],
+  kind: "code",
+  supplement: [代码],
+)
+
+== Booth乘法器
+
+乘法器采用 Booth 有符号乘法算法，状态机为 `IDLE -> COMPUTE -> FINISH`。寄存器含义如下：
+
+- `A`：部分积累加器。
+- `Q`：乘数寄存器。
+- $Q_1$：扩展位。
+- `M`：被乘数寄存器。
+
+每个计算周期检查二位组合 $(Q[0], Q_1)$：
+
+- `00` 或 `11`：不加减，仅算术右移。
+- `01`：执行 `A = A + M`，再算术右移。
+- `10`：执行 `A = A - M`，再算术右移。
+
+共迭代 32 次后进入 FINISH，输出 `product = (A, Q)`，顶层取低 32 位作为 ALU 的 MUL 结果。
 
 #figure(
   caption: [Booth乘法器数据通路与状态机关系图],
@@ -336,7 +426,37 @@ $"slt" = (a_(31) and overline(b_(31))) + (overline(a_(31) plus.o b_(31)) and "su
   supplement: [图],
 )
 
-== 非恢复余数除法器架构图
+== 非恢复余数除法器
+
+除法器采用非恢复余数法（Non-Restoring Division），状态机分为 `IDLE -> COMPUTE -> FIX -> FINISH` 四个阶段。与恢复余数法相比，它在主循环中根据当前余数的符号决定执行加法或减法，避免每一步都显式恢复，因此更适合用统一的加减器数据通路实现。
+
+1. 预处理
+- 在 `IDLE` 状态接收 `start` 后，缓存原始被除数与除数；
+- 记录二者符号位，随后将操作数转换为绝对值进入主循环；
+- 若除数为 0，则直接进入 `FINISH`，约定商为 0，余数为被除数；
+- 若出现 `INT_MIN / -1`，则直接进入 `FINISH`，按二补码截断语义输出商为 `0x8000_0000`、余数为 0。
+
+2. 主循环（32 次）
+- 组合寄存器采用 `{R, Q}` 形式，其中 `R` 为余数寄存器，`Q` 为商寄存器；
+- 每一轮先整体左移一位，形成 `shifted_R = {R[30:0], Q[31]}`；
+- 若当前 `R` 为非负，则执行 `shifted_R - D`；若当前 `R` 为负，则执行 `shifted_R + D`；
+- 根据新余数的符号位决定本轮商位：新余数非负则 `Q[0] = 1`，否则 `Q[0] = 0`。
+
+这一过程由 `cla_adder_32bit` 同时构造减法器和加法器完成，再通过 MUX 选择下一拍的余数结果。
+
+3. 终态修正
+- 32 次迭代结束后进入 `FIX` 阶段；
+- 若最终余数为负，则执行 `R = R + D`，使余数回到非负范围；
+- 随后进入 `FINISH`，完成基础非恢复余数运算。
+
+4. 符号恢复与特殊修正
+- 商的符号由被除数与除数符号异或得到；
+- 余数的符号与被除数相同；
+- 若同号除法出现 `remainder == divisor`，则说明结果可再进一位，模块执行 `quotient += 1`、`remainder -= divisor`；
+- 若异号除法出现 `remainder + divisor == 0`，则执行 `quotient -= 1`、`remainder = 0`；
+- 对除零和溢出情形，后级直接覆盖最终商和余数。
+
+因此，该除法器并不是简单的“试减-恢复”结构，而是“非恢复余数主循环 + 终态修正 + 特殊商余数校正”的实现方式。最终 `quotient` 作为 ALU 的 DIV 输出，`remainder` 作为附加输出，`done` 在状态机进入 `FINISH` 后置位。
 
 #figure(
   caption: [非恢复余数除法器数据通路与修正流程图],
@@ -345,31 +465,31 @@ $"slt" = (a_(31) and overline(b_(31))) + (overline(a_(31) plus.o b_(31)) and "su
 
     set-style(stroke: (paint: black, thickness: 0.8pt), fill: rgb("fffaf3"))
 
-    rect((0, 4.8), (2.8, 6.1), name: "abs")
+    rect((0, 4), (3.5, 6.1), name: "abs")
     content("abs", [绝对值预处理\ dividend/divisor\ 除零与溢出判断])
+    
+    rect((rel: (0.3, -0.5), to: "abs.east"), (rel: (2.5, 1), to: "abs.east"), name: "d")
+    content("d", [D寄存器\ 除数])
 
-    rect((3.6, 5.0), (6.1, 6.0), name: "d")
-    content("d", [D寄存器\ |divisor|])
-
-    rect((3.6, 3.4), (6.1, 4.4), name: "r")
+    rect((rel: (-1.1, -1.5), to: "d.south"), (rel: (1.1, -0.3), to: "d.south"), name: "r")
     content("r", [R寄存器\ 余数])
 
-    rect((3.6, 1.8), (6.1, 2.8), name: "q")
+    rect((rel: (-1.1, -1.5), to: "r.south"), (rel: (1.1, -0.3), to: "r.south"), name: "q")
     content("q", [Q寄存器\ 商])
 
-    rect((6.9, 4.0), (9.5, 5.2), name: "core")
+    rect((6.5, 4.0), (10.5, 5.5), name: "core")
     content("core", [非恢复余数主循环\ 左移 + 加/减选择])
 
-    rect((6.9, 2.4), (9.5, 3.4), name: "fix")
+    rect((rel: (-1.5, -1.5), to: "core.south"), (rel: (1.5, -0.3), to: "core.south"), name: "fix")
     content("fix", [FIX阶段\ R < 0 时恢复])
 
-    rect((10.2, 4.0), (12.8, 5.2), name: "sign")
+    rect((rel: (0.4, -0.7), to: "core.east"), (rel: (4, 0.7), to: "core.east"), name: "sign")
     content("sign", [符号恢复\ 商异或/余数同号])
 
-    rect((10.2, 2.2), (12.8, 3.4), name: "spec")
+    rect((rel: (-1.8, -2.5), to: "sign.south"), (rel: (1.8, -0.3), to: "sign.south"), name: "spec")
     content("spec", [特殊修正\ 同号进一位\ 异号退一位])
 
-    rect((13.5, 3.0), (15.8, 4.3), name: "out")
+    rect((15, 3.0), (17.5, 5), name: "out")
     content("out", [quotient\ remainder\ done])
 
     line("abs.east", "d.west")
@@ -378,7 +498,7 @@ $"slt" = (a_(31) and overline(b_(31))) + (overline(a_(31) plus.o b_(31)) and "su
     line("d.east", "core.west")
     line("r.east", "core.west")
     line("q.east", "core.west")
-    line("core.east", "fix.west")
+    line("core", "fix")
     line("fix.east", "sign.west")
     line("sign.south", "spec.north")
     line("spec.east", "out.west")
@@ -386,13 +506,3 @@ $"slt" = (a_(31) and overline(b_(31))) + (overline(a_(31) plus.o b_(31)) and "su
   kind: "graph",
   supplement: [图],
 )
-
-== 关键实现特点
-
-- 控制方式清晰：one-hot 编码减少译码复杂度，便于测试激励构造。
-- 结构可综合：结果选择与完成信号均使用多路选择器结构，避免依赖高层语法推断特定 IP。
-- 时序边界明确：组合运算与多周期运算在顶层通过寄存与握手机制解耦。
-- 可扩展性好：新增运算时可沿用“新增子模块 + 扩展控制位 + 接入选择器”的模式。
-
-综上，顶层 `alu_32bit.v` 实现了课程实验要求的 32 位 ALU 功能集合，并形成了可验证、可综合、可扩展的模块化实现。
-

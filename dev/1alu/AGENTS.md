@@ -7,12 +7,14 @@
 ## 开发环境
 
 ### 工具链
+
 - **仿真器**: Icarus Verilog (iverilog)
 - **波形查看**: GTKWave (暂不使用)
 - **编译**: iverilog
 - **运行**: vvp
 
 ### 安装iverilog
+
 ```bash
 # Ubuntu/Debian
 sudo apt-get install iverilog
@@ -23,7 +25,7 @@ iverilog -V
 
 ## 项目结构
 
-```
+```txt
 .
 ├── rtl/                        # RTL设计文件
 │   ├── basic_gates.v           # 基础门电路
@@ -102,7 +104,7 @@ vvp cla_test
 
 - **时间精度**: 统一使用 `timescale 1ns / 1ps
 - **模块命名**: 小写字母，下划线分隔（例如：cla_adder_32bit）
-- **信号命名**: 
+- **信号命名**:
   - 输入信号：小写，有意义（例如：multiplicand, multiplier）
   - 输出信号：小写，有意义（例如：product, quotient）
   - 内部信号：使用wire或reg，命名清晰
@@ -111,11 +113,13 @@ vvp cla_test
 ### 2. 门级设计原则
 
 **禁止使用**:
+
 - 算术运算符: +, -, *, /
 - 关系运算符: <, >, <=, >= (用于比较逻辑除外)
 - 直接的位拼接运算用于算术目的
 
 **允许使用**:
+
 - 位运算符: &, |, ^, ~, ~&, ~|, ~^
 - 位拼接: {a, b}
 - 位选择: a[i], a[i:j]
@@ -126,6 +130,7 @@ vvp cla_test
 ### 3. 模块接口规范
 
 #### 组合逻辑模块
+
 ```verilog
 module module_name(
     input  [N-1:0] input1,
@@ -135,6 +140,7 @@ module module_name(
 ```
 
 #### 时序逻辑模块（状态机）
+
 ```verilog
 module module_name(
     input         clk,
@@ -267,7 +273,7 @@ endmodule
 
 ### 测试报告格式
 
-```
+```bash
 ========================================
 ALU Test Report
 ========================================
@@ -295,6 +301,7 @@ Summary: 15/15 tests passed
 ### 1. 查看信号值
 
 在测试平台中添加：
+
 ```verilog
 initial begin
     $monitor("Time=%0t, state=%b, result=%h", $time, state, result);
@@ -308,6 +315,7 @@ end
 ### 3. 错误定位
 
 如果测试失败：
+
 1. 检查输入信号是否正确
 2. 检查控制信号是否正确
 3. 检查中间结果（使用$display打印）
@@ -316,56 +324,69 @@ end
 ## 开发流程
 
 ### 阶段1: 基础模块开发
+
 1. 实现基础门电路 (`basic_gates.v`)
 2. 实现CLA加法器 (`cla_adder_*.v`)
 3. 测试CLA加法器
 
 ### 阶段2: 算术运算模块
-4. 实现减法器 (`subtractor.v`)
-5. 实现移位器 (`shifter.v`)
-6. 测试算术模块
+
+1. 实现减法器 (`subtractor.v`)
+2. 实现移位器 (`shifter.v`)
+3. 测试算术模块
 
 ### 阶段3: 逻辑运算模块
-7. 实现逻辑单元 (`logic_unit.v`)
-8. 实现高位加载 (`lui.v`)
-9. 测试逻辑模块
+
+1. 实现逻辑单元 (`logic_unit.v`)
+2. 实现高位加载 (`lui.v`)
+3. 测试逻辑模块
 
 ### 阶段4: 复杂运算模块
-10. 实现Booth乘法器 (`booth_multiplier.v`)
-11. 测试乘法器
-12. 实现非恢复余数除法器 (`non_restoring_divider.v`)
-13. 测试除法器
+
+1. 实现Booth乘法器 (`booth_multiplier.v`)
+2. 测试乘法器
+3. 实现非恢复余数除法器 (`non_restoring_divider.v`)
+4. 测试除法器
 
 ### 阶段5: 集成测试
-14. 实现顶层ALU (`alu_32bit.v`)
-15. 编写完整测试平台 (`tb_alu_32bit.v`)
-16. 运行所有测试用例
-17. 验证测试结果
+
+1. 实现顶层ALU (`alu_32bit.v`)
+2. 编写完整测试平台 (`tb_alu_32bit.v`)
+3. 运行所有测试用例
+4. 验证测试结果
 
 ### 阶段6: 文档完善
-18. 编写README.md
-19. 编写ALU_DESIGN.md
-20. 更新AGENTS.md
+
+1. 编写README.md
+2. 编写ALU_DESIGN.md
+3. 更新AGENTS.md
 
 ## 常见问题
 
 ### Q1: 编译错误 "Cannot find module"
+
 **A**: 检查文件是否在编译命令中列出，检查模块名是否正确。
 
 ### Q2: 仿真结果不正确
-**A**: 
+
+**A**:
+
 - 检查是否使用了禁止的运算符
 - 检查状态机状态转移逻辑
 - 检查信号位宽是否匹配
 
 ### Q3: 乘法器/除法器一直不结束
-**A**: 
+
+**A**:
+
 - 检查状态机是否正确转移到DONE状态
 - 检查计数器是否正确递增
 - 检查done信号是否正确产生
 
 ### Q4: 时序逻辑不工作
-**A**: 
+
+**A**:
+
 - 检查时钟是否正确生成
 - 检查复位信号是否正确
 - 检查always块敏感列表
@@ -373,10 +394,12 @@ end
 ## 性能指标
 
 ### 面积优化
+
 - 尽量复用模块
 - 减少冗余逻辑
 
 ### 时序优化
+
 - CLA加法器：O(log N) 延迟
 - 移位器：O(log N) 延迟
 - 乘法器：32个时钟周期

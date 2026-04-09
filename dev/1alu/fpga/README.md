@@ -13,6 +13,7 @@
 在Vivado中创建项目，需要以下文件：
 
 **RTL文件**（来自dev/1alu/rtl）：
+
 - basic_gates.v
 - mux.v
 - cla_adder_4bit.v
@@ -28,12 +29,15 @@
 - alu_32bit.v
 
 **FPGA文件**（来自dev/1alu/fpga）：
+
 - alu_display.v
 
 **IP核**（来自example/1alu）：
+
 - lcd_module.dcp
 
 **约束文件**：
+
 - alu.xdc
 
 ### 2. Vivado项目设置
@@ -107,6 +111,7 @@ write_bitstream -force alu.bit
 ### 测试示例
 
 #### 1. 加法测试
+
 ```
 控制信号: 0x1000 (bit 12 = 1, ADD)
 源操作数1: 0x00003039 (12345)
@@ -115,6 +120,7 @@ write_bitstream -force alu.bit
 ```
 
 #### 2. 减法测试
+
 ```
 控制信号: 0x0800 (bit 11 = 1, SUB)
 源操作数1: 0x00000064 (100)
@@ -123,6 +129,7 @@ write_bitstream -force alu.bit
 ```
 
 #### 3. 乘法测试（需要等待done信号）
+
 ```
 控制信号: 0x8000 (bit 15 = 1, MUL)
 源操作数1: 0x0000007B (123)

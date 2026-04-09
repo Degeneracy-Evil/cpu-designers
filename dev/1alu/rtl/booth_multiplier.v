@@ -30,8 +30,12 @@ module booth_multiplier(
   wire [31:0] sub_result;
   wire add_cout;
   wire sub_cout;
+  wire [31:0] count_ext;
+  wire [31:0] count_inc_ext;
+  wire count_inc_cout;
 
   assign booth_pair = {Q[0], Q_1};
+  assign count_ext = {26'b0, count};
 
   // 根据Booth对选择操作数
   // 00或11: 不操作(add_op_b=0)
@@ -74,6 +78,14 @@ module booth_multiplier(
                     .cin(add_cin),
                     .sum(add_result),
                     .cout(add_cout)
+                  );
+
+  cla_adder_32bit count_incrementer(
+                    .a(count_ext),
+                    .b(32'b0),
+                    .cin(1'b1),
+                    .sum(count_inc_ext),
+                    .cout(count_inc_cout)
                   );
 
   // 状态机
@@ -123,7 +135,7 @@ module booth_multiplier(
               Q <= {add_result[0], Q[31:1]};
               Q_1 <= Q[0];
             end
-            count <= count + 1'b1;
+            count <= count_inc_ext[5:0];
           end
           else
           begin

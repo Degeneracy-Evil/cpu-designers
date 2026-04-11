@@ -19,9 +19,7 @@
 
   v(0.8em)
   [组#h(2em)员：王之翼#h(1em)张潘妍#h(1em)张之恒#h(1em)陈海攀]
-  v(0.8em)
-  [指导教师：--]
-  v(0.8em)
+  v(4em)
   [实验日期：2026年3月28日]
   v(5.6em)
   align(center)[兰州大学信息科学与工程学院]
@@ -574,7 +572,7 @@ Booth乘法器实际上是使用Booth编码的乘法器，布斯编码可以减�
     )
     content((rel: (0, -0.1), to: "16-4ocout.end"), [cout])
   }),
-  caption: [超前进位加法器层间组合结构],
+  caption: [超前进位加法器层间组合结构，图中展示了高层级和低层级之间的IO联系，32bit实际上是串联了两个16bit组成],
   kind: "graph",
   supplement: [图],
 )
@@ -782,3 +780,32 @@ Booth乘法器实际上是使用Booth编码的乘法器，布斯编码可以减�
   kind: "code",
   supplement: [代码],
 )
+
+= 验证
+
+在构建过程中，我们使用`iverilog`进行仿真验证：
+
+命令：`python .\mk.py --top .\dev\1alu\tb\tb_alu_32bit.v`，结果如下：
+#figure(image("media/e24073d1-bbf4-4fb3-b994-162a0f5017fd.png"),caption: [命令行截取，34测试全部通过])
+
+同时也使用vivado进行了波形验证：#figure(image("media/df3c648b-800a-416e-8213-4c6a7e84fef3.png"),caption: [vivado波形验证])
+
+在实验课上，我们使用FPGA实验箱进行了验证，单周期指令均运行良好，例如加法：
+
+#figure(image("media/IMG_20260411_185604.jpg"),caption: [加法测试])
+
+在这个过程中发现了乘除法器（多周期指令）的问题：顶层模块一直发送开始运算信号，并且输出结果没有锁定，导致屏幕上数值一直屏闪。
+
+_需要注意的是_：这个问题是ALU_DISPLAY的问题，ALU模块本身并没有出错。
+
+我们通过锁定结果和进行了基于硬件开关的start信号逻辑使得这个问题得到解决，现在乘除法的结果如下图：
+
+#figure(image("media/IMG_20260411_202138.jpg"),caption: [乘法测试])
+#figure(image("media/IMG_20260411_202228.jpg"),caption: [除法测试])
+
+= 结论与收获
+
+这次实验我们完成了32位ALU的构建与验证，中途处理了相当多问题：从乘除法器的算法与构建到解决display模块的信号问题。
+
+本次实验使得我们更加深入地了解了ALU的功能与结构，以及FPGA的构建
+、使用经验，为我们后续的使用打下基础。

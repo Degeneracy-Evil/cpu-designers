@@ -234,9 +234,11 @@ module tb_alu_32bit;
     $display("Test %0d: MUL - Multiplication (positive * positive)", test_count + 1);
     src1 = 32'd123;
     src2 = 32'd456;
-    #10; // Wait for signals to settle
+    #10;
+    alu_control = 16'b0;
+    #10;
     alu_control = 16'b1000_0000_0000_0000; // MUL
-    #10; // Wait for mul_start to be set
+    #10;
     wait_for_done();
     check_result(32'd56088, "MUL: 123 * 456");
 
@@ -244,6 +246,8 @@ module tb_alu_32bit;
     $display("Test %0d: MUL - Multiplication (negative * positive)", test_count + 1);
     src1 = 32'hffffff85; // -123
     src2 = 32'd456;
+    #10;
+    alu_control = 16'b0;
     #10;
     alu_control = 16'b1000_0000_0000_0000; // MUL
     #10;
@@ -255,6 +259,8 @@ module tb_alu_32bit;
     src1 = 32'hffffff85; // -123
     src2 = 32'hfffffe38; // -456
     #10;
+    alu_control = 16'b0;
+    #10;
     alu_control = 16'b1000_0000_0000_0000; // MUL
     #10;
     wait_for_done();
@@ -264,6 +270,8 @@ module tb_alu_32bit;
     $display("Test %0d: DIV - Division (positive / positive)", test_count + 1);
     src1 = 32'd1000;
     src2 = 32'd7;
+    #10;
+    alu_control = 16'b0;
     #10;
     alu_control = 16'b0100_0000_0000_0000; // DIV
     #10;
@@ -275,6 +283,8 @@ module tb_alu_32bit;
     src1 = 32'hfffffc18; // -1000
     src2 = 32'd7;
     #10;
+    alu_control = 16'b0;
+    #10;
     alu_control = 16'b0100_0000_0000_0000; // DIV
     #10;
     wait_for_done();
@@ -284,6 +294,8 @@ module tb_alu_32bit;
     $display("Test %0d: DIV - Division (positive / negative)", test_count + 1);
     src1 = 32'd1000;
     src2 = 32'hfffffff9; // -7
+    #10;
+    alu_control = 16'b0;
     #10;
     alu_control = 16'b0100_0000_0000_0000; // DIV
     #10;
@@ -295,6 +307,8 @@ module tb_alu_32bit;
     src1 = 32'hfffffc18; // -1000
     src2 = 32'hfffffff9; // -7
     #10;
+    alu_control = 16'b0;
+    #10;
     alu_control = 16'b0100_0000_0000_0000; // DIV
     #10;
     wait_for_done();
@@ -304,6 +318,8 @@ module tb_alu_32bit;
     $display("Test %0d: DIV - Exact division (negative / positive)", test_count + 1);
     src1 = 32'hfffffff8; // -8
     src2 = 32'd2;
+    #10;
+    alu_control = 16'b0;
     #10;
     alu_control = 16'b0100_0000_0000_0000; // DIV
     #10;
@@ -315,6 +331,8 @@ module tb_alu_32bit;
     src1 = 32'hfffffff8; // -8
     src2 = 32'hfffffff8; // -8
     #10;
+    alu_control = 16'b0;
+    #10;
     alu_control = 16'b0100_0000_0000_0000; // DIV
     #10;
     wait_for_done();
@@ -324,6 +342,8 @@ module tb_alu_32bit;
     $display("Test %0d: DIV - Division by zero convention", test_count + 1);
     src1 = 32'd123;
     src2 = 32'd0;
+    #10;
+    alu_control = 16'b0;
     #10;
     alu_control = 16'b0100_0000_0000_0000; // DIV
     #10;

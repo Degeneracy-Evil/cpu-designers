@@ -16,12 +16,15 @@ set_property PACKAGE_PIN Y3 [get_ports resetn]
 # input_sel[1] -> SW0
 set_property PACKAGE_PIN AD24 [get_ports {input_sel[0]}]
 set_property PACKAGE_PIN AC21 [get_ports {input_sel[1]}]
+# op_clear -> SW2
+set_property PACKAGE_PIN AC22 [get_ports op_clear]
 
 # IO标准设置
 set_property IOSTANDARD LVCMOS33 [get_ports clk]
 set_property IOSTANDARD LVCMOS33 [get_ports resetn]
 set_property IOSTANDARD LVCMOS33 [get_ports {input_sel[1]}]
 set_property IOSTANDARD LVCMOS33 [get_ports {input_sel[0]}]
+set_property IOSTANDARD LVCMOS33 [get_ports op_clear]
 
 # 触摸屏引脚连接
 set_property PACKAGE_PIN J25 [get_ports lcd_rst]

@@ -126,6 +126,14 @@ module alu_32bit(
   // 乘除法需要寄存输入，因为它们需要多个周期
   reg mul_start;
   reg div_start;
+  reg mul_busy;
+  reg div_busy;
+  reg mul_req_armed;
+  reg div_req_armed;
+  reg mul_done_hold;
+  reg div_done_hold;
+  reg [31:0] mul_result_reg;
+  reg [31:0] div_result_reg;
   reg [31:0] mul_src1_reg;
   reg [31:0] mul_src2_reg;
   reg [31:0] div_src1_reg;
@@ -138,6 +146,14 @@ module alu_32bit(
     begin
       mul_start <= 1'b0;
       div_start <= 1'b0;
+      mul_busy <= 1'b0;
+      div_busy <= 1'b0;
+      mul_req_armed <= 1'b1;
+      div_req_armed <= 1'b1;
+      mul_done_hold <= 1'b0;
+      div_done_hold <= 1'b0;
+      mul_result_reg <= 32'b0;
+      div_result_reg <= 32'b0;
       mul_src1_reg <= 32'b0;
       mul_src2_reg <= 32'b0;
       div_src1_reg <= 32'b0;
@@ -145,28 +161,58 @@ module alu_32bit(
     end
     else
     begin
-      // 乘法启动
-      if (alu_mul && !mul_start)
+      // 默认将start拉低，形成单周期脉冲
+      mul_start <= 1'b0;
+      div_start <= 1'b0;
+
+      // 乘法完成后锁存结果；控制位释放后清除完成保持并重新允许触发
+      if (mul_done)
+      begin
+        mul_busy <= 1'b0;
+        mul_done_hold <= 1'b1;
+        mul_result_reg <= mul_result[31:0];
+      end
+      else if (!alu_mul)
+      begin
+        mul_done_hold <= 1'b0;
+      end
+
+      if (!alu_mul)
+      begin
+        mul_req_armed <= 1'b1;
+      end
+      else if (!mul_busy && !mul_done_hold && mul_req_armed)
       begin
         mul_start <= 1'b1;
+        mul_busy <= 1'b1;
+        mul_req_armed <= 1'b0;
         mul_src1_reg <= src1;
         mul_src2_reg <= src2;
       end
-      else if (mul_done)
+
+      // 除法完成后锁存结果；控制位释放后清除完成保持并重新允许触发
+      if (div_done)
       begin
-        mul_start <= 1'b0;
+        div_busy <= 1'b0;
+        div_done_hold <= 1'b1;
+        div_result_reg <= div_quotient;
+      end
+      else if (!alu_div)
+      begin
+        div_done_hold <= 1'b0;
       end
 
-      // 除法启动
-      if (alu_div && !div_start)
+      if (!alu_div)
+      begin
+        div_req_armed <= 1'b1;
+      end
+      else if (!div_busy && !div_done_hold && div_req_armed)
       begin
         div_start <= 1'b1;
+        div_busy <= 1'b1;
+        div_req_armed <= 1'b0;
         div_src1_reg <= src1;
         div_src2_reg <= src2;
-      end
-      else if (div_done)
-      begin
-        div_start <= 1'b0;
       end
     end
   end
@@ -192,14 +238,11 @@ module alu_32bit(
                           .done(div_done)
                         );
 
-  wire [31:0] mul_result_low;
-  assign mul_result_low = mul_result[31:0];  // 取低32位
-
   // ALU结果选择器 - 根据控制信号选择对应运算结果
   // 使用MUX模块替代?:运算符，避免被推断为IP核
   alu_result_selector result_mux(
-                        .mul_result(mul_result_low),
-                        .div_result(div_quotient),
+                        .mul_result(mul_result_reg),
+                        .div_result(div_result_reg),
                         .not_result(not_result),
                         .add_result(add_result),
                         .sub_result(sub_result),
@@ -218,23 +261,25 @@ module alu_32bit(
                       );
 
   // done信号选择 - 使用MUX避免?:运算符
-  wire done_comb;
-  wire done_mul_sel;
+  wire mul_done_stable;
+  wire div_done_stable;
   wire done_div_sel;
   wire done_default;
 
+  assign mul_done_stable = mul_done | mul_done_hold;
+  assign div_done_stable = div_done | div_done_hold;
   assign done_default = 1'b1;  // 组合逻辑运算立即完成
 
   mux_2to1 #(1) mux_done_0(
              .a(done_default),
-             .b(div_done),
+             .b(div_done_stable),
              .sel(alu_div),
              .y(done_div_sel)
            );
 
   mux_2to1 #(1) mux_done_1(
              .a(done_div_sel),
-             .b(mul_done),
+             .b(mul_done_stable),
              .sel(alu_mul),
              .y(done)
            );

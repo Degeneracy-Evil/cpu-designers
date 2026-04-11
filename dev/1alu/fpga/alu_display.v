@@ -14,6 +14,7 @@ module alu_display(
     input [1:0] input_sel, //00:输入为控制信号(alu_control)
     //10:输入为源操作数1(alu_src1)
     //11:输入为源操作数2(alu_src2)
+    input op_clear,        // SW2: 高电平时强制将alu_control清零
 
     //触摸屏相关接口
     output lcd_rst,
@@ -31,6 +32,8 @@ module alu_display(
 
   //-----{调用ALU模块}begin
   reg   [15:0] alu_control;  // ALU控制信号(16位one-hot)
+  reg   [15:0] alu_op_saved; // 最近一次非零op，用于SW2释放后恢复
+  reg          op_clear_d;   // op_clear打一拍，用于边沿检测
   reg   [31:0] alu_src1;     // ALU操作数1
   reg   [31:0] alu_src2;     // ALU操作数2
   wire  [31:0] alu_result;   // ALU结果
@@ -95,10 +98,30 @@ module alu_display(
     if (!resetn)
     begin
       alu_control <= 16'd0;
+      alu_op_saved <= 16'd0;
+      op_clear_d <= 1'b0;
     end
-    else if (input_valid && input_sel==2'b00)
+    else
     begin
-      alu_control <= input_value[15:0];  // 只取低16位
+      op_clear_d <= op_clear;
+
+      if (op_clear)
+      begin
+        alu_control <= 16'd0;
+      end
+      else if (op_clear_d)
+      begin
+        // SW2由1回到0时，自动恢复上一次非零op，支持重复同类运算
+        alu_control <= alu_op_saved;
+      end
+      else if (input_valid && input_sel==2'b00)
+      begin
+        alu_control <= input_value[15:0];  // 只取低16位
+        if (input_value[15:0] != 16'd0)
+        begin
+          alu_op_saved <= input_value[15:0];
+        end
+      end
     end
   end
 
@@ -136,6 +159,8 @@ module alu_display(
   // 3: CONTR (控制信号)
   // 4: RESUL (运算结果)
   // 5: DONE  (完成标志)
+  // 6: INSEL (当前input_sel)
+  // 7: OPCLR (当前op_clear)
   always @(posedge clk)
   begin
     case(display_number)
@@ -154,7 +179,7 @@ module alu_display(
       6'd3 :
       begin
         display_valid <= 1'b1;
-        display_name  <= "CONTR";
+        display_name  <= "OP";
         display_value <= {16'b0, alu_control};  // 扩展到32位显示
       end
       6'd4 :
@@ -168,6 +193,18 @@ module alu_display(
         display_valid <= 1'b1;
         display_name  <= "DONE_";
         display_value <= {31'b0, alu_done};  // 显示done信号
+      end
+      6'd6 :
+      begin
+        display_valid <= 1'b1;
+        display_name  <= "INSEL";
+        display_value <= {30'b0, input_sel};  // 显示input_sel[1:0]
+      end
+      6'd7 :
+      begin
+        display_valid <= 1'b1;
+        display_name  <= "OPCLR";
+        display_value <= {31'b0, op_clear};  // 显示op_clear开关状态
       end
       default :
       begin

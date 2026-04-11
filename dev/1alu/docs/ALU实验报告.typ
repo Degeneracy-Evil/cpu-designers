@@ -229,10 +229,17 @@ Booth乘法器实际上是使用Booth编码的乘法器，布斯编码可以减�
 
 1. 由 `alu_control` 解码得到各运算使能位。
 2. 组合运算模块并行产生结果。
-3. 对 MUL/DIV 在时钟上升沿锁存 `src1/src2` 到寄存器，启动对应状态机。
-4. 乘法输出取 `product[31:0]` 参与最终选择；除法输出取 `quotient` 参与最终选择。
-5. 由 `alu_result_selector` 按控制位输出最终 `result`。
-6. 由 `mul_done/div_done` 与默认完成路径合成 `done`。
+3. 对 MUL/DIV 在时钟上升沿锁存 `src1/src2` 到寄存器，顶层只发出单周期 `start` 脉冲。
+4. 顶层使用 `busy + req_armed` 机制抑制重触发：同一操作码保持为高时不会重复启动，必须先释放操作码再允许下一次启动。
+5. 乘法在 `mul_done` 时锁存低 32 位结果，除法在 `div_done` 时锁存商值；`result` 选择器在 MUL/DIV 模式下输出锁存值而不是计算中间值。
+6. `done` 在 MUL/DIV 模式下采用 `done_pulse OR done_hold` 稳定语义，避免在板级显示中出现高频闪烁。
+7. 非乘除法仍保持组合路径 `done = 1`，从而与多周期路径形成统一的接口语义。
+
+本次调试中遇到的核心问题是：乘除法初版启动条件是电平触发，`alu_control` 长时间保持 MUL/DIV 时会在一次完成后自动再次启动，导致 `result` 与 `done` 在显示端看起来持续刷新。修复经验总结如下：
+
+- 多周期单元的 `start` 应设计为“单拍脉冲 + 忙闲握手”，不要直接由电平控制信号驱动。
+- 顶层输出给外设（显示、总线）时，应优先输出完成态锁存值，避免直接暴露迭代中间态。
+- 人机交互层应提供显式“释放/重触发”路径。本实验在 FPGA 顶层增加了 `SW2(op_clear)`：`SW2=1` 清零操作码，`SW2` 从 `1 -> 0` 自动恢复上次非零操作码，便于连续更换数据后重复同类乘除法测试。
 
 #figure(
   caption: [ALU顶层模块架构图],
@@ -752,21 +759,23 @@ Booth乘法器实际上是使用Booth编码的乘法器，布斯编码可以减�
 `done` 信号分两类（高电平有效）：
 
 - 非乘除法操作：`done = 1`（默认立即完成）。
-- DIV：`done = div_done`。
-- MUL：`done = mul_done`。
+- DIV：`done = div_done or div_done_hold`。
+- MUL：`done = mul_done or mul_done_hold`。
 
 顶层通过多路选择结构根据`alu_control`码选择对应上述信号进行输出，实现统一时序语义。
 
 #figure(
   [```verilog
-    wire done_comb;
-    wire done_mul_sel;
+    wire mul_done_stable;
+    wire div_done_stable;
     wire done_div_sel;
     wire done_default;
+    assign mul_done_stable = mul_done | mul_done_hold;
+    assign div_done_stable = div_done | div_done_hold;
     assign done_default = 1'b1;  // 组合逻辑运算立即完成
-    mux_2to1 #(1) mux_done_0(.a(done_default), .b(div_done),
+    mux_2to1 #(1) mux_done_0(.a(done_default), .b(div_done_stable),
                .sel(alu_div), .y(done_div_sel) );
-    mux_2to1 #(1) mux_done_1(.a(done_div_sel), .b(mul_done),
+    mux_2to1 #(1) mux_done_1(.a(done_div_sel), .b(mul_done_stable),
                .sel(alu_mul), .y(done) );
   ```],
   caption: [done信号处理],

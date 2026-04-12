@@ -19,124 +19,39 @@ module alu_result_selector(
     input  [15:0] sel,
     output [31:0] y
   );
-  wire [31:0] mux_step0;
-  wire [31:0] mux_step1;
-  wire [31:0] mux_step2;
-  wire [31:0] mux_step3;
-  wire [31:0] mux_step4;
-  wire [31:0] mux_step5;
-  wire [31:0] mux_step6;
-  wire [31:0] mux_step7;
-  wire [31:0] mux_step8;
-  wire [31:0] mux_step9;
-  wire [31:0] mux_step10;
-  wire [31:0] mux_step11;
-  wire [31:0] mux_step12;
-  wire [31:0] mux_step13;
-  wire [31:0] mux_step14;
+  wire [31:0] y_lui;
+  wire [31:0] y_sra;
+  wire [31:0] y_srl;
+  wire [31:0] y_sll;
+  wire [31:0] y_xor;
+  wire [31:0] y_or;
+  wire [31:0] y_nor;
+  wire [31:0] y_and;
+  wire [31:0] y_sltu;
+  wire [31:0] y_slt;
+  wire [31:0] y_sub;
+  wire [31:0] y_add;
+  wire [31:0] y_not;
+  wire [31:0] y_div;
+  wire [31:0] y_mul;
 
-  mux_2to1 #(32) mux0(
-             .a(32'b0),
-             .b(lui_result),
-             .sel(sel[1]),
-             .y(mux_step0)
-           );
+  assign y_lui  = {32{sel[1]}}  & lui_result;
+  assign y_sra  = {32{sel[2]}}  & sra_result;
+  assign y_srl  = {32{sel[3]}}  & srl_result;
+  assign y_sll  = {32{sel[4]}}  & sll_result;
+  assign y_xor  = {32{sel[5]}}  & xor_result;
+  assign y_or   = {32{sel[6]}}  & or_result;
+  assign y_nor  = {32{sel[7]}}  & nor_result;
+  assign y_and  = {32{sel[8]}}  & and_result;
+  assign y_sltu = {32{sel[9]}}  & sltu_result;
+  assign y_slt  = {32{sel[10]}} & slt_result;
+  assign y_sub  = {32{sel[11]}} & sub_result;
+  assign y_add  = {32{sel[12]}} & add_result;
+  assign y_not  = {32{sel[13]}} & not_result;
+  assign y_div  = {32{sel[14]}} & div_result;
+  assign y_mul  = {32{sel[15]}} & mul_result;
 
-  mux_2to1 #(32) mux1(
-             .a(mux_step0),
-             .b(sra_result),
-             .sel(sel[2]),
-             .y(mux_step1)
-           );
-
-  mux_2to1 #(32) mux2(
-             .a(mux_step1),
-             .b(srl_result),
-             .sel(sel[3]),
-             .y(mux_step2)
-           );
-
-  mux_2to1 #(32) mux3(
-             .a(mux_step2),
-             .b(sll_result),
-             .sel(sel[4]),
-             .y(mux_step3)
-           );
-
-  mux_2to1 #(32) mux4(
-             .a(mux_step3),
-             .b(xor_result),
-             .sel(sel[5]),
-             .y(mux_step4)
-           );
-
-  mux_2to1 #(32) mux5(
-             .a(mux_step4),
-             .b(or_result),
-             .sel(sel[6]),
-             .y(mux_step5)
-           );
-
-  mux_2to1 #(32) mux6(
-             .a(mux_step5),
-             .b(nor_result),
-             .sel(sel[7]),
-             .y(mux_step6)
-           );
-
-  mux_2to1 #(32) mux7(
-             .a(mux_step6),
-             .b(and_result),
-             .sel(sel[8]),
-             .y(mux_step7)
-           );
-
-  mux_2to1 #(32) mux8(
-             .a(mux_step7),
-             .b(sltu_result),
-             .sel(sel[9]),
-             .y(mux_step8)
-           );
-
-  mux_2to1 #(32) mux9(
-             .a(mux_step8),
-             .b(slt_result),
-             .sel(sel[10]),
-             .y(mux_step9)
-           );
-
-  mux_2to1 #(32) mux10(
-             .a(mux_step9),
-             .b(sub_result),
-             .sel(sel[11]),
-             .y(mux_step10)
-           );
-
-  mux_2to1 #(32) mux11(
-             .a(mux_step10),
-             .b(add_result),
-             .sel(sel[12]),
-             .y(mux_step11)
-           );
-
-  mux_2to1 #(32) mux12(
-             .a(mux_step11),
-             .b(not_result),
-             .sel(sel[13]),
-             .y(mux_step12)
-           );
-
-  mux_2to1 #(32) mux13(
-             .a(mux_step12),
-             .b(div_result),
-             .sel(sel[14]),
-             .y(mux_step13)
-           );
-
-  mux_2to1 #(32) mux14(
-             .a(mux_step13),
-             .b(mul_result),
-             .sel(sel[15]),
-             .y(y)
-           );
+  assign y = y_lui | y_sra | y_srl | y_sll | y_xor |
+         y_or | y_nor | y_and | y_sltu | y_slt |
+         y_sub | y_add | y_not | y_div | y_mul;
 endmodule

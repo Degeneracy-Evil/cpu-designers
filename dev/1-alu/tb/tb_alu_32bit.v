@@ -20,8 +20,16 @@ module tb_alu_32bit;
               .alu_control(alu_control),
               .src1(src1),
               .src2(src2),
+              .req_valid(1'bz),
+              .flush(1'b0),
+              .result_ready(1'b1),
               .result(result),
-              .done(done)
+              .done(done),
+              .alu_busy(),
+              .alu_ready(),
+              .result_valid(),
+              .illegal_op(),
+              .div_by_zero()
             );
 
   initial

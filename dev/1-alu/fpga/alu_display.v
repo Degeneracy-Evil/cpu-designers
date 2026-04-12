@@ -50,8 +50,16 @@ module alu_display(
               .alu_control(alu_control),
               .src1(alu_src1),
               .src2(alu_src2),
+              .req_valid(1'bz),
+              .flush(1'b0),
+              .result_ready(1'b1),
               .result(alu_result),
-              .done(alu_done)
+              .done(alu_done),
+              .alu_busy(),
+              .alu_ready(),
+              .result_valid(),
+              .illegal_op(),
+              .div_by_zero()
             );
   //-----{调用ALU模块}end
 

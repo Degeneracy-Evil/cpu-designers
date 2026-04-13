@@ -25,8 +25,9 @@
 
 ## 4. ALU
 
-- 复用 `dev/1-alu` 中自研 32 bit ALU
+- 复用 `dev/1-alu` 中 32 bit ALU
 - ALU 控制信号为 16 bit one-hot 编码（详见 `dev/1-alu/AGENTS.md`）
+- ALU接口详见`dev/1-alu/docs/ALU_INTERFACE.md`
 - 通过 `alu_wrapper` 模块对接 ALU 接口与 CPU 数据通路
 
 ## 5. 外设与中断

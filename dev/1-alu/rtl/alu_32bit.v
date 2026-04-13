@@ -9,14 +9,13 @@ module alu_32bit(
     input  [15:0] alu_control,  // ALU控制信号(one-hot)
     input  [31:0] src1,         // 源操作数1
     input  [31:0] src2,         // 源操作数2
-  input         req_valid,    // 可选请求有效(未连接时保持兼容模式)
-  input         flush,        // 可选取消当前请求
-  input         result_ready, // 可选结果消费握手
+  input         req_valid,    // 请求有效
+  input         flush,        // 取消当前请求
+  input         result_ready, // 结果消费握手
     output [31:0] result,       // 运算结果
-  output        done,         // 兼容完成标志
   output        alu_busy,     // 乘除法执行中
   output        alu_ready,    // 可接收新请求
-  output        result_valid, // 结果有效(含多周期/握手模式)
+  output        result_valid, // 结果有效
   output        illegal_op,   // 非法控制编码
   output        div_by_zero   // 最近一次除法是否为除零
   );
@@ -24,39 +23,16 @@ module alu_32bit(
   // 从控制信号提取各操作使能位
   wire alu_mul;
   wire alu_div;
-  wire alu_not;
-  wire alu_add;
-  wire alu_sub;
-  wire alu_slt;
-  wire alu_sltu;
-  wire alu_and;
-  wire alu_nor;
-  wire alu_or;
-  wire alu_xor;
-  wire alu_sll;
   wire alu_srl;
   wire alu_sra;
-  wire alu_lui;
 
   assign alu_mul  = alu_control[15];  // 乘法
   assign alu_div  = alu_control[14];  // 除法
-  assign alu_not  = alu_control[13];  // 按位取反
-  assign alu_add  = alu_control[12];  // 加法
-  assign alu_sub  = alu_control[11];  // 减法
-  assign alu_slt  = alu_control[10];  // 有符号比较
-  assign alu_sltu = alu_control[9];   // 无符号比较
-  assign alu_and  = alu_control[8];   // 按位与
-  assign alu_nor  = alu_control[7];   // 按位或非
-  assign alu_or   = alu_control[6];   // 按位或
-  assign alu_xor  = alu_control[5];   // 按位异或
-  assign alu_sll  = alu_control[4];   // 逻辑左移
   assign alu_srl  = alu_control[3];   // 逻辑右移
   assign alu_sra  = alu_control[2];   // 算术右移
-  assign alu_lui  = alu_control[1];   // 高位加载
 
   // 各运算模块的结果
   wire [31:0] add_result;
-  wire        add_cout;
   wire [31:0] sub_result;
   wire        sub_borrow;
   wire [31:0] and_result;
@@ -74,7 +50,6 @@ module alu_32bit(
   wire [63:0] mul_result;
   wire        mul_done;
   wire [31:0] div_quotient;
-  wire [31:0] div_remainder;
   wire        div_done;
 
   // 实例化各运算模块
@@ -83,7 +58,7 @@ module alu_32bit(
                     .b(src2),
                     .cin(1'b0),
                     .sum(add_result),
-                    .cout(add_cout)
+                    .cout()
                   );
 
   subtractor sub(
@@ -135,13 +110,9 @@ module alu_32bit(
   reg mul_active;
   reg div_active;
   reg req_hold;
-  reg mul_done_hold;
-  reg div_done_hold;
   reg result_valid_reg;
   reg div_by_zero_reg;
   reg [31:0] result_hold_reg;
-  reg [31:0] mul_result_reg;
-  reg [31:0] div_result_reg;
   reg [31:0] mul_src1_reg;
   reg [31:0] mul_src2_reg;
   reg [31:0] div_src1_reg;
@@ -152,31 +123,27 @@ module alu_32bit(
   wire [15:0] op_vector_minus_1;
   wire has_op;
   wire op_is_onehot;
-  wire req_valid_driven;
-  wire req_valid_int;
   wire flush_int;
   wire result_ready_int;
   wire req_fire;
   wire req_mul;
   wire req_div;
   wire req_comb;
+  wire [31:0] comb_result;
 
   assign op_vector = alu_control & 16'hFFFE;
   assign op_vector_minus_1 = op_vector - 16'b1;
   assign has_op = |op_vector;
   assign op_is_onehot = has_op & ((op_vector & op_vector_minus_1) == 16'b0);
 
-  // 输入未连接时退回 legacy 行为：只看 alu_control 是否非零
-  assign req_valid_driven = (req_valid === 1'b0) | (req_valid === 1'b1);
-  assign req_valid_int = req_valid_driven ? (req_valid === 1'b1) : has_op;
-  assign flush_int = (flush === 1'b1);
-  assign result_ready_int = (result_ready === 1'b0) ? 1'b0 : 1'b1;
+  assign flush_int = flush;
+  assign result_ready_int = result_ready;
 
-  assign illegal_op = req_valid_int & (~op_is_onehot);
+  assign illegal_op = req_valid & (~op_is_onehot);
   assign alu_busy = mul_busy | div_busy;
   assign alu_ready = (~alu_busy) & (~req_hold) & (~result_valid_reg);
 
-  assign req_fire = req_valid_int & alu_ready & (~illegal_op);
+  assign req_fire = req_valid & alu_ready & (~illegal_op);
   assign req_mul = req_fire & alu_mul;
   assign req_div = req_fire & alu_div;
   assign req_comb = req_fire & (~alu_mul) & (~alu_div);
@@ -193,13 +160,9 @@ module alu_32bit(
       mul_active <= 1'b0;
       div_active <= 1'b0;
       req_hold <= 1'b0;
-      mul_done_hold <= 1'b0;
-      div_done_hold <= 1'b0;
       result_valid_reg <= 1'b0;
       div_by_zero_reg <= 1'b0;
       result_hold_reg <= 32'b0;
-      mul_result_reg <= 32'b0;
-      div_result_reg <= 32'b0;
       mul_src1_reg <= 32'b0;
       mul_src2_reg <= 32'b0;
       div_src1_reg <= 32'b0;
@@ -217,14 +180,12 @@ module alu_32bit(
         mul_active <= 1'b0;
         div_active <= 1'b0;
         req_hold <= 1'b0;
-        mul_done_hold <= 1'b0;
-        div_done_hold <= 1'b0;
         result_valid_reg <= 1'b0;
         div_by_zero_reg <= 1'b0;
       end
       else
       begin
-        if (!req_valid_int)
+        if (!req_valid)
         begin
           req_hold <= 1'b0;
         end
@@ -243,14 +204,8 @@ module alu_32bit(
         begin
           mul_busy <= 1'b0;
           mul_active <= 1'b0;
-          mul_done_hold <= 1'b1;
-          mul_result_reg <= mul_result[31:0];
           result_hold_reg <= mul_result[31:0];
           result_valid_reg <= 1'b1;
-        end
-        else if (!alu_mul)
-        begin
-          mul_done_hold <= 1'b0;
         end
 
         // 除法完成后锁存结果
@@ -258,14 +213,8 @@ module alu_32bit(
         begin
           div_busy <= 1'b0;
           div_active <= 1'b0;
-          div_done_hold <= 1'b1;
-          div_result_reg <= div_quotient;
           result_hold_reg <= div_quotient;
           result_valid_reg <= 1'b1;
-        end
-        else if (!alu_div)
-        begin
-          div_done_hold <= 1'b0;
         end
 
         if (req_mul)
@@ -288,8 +237,8 @@ module alu_32bit(
         end
         else if (req_comb)
         begin
-          // 组合指令在握手模式下提供一次性result_valid脉冲
-          result_hold_reg <= legacy_result;
+          // 组合指令在请求拍采样并发布结果
+          result_hold_reg <= comb_result;
           result_valid_reg <= 1'b1;
           div_by_zero_reg <= 1'b0;
         end
@@ -317,38 +266,13 @@ module alu_32bit(
                           .divisor(div_src2_reg),
                           .start(div_start),
                           .quotient(div_quotient),
-                          .remainder(div_remainder),
+                          .remainder(),
                           .done(div_done)
                         );
 
-  // 根据当前活动状态固定多周期选择，避免控制位提前撤销导致结果丢失
-  wire mul_select_active;
-  wire div_select_active;
-  wire [15:0] result_sel_div;
-  wire [15:0] result_sel;
-  wire [31:0] legacy_result;
-
-  assign mul_select_active = alu_mul | mul_active | mul_busy | mul_done_hold;
-  assign div_select_active = (~mul_select_active) & (alu_div | div_active | div_busy | div_done_hold);
-
-  mux_2to1 #(16) mux_result_sel_0(
-             .a(alu_control),
-             .b(16'b0100_0000_0000_0000),
-             .sel(div_select_active),
-             .y(result_sel_div)
-           );
-
-  mux_2to1 #(16) mux_result_sel_1(
-             .a(result_sel_div),
-             .b(16'b1000_0000_0000_0000),
-             .sel(mul_select_active),
-             .y(result_sel)
-           );
-
-  // ALU结果选择器
   alu_result_selector result_mux(
-                        .mul_result(mul_result_reg),
-                        .div_result(div_result_reg),
+                        .mul_result(mul_result[31:0]),
+                        .div_result(div_quotient),
                         .not_result(not_result),
                         .add_result(add_result),
                         .sub_result(sub_result),
@@ -362,39 +286,10 @@ module alu_32bit(
                         .srl_result(srl_result),
                         .sra_result(sra_result),
                         .lui_result(lui_result),
-                        .sel(result_sel),
-                        .y(legacy_result)
+                        .sel(alu_control),
+                        .y(comb_result)
                       );
 
-  mux_2to1 #(32) mux_result_out(
-             .a(legacy_result),
-             .b(result_hold_reg),
-             .sel(result_valid_reg),
-             .y(result)
-           );
-
-  // done信号选择
-  wire mul_done_stable;
-  wire div_done_stable;
-  wire done_div_sel;
-  wire done_default;
-
-  assign mul_done_stable = mul_done | mul_done_hold;
-  assign div_done_stable = div_done | div_done_hold;
-  assign done_default = 1'b1;
-
-  mux_2to1 #(1) mux_done_0(
-             .a(done_default),
-             .b(div_done_stable),
-             .sel(div_select_active),
-             .y(done_div_sel)
-           );
-
-  mux_2to1 #(1) mux_done_1(
-             .a(done_div_sel),
-             .b(mul_done_stable),
-             .sel(mul_select_active),
-             .y(done)
-           );
+  assign result = result_hold_reg;
 
 endmodule

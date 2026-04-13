@@ -258,12 +258,9 @@ IDLE -> COMPUTE -> FINISH -> IDLE
 
 ### 8.1 端口与职责
 
-当前顶层ALU同时支持两种工作方式：
+顶层ALU采用请求-响应握手协议，所有请求都需要显式驱动`req_valid`。
 
-1. 兼容模式（legacy）：保持原有仅依赖`alu_control`/`done`的使用方式。
-2. 协议模式（推荐CPU接入）：使用请求-响应握手信号进行控制。
-
-新增/关键信号如下：
+关键信号如下：
 
 | 信号 | 方向 | 说明 |
 |------|------|------|
@@ -275,7 +272,6 @@ IDLE -> COMPUTE -> FINISH -> IDLE
 | result_valid | 输出 | 当前`result`有效。协议模式下应以此为准。 |
 | illegal_op | 输出 | 非法操作编码（非one-hot或空操作）。 |
 | div_by_zero | 输出 | 最近一次已接收除法请求是否为除零。 |
-| done | 输出 | 兼容完成信号，不建议作为协议模式唯一完成条件。 |
 
 ### 8.2 控制编码约束
 
@@ -284,16 +280,9 @@ IDLE -> COMPUTE -> FINISH -> IDLE
 1. `alu_control[15:1]`中恰有1位为1。
 2. 在协议模式下，若请求有效但编码非法，`illegal_op=1`，请求不发射到多周期单元。
 
-### 8.3 两种使用模式
+### 8.3 使用模式
 
-#### 模式A：兼容模式（用于旧测试/旧封装）
-
-当`req_valid`未驱动为确定0/1（例如接`1'bz`）时，顶层自动退回兼容模式：
-
-1. 以`alu_control`是否非零作为请求触发条件。
-2. 旧的`done`行为保持可用。
-
-#### 模式B：协议模式（CPU推荐）
+#### 协议模式（唯一模式）
 
 CPU侧推荐仅依据以下握手：
 
@@ -307,7 +296,7 @@ CPU侧推荐仅依据以下握手：
 
 满足以下条件时，顶层接收请求：
 
-1. `req_valid_int=1`
+1. `req_valid=1`
 2. `alu_ready=1`
 3. `illegal_op=0`
 
@@ -333,16 +322,16 @@ CPU侧推荐仅依据以下握手：
 `flush=1`时，顶层执行以下动作：
 
 1. 清除`mul_busy/div_busy`与活动标志。
-2. 清除`result_valid`与完成保持状态。
+2. 清除`result_valid`与请求保持状态。
 3. 清除`div_by_zero`状态。
 
-说明：当前`flush`仅作用于顶层状态，不强制中止乘除法子模块内部迭代。顶层通过“仅在活动态采纳done”来避免冲刷后旧结果回灌。
+说明：当前`flush`仅作用于顶层状态，不强制中止乘除法子模块内部迭代。顶层通过活动标志过滤迟到完成脉冲，避免冲刷后旧结果回灌。
 
-### 8.6 done与result_valid的关系
+### 8.6 result与result_valid关系
 
-1. `done`用于兼容旧接口，仍可用于传统测试流程。
-2. 在协议模式下，应优先使用`result_valid/result_ready`作为结果交付条件。
-3. 对于非法编码请求，CPU应检查`illegal_op`，而非仅依赖`done`。
+1. `result`由寄存器保持，只有`result_valid=1`时才表示新结果可用。
+2. `result_ready=1`后，下一拍清除`result_valid`。
+3. 对于非法编码请求，CPU应检查`illegal_op`，且不会发布新的`result_valid`。
 
 ### 8.7 协议时序示意
 
@@ -367,7 +356,7 @@ cycle K+1    : result_valid=1, result输出锁存值
 
 ```txt
 执行中收到flush -> 顶层busy/result_valid清零
-子模块若后续done  -> 顶层不发布result_valid
+子模块若后续完成脉冲到达 -> 顶层不发布result_valid
 ```
 
 ## 9. 性能与资源分析（按当前实现）
@@ -410,7 +399,7 @@ cycle K+1    : result_valid=1, result输出锁存值
 
 ### 11.1 既有功能回归
 
-`tb_alu_32bit.v`覆盖算术、逻辑、移位、乘除与部分边界值，作为功能不回退基线。
+`tb_alu_cpu_integration.v`作为顶层回归入口，覆盖组合类运算与多周期请求在握手协议下的行为。
 
 ### 11.2 CPU集成回归
 

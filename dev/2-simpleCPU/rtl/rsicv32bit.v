@@ -64,6 +64,6 @@ module rsicv32bit();
         .immB(immB),
         .immU(immU),
         .immJ(immJ)
-    )
+    );
 
 endmodule

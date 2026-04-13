@@ -1,0 +1,81 @@
+# 11 - 开发阶段与里程碑
+
+## 1. 总原则
+
+1. 严格围绕课程实验目标展开
+2. 先跑通，再完善；先验证，再扩展
+3. 所有新模块接入前，先明确功能边界、接口定义与验证方式
+4. 优先保证主线可运行，再逐步补充异常、中断与外设
+
+## 2. 阶段划分
+
+### 阶段一：基础数据通路
+
+**目标**：打通取指→译码→执行最基本路径
+
+- [ ] 搭建 pc_reg
+- [ ] 搭建 regfile
+- [ ] 搭建 imm_gen
+- [ ] 搭建 alu_wrapper + alu_control
+- [ ] 搭建 instr_mem
+- [ ] 实现 main_control FSM 基础状态（FETCH/DECODE/EXECUTE/WRITE_BACK）
+- [ ] 验证：ADD、ADDI、LUI 等基本指令可执行
+
+### 阶段二：完整 RV32I 指令集
+
+**目标**：实现全部 47 条指令
+
+- [ ] R-Type 全部运算指令
+- [ ] I-Type 全部运算指令
+- [ ] Load / Store 指令（接入 data_mem）
+- [ ] Branch 指令
+- [ ] JAL / JALR
+- [ ] AUIPC
+- [ ] FENCE / FENCE.I（NOP）
+- [ ] 验证：每类指令独立测试通过
+
+### 阶段三：异常与中断
+
+**目标**：实现精简 trap 机制
+
+- [ ] 实现 csr_regfile（mstatus/mie/mip/mtvec/mepc/mcause/mtval/mscratch）
+- [ ] 实现 CSR 指令（CSRRW/CSRRS/CSRRC/CSRRWI/CSRRSI/CSRRCI）
+- [ ] 实现 trap_unit（trap 进入/返回流程）
+- [ ] 实现 ECALL / EBREAK 异常
+- [ ] 实现非法指令异常
+- [ ] 实现地址未对齐异常
+- [ ] 实现 MRET 指令
+- [ ] 验证：异常可进入 trap 并正确返回
+
+### 阶段四：中断机制
+
+**目标**：实现一级外部中断
+
+- [ ] 实现 interrupt_ctrl
+- [ ] 中断检测与响应流程
+- [ ] UART RX 中断联动
+- [ ] 验证：中断可进入处理流程并正确返回
+
+### 阶段五：外设支持
+
+**目标**：实现 GPIO 与 UART
+
+- [ ] 实现 gpio_if
+- [ ] 实现 uart_if
+- [ ] 实现 bus_decode（地址译码）
+- [ ] MMIO 读写通路
+- [ ] 验证：外设可通过 MMIO 正确访问
+
+### 阶段六：系统联调
+
+**目标**：完整系统验证
+
+- [ ] 编写综合测试程序
+- [ ] 指令级全覆盖测试
+- [ ] 异常/中断场景测试
+- [ ] 外设交互测试
+- [ ] 全部测试通过
+
+## 3. 当前状态
+
+**阶段一**：待开始

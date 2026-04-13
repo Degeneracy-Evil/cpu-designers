@@ -1,7 +1,7 @@
 `timescale 1ns / 1ps
 
-// 32位CPU
-module op_decoder();
+// 32位riscv-CPU
+module rsicv32bit();
 
     // 寄存器组
     reg [31:0] PC;
@@ -38,19 +38,32 @@ module op_decoder();
     reg [31:0] x30;
     reg [31:0] x31;
 
+    wire [31:0] op32bit; // op输入占位符
+    wire [6:0] opcode;
+    wire [2:0] funct3;
+    wire [6:0] funct7;
+    wire [4:0] rs1;
+    wire [4:0] rs2;
+    wire [4:0] rd;
+    wire [31:0] immI;
+    wire [31:0] immS;
+    wire [31:0] immB;
+    wire [31:0] immU;
+    wire [31:0] immJ;
+
     op_regroup regrouper(
-        .op32bit(),
-        .opcode(),
-        .funct3(),
-        .funct7(),
-        .rs1(),
-        .rs2(),
-        .rd(),
-        .immI(),
-        .immS(),
-        .immB(),
-        .immU(),
-        .immJ()
-    )
+        .op32bit(op32bit),
+        .opcode(opcode),
+        .funct3(funct3),
+        .funct7(funct7),
+        .rs1(rs1),
+        .rs2(rs2),
+        .rd(rd),
+        .immI(immI),
+        .immS(immS),
+        .immB(immB),
+        .immU(immU),
+        .immJ(immJ)
+    );
 
 endmodule

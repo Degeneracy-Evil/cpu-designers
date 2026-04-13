@@ -1,6 +1,6 @@
 `timescale 1ns / 1ps
 
-// 32位CPU 指令重组电路
+// 32位ricv-CPU 指令重组电路
 module op_regroup(
     input [31:0] op32bit,
     output [6:0] opcode,
@@ -13,12 +13,12 @@ module op_regroup(
     output [31:0] immS,
     output [31:0] immB,
     output [31:0] immU,
-    output [31:0] immJ,
+    output [31:0] immJ
   );
 
-  assign lopcode=op32bit[6:0];
+  assign opcode=op32bit[6:0];
   assign funct3=op32bit[14:12];
-  assign funct7=op32bit[31:25]
+  assign funct7=op32bit[31:25];
   assign rd=op32bit[11:7];
   assign rs1=op32bit[19:15];
   assign rs2=op32bit[24:20];
@@ -41,10 +41,10 @@ module op_regroup(
   assign L=op32bit[7];
 
   // 始终进行符号扩展
-  assign immI={21{H},D4,D3,M};
-  assign immS={21{H},D4,D1,L};
-  assign immB={20{H},L,D4,D1,1'b0};
-  assign immU={H,D4,D3,M,D2,12{1'b0}};
-  assign immJ={12{H},D2,M,D4,D3,1'b0};
+  assign immI={{21{H}},D4,D3,M};
+  assign immS={{21{H}},D4,D1,L};
+  assign immB={{20{H}},L,D4,D1,1'b0};
+  assign immU={H,D4,D3,M,D2,{12{1'b0}}};
+  assign immJ={{12{H}},D2,M,D4,D3,1'b0};
 
 endmodule

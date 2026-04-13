@@ -35,7 +35,7 @@ RTL_FILES = $(RTL_DIR)/mux.v \
             $(RTL_DIR)/alu_32bit.v
 
 # Testbench files
-TB_FILES = $(TB_DIR)/tb_alu_32bit.v
+TB_FILES = $(TB_DIR)/tb_alu_cpu_integration.v
 
 # All source files
 ALL_FILES = $(RTL_FILES) $(TB_FILES)

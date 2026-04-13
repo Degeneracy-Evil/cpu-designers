@@ -12,7 +12,6 @@ module tb_alu_cpu_integration;
   reg result_ready;
 
   wire [31:0] result;
-  wire done;
   wire alu_busy;
   wire alu_ready;
   wire result_valid;
@@ -40,7 +39,6 @@ module tb_alu_cpu_integration;
               .flush(flush),
               .result_ready(result_ready),
               .result(result),
-              .done(done),
               .alu_busy(alu_busy),
               .alu_ready(alu_ready),
               .result_valid(result_valid),

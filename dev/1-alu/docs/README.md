@@ -128,10 +128,11 @@
 │   ├── non_restoring_divider.v # 非恢复余数除法器
 │   └── alu_32bit.v             # 顶层ALU模块
 ├── tb/                         # 测试平台
-│   └── tb_alu_32bit.v          # ALU测试平台
+│   └── tb_alu_cpu_integration.v # ALU握手集成测试平台
 ├── docs/                       # 文档
 │   ├── README.md               # 本文档
-│   └── ALU_DESIGN.md           # 详细设计说明
+│   ├── ALU_DESIGN.md           # 详细设计说明
+│   └── ALU_INTERFACE.md        # 顶层接口规范
 ├── Makefile                    # 编译脚本
 └── AGENTS.md                   # 开发指南
 ```
@@ -241,8 +242,15 @@ module alu_32bit(
     input  [15:0] alu_control,   // ALU控制信号（one-hot编码）
     input  [31:0] src1,          // 源操作数1
     input  [31:0] src2,          // 源操作数2
+   input         req_valid,     // 请求有效
+   input         flush,         // 冲刷当前顶层状态
+   input         result_ready,  // 结果消费握手
     output [31:0] result,        // 运算结果
-    output        done           // 完成标志（乘除法需要多周期）
+   output        alu_busy,      // 多周期执行中
+   output        alu_ready,     // 可接收新请求
+   output        result_valid,  // 结果有效
+   output        illegal_op,    // 非法one-hot
+   output        div_by_zero    // 最近一次除法是否为除零
 );
 ```
 
@@ -253,19 +261,23 @@ module alu_32bit(
 alu_control = 16'b0001_0000_0000_0000;  // ADD
 src1 = 32'd12345;
 src2 = 32'd67890;
-// result = 80235, done = 1
+req_valid = 1'b1;
+// 当 alu_ready=1 时发射请求
+// 下一拍可见 result_valid=1, result=80235
 
 // 有符号比较示例
 alu_control = 16'b0000_0100_0000_0000;  // SLT
 src1 = 32'hffffffff;  // -1
 src2 = 32'd1;
-// result = 1 (因为 -1 < 1), done = 1
+req_valid = 1'b1;
+// result_valid=1 时读取 result=1
 
-// 乘法示例（需要等待done信号）
+// 乘法示例（等待result_valid）
 alu_control = 16'b1000_0000_0000_0000;  // MUL
 src1 = 32'd123;
 src2 = 32'd456;
-// 等待done = 1
+req_valid = 1'b1;
+// 等待若干拍后 result_valid = 1
 // result = 56088
 ```
 
@@ -361,7 +373,7 @@ create_clock -period 10 -name sys_clk [get_ports clk]
 set_input_delay -clock sys_clk 2 [get_ports {src1[*] src2[*] alu_control[*]}]
 
 # 设置输出延迟
-set_output_delay -clock sys_clk 2 [get_ports {result[*] done}]
+set_output_delay -clock sys_clk 2 [get_ports {result[*] result_valid alu_ready alu_busy illegal_op div_by_zero}]
 ```
 
 ### 5. 门级设计注意事项
@@ -394,7 +406,7 @@ set_property USE_DSP48 none [get_cells -hierarchical *multiplier*]
 **问题1：乘除法结果不正确**
 
 - 检查复位信号极性
-- 检查done信号是否正确等待
+- 检查是否按`alu_ready/req_valid/result_valid`握手发射与取数
 - 确认状态机状态转移
 
 **问题2：时序违例**
@@ -421,8 +433,8 @@ set_property PULLUP true [get_ports reset]
 # 输入输出延迟
 set_input_delay -clock sys_clk -max 2 [get_ports {src1[*] src2[*] alu_control[*]}]
 set_input_delay -clock sys_clk -min 0 [get_ports {src1[*] src2[*] alu_control[*]}]
-set_output_delay -clock sys_clk -max 2 [get_ports {result[*] done}]
-set_output_delay -clock sys_clk -min 0 [get_ports {result[*] done}]
+set_output_delay -clock sys_clk -max 2 [get_ports {result[*] result_valid alu_ready alu_busy illegal_op div_by_zero}]
+set_output_delay -clock sys_clk -min 0 [get_ports {result[*] result_valid alu_ready alu_busy illegal_op div_by_zero}]
 
 # 多周期路径（乘除法需要32周期）
 set_multicycle_path -setup 32 -from [get_cells -hierarchical *multiplier*] -to [get_cells -hierarchical *multiplier*]

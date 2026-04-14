@@ -7,6 +7,7 @@
 | iverilog | 编译 Verilog 源码 |
 | vvp | 运行仿真 |
 | gtkwave | 查看波形（可选） |
+| mk.py | 统一编译/运行入口（根目录脚本） |
 
 ### 1.1 安装
 
@@ -18,29 +19,44 @@ iverilog -V
 ### 1.2 编译与运行
 
 ```bash
-iverilog -o cpu_tb rtl/*.v tb/tb_cpu_top.v
-vvp cpu_tb
+python mk.py --top <tb_top.v> --top-module <tb_module>
 ```
 
 ### 1.3 波形生成
 
 ```bash
-iverilog -DGENERATE_WAVE -o cpu_tb rtl/*.v tb/tb_cpu_top.v
-vvp cpu_tb
-gtkwave cpu_tb.vcd
+python mk.py --top <tb_top.v> --top-module <tb_module> --define GENERATE_WAVE
+gtkwave <wave_file>.vcd
 ```
 
-## 2. Makefile
+## 2. 统一命令规范（mk.py）
 
-项目根目录提供 Makefile，至少支持以下目标：
+项目内所有仿真命令统一从仓库根目录发起，并通过 `mk.py` 执行：
 
 ```bash
-make compile    # 编译
-make test       # 编译 + 运行
-make wave       # 编译 + 运行 + 生成波形
-make check      # 语法检查
-make clean      # 清理
+# 仅编译
+python mk.py --top <tb_top.v> --top-module <tb_module> --compile-only
+
+# 编译 + 运行
+python mk.py --top <tb_top.v> --top-module <tb_module>
+
+# 仅运行（复用 build 目录已有产物）
+python mk.py --top <tb_top.v> --top-module <tb_module> --run-only
+
+# 宏开关（示例：生成波形）
+python mk.py --top <tb_top.v> --top-module <tb_module> --define GENERATE_WAVE
+
+# 预检命令（不实际执行编译）
+python mk.py --top <tb_top.v> --top-module <tb_module> --compile-only --dry-run
 ```
+
+### 2.1 mk.py 标准检查清单
+
+- 必须支持：`--top`、`--top-module`、`--compile-only`、`--run-only`、`--dry-run`
+- 依赖解析应自动覆盖顶层实例化的子模块
+- 构建产物（`.vvp`、日志、filelist）统一输出到 `build/`
+- 命令失败时返回非 0 退出码
+- 文档示例路径必须与仓库目录一致（如 `dev/1-alu/...`）
 
 ## 3. 验证策略
 

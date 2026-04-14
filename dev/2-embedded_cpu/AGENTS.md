@@ -2,7 +2,7 @@
 
 ## 项目概述
 
-实现一个 32 bit RISC-V 多周期 CPU，哈佛结构，基于自研 ALU，支持异常/中断与 GPIO/UART 外设。
+实现一个 32 bit RISC-V 多周期 CPU，哈佛结构，基于已有 ALU，支持异常/中断与 GPIO/UART 外设。
 
 ## 文档
 

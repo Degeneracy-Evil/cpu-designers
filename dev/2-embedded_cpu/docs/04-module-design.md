@@ -10,7 +10,7 @@
 | data_mem | data_mem.v | 数据存储模块 |
 | regfile | regfile.v | 32 × 32bit 通用寄存器堆（x0 恒零） |
 | imm_gen | imm_gen.v | 立即数生成模块（I/S/B/U/J 五种格式） |
-| alu_wrapper | alu_wrapper.v | 对接自研 ALU 的适配层 |
+| alu_wrapper | alu_wrapper.v | 对接已有 ALU 的适配层 |
 | alu_control | alu_control.v | ALU 控制信号译码 |
 | main_control | main_control.v | 多周期主控制器 FSM |
 | trap_unit | trap_unit.v | 异常与 trap 管理模块 |

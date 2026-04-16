@@ -1,41 +1,38 @@
 `timescale 1ns / 1ps
 
-// Instruction memory.
-// - Word-addressed read-only memory for fetch stage.
-// - Optional hex initialization file.
-// - Out-of-range access returns NOP (addi x0, x0, 0).
+// Instruction cache (L1 iCache) backed by BRAM.
 module instr_mem #(
-    // Number of 32-bit words.
     parameter MEM_DEPTH = 256,
-    // Optional initialization file path for $readmemh.
+    parameter ADDR_WIDTH = 8,
     parameter INIT_FILE = ""
 )(
-    // Byte address from PC.
+    input         clk,
     input  [31:0] addr,
-    // 32-bit instruction output.
     output [31:0] instr
 );
 
-    // Backing storage array.
-    reg [31:0] mem[0:MEM_DEPTH-1];
-    integer i;
-    // Word index derived from byte address (drop low 2 bits).
-    wire [31:0] word_addr;
+    wire [31:0] bram_dout;
+    wire [ADDR_WIDTH-1:0] word_addr;
 
-    assign word_addr = {2'b00, addr[31:2]};
+    assign word_addr = addr[ADDR_WIDTH+1:2];
 
-    // Memory initialization.
-    initial begin
-        // Fill with NOP by default.
-        for (i = 0; i < MEM_DEPTH; i = i + 1)
-            mem[i] = 32'h00000013;
+    bram #(
+        .DEPTH(MEM_DEPTH),
+        .ADDR_WIDTH(ADDR_WIDTH),
+        .INIT_FILE(INIT_FILE)
+    ) icache_bram (
+        .clka(clk),
+        .wea(4'b0000),
+        .addra(word_addr),
+        .dina(32'b0),
+        .douta(bram_dout),
+        .clkb(clk),
+        .web(4'b0000),
+        .addrb({ADDR_WIDTH{1'b0}}),
+        .dinb(32'b0),
+        .doutb()
+    );
 
-        // Overlay with program image when provided.
-        if (INIT_FILE != "")
-            $readmemh(INIT_FILE, mem);
-    end
-
-    // Combinational fetch.
-    assign instr = (word_addr < MEM_DEPTH) ? mem[word_addr] : 32'h00000013;
+    assign instr = bram_dout;
 
 endmodule

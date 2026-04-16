@@ -14,6 +14,11 @@ module tb_phase1_cpu;
     wire [31:0] debug_instr;
     wire [4:0]  debug_state;
     wire        debug_illegal;
+    wire [31:0] debug_mem_addr;
+    wire [31:0] debug_mem_wdata;
+    wire [31:0] debug_mem_rdata;
+    wire [3:0]  debug_mem_wstrb;
+    wire [31:0] debug_display_mem_data;
 
     // Test statistics.
     integer pass_count;
@@ -25,8 +30,8 @@ module tb_phase1_cpu;
     localparam DECODE = 5'd1;
     localparam EXECUTE_REQ = 5'd2;
     localparam EXECUTE_WAIT = 5'd3;
-    localparam WRITE_BACK = 5'd4;
-    localparam INTERRUPT_CHECK = 5'd5;
+    localparam WRITE_BACK = 5'd11;
+    localparam INTERRUPT_CHECK = 5'd12;
 
     // Device under test.
     cpu_top #(
@@ -38,7 +43,12 @@ module tb_phase1_cpu;
         .debug_pc(debug_pc),
         .debug_instr(debug_instr),
         .debug_state(debug_state),
-        .debug_illegal(debug_illegal)
+        .debug_illegal(debug_illegal),
+        .debug_mem_addr(debug_mem_addr),
+        .debug_mem_wdata(debug_mem_wdata),
+        .debug_mem_rdata(debug_mem_rdata),
+        .debug_mem_wstrb(debug_mem_wstrb),
+        .debug_display_mem_data(debug_display_mem_data)
     );
 
     // 100 MHz simulation clock.

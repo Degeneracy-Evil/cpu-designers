@@ -3,8 +3,10 @@
 // Phase-2 CPU top integration.
 module cpu_top #(
     parameter IMEM_DEPTH = 256,
+    parameter IMEM_ADDR_WIDTH = 8,
     parameter IMEM_INIT_FILE = "",
-    parameter DMEM_DEPTH = 256
+    parameter DMEM_DEPTH = 256,
+    parameter DMEM_ADDR_WIDTH = 8
 )(
     input         clk,
     input         reset,
@@ -15,7 +17,8 @@ module cpu_top #(
     output [31:0] debug_mem_addr,
     output [31:0] debug_mem_wdata,
     output [31:0] debug_mem_rdata,
-    output [3:0]  debug_mem_wstrb
+    output [3:0]  debug_mem_wstrb,
+    output [31:0] debug_display_mem_data
 );
 
     reg  [31:0] instr_reg;
@@ -73,6 +76,7 @@ module cpu_top #(
     wire [3:0]  mem_wstrb;
     wire [31:0] mem_addr;
     wire [31:0] mem_wdata;
+    wire [31:0] mem_data_display;
     wire [31:0] load_data;
     wire [7:0]  load_byte;
     wire [15:0] load_half;
@@ -112,6 +116,7 @@ module cpu_top #(
     assign debug_mem_wdata = mem_wdata;
     assign debug_mem_rdata = mem_rdata;
     assign debug_mem_wstrb = mem_wstrb;
+    assign debug_display_mem_data = mem_data_display;
 
     assign rs1_addr = instr_reg[19:15];
     assign rs2_addr = instr_reg[24:20];
@@ -189,8 +194,10 @@ module cpu_top #(
 
     instr_mem #(
         .MEM_DEPTH(IMEM_DEPTH),
+        .ADDR_WIDTH(IMEM_ADDR_WIDTH),
         .INIT_FILE(IMEM_INIT_FILE)
     ) u_instr_mem (
+        .clk(clk),
         .addr(pc),
         .instr(instr_word)
     );
@@ -255,7 +262,8 @@ module cpu_top #(
     );
 
     data_mem #(
-        .MEM_DEPTH(DMEM_DEPTH)
+        .MEM_DEPTH(DMEM_DEPTH),
+        .ADDR_WIDTH(DMEM_ADDR_WIDTH)
     ) u_data_mem (
         .clk(clk),
         .reset(reset),
@@ -267,7 +275,9 @@ module cpu_top #(
         .rdata(mem_rdata),
         .ready(mem_ready),
         .rvalid(mem_rvalid),
-        .wdone(mem_wdone)
+        .wdone(mem_wdone),
+        .mem_addr(mem_addr),
+        .mem_data(mem_data_display)
     );
 
     main_control u_main_control(

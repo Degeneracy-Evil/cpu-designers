@@ -14,7 +14,7 @@ module alu_display(
     input [1:0] input_sel, //00:输入为控制信号(alu_control)
     //10:输入为源操作数1(alu_src1)
     //11:输入为源操作数2(alu_src2)
-    input op_clear,        // SW2: 高电平时强制将alu_control清零
+    input flush,           // SW2: 高电平时触发flush并清空当前控制输入
 
     //触摸屏相关接口
     output lcd_rst,
@@ -32,12 +32,13 @@ module alu_display(
 
   //-----{调用ALU模块}begin
   reg   [15:0] alu_control;  // ALU控制信号(16位one-hot)
-  reg   [15:0] alu_op_saved; // 最近一次非零op，用于SW2释放后恢复
-  reg          op_clear_d;   // op_clear打一拍，用于边沿检测
+  reg          launch_pending; // 待发射请求标记
   reg   [31:0] alu_src1;     // ALU操作数1
   reg   [31:0] alu_src2;     // ALU操作数2
   wire  [31:0] alu_result;   // ALU结果
-  wire         alu_done;     // ALU完成标志
+  reg   [31:0] alu_result_latched; // 锁存最近一次有效结果
+  wire         alu_ready;
+  wire         alu_result_valid;
 
   // 复位信号转换: resetn(低电平有效) -> reset(高电平有效)
   wire reset;
@@ -50,8 +51,15 @@ module alu_display(
               .alu_control(alu_control),
               .src1(alu_src1),
               .src2(alu_src2),
+              .req_valid(launch_pending),
+              .flush(flush),
+              .result_ready(1'b1),
               .result(alu_result),
-              .done(alu_done)
+              .alu_busy(),
+              .alu_ready(alu_ready),
+              .result_valid(alu_result_valid),
+              .illegal_op(),
+              .div_by_zero()
             );
   //-----{调用ALU模块}end
 
@@ -98,29 +106,23 @@ module alu_display(
     if (!resetn)
     begin
       alu_control <= 16'd0;
-      alu_op_saved <= 16'd0;
-      op_clear_d <= 1'b0;
+      launch_pending <= 1'b0;
     end
     else
     begin
-      op_clear_d <= op_clear;
-
-      if (op_clear)
+      if (flush)
       begin
         alu_control <= 16'd0;
-      end
-      else if (op_clear_d)
-      begin
-        // SW2由1回到0时，自动恢复上一次非零op，支持重复同类运算
-        alu_control <= alu_op_saved;
+        launch_pending <= 1'b0;
       end
       else if (input_valid && input_sel==2'b00)
       begin
         alu_control <= input_value[15:0];  // 只取低16位
-        if (input_value[15:0] != 16'd0)
-        begin
-          alu_op_saved <= input_value[15:0];
-        end
+        launch_pending <= (input_value[15:0] != 16'd0);
+      end
+      else if (launch_pending && alu_ready)
+      begin
+        launch_pending <= 1'b0;
       end
     end
   end
@@ -150,6 +152,18 @@ module alu_display(
       alu_src2 <= input_value;
     end
   end
+
+  always @(posedge clk)
+  begin
+    if (!resetn)
+    begin
+      alu_result_latched <= 32'd0;
+    end
+    else if (alu_result_valid)
+    begin
+      alu_result_latched <= alu_result;
+    end
+  end
   //-----{从触摸屏获取输入}end
 
   //-----{输出到触摸屏显示}begin
@@ -158,9 +172,9 @@ module alu_display(
   // 2: SRC_2 (源操作数2)
   // 3: CONTR (控制信号)
   // 4: RESUL (运算结果)
-  // 5: DONE  (完成标志)
+  // 5: RVALD (结果有效)
   // 6: INSEL (当前input_sel)
-  // 7: OPCLR (当前op_clear)
+  // 7: FLUSH (当前flush)
   always @(posedge clk)
   begin
     case(display_number)
@@ -186,13 +200,13 @@ module alu_display(
       begin
         display_valid <= 1'b1;
         display_name  <= "RESUL";
-        display_value <= alu_result;
+        display_value <= alu_result_latched;
       end
       6'd5 :
       begin
         display_valid <= 1'b1;
-        display_name  <= "DONE_";
-        display_value <= {31'b0, alu_done};  // 显示done信号
+        display_name  <= "RVALD";
+        display_value <= {31'b0, alu_result_valid};
       end
       6'd6 :
       begin
@@ -203,8 +217,8 @@ module alu_display(
       6'd7 :
       begin
         display_valid <= 1'b1;
-        display_name  <= "OPCLR";
-        display_value <= {31'b0, op_clear};  // 显示op_clear开关状态
+        display_name  <= "FLUSH";
+        display_value <= {31'b0, flush};  // 显示flush开关状态
       end
       default :
       begin

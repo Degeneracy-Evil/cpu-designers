@@ -9,46 +9,30 @@ module alu_32bit(
     input  [15:0] alu_control,  // ALU控制信号(one-hot)
     input  [31:0] src1,         // 源操作数1
     input  [31:0] src2,         // 源操作数2
+  input         req_valid,    // 请求有效
+  input         flush,        // 取消当前请求
+  input         result_ready, // 结果消费握手
     output [31:0] result,       // 运算结果
-    output        done          // 完成标志
+  output        alu_busy,     // 乘除法执行中
+  output        alu_ready,    // 可接收新请求
+  output        result_valid, // 结果有效
+  output        illegal_op,   // 非法控制编码
+  output        div_by_zero   // 最近一次除法是否为除零
   );
 
   // 从控制信号提取各操作使能位
   wire alu_mul;
   wire alu_div;
-  wire alu_not;
-  wire alu_add;
-  wire alu_sub;
-  wire alu_slt;
-  wire alu_sltu;
-  wire alu_and;
-  wire alu_nor;
-  wire alu_or;
-  wire alu_xor;
-  wire alu_sll;
   wire alu_srl;
   wire alu_sra;
-  wire alu_lui;
 
   assign alu_mul  = alu_control[15];  // 乘法
   assign alu_div  = alu_control[14];  // 除法
-  assign alu_not  = alu_control[13];  // 按位取反
-  assign alu_add  = alu_control[12];  // 加法
-  assign alu_sub  = alu_control[11];  // 减法
-  assign alu_slt  = alu_control[10];  // 有符号比较
-  assign alu_sltu = alu_control[9];   // 无符号比较
-  assign alu_and  = alu_control[8];   // 按位与
-  assign alu_nor  = alu_control[7];   // 按位或非
-  assign alu_or   = alu_control[6];   // 按位或
-  assign alu_xor  = alu_control[5];   // 按位异或
-  assign alu_sll  = alu_control[4];   // 逻辑左移
   assign alu_srl  = alu_control[3];   // 逻辑右移
   assign alu_sra  = alu_control[2];   // 算术右移
-  assign alu_lui  = alu_control[1];   // 高位加载
 
   // 各运算模块的结果
   wire [31:0] add_result;
-  wire        add_cout;
   wire [31:0] sub_result;
   wire        sub_borrow;
   wire [31:0] and_result;
@@ -61,11 +45,11 @@ module alu_32bit(
   wire [31:0] sll_result;
   wire [31:0] srl_result;
   wire [31:0] sra_result;
+  wire [31:0] shift_result;
   wire [31:0] lui_result;
   wire [63:0] mul_result;
   wire        mul_done;
   wire [31:0] div_quotient;
-  wire [31:0] div_remainder;
   wire        div_done;
 
   // 实例化各运算模块
@@ -74,7 +58,7 @@ module alu_32bit(
                     .b(src2),
                     .cin(1'b0),
                     .sum(add_result),
-                    .cout(add_cout)
+                    .cout()
                   );
 
   subtractor sub(
@@ -87,6 +71,8 @@ module alu_32bit(
   logic_unit logic_inst(
                .a(src1),
                .b(src2),
+               .sub_result(sub_result),
+               .sub_borrow(sub_borrow),
                .and_result(and_result),
                .or_result(or_result),
                .not_result(not_result),
@@ -96,27 +82,20 @@ module alu_32bit(
                .sltu_result(sltu_result)
              );
 
-  // 移位器实例 - src1[4:0]为移位量，src2为被移位数
-  shifter shift_sll_inst(
+  // 单实例移位器复用，减少面积与输入扇出
+  wire [1:0] shift_type;
+  assign shift_type = ({2{alu_srl}} & 2'b01) | ({2{alu_sra}} & 2'b10);
+
+  shifter shift_inst(
             .data(src2),
             .shamt(src1[4:0]),
-            .shift_type(2'b00),  // SLL
-            .result(sll_result)
+            .shift_type(shift_type),
+            .result(shift_result)
           );
 
-  shifter shift_srl_inst(
-            .data(src2),
-            .shamt(src1[4:0]),
-            .shift_type(2'b01),  // SRL
-            .result(srl_result)
-          );
-
-  shifter shift_sra_inst(
-            .data(src2),
-            .shamt(src1[4:0]),
-            .shift_type(2'b10),  // SRA
-            .result(sra_result)
-          );
+  assign sll_result = shift_result;
+  assign srl_result = shift_result;
+  assign sra_result = shift_result;
 
   lui lui_inst(
         .imm(src2),
@@ -128,16 +107,46 @@ module alu_32bit(
   reg div_start;
   reg mul_busy;
   reg div_busy;
-  reg mul_req_armed;
-  reg div_req_armed;
-  reg mul_done_hold;
-  reg div_done_hold;
-  reg [31:0] mul_result_reg;
-  reg [31:0] div_result_reg;
+  reg mul_active;
+  reg div_active;
+  reg req_hold;
+  reg result_valid_reg;
+  reg div_by_zero_reg;
+  reg [31:0] result_hold_reg;
   reg [31:0] mul_src1_reg;
   reg [31:0] mul_src2_reg;
   reg [31:0] div_src1_reg;
   reg [31:0] div_src2_reg;
+
+  // 协议相关解码
+  wire [15:0] op_vector;
+  wire [15:0] op_vector_minus_1;
+  wire has_op;
+  wire op_is_onehot;
+  wire flush_int;
+  wire result_ready_int;
+  wire req_fire;
+  wire req_mul;
+  wire req_div;
+  wire req_comb;
+  wire [31:0] comb_result;
+
+  assign op_vector = alu_control & 16'hFFFE;
+  assign op_vector_minus_1 = op_vector - 16'b1;
+  assign has_op = |op_vector;
+  assign op_is_onehot = has_op & ((op_vector & op_vector_minus_1) == 16'b0);
+
+  assign flush_int = flush;
+  assign result_ready_int = result_ready;
+
+  assign illegal_op = req_valid & (~op_is_onehot);
+  assign alu_busy = mul_busy | div_busy;
+  assign alu_ready = (~alu_busy) & (~req_hold) & (~result_valid_reg);
+
+  assign req_fire = req_valid & alu_ready & (~illegal_op);
+  assign req_mul = req_fire & alu_mul;
+  assign req_div = req_fire & alu_div;
+  assign req_comb = req_fire & (~alu_mul) & (~alu_div);
 
   // 乘除法启动控制
   always @(posedge clk or posedge reset)
@@ -148,12 +157,12 @@ module alu_32bit(
       div_start <= 1'b0;
       mul_busy <= 1'b0;
       div_busy <= 1'b0;
-      mul_req_armed <= 1'b1;
-      div_req_armed <= 1'b1;
-      mul_done_hold <= 1'b0;
-      div_done_hold <= 1'b0;
-      mul_result_reg <= 32'b0;
-      div_result_reg <= 32'b0;
+      mul_active <= 1'b0;
+      div_active <= 1'b0;
+      req_hold <= 1'b0;
+      result_valid_reg <= 1'b0;
+      div_by_zero_reg <= 1'b0;
+      result_hold_reg <= 32'b0;
       mul_src1_reg <= 32'b0;
       mul_src2_reg <= 32'b0;
       div_src1_reg <= 32'b0;
@@ -164,58 +173,81 @@ module alu_32bit(
       // 默认将start拉低，形成单周期脉冲
       mul_start <= 1'b0;
       div_start <= 1'b0;
-
-      // 乘法完成后锁存结果；控制位释放后清除完成保持并重新允许触发
-      if (mul_done)
+      if (flush_int)
       begin
         mul_busy <= 1'b0;
-        mul_done_hold <= 1'b1;
-        mul_result_reg <= mul_result[31:0];
-      end
-      else if (!alu_mul)
-      begin
-        mul_done_hold <= 1'b0;
-      end
-
-      if (!alu_mul)
-      begin
-        mul_req_armed <= 1'b1;
-      end
-      else if (!mul_busy && !mul_done_hold && mul_req_armed)
-      begin
-        mul_start <= 1'b1;
-        mul_busy <= 1'b1;
-        mul_req_armed <= 1'b0;
-        mul_src1_reg <= src1;
-        mul_src2_reg <= src2;
-      end
-
-      // 除法完成后锁存结果；控制位释放后清除完成保持并重新允许触发
-      if (div_done)
-      begin
         div_busy <= 1'b0;
-        div_done_hold <= 1'b1;
-        div_result_reg <= div_quotient;
+        mul_active <= 1'b0;
+        div_active <= 1'b0;
+        req_hold <= 1'b0;
+        result_valid_reg <= 1'b0;
+        div_by_zero_reg <= 1'b0;
       end
-      else if (!alu_div)
+      else
       begin
-        div_done_hold <= 1'b0;
-      end
+        if (!req_valid)
+        begin
+          req_hold <= 1'b0;
+        end
+        else if (req_fire || illegal_op)
+        begin
+          req_hold <= 1'b1;
+        end
 
-      if (!alu_div)
-      begin
-        div_req_armed <= 1'b1;
-      end
-      else if (!div_busy && !div_done_hold && div_req_armed)
-      begin
-        div_start <= 1'b1;
-        div_busy <= 1'b1;
-        div_req_armed <= 1'b0;
-        div_src1_reg <= src1;
-        div_src2_reg <= src2;
+        if (result_valid_reg && result_ready_int)
+        begin
+          result_valid_reg <= 1'b0;
+        end
+
+        // 乘法完成后锁存结果
+        if (mul_done && (mul_busy || mul_active))
+        begin
+          mul_busy <= 1'b0;
+          mul_active <= 1'b0;
+          result_hold_reg <= mul_result[31:0];
+          result_valid_reg <= 1'b1;
+        end
+
+        // 除法完成后锁存结果
+        if (div_done && (div_busy || div_active))
+        begin
+          div_busy <= 1'b0;
+          div_active <= 1'b0;
+          result_hold_reg <= div_quotient;
+          result_valid_reg <= 1'b1;
+        end
+
+        if (req_mul)
+        begin
+          mul_start <= 1'b1;
+          mul_busy <= 1'b1;
+          mul_active <= 1'b1;
+          mul_src1_reg <= src1;
+          mul_src2_reg <= src2;
+          div_by_zero_reg <= 1'b0;
+        end
+        else if (req_div)
+        begin
+          div_start <= 1'b1;
+          div_busy <= 1'b1;
+          div_active <= 1'b1;
+          div_src1_reg <= src1;
+          div_src2_reg <= src2;
+          div_by_zero_reg <= (src2 == 32'b0);
+        end
+        else if (req_comb)
+        begin
+          // 组合指令在请求拍采样并发布结果
+          result_hold_reg <= comb_result;
+          result_valid_reg <= 1'b1;
+          div_by_zero_reg <= 1'b0;
+        end
       end
     end
   end
+
+  assign div_by_zero = div_by_zero_reg;
+  assign result_valid = result_valid_reg;
 
   booth_multiplier multiplier(
                      .clk(clk),
@@ -234,15 +266,13 @@ module alu_32bit(
                           .divisor(div_src2_reg),
                           .start(div_start),
                           .quotient(div_quotient),
-                          .remainder(div_remainder),
+                          .remainder(),
                           .done(div_done)
                         );
 
-  // ALU结果选择器 - 根据控制信号选择对应运算结果
-  // 使用MUX模块替代?:运算符，避免被推断为IP核
   alu_result_selector result_mux(
-                        .mul_result(mul_result_reg),
-                        .div_result(div_result_reg),
+                        .mul_result(mul_result[31:0]),
+                        .div_result(div_quotient),
                         .not_result(not_result),
                         .add_result(add_result),
                         .sub_result(sub_result),
@@ -257,31 +287,9 @@ module alu_32bit(
                         .sra_result(sra_result),
                         .lui_result(lui_result),
                         .sel(alu_control),
-                        .y(result)
+                        .y(comb_result)
                       );
 
-  // done信号选择 - 使用MUX避免?:运算符
-  wire mul_done_stable;
-  wire div_done_stable;
-  wire done_div_sel;
-  wire done_default;
-
-  assign mul_done_stable = mul_done | mul_done_hold;
-  assign div_done_stable = div_done | div_done_hold;
-  assign done_default = 1'b1;  // 组合逻辑运算立即完成
-
-  mux_2to1 #(1) mux_done_0(
-             .a(done_default),
-             .b(div_done_stable),
-             .sel(alu_div),
-             .y(done_div_sel)
-           );
-
-  mux_2to1 #(1) mux_done_1(
-             .a(done_div_sel),
-             .b(mul_done_stable),
-             .sel(alu_mul),
-             .y(done)
-           );
+  assign result = result_hold_reg;
 
 endmodule

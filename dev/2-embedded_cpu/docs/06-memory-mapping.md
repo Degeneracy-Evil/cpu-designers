@@ -2,17 +2,17 @@
 
 ## 1. 指令存储（iMem）
 
-- 由 `instr_mem` 模块实现，内部使用 `bram` 作为 L1 iCache 存储体
+- 由 `instr_mem` 模块实现，内部连接 `icache_32x2048` BRAM IP
 - 独立于数据侧存储，仅用于取指
-- 按 32 bit 字访问（字地址为 `pc[ADDR_WIDTH+1:2]`）
-- 仿真阶段可通过 `INIT_FILE` 初始化指令镜像
+- 按 32 bit 字访问（字地址为 `pc[12:2]`，共 2048 words）
+- FPGA 工程可通过 `icache_init.coe` 初始化内容
 
 ## 2. 数据存储（dMem）
 
-- 由 `data_mem` 模块实现，内部使用 `bram` 作为 L1 dCache 存储体
+- 由 `data_mem` 模块实现，内部连接 `dcache_8x1024` BRAM IP
 - 可读可写，CPU 主访问端口使用握手信号：`req/ready/rvalid/wdone`
 - 支持 RV32I 所要求的数据访问类型（byte/halfword/word）
-- 写掩码由 `wstrb[3:0]` 表示字节粒度写使能
+- 因 IP 写使能为单 bit，封装层使用读-改-写实现字节/半字写掩码语义
 - 额外提供显示/调试读端口（B 口）用于外部观测内存
 
 ### 2.1 dCache BRAM 端口映射
@@ -22,13 +22,15 @@
 | BRAM 端口 | 对应信号 | 说明 |
 |-----------|----------|------|
 | `clka` | `clk` | CPU 访问时钟 |
-| `wea` | `req && write_en ? wstrb : 4'b0` | A 口写使能 |
-| `addra` | `addr[ADDR_WIDTH+1:2]` | A 口字地址 |
+| `ena` | `1'b1` | A 口使能 |
+| `wea` | 写阶段置 `1'b1` | A 口写使能 |
+| `addra` | `addr[12:2]` | A 口字地址 |
 | `dina` | `wdata` | A 口写数据 |
 | `douta` | `rdata` 通路 | A 口读数据 |
 | `clkb` | `clk` | 显示读端口时钟 |
-| `web` | `4'b0` | B 口当前不写 |
-| `addrb` | `mem_addr[ADDR_WIDTH+1:2]` | 显示读地址 |
+| `enb` | `1'b1` | B 口使能 |
+| `web` | `1'b0` | B 口当前不写 |
+| `addrb` | `mem_addr[12:2]` | 显示读地址 |
 | `dinb` | `32'b0` | B 口写数据固定 0 |
 | `doutb` | `mem_data` | 显示读数据 |
 

@@ -74,6 +74,7 @@ module cpu_top #(
     wire        mem_wdone;
     wire [31:0] mem_rdata;
     wire [3:0]  mem_wstrb;
+    wire [3:0]  mem_wstrb_raw;
     wire [31:0] mem_addr;
     wire [31:0] mem_wdata;
     wire [31:0] mem_data_display;
@@ -105,6 +106,7 @@ module cpu_top #(
 
     localparam OPCODE_BRANCH = 7'b1100011;
     localparam OPCODE_JALR   = 7'b1100111;
+    localparam OPCODE_STORE  = 7'b0100011;
 
     assign pc_plus4_fetch = pc + 32'd4;
     assign pc_plus4_instr = instr_pc_reg + 32'd4;
@@ -178,9 +180,11 @@ module cpu_top #(
                                                 1'b0) :
                           1'b0;
 
-    assign mem_wstrb = (funct3 == 3'b000) ? (4'b0001 << mem_addr[1:0]) :
-                       (funct3 == 3'b001) ? (mem_addr[1] ? 4'b1100 : 4'b0011) :
-                       4'b1111;
+    assign mem_wstrb_raw = (funct3 == 3'b000) ? (4'b0001 << mem_addr[1:0]) :
+                           (funct3 == 3'b001) ? (mem_addr[1] ? 4'b1100 : 4'b0011) :
+                           4'b1111;
+
+    assign mem_wstrb = (opcode == OPCODE_STORE) ? mem_wstrb_raw : 4'b0000;
 
     pc_reg u_pc_reg(
         .clk(clk),
@@ -192,11 +196,7 @@ module cpu_top #(
         .pc(pc)
     );
 
-    instr_mem #(
-        .MEM_DEPTH(IMEM_DEPTH),
-        .ADDR_WIDTH(IMEM_ADDR_WIDTH),
-        .INIT_FILE(IMEM_INIT_FILE)
-    ) u_instr_mem (
+    instr_mem u_instr_mem (
         .clk(clk),
         .addr(pc),
         .instr(instr_word)
@@ -261,10 +261,7 @@ module cpu_top #(
         .div_by_zero(alu_div_by_zero)
     );
 
-    data_mem #(
-        .MEM_DEPTH(DMEM_DEPTH),
-        .ADDR_WIDTH(DMEM_ADDR_WIDTH)
-    ) u_data_mem (
+    data_mem u_data_mem (
         .clk(clk),
         .reset(reset),
         .req(mem_req),

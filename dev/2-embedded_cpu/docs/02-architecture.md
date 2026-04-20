@@ -18,33 +18,37 @@
 ## 3. 存储结构
 
 - 采用 L1 存储分离结构（哈佛）：
-  - `iCache`：指令侧 L1（由 `instr_mem` + `bram` 实现）
-  - `dCache`：数据侧 L1（由 `data_mem` + `bram` 实现）
+  - `iCache`：指令侧 L1（由 `instr_mem` + `icache_32x2048` IP 实现）
+  - `dCache`：数据侧 L1（由 `data_mem` + `dcache_8x1024` IP 实现）
 - 当前阶段不接主存（不实现 L2/DDR/AXI 总线），CPU 访存全部落在 L1
 - `iCache` / `dCache` 均按 32 bit 字寻址（地址低 2 位用于字内字节选择）
 - dCache 地址空间后续通过地址译码区分缓存空间与 MMIO 外设空间
 
+> 说明：`dcache_8x1024` 模块名来自 IP 工程命名，实际按当前工程配置使用 32-bit × 2048 深度。
+
 ### 3.1 BRAM 接口约定
 
-底层统一采用双端口 BRAM 接口（可映射 FPGA Block RAM）：
+底层采用双端口 BRAM IP 接口：
 
 ```verilog
-module bram(
+module dcache_8x1024(
     input         clka,
-    input  [3:0]  wea,
-    input  [N-1:0] addra,
+    input         ena,
+    input  [0:0]  wea,
+    input  [10:0] addra,
     input  [31:0] dina,
     output [31:0] douta,
     input         clkb,
-    input  [3:0]  web,
-    input  [N-1:0] addrb,
+    input         enb,
+    input  [0:0]  web,
+    input  [10:0] addrb,
     input  [31:0] dinb,
     output [31:0] doutb
 );
 ```
 
-- `wea/web` 为字节写使能（4 bit）
-- `addra/addrb` 为字地址（对应 CPU 地址 `[9:2]` 或更一般的 `[ADDR_WIDTH+1:2]`）
+- `wea/web` 为单 bit 端口写使能
+- `addra/addrb` 为 11 bit 字地址（对应 CPU 地址 `[12:2]`）
 - `dout*` 为读数据端口
 
 ## 4. ALU

@@ -6,9 +6,10 @@
 |------|------|------|
 | cpu_top | cpu_top.v | CPU 顶层集成模块 |
 | pc_reg | pc_reg.v | 程序计数器 |
-| bram | bram.v | 双端口 BRAM 仿真模型（统一底层存储） |
-| instr_mem | instr_mem.v | 指令侧 L1 iCache（基于 BRAM） |
-| data_mem | data_mem.v | 数据侧 L1 dCache（基于 BRAM） |
+| icache | icache.v | iCache BRAM IP 占位模型（接口同 IP） |
+| dcache | dcache.v | dCache BRAM IP 占位模型（接口同 IP） |
+| instr_mem | instr_mem.v | 指令侧 L1 iCache 封装 |
+| data_mem | data_mem.v | 数据侧 L1 dCache 封装 |
 | regfile | regfile.v | 32 × 32bit 通用寄存器堆（x0 恒零） |
 | imm_gen | imm_gen.v | 立即数生成模块（I/S/B/U/J 五种格式） |
 | alu_wrapper | alu_wrapper.v | 对接已有 ALU 的适配层 |
@@ -27,7 +28,7 @@
 cpu_top
 ├── pc_reg
 ├── instr_mem
-│   └── bram              (iCache BRAM)
+│   └── icache    (iCache BRAM IP)
 ├── regfile
 ├── imm_gen
 ├── alu_wrapper
@@ -35,7 +36,7 @@ cpu_top
 ├── alu_control
 ├── main_control
 ├── data_mem
-│   └── bram              (dCache BRAM)
+│   └── dcache     (dCache BRAM IP)
 ├── bus_decode
 │   ├── gpio_if
 │   └── uart_if
@@ -64,18 +65,20 @@ cpu_top
 | alu_result | 32 | ALU → 数据通路 | ALU 运算结果 |
 | mem_rdata | 32 | data_mem → 数据通路 | 存储器读出值 |
 
-### 3.2.1 BRAM 关键端口（dCache）
+### 3.2.1 BRAM IP 关键端口（dCache）
 
 | 信号 | 位宽 | 方向 | 描述 |
 |------|------|------|------|
 | clka | 1 | input | CPU 主访问端口时钟 |
-| wea | 4 | input | A 口字节写使能 |
-| addra | N | input | A 口字地址（CPU 地址 `[ADDR_WIDTH+1:2]`） |
+| ena | 1 | input | A 口使能 |
+| wea | 1 | input | A 口写使能 |
+| addra | 11 | input | A 口字地址（CPU 地址 `[12:2]`） |
 | dina | 32 | input | A 口写数据 |
 | douta | 32 | output | A 口读数据 |
 | clkb | 1 | input | 显示/调试端口时钟 |
-| web | 4 | input | B 口字节写使能（当前固定 0） |
-| addrb | N | input | B 口字地址（显示读） |
+| enb | 1 | input | B 口使能 |
+| web | 1 | input | B 口写使能（当前固定 0） |
+| addrb | 11 | input | B 口字地址（显示读） |
 | dinb | 32 | input | B 口写数据（当前固定 0） |
 | doutb | 32 | output | B 口读数据 |
 

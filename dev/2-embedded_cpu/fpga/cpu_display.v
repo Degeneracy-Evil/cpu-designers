@@ -70,6 +70,9 @@ module cpu_display(
   reg  [31:0] latched_mem_data;
 
   localparam STATE_MEM_READ_WAIT = 5'd8;
+  localparam STATE_MEM_READ_REQ  = 5'd7;
+  localparam STATE_MEM_WRITE_REQ = 5'd9;
+  localparam STATE_MEM_WRITE_WAIT = 5'd10;
 
   always @(posedge clk)
   begin
@@ -91,8 +94,14 @@ module cpu_display(
       latched_instr   <= debug_instr;
       latched_state   <= {27'b0, debug_state};
       latched_illegal <= {31'b0, debug_illegal};
-      latched_mem_addr <= debug_mem_addr;
-      latched_mem_data <= debug_display_mem_data;
+      if ((debug_state == STATE_MEM_READ_REQ) ||
+          (debug_state == STATE_MEM_READ_WAIT) ||
+          (debug_state == STATE_MEM_WRITE_REQ) ||
+          (debug_state == STATE_MEM_WRITE_WAIT))
+      begin
+        latched_mem_addr <= debug_mem_addr;
+        latched_mem_data <= debug_display_mem_data;
+      end
 
       if (debug_mem_wstrb != 4'b0000)
       begin

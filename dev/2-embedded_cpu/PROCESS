@@ -1,0 +1,39 @@
+# 2-embedded_cpu 当前进展
+
+更新时间：2026-04-21
+
+## 已完成内容
+
+1. 阶段一（基础数据通路）已完成
+- 已实现 `pc_reg`、`regfile`、`imm_gen`、`alu_wrapper`、`alu_control`、`instr_mem`、`main_control`、`cpu_top`
+- 已打通基础多周期主线：取指/译码/执行/写回/指令边界检查
+- 阶段一验证通过（`tb_phase1_cpu.v`）
+
+2. 阶段二（完整 RV32I 基础闭环）已完成
+- 已实现 R/I 全部基础运算、Load/Store、Branch、JAL/JALR、AUIPC、FENCE/FENCE.I(NOP)
+- 已补全 `EXECUTE_WAIT` 与 `MEM_*_WAIT` 状态
+- 阶段二回归通过（`tb_phase2_cpu.v`，39项通过）
+
+3. 存储结构升级为 L1 iCache + L1 dCache（暂不接主存）
+- dCache 改为 BRAM IP 接口封装（`dcache`）
+- iCache 改为 BRAM IP 接口封装（`icache`）
+- 已提供 iCache 初始化文件程序源文件：`program_source/icache_init.s`
+- 已编译出 iCache 初始化文件：`program_source/icache_init.coe`
+
+4. FPGA 显示链路可用
+- `fpga/cpu_display.v` 已接入核心调试信号和内存显示通路
+- 已优化显示稳定性：访存页仅在访存状态锁存内存地址/数据
+- `mem_wstrb` 已做 store 指令门控，避免非访存指令污染显示
+
+## 当前状态
+
+- 阶段一：完成
+- 阶段二：完成
+- 阶段三：未开始（下一步：CSR + trap 机制）
+
+## 下一步计划（阶段三）
+
+1. 实现 `csr_regfile`（mstatus/mie/mip/mtvec/mepc/mcause/mtval/mscratch）
+2. 实现 CSR 指令与 trap 进入/返回流程
+3. 完成 ECALL/EBREAK/非法指令/地址未对齐异常
+4. 增加异常精确边界测试并纳入 `mk.py` 回归清单

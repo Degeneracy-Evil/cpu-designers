@@ -46,7 +46,7 @@ module data_mem(
 
     // IP instance for dCache (32-bit x 2048 words).
     // Replace module name with generated IP name in FPGA project if needed.
-    dcache_8x1024 dcache_bram (
+    dcache dcache_bram (
         .clka(clk),
         .ena(1'b1),
         .wea(wea_reg),

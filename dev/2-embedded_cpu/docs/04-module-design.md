@@ -6,8 +6,8 @@
 |------|------|------|
 | cpu_top | cpu_top.v | CPU 顶层集成模块 |
 | pc_reg | pc_reg.v | 程序计数器 |
-| icache_32x2048 | icache_32x2048.v | iCache BRAM IP 占位模型（接口同 IP） |
-| dcache_8x1024 | dcache_8x1024.v | dCache BRAM IP 占位模型（接口同 IP） |
+| icache | icache.v | iCache BRAM IP 占位模型（接口同 IP） |
+| dcache | dcache.v | dCache BRAM IP 占位模型（接口同 IP） |
 | instr_mem | instr_mem.v | 指令侧 L1 iCache 封装 |
 | data_mem | data_mem.v | 数据侧 L1 dCache 封装 |
 | regfile | regfile.v | 32 × 32bit 通用寄存器堆（x0 恒零） |
@@ -28,7 +28,7 @@
 cpu_top
 ├── pc_reg
 ├── instr_mem
-│   └── icache_32x2048    (iCache BRAM IP)
+│   └── icache    (iCache BRAM IP)
 ├── regfile
 ├── imm_gen
 ├── alu_wrapper
@@ -36,7 +36,7 @@ cpu_top
 ├── alu_control
 ├── main_control
 ├── data_mem
-│   └── dcache_8x1024     (dCache BRAM IP)
+│   └── dcache     (dCache BRAM IP)
 ├── bus_decode
 │   ├── gpio_if
 │   └── uart_if

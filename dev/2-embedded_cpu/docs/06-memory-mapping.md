@@ -2,14 +2,14 @@
 
 ## 1. 指令存储（iMem）
 
-- 由 `instr_mem` 模块实现，内部连接 `icache_32x2048` BRAM IP
+- 由 `instr_mem` 模块实现，内部连接 `icache` BRAM IP
 - 独立于数据侧存储，仅用于取指
 - 按 32 bit 字访问（字地址为 `pc[12:2]`，共 2048 words）
 - FPGA 工程可通过 `icache_init.coe` 初始化内容
 
 ## 2. 数据存储（dMem）
 
-- 由 `data_mem` 模块实现，内部连接 `dcache_8x1024` BRAM IP
+- 由 `data_mem` 模块实现，内部连接 `dcache` BRAM IP
 - 可读可写，CPU 主访问端口使用握手信号：`req/ready/rvalid/wdone`
 - 支持 RV32I 所要求的数据访问类型（byte/halfword/word）
 - 因 IP 写使能为单 bit，封装层使用读-改-写实现字节/半字写掩码语义

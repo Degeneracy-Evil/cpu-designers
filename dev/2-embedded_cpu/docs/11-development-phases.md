@@ -6,7 +6,7 @@
 2. 先跑通，再完善；先验证，再扩展
 3. 所有新模块接入前，先明确功能边界、接口定义与验证方式
 4. 优先保证主线可运行，再逐步补充异常、中断与外设
-5. 全部阶段的编译与仿真统一通过仓库根目录 `mk.py`
+5. 全部阶段的编译与仿真统一通过仓库tools `mk.py`
 
 ## 2. 阶段划分
 
@@ -22,7 +22,7 @@
 - [x] 实现 main_control FSM 基础状态（FETCH/DECODE/EXECUTE/WRITE_BACK/INTERRUPT_CHECK）
 - [x] 预留 `REQ/WAIT` 状态骨架（即使首版先接 1-cycle 模块）
 - [x] 验证：ADD、ADDI、LUI 等基本指令可执行
-- [x] 验证命令：`python mk.py --top <tb_top.v> --top-module <tb_module>`
+- [x] 验证命令：`python tools/mk.py --top <tb_top.v> --top-module <tb_module>`
 
 ### 阶段二：完整 RV32I 指令集
 

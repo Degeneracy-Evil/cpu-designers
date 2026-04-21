@@ -15,9 +15,10 @@
 - 阶段二回归通过（`tb_phase2_cpu.v`，39项通过）
 
 3. 存储结构升级为 L1 iCache + L1 dCache（暂不接主存）
-- dCache 改为 BRAM IP 接口封装（`dcache_8x1024`）
-- iCache 改为 BRAM IP 接口封装（`icache_32x2048`）
-- 已提供 iCache 初始化文件：`rtl/icache_init.coe`
+- dCache 改为 BRAM IP 接口封装（`dcache`）
+- iCache 改为 BRAM IP 接口封装（`icache`）
+- 已提供 iCache 初始化文件程序源文件：`program_source/icache_init.s`
+- 已编译出 iCache 初始化文件：`program_source/icache_init.coe`
 
 4. FPGA 显示链路可用
 - `fpga/cpu_display.v` 已接入核心调试信号和内存显示通路

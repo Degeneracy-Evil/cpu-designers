@@ -248,7 +248,8 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    workspace = Path(__file__).resolve().parent
+    # Use the shell's current working directory as the base path.
+    workspace = Path.cwd().resolve()
     build_dir = (workspace / args.build_dir).resolve()
     build_dir.mkdir(parents=True, exist_ok=True)
 
@@ -317,7 +318,7 @@ def main() -> int:
         print(f"[CMD ] {to_shell_line(run_cmdline)}")
 
         if not args.dry_run:
-            rc = run_cmd(run_cmdline, cwd=build_dir, tee_log=run_log)
+            rc = run_cmd(run_cmdline, cwd=workspace, tee_log=run_log)
             if rc != 0:
                 print(f"[ERROR] Simulation failed with code {rc}.")
                 return rc

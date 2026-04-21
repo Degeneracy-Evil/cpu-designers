@@ -87,7 +87,7 @@ $ N = "DQ" + R, quad |R| < |D| $
 
 当前构建命令：
 
-`python mk.py --top dev/1alu/tb/tb_non_restoring_divider.v`
+`python tools/mk.py --top dev/1alu/tb/tb_non_restoring_divider.v`
 
 当前结果：11/11全部通过。
 

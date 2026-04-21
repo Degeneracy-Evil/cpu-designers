@@ -27,4 +27,4 @@
 | 不实现 S-mode | 仅 M-mode + U-mode |
 | 不实现定时器中断 | 暂不实现 Machine timer interrupt |
 | 仅 iverilog 验证 | 仿真使用 Icarus Verilog，Vivado 迁移由人工完成 |
-| 统一构建入口 | 所有编译/运行/回归命令统一通过仓库根目录 `mk.py` 执行 |
+| 统一构建入口 | 所有编译/运行/回归命令统一通过仓库tools `mk.py` 执行 |

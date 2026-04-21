@@ -2,7 +2,7 @@
 
 // Behavioral placeholder model for dCache BRAM IP.
 // Replace with generated FPGA IP in hardware project.
-module dcache_8x1024(
+module dcache(
     input         clka,
     input         ena,
     input  [0:0]  wea,

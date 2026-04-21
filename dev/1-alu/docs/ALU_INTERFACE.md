@@ -112,7 +112,7 @@ MUL/DIV：
 推荐使用集成测试入口：
 
 ```powershell
-python .\mk.py --top .\dev\1-alu\tb\tb_alu_cpu_integration.v
+python tools/mk.py --top .\dev\1-alu\tb\tb_alu_cpu_integration.v
 ```
 
 重点观察信号：`req_valid`、`alu_ready`、`alu_busy`、`result_valid`、`illegal_op`、`div_by_zero`。

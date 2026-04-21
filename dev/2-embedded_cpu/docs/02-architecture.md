@@ -18,20 +18,20 @@
 ## 3. 存储结构
 
 - 采用 L1 存储分离结构（哈佛）：
-  - `iCache`：指令侧 L1（由 `instr_mem` + `icache_32x2048` IP 实现）
-  - `dCache`：数据侧 L1（由 `data_mem` + `dcache_8x1024` IP 实现）
+  - `iCache`：指令侧 L1（由 `instr_mem` + `icache` IP 实现）
+  - `dCache`：数据侧 L1（由 `data_mem` + `dcache` IP 实现）
 - 当前阶段不接主存（不实现 L2/DDR/AXI 总线），CPU 访存全部落在 L1
 - `iCache` / `dCache` 均按 32 bit 字寻址（地址低 2 位用于字内字节选择）
 - dCache 地址空间后续通过地址译码区分缓存空间与 MMIO 外设空间
 
-> 说明：`dcache_8x1024` 模块名来自 IP 工程命名，实际按当前工程配置使用 32-bit × 2048 深度。
+> 说明：`dcache` 模块名来自 IP 工程命名，实际按当前工程配置使用 32-bit × 2048 深度。
 
 ### 3.1 BRAM 接口约定
 
 底层采用双端口 BRAM IP 接口：
 
 ```verilog
-module dcache_8x1024(
+module dcache4(
     input         clka,
     input         ena,
     input  [0:0]  wea,

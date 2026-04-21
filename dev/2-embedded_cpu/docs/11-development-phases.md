@@ -6,7 +6,7 @@
 2. 先跑通，再完善；先验证，再扩展
 3. 所有新模块接入前，先明确功能边界、接口定义与验证方式
 4. 优先保证主线可运行，再逐步补充异常、中断与外设
-5. 全部阶段的编译与仿真统一通过仓库根目录 `mk.py`
+5. 全部阶段的编译与仿真统一通过仓库tools `mk.py`
 
 ## 2. 阶段划分
 
@@ -14,30 +14,30 @@
 
 **目标**：打通取指→译码→执行最基本路径
 
-- [ ] 搭建 pc_reg
-- [ ] 搭建 regfile
-- [ ] 搭建 imm_gen
-- [ ] 搭建 alu_wrapper + alu_control
-- [ ] 搭建 instr_mem
-- [ ] 实现 main_control FSM 基础状态（FETCH/DECODE/EXECUTE/WRITE_BACK/INTERRUPT_CHECK）
-- [ ] 预留 `REQ/WAIT` 状态骨架（即使首版先接 1-cycle 模块）
-- [ ] 验证：ADD、ADDI、LUI 等基本指令可执行
-- [ ] 验证命令：`python mk.py --top <tb_top.v> --top-module <tb_module>`
+- [x] 搭建 pc_reg
+- [x] 搭建 regfile
+- [x] 搭建 imm_gen
+- [x] 搭建 alu_wrapper + alu_control
+- [x] 搭建 instr_mem
+- [x] 实现 main_control FSM 基础状态（FETCH/DECODE/EXECUTE/WRITE_BACK/INTERRUPT_CHECK）
+- [x] 预留 `REQ/WAIT` 状态骨架（即使首版先接 1-cycle 模块）
+- [x] 验证：ADD、ADDI、LUI 等基本指令可执行
+- [x] 验证命令：`python tools/mk.py --top <tb_top.v> --top-module <tb_module>`
 
 ### 阶段二：完整 RV32I 指令集
 
 **目标**：实现RV32I+FENCE/FENCE.I 基础执行闭环
 
-- [ ] R-Type 全部运算指令
-- [ ] I-Type 全部运算指令
-- [ ] Load / Store 指令（接入 data_mem）
-- [ ] Branch 指令
-- [ ] JAL / JALR
-- [ ] AUIPC
-- [ ] FENCE / FENCE.I（NOP）
-- [ ] 补全访存/执行等待状态（`EXECUTE_WAIT`、`MEM_*_WAIT`）
-- [ ] 验证：每类指令独立测试通过
-- [ ] 回归命令统一走 `mk.py`，不直接调用裸 `iverilog`
+- [x] R-Type 全部运算指令
+- [x] I-Type 全部运算指令
+- [x] Load / Store 指令（接入 data_mem）
+- [x] Branch 指令
+- [x] JAL / JALR
+- [x] AUIPC
+- [x] FENCE / FENCE.I（NOP）
+- [x] 补全访存/执行等待状态（`EXECUTE_WAIT`、`MEM_*_WAIT`）
+- [x] 验证：每类指令独立测试通过
+- [x] 回归命令统一走 `mk.py`，不直接调用裸 `iverilog`
 
 ### 阶段三：异常与中断
 
@@ -86,4 +86,6 @@
 
 ## 3. 当前状态
 
-**阶段一**：待开始
+**阶段一**：已完成
+**阶段二**：已完成
+**阶段三**：未开始

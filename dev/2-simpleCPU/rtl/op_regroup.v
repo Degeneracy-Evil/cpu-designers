@@ -43,7 +43,7 @@ module op_regroup(
   // 始终进行符号扩展
   assign immI={{21{H}},D4,D3,M};
   assign immS={{21{H}},D4,D1,L};
-  assign immB={{20{H}},L,D4,D1,1'b0};
+  assign immB={{19{H}},H,L,D4,D1,1'b0};
   assign immU={H,D4,D3,M,D2,{12{1'b0}}};
   assign immJ={{12{H}},D2,M,D4,D3,1'b0};
 

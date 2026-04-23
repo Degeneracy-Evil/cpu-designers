@@ -87,8 +87,8 @@ module alu_32bit(
   assign shift_type = ({2{alu_srl}} & 2'b01) | ({2{alu_sra}} & 2'b10);
 
   shifter shift_inst(
-            .data(src2),
-            .shamt(src1[4:0]),
+            .data(src1),
+            .shamt(src2[4:0]),
             .shift_type(shift_type),
             .result(shift_result)
           );

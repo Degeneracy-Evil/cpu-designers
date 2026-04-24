@@ -109,6 +109,11 @@ def parse_args() -> argparse.Namespace:
         default=0,
         help="Pad output words to fixed depth (0 means no padding)",
     )
+    parser.add_argument(
+        "--hex",
+        default="",
+        help="Also output a plain hex file for $readmemh (one word per line)",
+    )
     parser.add_argument("--keep-temp", action="store_true", help="Keep intermediate files")
     parser.add_argument("-v", "--verbose", action="store_true", help="Print full tool commands")
     return parser.parse_args()
@@ -261,6 +266,11 @@ def write_coe(words: Sequence[str], output_path: Path) -> None:
     output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def write_hex(words: Sequence[str], output_path: Path) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text("\n".join(words) + "\n", encoding="utf-8")
+
+
 def main() -> int:
     args = parse_args()
 
@@ -299,13 +309,18 @@ def main() -> int:
         words = apply_depth(words, args.depth)
         write_coe(words, output_path)
 
+        if args.hex:
+            hex_path = Path(args.hex).resolve()
+            write_hex(words, hex_path)
+            print(f"[INFO] Hex   : {hex_path}")
+
         print(f"[INFO] Input : {src_path}")
         print(f"[INFO] Lang  : {src_kind}")
         print(f"[INFO] Words : {len(words)}")
-        print(f"[INFO] Output: {output_path}")
+        print(f"[INFO] Output: {output_path}")  
 
         if cleanup_tmp:
-            tmp_obj.cleanup()
+            tmp_obj.cleanup() # type: ignore
         return 0
     except RuntimeError as exc:
         print(f"[ERROR] {exc}", file=sys.stderr)

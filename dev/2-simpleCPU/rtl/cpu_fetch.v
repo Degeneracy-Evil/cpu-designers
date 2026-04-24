@@ -7,18 +7,21 @@ module cpu_fetch(
     output        icache_en,        // icache使能
     output [10:0] icache_addr,      // 地址
     output        if_done,          // 完成
-    output [63:0] if_id_bus,        // 数据总线
+    output [95:0] if_id_bus,        // 数据总线 {pc_plus4, pc, inst_data}
 
     // display展示用
     output [31:0] if_pc,            // pc输出
     output [31:0] if_inst           //
 );
 
+    wire [31:0] pc_plus4;
+    assign pc_plus4 = pc + 32'd4;
+
     assign icache_en = if_valid;
     assign icache_addr = pc[12:2];
 
     assign if_done = if_valid;
-    assign if_id_bus = {pc, inst_data};
+    assign if_id_bus = {pc_plus4, pc, inst_data};
 
     assign if_pc = pc;
     assign if_inst = inst_data;

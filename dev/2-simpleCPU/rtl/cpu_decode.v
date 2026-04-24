@@ -11,10 +11,19 @@ module cpu_decode(
     output             illegal_inst,
     output             dec_is_branch,
     output             dec_need_exe,
-    output     [291:0] id_exe_bus,
+    output     [315:0] id_exe_bus,
 
     output     [31:0]  id_pc,
-    output     [31:0]  id_inst
+    output     [31:0]  id_inst,
+
+    output             dec_is_csr,
+    output             dec_is_ecall,
+    output             dec_is_ebreak,
+    output             dec_is_mret,
+    output             dec_is_fence,
+    output     [11:0]  dec_csr_addr,
+    output     [2:0]   dec_csr_funct3,
+    output             dec_csr_addr_valid
   );
   localparam OPCODE_LUI    = 7'b0110111;
   localparam OPCODE_AUIPC  = 7'b0010111;
@@ -25,6 +34,8 @@ module cpu_decode(
   localparam OPCODE_STORE  = 7'b0100011;
   localparam OPCODE_OP_IMM = 7'b0010011;
   localparam OPCODE_OP     = 7'b0110011;
+  localparam OPCODE_FENCE  = 7'b0001111;
+  localparam OPCODE_SYSTEM = 7'b1110011;
 
   wire [31:0] pc_plus4;
   wire [31:0] pc;
@@ -139,11 +150,42 @@ module cpu_decode(
   assign inst_or   = (opcode == OPCODE_OP) && (funct3 == 3'b110) && (funct7 == 7'b0000000);
   assign inst_and  = (opcode == OPCODE_OP) && (funct3 == 3'b111) && (funct7 == 7'b0000000);
 
+  wire inst_ecall;
+  wire inst_ebreak;
+  wire inst_mret;
+  wire inst_fence;
+  wire inst_fencei;
+  wire inst_csrrw;
+  wire inst_csrrs;
+  wire inst_csrrc;
+  wire inst_csrrwi;
+  wire inst_csrrsi;
+  wire inst_csrrci;
+
+  assign inst_ecall  = (opcode == OPCODE_SYSTEM) && (funct3 == 3'b000) && (inst[31:20] == 12'h000);
+  assign inst_ebreak = (opcode == OPCODE_SYSTEM) && (funct3 == 3'b000) && (inst[31:20] == 12'h001);
+  assign inst_mret   = (opcode == OPCODE_SYSTEM) && (funct3 == 3'b000) && (inst[31:7] == 25'b0011000_00010_00000_000_00000);
+  assign inst_fence  = (opcode == OPCODE_FENCE)  && (funct3 == 3'b000);
+  assign inst_fencei = (opcode == OPCODE_FENCE)  && (funct3 == 3'b001);
+
+  assign inst_csrrw  = (opcode == OPCODE_SYSTEM) && (funct3 == 3'b001);
+  assign inst_csrrs  = (opcode == OPCODE_SYSTEM) && (funct3 == 3'b010);
+  assign inst_csrrc  = (opcode == OPCODE_SYSTEM) && (funct3 == 3'b011);
+  assign inst_csrrwi = (opcode == OPCODE_SYSTEM) && (funct3 == 3'b101);
+  assign inst_csrrsi = (opcode == OPCODE_SYSTEM) && (funct3 == 3'b110);
+  assign inst_csrrci = (opcode == OPCODE_SYSTEM) && (funct3 == 3'b111);
+
   wire is_branch;
   wire is_load;
   wire is_store;
   wire is_jal_like;
   wire is_alu;
+  wire is_csr;
+  wire is_ecall;
+  wire is_ebreak;
+  wire is_mret;
+  wire is_fence;
+  wire is_system_trap;
 
   assign is_branch = inst_beq | inst_bne | inst_blt | inst_bge | inst_bltu | inst_bgeu;
   assign is_load = inst_lb | inst_lh | inst_lw | inst_lbu | inst_lhu;
@@ -152,12 +194,19 @@ module cpu_decode(
   assign is_alu = inst_lui | inst_auipc | is_load | is_store |
          inst_addi | inst_slti | inst_sltiu | inst_xori | inst_ori | inst_andi | inst_slli | inst_srli | inst_srai |
          inst_add | inst_sub | inst_sll | inst_slt | inst_sltu | inst_xor | inst_srl | inst_sra | inst_or | inst_and;
+  assign is_csr = inst_csrrw | inst_csrrs | inst_csrrc | inst_csrrwi | inst_csrrsi | inst_csrrci;
+  assign is_ecall = inst_ecall;
+  assign is_ebreak = inst_ebreak;
+  assign is_mret = inst_mret;
+  assign is_fence = inst_fence | inst_fencei;
+  assign is_system_trap = is_ecall | is_ebreak;
 
   wire use_fixed_wb;
   assign use_fixed_wb = inst_lui;
 
   wire valid_inst;
-  assign valid_inst = is_branch | is_load | is_store | is_jal_like | is_alu;
+  assign valid_inst = is_branch | is_load | is_store | is_jal_like | is_alu |
+                      is_csr | is_system_trap | is_mret | is_fence;
 
   wire [31:0] alu_src1;
   wire [31:0] alu_src2;
@@ -196,7 +245,7 @@ module cpu_decode(
          16'b0;
 
   wire wb_we;
-  assign wb_we = valid_inst && (is_alu | is_load | is_jal_like);
+  assign wb_we = valid_inst && (is_alu | is_load | is_jal_like | is_csr);
 
   wire [2:0] mem_size;
   assign mem_size = (inst_lb | inst_lbu | inst_sb) ? 3'b000 :
@@ -212,12 +261,45 @@ module cpu_decode(
   wire [2:0] branch_funct3;
   assign branch_funct3 = is_branch ? funct3 : 3'b0;
 
+  wire [11:0] csr_addr;
+  wire [2:0]  csr_funct3;
+  wire [4:0]  csr_uimm;
+  assign csr_addr   = inst[31:20];
+  assign csr_funct3 = funct3;
+  assign csr_uimm   = inst[19:15];
+
   assign id_done = id_valid;
   assign illegal_inst = id_valid && !valid_inst;
   assign rs1_addr = rs1;
   assign rs2_addr = rs2;
   assign dec_is_branch = id_valid && valid_inst && is_branch;
-  assign dec_need_exe = id_valid && valid_inst;
+  assign dec_need_exe = id_valid && valid_inst && !is_fence && !is_system_trap && !is_mret && !is_csr;
+
+  assign dec_is_csr    = id_valid && valid_inst && is_csr;
+  assign dec_is_ecall  = id_valid && valid_inst && is_ecall;
+  assign dec_is_ebreak = id_valid && valid_inst && is_ebreak;
+  assign dec_is_mret   = id_valid && valid_inst && is_mret;
+  assign dec_is_fence  = id_valid && valid_inst && is_fence;
+  assign dec_csr_addr  = csr_addr;
+  assign dec_csr_funct3 = csr_funct3;
+
+  localparam CSR_MSTATUS  = 12'h300;
+  localparam CSR_MIE      = 12'h304;
+  localparam CSR_MTVEC    = 12'h305;
+  localparam CSR_MSCRATCH = 12'h340;
+  localparam CSR_MEPC     = 12'h341;
+  localparam CSR_MCAUSE   = 12'h342;
+  localparam CSR_MTVAL    = 12'h343;
+  localparam CSR_MIP      = 12'h344;
+
+  assign dec_csr_addr_valid = (csr_addr == CSR_MSTATUS)  ||
+                              (csr_addr == CSR_MIE)      ||
+                              (csr_addr == CSR_MTVEC)    ||
+                              (csr_addr == CSR_MSCRATCH) ||
+                              (csr_addr == CSR_MEPC)     ||
+                              (csr_addr == CSR_MCAUSE)   ||
+                              (csr_addr == CSR_MTVAL)    ||
+                              (csr_addr == CSR_MIP);
 
   assign id_exe_bus = {
            pc_plus4,
@@ -239,6 +321,13 @@ module cpu_decode(
            rs1_value,
            rs2_value,
            branch_funct3,
+           is_csr,
+           is_ecall,
+           is_ebreak,
+           is_mret,
+           csr_addr,
+           csr_funct3,
+           csr_uimm,
            pc,
            inst
          };

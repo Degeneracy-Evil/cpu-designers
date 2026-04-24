@@ -4,16 +4,22 @@ module cpu_execute(
     input              clk,
     input              reset,
     input              exe_valid,
-    input      [291:0] id_exe_bus_r,
+    input      [315:0] id_exe_bus_r,
+    input      [31:0]  csr_rdata,
     output             exe_done,
-    output     [173:0] exe_mem_bus,
+    output     [206:0] exe_mem_bus,
     output             exe_branch_taken,
     output     [31:0]  exe_branch_target,
     output             exe_is_ctrl_flow,
     output             exe_is_branch,
 
     output     [31:0]  exe_pc,
-    output     [31:0]  exe_inst
+    output     [31:0]  exe_inst,
+
+    output             exe_csr_wen,
+    output     [11:0]  exe_csr_waddr,
+    output     [31:0]  exe_csr_wdata,
+    output     [31:0]  exe_csr_old_val
 );
 
     wire valid_inst;
@@ -34,6 +40,13 @@ module cpu_execute(
     wire [31:0] rs1_value;
     wire [31:0] rs2_value;
     wire [2:0]  branch_funct3;
+    wire is_csr;
+    wire is_ecall;
+    wire is_ebreak;
+    wire is_mret;
+    wire [11:0] csr_addr;
+    wire [2:0]  csr_funct3;
+    wire [4:0]  csr_uimm;
     wire [31:0] pc_plus4;
     wire [31:0] pc;
     wire [31:0] inst;
@@ -58,6 +71,13 @@ module cpu_execute(
         rs1_value,
         rs2_value,
         branch_funct3,
+        is_csr,
+        is_ecall,
+        is_ebreak,
+        is_mret,
+        csr_addr,
+        csr_funct3,
+        csr_uimm,
         pc,
         inst
     } = id_exe_bus_r;
@@ -160,11 +180,32 @@ module cpu_execute(
         end
     end
 
+    wire [31:0] csr_new_val;
+    wire [4:0]  csr_rs1;
+    assign csr_rs1 = inst[19:15];
+
+    assign csr_new_val = (csr_funct3 == 3'b001) ? rs1_value :
+                         (csr_funct3 == 3'b010) ? (csr_rdata | rs1_value) :
+                         (csr_funct3 == 3'b011) ? (csr_rdata & ~rs1_value) :
+                         (csr_funct3 == 3'b101) ? {27'b0, csr_uimm} :
+                         (csr_funct3 == 3'b110) ? (csr_rdata | {27'b0, csr_uimm}) :
+                         (csr_funct3 == 3'b111) ? (csr_rdata & ~{27'b0, csr_uimm}) :
+                         csr_rdata;
+
+    wire csr_no_write;
+    assign csr_no_write = ((csr_funct3 == 3'b010 || csr_funct3 == 3'b011) && (csr_rs1 == 5'd0)) ||
+                          ((csr_funct3 == 3'b110 || csr_funct3 == 3'b111) && (csr_uimm == 5'd0));
+
     assign exe_done = done_reg;
     assign exe_branch_taken = branch_taken_reg;
     assign exe_branch_target = branch_target_reg;
     assign exe_is_ctrl_flow = is_branch | is_jal_like;
     assign exe_is_branch = is_branch;
+
+    assign exe_csr_wen    = is_csr && !csr_no_write;
+    assign exe_csr_waddr  = csr_addr;
+    assign exe_csr_wdata  = csr_new_val;
+    assign exe_csr_old_val = csr_rdata;
 
     assign exe_mem_bus = {
         pc_plus4,
@@ -172,12 +213,14 @@ module cpu_execute(
         is_jal_like,
         is_load,
         is_store,
+        is_csr,
         wb_we,
         wb_rd,
         result_reg,
         mem_size,
         mem_unsigned,
         rs2_value,
+        csr_rdata,
         pc,
         inst
     };

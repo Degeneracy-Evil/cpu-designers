@@ -2,7 +2,7 @@
 
 module cpu_decode(
     input              id_valid,
-    input      [63:0]  if_id_bus_r,
+    input      [95:0]  if_id_bus_r,
     input      [31:0]  rs1_value,
     input      [31:0]  rs2_value,
     output     [4:0]   rs1_addr,
@@ -11,7 +11,7 @@ module cpu_decode(
     output             illegal_inst,
     output             dec_is_branch,
     output             dec_need_exe,
-    output     [259:0] id_exe_bus,
+    output     [291:0] id_exe_bus,
 
     output     [31:0]  id_pc,
     output     [31:0]  id_inst
@@ -26,9 +26,10 @@ module cpu_decode(
   localparam OPCODE_OP_IMM = 7'b0010011;
   localparam OPCODE_OP     = 7'b0110011;
 
+  wire [31:0] pc_plus4;
   wire [31:0] pc;
   wire [31:0] inst;
-  assign {pc, inst} = if_id_bus_r;
+  assign {pc_plus4, pc, inst} = if_id_bus_r;
 
   wire [6:0] opcode;
   wire [2:0] funct3;
@@ -219,6 +220,7 @@ module cpu_decode(
   assign dec_need_exe = id_valid && valid_inst;
 
   assign id_exe_bus = {
+           pc_plus4,
            valid_inst,
            is_alu,
            is_load,

@@ -4,9 +4,9 @@ module cpu_execute(
     input              clk,
     input              reset,
     input              exe_valid,
-    input      [259:0] id_exe_bus_r,
+    input      [291:0] id_exe_bus_r,
     output             exe_done,
-    output     [141:0] exe_mem_bus,
+    output     [173:0] exe_mem_bus,
     output             exe_branch_taken,
     output     [31:0]  exe_branch_target,
     output             exe_is_ctrl_flow,
@@ -34,10 +34,12 @@ module cpu_execute(
     wire [31:0] rs1_value;
     wire [31:0] rs2_value;
     wire [2:0]  branch_funct3;
+    wire [31:0] pc_plus4;
     wire [31:0] pc;
     wire [31:0] inst;
 
     assign {
+        pc_plus4,
         valid_inst,
         is_alu,
         is_load,
@@ -165,6 +167,7 @@ module cpu_execute(
     assign exe_is_branch = is_branch;
 
     assign exe_mem_bus = {
+        pc_plus4,
         result_ok,
         is_jal_like,
         is_load,

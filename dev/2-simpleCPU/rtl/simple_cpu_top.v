@@ -45,15 +45,15 @@ module simple_cpu_top(
     wire exe_is_ctrl_flow;
     wire exe_is_branch;
 
-    wire [63:0] if_id_bus;
-    wire [259:0] id_exe_bus;
-    wire [141:0] exe_mem_bus;
-    wire [102:0] mem_wb_bus;
+    wire [95:0] if_id_bus;
+    wire [291:0] id_exe_bus;
+    wire [173:0] exe_mem_bus;
+    wire [134:0] mem_wb_bus;
 
-    reg [63:0] if_id_bus_r;
-    reg [259:0] id_exe_bus_r;
-    reg [141:0] exe_mem_bus_r;
-    reg [102:0] mem_wb_bus_r;
+    reg [95:0] if_id_bus_r;
+    reg [291:0] id_exe_bus_r;
+    reg [173:0] exe_mem_bus_r;
+    reg [134:0] mem_wb_bus_r;
 
     wire icache_en;
     wire [10:0] icache_addr;
@@ -75,16 +75,24 @@ module simple_cpu_top(
     wire [31:0] rf_wdata;
     wire wb_is_jal_like;
 
+    wire [31:0] id_pc_plus4;
+    wire [31:0] exe_pc_plus4;
+    wire [31:0] wb_pc_plus4;
+
+    assign id_pc_plus4  = if_id_bus_r[95:64];
+    assign exe_pc_plus4 = id_exe_bus_r[291:260];
+    assign wb_pc_plus4  = mem_wb_bus_r[134:103];
+
     wire [31:0] actual_rf_wdata;
-    assign actual_rf_wdata = wb_is_jal_like ? (wb_pc + 32'd4) : rf_wdata;
+    assign actual_rf_wdata = wb_is_jal_like ? wb_pc_plus4 : rf_wdata;
 
     always @(posedge clk or posedge reset) begin
         if (reset) begin
             pc <= 32'b0;
-            if_id_bus_r <= 64'b0;
-            id_exe_bus_r <= 260'b0;
-            exe_mem_bus_r <= 142'b0;
-            mem_wb_bus_r <= 103'b0;
+            if_id_bus_r <= 96'b0;
+            id_exe_bus_r <= 292'b0;
+            exe_mem_bus_r <= 174'b0;
+            mem_wb_bus_r <= 135'b0;
         end else begin
             if (if_done) begin
                 if_id_bus_r <= if_id_bus;
@@ -101,7 +109,7 @@ module simple_cpu_top(
 
             if (id_valid && id_done) begin
                 if (dec_illegal) begin
-                    pc <= pc + 32'd4;
+                    pc <= id_pc_plus4;
                 end
             end
 
@@ -109,7 +117,7 @@ module simple_cpu_top(
                 if (exe_is_ctrl_flow && exe_branch_taken) begin
                     pc <= exe_branch_target;
                 end else begin
-                    pc <= pc + 32'd4;
+                    pc <= exe_pc_plus4;
                 end
             end
         end
@@ -202,6 +210,7 @@ module simple_cpu_top(
         .rf_wdata(rf_wdata),
         .wb_done(wb_done),
         .wb_is_jal_like(wb_is_jal_like),
+        .wb_pc_plus4(wb_pc_plus4),
         .wb_pc(wb_pc),
         .wb_inst(wb_inst)
     );

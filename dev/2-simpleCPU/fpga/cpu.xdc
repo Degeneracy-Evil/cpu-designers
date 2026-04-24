@@ -1,9 +1,4 @@
-# FPGA约束文件 - ALU测试
-
-# 时钟约束
-#create_clock -period 10.000 -name sys_clk -waveform {0.000 5.000} [get_ports clk]
-#set_clock_uncertainty -setup 0.050 [get_clocks sys_clk]
-#set_clock_uncertainty -hold  0.050 [get_clocks sys_clk]
+# FPGA约束文件 - Simple CPU Display
 
 # 时钟信号连接 (100MHz)
 set_property PACKAGE_PIN AC19 [get_ports clk]
@@ -11,29 +6,40 @@ set_property PACKAGE_PIN AC19 [get_ports clk]
 # 复位信号，低电平有效
 set_property PACKAGE_PIN Y3 [get_ports resetn]
 
-# 拨码开关连接，用于输入选择，反着写的目的是便于人类阅读从左到右
-# input_sel[0] -> SW1
-# input_sel[1] -> SW0
-set_property PACKAGE_PIN AD24 [get_ports {input_sel[0]}]
-set_property PACKAGE_PIN AC21 [get_ports {input_sel[1]}]
-# flush -> SW2
-set_property PACKAGE_PIN AC22 [get_ports flush]
+# 单步调试按键，低电平有效
+set_property PACKAGE_PIN Y5 [get_ports btn_clk]
+
+# 拨码开关 SW0-SW7
+set_property PACKAGE_PIN AC21 [get_ports {sw[0]}]
+set_property PACKAGE_PIN AD24 [get_ports {sw[1]}]
+set_property PACKAGE_PIN AC22 [get_ports {sw[2]}]
+set_property PACKAGE_PIN AC23 [get_ports {sw[3]}]
+set_property PACKAGE_PIN AB6  [get_ports {sw[4]}]
+set_property PACKAGE_PIN W6   [get_ports {sw[5]}]
+set_property PACKAGE_PIN AA7  [get_ports {sw[6]}]
+set_property PACKAGE_PIN Y6   [get_ports {sw[7]}]
 
 # IO标准设置
 set_property IOSTANDARD LVCMOS33 [get_ports clk]
 set_property IOSTANDARD LVCMOS33 [get_ports resetn]
-set_property IOSTANDARD LVCMOS33 [get_ports {input_sel[1]}]
-set_property IOSTANDARD LVCMOS33 [get_ports {input_sel[0]}]
-set_property IOSTANDARD LVCMOS33 [get_ports flush]
+set_property IOSTANDARD LVCMOS33 [get_ports btn_clk]
+set_property IOSTANDARD LVCMOS33 [get_ports {sw[0]}]
+set_property IOSTANDARD LVCMOS33 [get_ports {sw[1]}]
+set_property IOSTANDARD LVCMOS33 [get_ports {sw[2]}]
+set_property IOSTANDARD LVCMOS33 [get_ports {sw[3]}]
+set_property IOSTANDARD LVCMOS33 [get_ports {sw[4]}]
+set_property IOSTANDARD LVCMOS33 [get_ports {sw[5]}]
+set_property IOSTANDARD LVCMOS33 [get_ports {sw[6]}]
+set_property IOSTANDARD LVCMOS33 [get_ports {sw[7]}]
 
 # 触摸屏引脚连接
 set_property PACKAGE_PIN J25 [get_ports lcd_rst]
 set_property PACKAGE_PIN H18 [get_ports lcd_cs]
 set_property PACKAGE_PIN K16 [get_ports lcd_rs]
-set_property PACKAGE_PIN L8 [get_ports lcd_wr]
-set_property PACKAGE_PIN K8 [get_ports lcd_rd]
+set_property PACKAGE_PIN L8  [get_ports lcd_wr]
+set_property PACKAGE_PIN K8  [get_ports lcd_rd]
 set_property PACKAGE_PIN J15 [get_ports lcd_bl_ctr]
-set_property PACKAGE_PIN H9 [get_ports {lcd_data_io[0]}]
+set_property PACKAGE_PIN H9  [get_ports {lcd_data_io[0]}]
 set_property PACKAGE_PIN K17 [get_ports {lcd_data_io[1]}]
 set_property PACKAGE_PIN J20 [get_ports {lcd_data_io[2]}]
 set_property PACKAGE_PIN M17 [get_ports {lcd_data_io[3]}]

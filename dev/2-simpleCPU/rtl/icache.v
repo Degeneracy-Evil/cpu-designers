@@ -19,9 +19,15 @@ module icache(
 
     reg [31:0] mem[0:2047];
 
+    `ifdef CSR_TEST
+    initial begin
+        $readmemh("dev/2-simpleCPU/program_source/csr_test.hex", mem);
+    end
+    `else
     initial begin
         $readmemh("dev/2-simpleCPU/program_source/icache_init.hex", mem);
     end
+    `endif
 
     assign douta = ena ? mem[addra] : 32'b0;
     assign doutb = enb ? mem[addrb] : 32'b0;

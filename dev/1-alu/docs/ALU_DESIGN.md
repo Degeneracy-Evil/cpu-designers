@@ -63,17 +63,26 @@ A - B = A + (-B)
       = A + (~B + 1)
 ```
 
+减法器不包含独立加法器，而是与ALU顶层共享同一个`cla_adder_32bit`实例。
+通过输入选择实现ADD/SUB复用：
+
+- ADD模式：加法器计算 `src1 + src2 + 0`
+- SUB/SLT/SLTU模式：加法器计算 `src1 + ~src2 + 1`
+
 ### 2.2 实现
 
 ```verilog
 module subtractor(
-    input  [31:0] a,
     input  [31:0] b,
+    output [31:0] b_neg,       // ~b, 送入共享加法器
+    input  [31:0] adder_sum,   // 共享加法器的和输出
+    input         adder_cout,  // 共享加法器的进位输出
     output [31:0] result,
     output        borrow
 );
-    // result = a + (~b + 1)
-    // borrow = ~cout
+    // b_neg = ~b
+    // result = adder_sum  (当加法器配置为 a + ~b + 1 时)
+    // borrow = ~adder_cout
 endmodule
 ```
 
@@ -372,8 +381,9 @@ cycle K+1    : result_valid=1, result输出锁存值
 ### 9.2 关键优化点
 
 1. 顶层移位器由3实例收敛为1实例复用，降低面积与扇出。
-2. `logic_unit`复用顶层减法结果，去除重复加减链。
-3. 结果选择器由串行MUX链改为并行掩码与归约OR，缩短组合路径。
+2. 减法器取消独立加法器，与ADD共享同一`cla_adder_32bit`实例，通过`is_sub`信号选择加法器输入（`b_neg`/`src2`）与进位（`1`/`0`），加法器实例数从2降至1。
+3. `logic_unit`复用顶层减法结果，去除重复加减链。
+4. 结果选择器由串行MUX链改为并行掩码与归约OR，缩短组合路径。
 
 ## 10. 边界行为与异常语义
 

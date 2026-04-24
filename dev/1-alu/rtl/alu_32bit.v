@@ -52,21 +52,35 @@ module alu_32bit(
   wire [31:0] div_quotient;
   wire        div_done;
 
-  // 实例化各运算模块
-  cla_adder_32bit adder(
-                    .a(src1),
-                    .b(src2),
-                    .cin(1'b0),
-                    .sum(add_result),
-                    .cout()
-                  );
+  // 减法模式: SUB/SLT/SLTU 需要 src1 + ~src2 + 1
+  wire is_sub;
+  assign is_sub = alu_control[11] | alu_control[10] | alu_control[9];
 
+  wire [31:0] b_neg;
+  wire [31:0] adder_b;
+  wire        adder_cin;
+  wire        adder_cout;
+
+  // 实例化各运算模块 (单加法器复用)
   subtractor sub(
-               .a(src1),
                .b(src2),
+               .b_neg(b_neg),
+               .adder_sum(add_result),
+               .adder_cout(adder_cout),
                .result(sub_result),
                .borrow(sub_borrow)
              );
+
+  assign adder_b  = is_sub ? b_neg : src2;
+  assign adder_cin = is_sub;
+
+  cla_adder_32bit adder(
+                    .a(src1),
+                    .b(adder_b),
+                    .cin(adder_cin),
+                    .sum(add_result),
+                    .cout(adder_cout)
+                  );
 
   logic_unit logic_inst(
                .a(src1),

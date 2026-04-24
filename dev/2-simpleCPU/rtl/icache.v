@@ -18,11 +18,9 @@ module icache(
 );
 
     reg [31:0] mem[0:2047];
-    integer i;
 
     initial begin
-        for (i = 0; i < 2048; i = i + 1)
-            mem[i] = 32'b0;
+        $readmemh("dev/2-simpleCPU/program_source/icache_init.hex", mem);
     end
 
     assign douta = ena ? mem[addra] : 32'b0;

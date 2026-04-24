@@ -110,7 +110,7 @@ module simple_cpu_top(
                     end else begin
                         pc <= pc + 32'd4;
                     end
-                end else if (dec_illegal) begin
+                end else if (dec_illegal) begin // 错误指令，暂时未处理
                     pc <= pc + 32'd4;
                 end
             end
@@ -257,61 +257,5 @@ module simple_cpu_top(
     );
 
     assign display_state = {29'b0, fsm_state};
-
-    initial begin
-        #1;
-        u_icache.mem[0]  = 32'h00500093;
-        u_icache.mem[1]  = 32'h00700113;
-        u_icache.mem[2]  = 32'h002081b3;
-        u_icache.mem[3]  = 32'h40118233;
-        u_icache.mem[4]  = 32'h001092b3;
-        u_icache.mem[5]  = 32'h0020a333;
-        u_icache.mem[6]  = 32'h001133b3;
-        u_icache.mem[7]  = 32'h0020c433;
-        u_icache.mem[8]  = 32'h001454b3;
-        u_icache.mem[9]  = 32'h40145533;
-        u_icache.mem[10] = 32'h0020e5b3;
-        u_icache.mem[11] = 32'h0020f633;
-        u_icache.mem[12] = 32'h0060a693;
-        u_icache.mem[13] = 32'hfff0b713;
-        u_icache.mem[14] = 32'h0030c793;
-        u_icache.mem[15] = 32'h0080e813;
-        u_icache.mem[16] = 32'h00987893;
-        u_icache.mem[17] = 32'h00309913;
-        u_icache.mem[18] = 32'h00195993;
-        u_icache.mem[19] = 32'h40295a13;
-        u_icache.mem[20] = 32'h12345ab7;
-        u_icache.mem[21] = 32'h00000b17;
-        u_icache.mem[22] = 32'h00302023;
-        u_icache.mem[23] = 32'h00100223;
-        u_icache.mem[24] = 32'h00201323;
-        u_icache.mem[25] = 32'h00002b83;
-        u_icache.mem[26] = 32'h00400c03;
-        u_icache.mem[27] = 32'h00404c83;
-        u_icache.mem[28] = 32'h00601d03;
-        u_icache.mem[29] = 32'h00605d83;
-        u_icache.mem[30] = 32'h003b8463;
-        u_icache.mem[31] = 32'h06f00e13;
-        u_icache.mem[32] = 32'h001b9463;
-        u_icache.mem[33] = 32'h0de00e13;
-        u_icache.mem[34] = 32'h0020c463;
-        u_icache.mem[35] = 32'h00100e93;
-        u_icache.mem[36] = 32'h00115463;
-        u_icache.mem[37] = 32'h00200e93;
-        u_icache.mem[38] = 32'h0020e463;
-        u_icache.mem[39] = 32'h00300f13;
-        u_icache.mem[40] = 32'h00117463;
-        u_icache.mem[41] = 32'h00400f13;
-        u_icache.mem[42] = 32'h00800fef;
-        u_icache.mem[43] = 32'h06300093;
-        u_icache.mem[44] = 32'h0c800293;
-        u_icache.mem[45] = 32'h00028267;
-        u_icache.mem[46] = 32'h05800113;
-        u_icache.mem[47] = 32'h06300113;
-        u_icache.mem[48] = 32'h06f00113;
-        u_icache.mem[49] = 32'h07a00113;
-        u_icache.mem[50] = 32'h04d00113;
-        u_icache.mem[51] = 32'h0000006f;
-    end
 
 endmodule

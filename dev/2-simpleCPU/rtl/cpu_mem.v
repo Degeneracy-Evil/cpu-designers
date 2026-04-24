@@ -1,5 +1,6 @@
 `timescale 1ns / 1ps
 
+// 访存单元 跳过方式：is_load/is_store
 module cpu_mem(
     input              clk,
     input              reset,

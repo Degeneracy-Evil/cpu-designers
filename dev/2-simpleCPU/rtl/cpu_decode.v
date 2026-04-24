@@ -1,27 +1,21 @@
 `timescale 1ns / 1ps
 
 module cpu_decode(
-    input              id_valid,        // 使能
-    input      [63:0]  if_id_bus_r,     // fetch传递的数据
-    input      [31:0]  rs1_value,       // 寄存器进线1
-    input      [31:0]  rs2_value,       // 寄存器进线2
-    output     [4:0]   rs1_addr,        // 寄存器地址1
-    output     [4:0]   rs2_addr,        // 寄存器地址2
-    output             id_done,         // 完成
+    input              id_valid,
+    input      [63:0]  if_id_bus_r,
+    input      [31:0]  rs1_value,
+    input      [31:0]  rs2_value,
+    output     [4:0]   rs1_addr,
+    output     [4:0]   rs2_addr,
+    output             id_done,
     output             illegal_inst,
-    output             branch_taken,
-    output     [31:0]  branch_target,
     output             dec_is_branch,
-    output             dec_is_ctrl_flow,
-    output             dec_is_jal_like,
     output             dec_need_exe,
-    output     [223:0] id_exe_bus,      // 输出总线
+    output     [259:0] id_exe_bus,
 
-    // display用
     output     [31:0]  id_pc,
     output     [31:0]  id_inst
   );
-  // op码列举
   localparam OPCODE_LUI    = 7'b0110111;
   localparam OPCODE_AUIPC  = 7'b0010111;
   localparam OPCODE_JAL    = 7'b1101111;
@@ -33,7 +27,7 @@ module cpu_decode(
   localparam OPCODE_OP     = 7'b0110011;
 
   wire [31:0] pc;
-  wire [31:0] inst;   // 指令源码
+  wire [31:0] inst;
   assign {pc, inst} = if_id_bus_r;
 
   wire [6:0] opcode;
@@ -63,7 +57,6 @@ module cpu_decode(
                .immJ(imm_j)
              );
 
-  // 确定具体是什么指令
   wire inst_lui;
   wire inst_auipc;
   wire inst_jal;
@@ -145,7 +138,6 @@ module cpu_decode(
   assign inst_or   = (opcode == OPCODE_OP) && (funct3 == 3'b110) && (funct7 == 7'b0000000);
   assign inst_and  = (opcode == OPCODE_OP) && (funct3 == 3'b111) && (funct7 == 7'b0000000);
 
-  // 确定指令类型
   wire is_branch;
   wire is_load;
   wire is_store;
@@ -161,34 +153,36 @@ module cpu_decode(
          inst_add | inst_sub | inst_sll | inst_slt | inst_sltu | inst_xor | inst_srl | inst_sra | inst_or | inst_and;
 
   wire use_fixed_wb;
-  assign use_fixed_wb = inst_lui | is_jal_like;
+  assign use_fixed_wb = inst_lui;
 
-  wire valid_inst;  // 指令类型合法
+  wire valid_inst;
   assign valid_inst = is_branch | is_load | is_store | is_jal_like | is_alu;
 
   wire [31:0] alu_src1;
   wire [31:0] alu_src2;
-  wire shift_op_r;    // 是寄存器位移指令
-  wire shift_op_i;    // 是立即数位移指令
+  wire shift_op_r;
+  wire shift_op_i;
 
   assign shift_op_r = inst_sll | inst_srl | inst_sra;
   assign shift_op_i = inst_slli | inst_srli | inst_srai;
-  // 确定操作数
-  assign alu_src1 = shift_op_r ? {27'b0, rs2_value[4:0]} :  // rs2低五位-移位量
+  assign alu_src1 = shift_op_r ? {27'b0, rs2_value[4:0]} :
          (shift_op_r | shift_op_i) ? rs1_value :
-         (inst_auipc) ? pc :
+         (inst_auipc | inst_jal | is_branch) ? pc :
+         inst_jalr ? rs1_value :
          rs1_value;
   assign alu_src2 = (inst_lui | inst_auipc) ? imm_u :
+         inst_jal ? imm_j :
+         inst_jalr ? imm_i :
+         is_branch ? imm_b :
          (inst_addi | inst_slti | inst_sltiu | inst_xori | inst_ori | inst_andi) ? imm_i :
-         shift_op_i ? {27'b0, inst[24:20]} :     // 从指令中取位移量
+         shift_op_i ? {27'b0, inst[24:20]} :
          (is_load) ? imm_i :
          (is_store) ? imm_s :
          rs2_value;
 
-  // 确定ALU操作码
   wire [15:0] alu_control;
   assign alu_control = inst_lui ? 16'b0000_0000_0000_0010 :
-         (inst_add | inst_addi | inst_auipc | is_load | is_store) ? 16'b0001_0000_0000_0000 :
+         (inst_add | inst_addi | inst_auipc | is_load | is_store | inst_jal | inst_jalr | is_branch) ? 16'b0001_0000_0000_0000 :
          inst_sub ? 16'b0000_1000_0000_0000 :
          (inst_slt | inst_slti) ? 16'b0000_0100_0000_0000 :
          (inst_sltu | inst_sltiu) ? 16'b0000_0010_0000_0000 :
@@ -199,54 +193,30 @@ module cpu_decode(
          (inst_srl | inst_srli) ? 16'b0000_0000_0000_1000 :
          (inst_sra | inst_srai) ? 16'b0000_0000_0000_0100 :
          16'b0;
-  //大小判断
-  wire rs1_eq_rs2;
-  wire rs1_lt_rs2_s;
-  wire rs1_lt_rs2_u;
-  assign rs1_eq_rs2 = (rs1_value == rs2_value);
-  assign rs1_lt_rs2_s = ($signed(rs1_value) < $signed(rs2_value));
-  assign rs1_lt_rs2_u = (rs1_value < rs2_value);
-  //
-  wire branch_cond_true;
-  assign branch_cond_true = (inst_beq  && rs1_eq_rs2) |
-         (inst_bne  && !rs1_eq_rs2) |
-         (inst_blt  && rs1_lt_rs2_s) |
-         (inst_bge  && !rs1_lt_rs2_s) |
-         (inst_bltu && rs1_lt_rs2_u) |
-         (inst_bgeu && !rs1_lt_rs2_u);
 
-  wire [31:0] jalr_target;
-  assign jalr_target = (rs1_value + imm_i) & 32'hffff_fffe;
-
-  assign branch_taken = id_valid && valid_inst && (is_branch || is_jal_like) && (inst_jal || inst_jalr || branch_cond_true);
-  assign branch_target = inst_jal ? (pc + imm_j) :
-         inst_jalr ? jalr_target :
-         (pc + imm_b);
-
-  wire wb_we;   // 是否需要回写
-  assign wb_we = valid_inst && (is_alu | is_load | use_fixed_wb);
+  wire wb_we;
+  assign wb_we = valid_inst && (is_alu | is_load | is_jal_like);
 
   wire [2:0] mem_size;
   assign mem_size = (inst_lb | inst_lbu | inst_sb) ? 3'b000 :
          (inst_lh | inst_lhu | inst_sh) ? 3'b001 :
          3'b010;
 
-  wire mem_unsigned;  // 是否无符号访存
+  wire mem_unsigned;
   assign mem_unsigned = inst_lbu | inst_lhu;
 
   wire [31:0] wb_fixed_data;
-  assign wb_fixed_data = inst_lui ? imm_u :
-         is_jal_like ? (pc + 32'd4) :
-         32'b0;
+  assign wb_fixed_data = inst_lui ? imm_u : 32'b0;
+
+  wire [2:0] branch_funct3;
+  assign branch_funct3 = is_branch ? funct3 : 3'b0;
 
   assign id_done = id_valid;
   assign illegal_inst = id_valid && !valid_inst;
   assign rs1_addr = rs1;
   assign rs2_addr = rs2;
   assign dec_is_branch = id_valid && valid_inst && is_branch;
-  assign dec_is_ctrl_flow = id_valid && valid_inst && (is_branch | is_jal_like);
-  assign dec_is_jal_like = id_valid && valid_inst && is_jal_like;
-  assign dec_need_exe = id_valid && valid_inst && !is_branch;
+  assign dec_need_exe = id_valid && valid_inst;
 
   assign id_exe_bus = {
            valid_inst,
@@ -254,6 +224,7 @@ module cpu_decode(
            is_load,
            is_store,
            is_jal_like,
+           is_branch,
            use_fixed_wb,
            wb_we,
            rd,
@@ -263,7 +234,9 @@ module cpu_decode(
            alu_control,
            alu_src1,
            alu_src2,
+           rs1_value,
            rs2_value,
+           branch_funct3,
            pc,
            inst
          };

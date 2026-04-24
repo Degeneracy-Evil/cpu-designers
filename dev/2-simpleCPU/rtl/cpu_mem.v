@@ -5,14 +5,14 @@ module cpu_mem(
     input              clk,
     input              reset,
     input              mem_valid,
-    input      [140:0] exe_mem_bus_r,
+    input      [141:0] exe_mem_bus_r,
     output             dcache_en,
     output     [0:0]   dcache_we,
     output     [10:0]  dcache_addr,
     output     [31:0]  dcache_wdata,
     input      [31:0]  dcache_rdata,
     output             mem_done,
-    output     [101:0] mem_wb_bus,
+    output     [102:0] mem_wb_bus,
 
     // display使用
     output     [31:0]  mem_pc,
@@ -25,6 +25,7 @@ module cpu_mem(
     localparam MEM_WRITE_COMMIT = 2'd3;
 
     wire valid_inst;
+    wire is_jal_like;
     wire is_load;
     wire is_store;
     wire wb_we;
@@ -38,6 +39,7 @@ module cpu_mem(
 
     assign {
         valid_inst,
+        is_jal_like,
         is_load,
         is_store,
         wb_we,
@@ -194,7 +196,7 @@ module cpu_mem(
     assign dcache_wdata = wdata_reg;
 
     assign mem_done = done_reg;
-    assign mem_wb_bus = {wb_we_reg, wb_rd_reg, wb_data_reg, pc, inst};
+    assign mem_wb_bus = {is_jal_like, wb_we_reg, wb_rd_reg, wb_data_reg, pc, inst};
     assign mem_pc = pc;
     assign mem_inst = inst;
 

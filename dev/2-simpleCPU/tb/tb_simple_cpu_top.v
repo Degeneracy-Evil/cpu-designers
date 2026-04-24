@@ -91,7 +91,7 @@ module tb_simple_cpu_top;
         repeat (5) @(posedge clk);
         reset = 1'b0;
 
-        repeat (1000) @(posedge clk);
+        repeat (1500) @(posedge clk);
 
         check_reg(5'd1,  32'd5);
         check_reg(5'd2,  32'd77);

@@ -4,6 +4,7 @@ module uart_top
 (
     input  wire         clk,
     input  wire         reset,
+    input  wire [15:0]  i_clkCnt_16,
     input  wire         i_cs_1,
     input  wire         i_rw_1,
     input  wire [31:0]  i_addr_32,
@@ -106,24 +107,20 @@ module uart_top
 
     assign o_rxDataValid_1 = rx_data_valid;
 
-    uart_rx #(
-        .CLK_FRE(25),
-        .BAUD_RATE(115200)
-    ) uart_rx_inst (
+    uart_rx uart_rx_inst (
         .clk              (clk),
         .reset            (reset),
+        .i_clkCnt_16      (i_clkCnt_16),
         .o_rxData_8       (rx_data),
         .o_rxDataValid_1  (rx_data_valid),
         .i_rxDataReady_1  (uart_ctrl[1]),
         .i_rxPin_1        (i_rx_1)
     );
 
-    uart_tx #(
-        .CLK_FRE(25),
-        .BAUD_RATE(115200)
-    ) uart_tx_inst (
+    uart_tx uart_tx_inst (
         .clk              (clk),
         .reset            (reset),
+        .i_clkCnt_16      (i_clkCnt_16),
         .i_txData_8       (uart_tx[7:0]),
         .i_txDataValid_1  (r_tx_start),
         .o_txDataReady_1  (tx_data_ready),

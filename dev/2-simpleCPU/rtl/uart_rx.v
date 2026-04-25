@@ -1,20 +1,15 @@
 `timescale 1ns / 1ps
 
 module uart_rx
-#(
-    parameter CLK_FRE = 25,
-    parameter BAUD_RATE = 115200
-)
 (
     input                        clk,
     input                        reset,
+    input       [15:0]           i_clkCnt_16,
     output reg [7:0]             o_rxData_8,
     output reg                   o_rxDataValid_1,
     input                        i_rxDataReady_1,
     input                        i_rxPin_1
 );
-
-    localparam CYCLE = CLK_FRE * 1000000 / BAUD_RATE;
 
     localparam S_IDLE     = 1;
     localparam S_START    = 2;
@@ -58,17 +53,17 @@ module uart_rx
                 else
                     next_state = S_IDLE;
             S_START:
-                if ($unsigned(cycle_cnt) == CYCLE - 1)
+                if (cycle_cnt == i_clkCnt_16 - 1)
                     next_state = S_REC_BYTE;
                 else
                     next_state = S_START;
             S_REC_BYTE:
-                if ($unsigned(cycle_cnt) == CYCLE - 1 && bit_cnt == 3'd7)
+                if (cycle_cnt == i_clkCnt_16 - 1 && bit_cnt == 3'd7)
                     next_state = S_STOP;
                 else
                     next_state = S_REC_BYTE;
             S_STOP:
-                if ($unsigned(cycle_cnt) == CYCLE / 2 - 1)
+                if (cycle_cnt == ({1'b0, i_clkCnt_16[15:1]} - 1))
                     next_state = S_DATA;
                 else
                     next_state = S_STOP;
@@ -104,7 +99,7 @@ module uart_rx
         if (reset) begin
             bit_cnt <= 3'd0;
         end else if (state == S_REC_BYTE) begin
-            if ($unsigned(cycle_cnt) == CYCLE - 1)
+            if (cycle_cnt == i_clkCnt_16 - 1)
                 bit_cnt <= bit_cnt + 3'd1;
         end else begin
             bit_cnt <= 3'd0;
@@ -114,7 +109,7 @@ module uart_rx
     always @(posedge clk or posedge reset) begin
         if (reset) begin
             cycle_cnt <= 16'd0;
-        end else if ((state == S_REC_BYTE && $unsigned(cycle_cnt) == CYCLE - 1) || next_state != state) begin
+        end else if ((state == S_REC_BYTE && cycle_cnt == i_clkCnt_16 - 1) || next_state != state) begin
             cycle_cnt <= 16'd0;
         end else begin
             cycle_cnt <= cycle_cnt + 16'd1;
@@ -124,7 +119,7 @@ module uart_rx
     always @(posedge clk or posedge reset) begin
         if (reset) begin
             rx_bits <= 8'd0;
-        end else if (state == S_REC_BYTE && $unsigned(cycle_cnt) == CYCLE / 2 - 1) begin
+        end else if (state == S_REC_BYTE && cycle_cnt == {1'b0, i_clkCnt_16[15:1]} - 1) begin
             rx_bits[bit_cnt] <= i_rxPin_1;
         end
     end

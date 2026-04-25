@@ -5,9 +5,7 @@ module simple_cpu_top(
     input         reset,
 
     input  [4:0]  rf_addr,
-    input  [31:0] mem_addr,
     output [31:0] rf_data,
-    output [31:0] mem_data,
     output [31:0] if_pc,
     output [31:0] if_inst,
     output [31:0] id_pc,
@@ -20,8 +18,15 @@ module simple_cpu_top(
     output [31:0] wb_inst,
     output [31:0] display_state,
 
-    input         uart_rx_pin,
-    output        uart_tx_pin
+    output [31:0] instAddr_32,
+    input  [31:0] instData_32,
+    output [3:0]  dataWen_4,
+    output [31:0] dataAddr_32,
+    output [31:0] writeData_32,
+    input  [31:0] readData_32,
+    output        data_req,
+    input         init_sig,
+    input         timer_irq
 );
 
     reg [31:0] pc;
@@ -69,15 +74,7 @@ module simple_cpu_top(
     reg [206:0] exe_mem_bus_r;
     reg [167:0] mem_wb_bus_r;
 
-    wire icache_en;
-    wire [10:0] icache_addr;
-    wire [31:0] icache_dout;
-
-    wire dcache_en;
-    wire [0:0] dcache_we;
-    wire [10:0] dcache_addr;
-    wire [31:0] dcache_wdata;
-    wire [31:0] dcache_rdata;
+    wire mem_en;
 
     wire [4:0] rs1_addr;
     wire [4:0] rs2_addr;
@@ -192,13 +189,6 @@ module simple_cpu_top(
     wire trap_pending;
     assign trap_pending = clint_trap_enter && !exception_valid_r;
 
-    localparam CLK_FRE   = 25;
-    localparam BAUD_RATE = 115200;
-    localparam [15:0] UART_CLK_CNT = CLK_FRE * 1000000 / BAUD_RATE;
-
-    wire uart_rx_valid;
-    wire [31:0] uart_read_data;
-
     wire [11:0] csr_sw_addr;
     wire csr_sw_wen;
     wire [31:0] csr_sw_wdata;
@@ -302,6 +292,7 @@ module simple_cpu_top(
         .exe_is_branch(exe_is_branch),
         .trap_pending(trap_pending),
         .exception_at_decode(exception_at_decode),
+        .init_sig(init_sig),
         .if_valid(if_valid),
         .id_valid(id_valid),
         .exe_valid(exe_valid),
@@ -314,11 +305,13 @@ module simple_cpu_top(
     );
 
     cpu_fetch u_fetch(
+        .clk(clk),
+        .reset(reset),
         .if_valid(if_valid),
+        .init_sig(init_sig),
         .pc(pc),
-        .inst_data(icache_dout),
-        .icache_en(icache_en),
-        .icache_addr(icache_addr),
+        .instData_32(instData_32),
+        .instAddr_32(instAddr_32),
         .if_done(if_done),
         .if_id_bus(if_id_bus),
         .if_pc(if_pc),
@@ -374,11 +367,11 @@ module simple_cpu_top(
         .reset(reset),
         .mem_valid(mem_valid),
         .exe_mem_bus_r(exe_mem_bus_r),
-        .dcache_en(dcache_en),
-        .dcache_we(dcache_we),
-        .dcache_addr(dcache_addr),
-        .dcache_wdata(dcache_wdata),
-        .dcache_rdata(dcache_rdata),
+        .mem_en(mem_en),
+        .dataWen_4(dataWen_4),
+        .dataAddr_32(dataAddr_32),
+        .writeData_32(writeData_32),
+        .readData_32(readData_32),
         .mem_done(mem_done),
         .mem_wb_bus(mem_wb_bus),
         .mem_pc(mem_pc),
@@ -428,7 +421,7 @@ module simple_cpu_top(
         .hw_mcause_wdata(hw_mcause_wdata),
         .hw_mtval_wdata(hw_mtval_wdata),
         .hw_mstatus_wdata(hw_mstatus_wdata),
-        .ext_meip(uart_rx_valid),
+        .ext_meip(timer_irq),
         .ext_msip(1'b0),
         .csr_mstatus(csr_mstatus),
         .csr_mie(csr_mie),
@@ -465,49 +458,7 @@ module simple_cpu_top(
 
     assign hw_csr_wen = trap_enter_valid || trap_return_valid;
 
-    icache u_icache(
-        .clka(clk),
-        .ena(icache_en),
-        .wea(1'b0),
-        .addra(icache_addr),
-        .dina(32'b0),
-        .douta(icache_dout),
-        .clkb(clk),
-        .enb(1'b0),
-        .web(1'b0),
-        .addrb(11'b0),
-        .dinb(32'b0),
-        .doutb()
-    );
-
-    dcache u_dcache(
-        .clka(clk),
-        .ena(dcache_en),
-        .wea(dcache_we),
-        .addra(dcache_addr),
-        .dina(dcache_wdata),
-        .douta(dcache_rdata),
-        .clkb(clk),
-        .enb(1'b1),
-        .web(1'b0),
-        .addrb(mem_addr[12:2]),
-        .dinb(32'b0),
-        .doutb(mem_data)
-    );
-
-    uart_top u_uart(
-        .clk(clk),
-        .reset(reset),
-        .i_clkCnt_16(UART_CLK_CNT),
-        .i_cs_1(1'b1),
-        .i_rw_1(1'b0),
-        .i_addr_32(32'h0),
-        .i_wrData_32(32'b0),
-        .i_rx_1(uart_rx_pin),
-        .o_rdData_32(uart_read_data),
-        .o_rxDataValid_1(uart_rx_valid),
-        .o_tx_1(uart_tx_pin)
-    );
+    assign data_req = mem_en;
 
     assign display_state = {28'b0, fsm_state};
 

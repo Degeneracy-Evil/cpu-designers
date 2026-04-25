@@ -20,7 +20,16 @@ module tb_csr_test;
     wire [31:0] wb_pc;
     wire [31:0] wb_inst;
     wire [31:0] display_state;
-    wire uart_tx_pin;
+
+    wire [31:0] instAddr_32;
+    wire [31:0] instData_32;
+    wire [3:0]  dataWen_4;
+    wire [31:0] dataAddr_32;
+    wire [31:0] writeData_32;
+    wire [31:0] readData_32;
+    wire        data_req;
+    wire        init_sig;
+    wire        timer_irq;
 
     integer pass_count;
     integer fail_count;
@@ -40,9 +49,7 @@ module tb_csr_test;
         .clk(clk),
         .reset(reset),
         .rf_addr(rf_addr),
-        .mem_addr(mem_addr),
         .rf_data(rf_data),
-        .mem_data(mem_data),
         .if_pc(if_pc),
         .if_inst(if_inst),
         .id_pc(id_pc),
@@ -54,8 +61,31 @@ module tb_csr_test;
         .wb_pc(wb_pc),
         .wb_inst(wb_inst),
         .display_state(display_state),
-        .uart_rx_pin(1'b0),
-        .uart_tx_pin(uart_tx_pin)
+        .instAddr_32(instAddr_32),
+        .instData_32(instData_32),
+        .dataWen_4(dataWen_4),
+        .dataAddr_32(dataAddr_32),
+        .writeData_32(writeData_32),
+        .readData_32(readData_32),
+        .data_req(data_req),
+        .init_sig(init_sig),
+        .timer_irq(timer_irq)
+    );
+
+    bus4lzu_mock u_bus_mock(
+        .clk(clk),
+        .reset(reset),
+        .instAddr_32(instAddr_32),
+        .instData_32(instData_32),
+        .data_req(data_req),
+        .dataWen_4(dataWen_4),
+        .dataAddr_32(dataAddr_32),
+        .writeData_32(writeData_32),
+        .readData_32(readData_32),
+        .init_sig(init_sig),
+        .timer_irq(timer_irq),
+        .dbg_mem_addr(mem_addr),
+        .dbg_mem_data(mem_data)
     );
 
     initial begin

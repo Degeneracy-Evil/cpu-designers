@@ -19,6 +19,7 @@ module cpu_controller(
     input        exe_is_branch,
     input        trap_pending,
     input        exception_at_decode,
+    input        init_sig,
     output       if_valid,
     output       id_valid,
     output       exe_valid,
@@ -57,74 +58,78 @@ module cpu_controller(
                                   (state_r == STATE_EXEC && exe_done && exe_is_branch);
 
     always @(*) begin
-        case (state_r)
-            STATE_IDLE: begin
-                next_state = STATE_FETCH;
-            end
-            STATE_FETCH: begin
-                next_state = if_done ? STATE_DECODE : STATE_FETCH;
-            end
-            STATE_DECODE: begin
-                if (!id_done) begin
-                    next_state = STATE_DECODE;
-                end else if (exception_at_decode) begin
-                    next_state = STATE_TRAP_ENTER;
-                end else if (dec_is_mret) begin
-                    next_state = STATE_TRAP_RETURN;
-                end else if (dec_is_fence) begin
+        if (init_sig) begin
+            next_state = STATE_IDLE;
+        end else begin
+            case (state_r)
+                STATE_IDLE: begin
                     next_state = STATE_FETCH;
-                end else if (dec_is_csr) begin
-                    next_state = STATE_CSR_ACCESS;
-                end else if (!dec_need_exe) begin
-                    next_state = STATE_FETCH;
-                end else if (dec_is_branch) begin
-                    next_state = STATE_EXEC;
-                end else begin
-                    next_state = STATE_EXEC;
                 end
-            end
-            STATE_EXEC: begin
-                if (!exe_done) begin
-                    next_state = STATE_EXEC;
-                end else if (exe_is_branch) begin
-                    next_state = trap_pending ? STATE_TRAP_ENTER : STATE_FETCH;
-                end else begin
-                    next_state = STATE_MEM;
+                STATE_FETCH: begin
+                    next_state = if_done ? STATE_DECODE : STATE_FETCH;
                 end
-            end
-            STATE_MEM: begin
-                next_state = mem_done ? STATE_WB : STATE_MEM;
-            end
-            STATE_WB: begin
-                if (wb_done) begin
-                    next_state = trap_pending ? STATE_TRAP_ENTER : STATE_FETCH;
-                end else begin
+                STATE_DECODE: begin
+                    if (!id_done) begin
+                        next_state = STATE_DECODE;
+                    end else if (exception_at_decode) begin
+                        next_state = STATE_TRAP_ENTER;
+                    end else if (dec_is_mret) begin
+                        next_state = STATE_TRAP_RETURN;
+                    end else if (dec_is_fence) begin
+                        next_state = STATE_FETCH;
+                    end else if (dec_is_csr) begin
+                        next_state = STATE_CSR_ACCESS;
+                    end else if (!dec_need_exe) begin
+                        next_state = STATE_FETCH;
+                    end else if (dec_is_branch) begin
+                        next_state = STATE_EXEC;
+                    end else begin
+                        next_state = STATE_EXEC;
+                    end
+                end
+                STATE_EXEC: begin
+                    if (!exe_done) begin
+                        next_state = STATE_EXEC;
+                    end else if (exe_is_branch) begin
+                        next_state = trap_pending ? STATE_TRAP_ENTER : STATE_FETCH;
+                    end else begin
+                        next_state = STATE_MEM;
+                    end
+                end
+                STATE_MEM: begin
+                    next_state = mem_done ? STATE_WB : STATE_MEM;
+                end
+                STATE_WB: begin
+                    if (wb_done) begin
+                        next_state = trap_pending ? STATE_TRAP_ENTER : STATE_FETCH;
+                    end else begin
+                        next_state = STATE_WB;
+                    end
+                end
+                STATE_CSR_ACCESS: begin
                     next_state = STATE_WB;
                 end
-            end
-            STATE_CSR_ACCESS: begin
-                next_state = STATE_WB;
-            end
-            STATE_TRAP_ENTER: begin
-                next_state = STATE_FETCH;
-            end
-            STATE_TRAP_RETURN: begin
-                next_state = STATE_FETCH;
-            end
-            default: begin
-                next_state = STATE_IDLE;
-            end
-        endcase
+                STATE_TRAP_ENTER: begin
+                    next_state = STATE_FETCH;
+                end
+                STATE_TRAP_RETURN: begin
+                    next_state = STATE_FETCH;
+                end
+                default: begin
+                    next_state = STATE_IDLE;
+                end
+            endcase
+        end
     end
 
-    assign if_valid         = (state_r == STATE_FETCH);
-    assign id_valid         = (state_r == STATE_DECODE);
-    assign exe_valid        = (state_r == STATE_EXEC);
-    assign mem_valid        = (state_r == STATE_MEM);
-    assign wb_valid         = (state_r == STATE_WB);
-    assign csr_valid        = (state_r == STATE_CSR_ACCESS);
-    assign trap_enter_valid = (state_r == STATE_TRAP_ENTER);
-    assign trap_return_valid= (state_r == STATE_TRAP_RETURN);
+    assign if_valid         = (state_r == STATE_FETCH) && !init_sig;
+    assign id_valid         = (state_r == STATE_DECODE) && !init_sig;
+    assign exe_valid        = (state_r == STATE_EXEC) && !init_sig;
+    assign mem_valid        = (state_r == STATE_MEM) && !init_sig;
+    assign wb_valid         = (state_r == STATE_WB) && !init_sig;
+    assign csr_valid        = (state_r == STATE_CSR_ACCESS) && !init_sig;
+    assign trap_enter_valid = (state_r == STATE_TRAP_ENTER) && !init_sig;
+    assign trap_return_valid= (state_r == STATE_TRAP_RETURN) && !init_sig;
     assign state = state_r;
 
 endmodule

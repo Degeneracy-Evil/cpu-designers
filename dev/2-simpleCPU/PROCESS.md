@@ -1,4 +1,4 @@
-# 中断与CSR实现进度
+# simpleCPU 开发进度（busip分支）
 
 ## 状态说明
 - [ ] 未开始
@@ -6,7 +6,9 @@
 - [x] 已完成
 - [!] 有问题
 
-## 进度
+---
+
+## 历史进度：中断与CSR实现（已完成）
 
 - [x] 1. 新建 rtl/cpu_csr.v — CSR寄存器模块
 - [x] 2. 新建 rtl/cpu_clint.v — 异常/中断控制模块
@@ -23,6 +25,76 @@
 - [x] 13. 异常处理测试（ECALL/EBREAK/非法指令 → trap进入/返回）
 - [ ] 14. 中断测试（UART RX触发MEIP → 中断进入/返回）
 - [x] 15. MRET测试（mepc恢复PC，mstatus恢复MIE）
+
+---
+
+## 当前进度：接入 Bus4LZU 总线器件
+
+- [x] 1. `cpu_fetch.v` — 1周期延迟取指 + `init_sig` 冻结
+- [x] 2. `cpu_mem.v` — 字节掩码 store + 1周期延迟 load + 移除 read-modify-write
+- [x] 3. `cpu_controller.v` — `init_sig` 门控所有状态转移与 valid 输出
+- [x] 4. `simple_cpu_top.v` — 移除 icache/dcache/uart，新增总线接口，切换中断源
+- [x] 5. `bus4lzu_mock.v` — 简化 BRAM + init_sig 模拟 + Timer mock + 地址解码
+- [x] 6. `tb_simple_cpu_top.v` — 接入 mock 总线，调整 init_sig 时序，保留现有检查
+- [x] 7. 回归测试：原有33项 + CSR 异常测试全部 PASS
+- [ ] 8. 新增测试：Timer 中断触发/进入/返回 PASS
+- [ ] 9. 新增测试：字节/半字 store/load 对齐 PASS
+- [ ] 10. 与真实 Bus4LZU IP 顶层对接验证（可选，需 Vivado 环境）
+
+---
+
+### busip Step2-7 变更记录（2026-04-25）
+
+**Phase 2 — cpu_mem.v 改造**：
+- 移除 read-modify-write 三阶段（MEM_WRITE_MODIFY/MEM_WRITE_COMMIT），改为直接字节掩码写入（MEM_WRITE）
+- 新增 `dataWen_4[3:0]`/`dataAddr_32[31:0]`/`writeData_32[31:0]`/`mem_en` 输出端口
+- 移除 `dcache_en`/`dcache_we`/`dcache_addr`/`dcache_wdata` 端口
+- Load 1周期延迟：MEM_IDLE 发地址 → MEM_READ 取数据 → done
+
+**Phase 3 — cpu_controller.v 改造**：
+- 新增 `init_sig` 输入端口
+- 所有状态转移门控：`if(init_sig) next_state = STATE_IDLE`
+- 所有 `*_valid` 输出门控：`&& !init_sig`
+
+**Phase 4 — simple_cpu_top.v 改造**：
+- 移除 `uart_top` 实例和内部 `icache`/`dcache` 实例
+- 新增总线接口端口：`instAddr_32`/`instData_32`/`dataWen_4`/`dataAddr_32`/`writeData_32`/`readData_32`/`data_req`/`init_sig`/`timer_irq`
+- MEIP 中断源从 `uart_rx_valid` 切换为 `timer_irq`
+- `init_sig` 连接到 fetch 和 controller
+
+**Phase 5 — bus4lzu_mock.v**：
+- 新建外部 mock：组合读（0延迟），`data_req` 门控写
+- `init_sig`：复位后100周期高电平
+- `timer_irq`：Timer mock（counter+threshold，地址 0x10010000/4）
+
+**Phase 6 — testbench 适配**：
+- `tb_simple_cpu_top.v`/`tb_csr_test.v`：外部实例化 bus4lzu_mock，连接总线信号
+
+**Bug fix — store 指令误写寄存器**：
+- 根因：原 `MEM_WRITE_COMMIT` 状态清除 `wb_we_reg<=0`/`wb_data_reg<=0`，新 `MEM_WRITE` 状态遗漏此清除
+- 结果：store 指令（如 `sh x2,6(x0)`）的 `wb_we_reg` 保持为1，WB 阶段误写 x6
+- 修复：`MEM_WRITE` 状态增加 `wb_we_reg<=1'b0; wb_data_reg<=32'b0;`
+
+**验证结果**：
+- 基础33项测试全部 PASS
+- CSR 20项测试全部 PASS
+
+### busip Step1 变更记录（2026-04-25）
+
+**改造内容**：
+- `cpu_fetch.v`：由纯组合逻辑改为时序逻辑，引入 `clk`/`reset`/`init_sig` 输入
+- 移除 `icache_en`/`icache_addr` 输出，改为 `instAddr_32[31:0]`（=PC）
+- 输入由 `inst_data` 改为 `instData_32[31:0]`，适配1周期总线读延迟
+- 内部 `r_wait` 寄存器：if_valid 持续期间每周期翻转，实现“第1周期发地址，第2周期得指令”
+- `init_sig=1` 时强制 `r_wait=0`，`if_done` 永不为1，冻结取指
+- `simple_cpu_top.v`：更新 `u_fetch` 实例化，补充 `assign icache_en = if_valid` / `assign icache_addr = pc[12:2]` 驱动原有 icache
+
+**验证结果**：
+- 编译通过
+- 原有33项基础测试全部 PASS
+- CSR 专项20项测试全部 PASS
+
+---
 
 ## 变更记录
 
@@ -83,3 +155,8 @@
 - cpu_mem.v：地址未对齐异常检测，is_csr和csr_rdata透传
 - cpu_wb.v：is_csr时用csr_rdata写回rd
 - simple_cpu_top.v：实例化cpu_csr/cpu_clint/uart_top，PC trap跳转，异常信号汇聚，CSR软件写通路
+
+### busip 分支：总线接入计划启动
+
+- 基于已完成的 CSR/中断/异常全功能实现，启动 Bus4LZU 总线控制器接入
+- 设计决策：1周期延迟取指、4位字节写掩码、32位字节地址、init_sig 暂停控制、Timer 中断替换 MEIP

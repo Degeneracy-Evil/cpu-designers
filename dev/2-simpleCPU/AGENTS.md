@@ -1,16 +1,10 @@
-# 简单CPU中断扩展
+# simpleCPU 接入 Bus4LZU 总线器件计划（busip分支）
 
-目标：在当前基础CPU上实现中断以及CSR 寄存器
+目标：在当前基础CPU上适配busip
 
-参考dev/2-simpleCPU/doc/exception-interrupt.md
+参考当前目录下PLAN.md
 
-## 指令定义
-
-查看instruction-set.md中`ecall,ebreak`以及`csr`系列指令
-
-## 状态机定义
-
-在一个指令执行完毕进入下一次fetch之前，加入中断检测执行状态，进行中断检测执行
+注意需要PROCESS.md记录进度
 
 ## 附：资源
 

@@ -107,7 +107,7 @@ module uart_top
 
     assign o_rxDataValid_1 = rx_data_valid;
 
-    uart_rx uart_rx_inst (
+    simple_uart_rx uart_rx_inst (
         .clk              (clk),
         .reset            (reset),
         .i_clkCnt_16      (i_clkCnt_16),
@@ -117,7 +117,7 @@ module uart_top
         .i_rxPin_1        (i_rx_1)
     );
 
-    uart_tx uart_tx_inst (
+    simple_uart_tx uart_tx_inst (
         .clk              (clk),
         .reset            (reset),
         .i_clkCnt_16      (i_clkCnt_16),

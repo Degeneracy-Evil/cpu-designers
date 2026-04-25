@@ -1,6 +1,6 @@
 `timescale 1ns / 1ps
 
-module uart_rx
+module simple_uart_rx
 (
     input                        clk,
     input                        reset,

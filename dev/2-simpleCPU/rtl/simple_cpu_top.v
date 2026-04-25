@@ -192,6 +192,10 @@ module simple_cpu_top(
     wire trap_pending;
     assign trap_pending = clint_trap_enter && !exception_valid_r;
 
+    localparam CLK_FRE   = 25;
+    localparam BAUD_RATE = 115200;
+    localparam [15:0] UART_CLK_CNT = CLK_FRE * 1000000 / BAUD_RATE;
+
     wire uart_rx_valid;
     wire [31:0] uart_read_data;
 
@@ -494,6 +498,7 @@ module simple_cpu_top(
     uart_top u_uart(
         .clk(clk),
         .reset(reset),
+        .i_clkCnt_16(UART_CLK_CNT),
         .i_cs_1(1'b1),
         .i_rw_1(1'b0),
         .i_addr_32(32'h0),

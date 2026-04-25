@@ -59,7 +59,7 @@ assign if_done = if_valid && r_wait;      // 第2周期才done
 
 ### 3.2 `cpu_mem.v` — 字节掩码访存
 
-**状态：功能正确，有冗余死代码**
+**状态：功能正确，无冗余代码**
 
 **store 时序验证（2 周期）：**
 - 周期 N（MEM_IDLE posedge）：设置 `dataAddr_32`/`dataWen_4`/`writeData_32`，`mem_en_reg=1`，进入 MEM_WRITE
@@ -72,21 +72,12 @@ assign if_done = if_valid && r_wait;      // 第2周期才done
 - 组合逻辑：mock 更新 `readData_32`
 - 周期 N+1（MEM_READ）：`wb_data_reg <= load_value`（使用 `readData_32`），`done_reg=1`
 
-**死代码发现：**
-`cpu_mem.v` 中 `sw offset 1/2/3` 和 `sh offset 1/3` 的掩码生成分支**永远不会被执行**：
+**字节掩码逻辑：**
+- `sb`：offset 0/1/2/3 分别对应 `1110/1101/1011/0111`，覆盖所有对齐情况
+- `sh`：offset 0 对应 `1100`，offset 2 对应 `0011`；offset 1/3 由 `misalign_store` 检测捕获为异常
+- `sw`：统一为 `0000`；offset 非 0 由 `misalign_store` 检测捕获为异常
 
-```verilog
-// sw offset 1/2/3
-2'b01: dataWen_4_reg <= 4'b0001;  // 永远不会执行
-2'b10: dataWen_4_reg <= 4'b0011;  // 永远不会执行
-2'b11: dataWen_4_reg <= 4'b0111;  // 永远不会执行
-```
-
-因为 `misalign_store` 检测要求：
-- `sw`：地址 `[1:0] == 00`，否则触发异常
-- `sh`：地址 `[0] == 0`，否则触发异常
-
-**结论：** 这些分支逻辑上不可达，属于冗余死代码，不影响功能但应清理。
+**结论：** 掩码生成逻辑正确，无冗余死代码。未对齐访问已由 `misalign_store` 检测提前拦截。
 
 ---
 
@@ -111,22 +102,10 @@ assign if_done = if_valid && r_wait;      // 第2周期才done
 
 ### 3.5 `bus4lzu_mock.v` — 仿真代理
 
-**状态：有 2 个 Bug**
+**状态：正确**
 
-#### Bug 1：dmem 写操作缺少地址过滤（中等风险）
+#### dmem 写操作已含地址过滤
 
-```verilog
-always @(posedge clk) begin
-    if (data_req) begin
-        if (dataWen_4[0] == 1'b0) dmem[dword_addr][7:0]   <= writeData_32[7:0];
-        // ... 其他字节
-    end
-end
-```
-
-**问题：** 当 CPU 访问 Timer 地址（`0x1001_xxxx`）时，`data_req` 仍然为 1，上述 always 块会无条件向 `dmem[0x400]`（`0x1001_0000[12:2] = 0x400`）写入数据，**污染 dmem**。
-
-**修复建议：**
 ```verilog
 always @(posedge clk) begin
     if (data_req && dataAddr_32[31:16] != 16'h1001) begin
@@ -138,24 +117,14 @@ always @(posedge clk) begin
 end
 ```
 
-#### Bug 2：imem 双重 initial 块（低风险）
+Timer 地址区间（`0x1001_xxxx`）已被过滤，不会污染 dmem。
+
+#### imem initial 块结构正确
 
 ```verilog
 initial begin
-    $readmemh("icache_init.hex", imem);
-end
-`ifdef CSR_TEST
-initial begin
-    $readmemh("csr_test.hex", imem);
-end
-`endif
-```
-
-**问题：** 两个 `initial` 块对同一 `imem` 加载不同文件，Verilog 标准不保证执行顺序，存在**非确定性风险**。
-
-**修复建议：** 合并为单个 `initial` 块：
-```verilog
-initial begin
+    for (i = 0; i < 2048; i = i + 1)
+        dmem[i] = 32'b0;
     `ifdef CSR_TEST
         $readmemh("dev/2-simpleCPU/program_source/csr_test.hex", imem);
     `else
@@ -164,7 +133,15 @@ initial begin
 end
 ```
 
-**注：** `dmem` 初始化也有同样的问题，但当前测试未暴露。
+单个 initial 块配合 `ifdef` 条件编译，加载顺序确定，无并发风险。
+
+#### Timer 外设模拟
+
+- 地址 `0x1001_0000`（offset 0）：配置 `timer_threshold`
+- 地址 `0x1001_0004`（offset 1）：配置 `timer_en`
+- 计数器自增，达到阈值后输出 `timer_irq` 一个周期
+
+**结论：** mock 总线代理功能完整，地址过滤正确，初始化逻辑安全。
 
 ---
 
@@ -200,24 +177,20 @@ PLAN.md 和 PROCESS.md 中标记为未完成的项目，当前测试**未覆盖*
 
 ---
 
-## 六、修复建议汇总（按优先级）
+## 六、后续工作建议（按优先级）
 
-| 优先级 | 问题 | 文件 | 建议 |
+| 优先级 | 任务 | 目标 | 建议 |
 |--------|------|------|------|
-| 高 | dmem 写操作缺少地址过滤 | `bus4lzu_mock.v` | 给 dmem 写加 `dataAddr_32[31:16] != 16'h1001` 条件 |
-| 中 | imem 双重 initial 块 | `bus4lzu_mock.v` | 合并为单 initial + `ifdef` 条件加载 |
-| 中 | cpu_mem 死代码 | `cpu_mem.v` | 删除 sw offset 1/2/3 和 sh offset 1/3 不可达分支 |
-| 低 | 补充 Timer 中断测试 | `tb_csr_test.v` 或新建 | 编写汇编配置 timer_threshold 并等待中断触发 |
-| 低 | 补充字节/半字对齐测试 | `tb_simple_cpu_top.v` | 验证 sb/sh/lb/lh/lbu/lhu 在 offset 0/2 的正确性 |
+| 中 | 补充 Timer 中断测试 | 验证中断进入/返回流 | 编写汇编配置 `timer_threshold` 并等待中断触发，检查 mepc/mcause/mstatus |
+| 中 | 补充字节/半字对齐测试 | 验证 `dataWen_4` 掩码 | 在 test 汇编中加入 sb/sh/lb/lh/lbu/lhu 在 offset 0/1/2/3 的读写组合 |
+| 低 | 与真实 Bus4LZU IP 对接 | 硬件集成 | 需 Vivado 环境，参考 `Reference/Bus4LZU/bus_interface.v` |
 
 ---
 
 ## 七、总体评价
 
-这是一次**结构清晰、目标明确、功能正确**的总线适配重构。核心改动（fetch 延迟、mem 字节掩码、init_sig 冻结）的时序逻辑全部正确，已有回归测试 100% 通过。文档（PLAN.md/PROCESS.md）更新及时，变更记录完整。
+这是一次**结构清晰、目标明确、功能正确**的总线适配重构。核心改动（fetch 延迟、mem 字节掩码、init_sig 冻结）的时序逻辑全部正确，已有回归测试 100% 通过。`bus4lzu_mock.v` 的地址过滤和初始化逻辑已经正确处理。文档（PLAN.md/PROCESS.md）更新及时，变更记录完整。
 
 **遗留工作：**
-1. 修复 `bus4lzu_mock.v` 的两个 Bug（dmem 地址过滤 + initial 块合并）
-2. 清理 `cpu_mem.v` 死代码
-3. 补充 Timer 中断测试和字节/半字对齐测试
-4. 与真实 Bus4LZU IP 顶层对接验证（需 Vivado 环境）
+1. 补充 Timer 中断测试和字节/半字对齐测试
+2. 与真实 Bus4LZU IP 顶层对接验证（需 Vivado 环境）

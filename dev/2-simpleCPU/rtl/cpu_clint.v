@@ -39,8 +39,8 @@ module cpu_clint(
     wire interrupt_pending = mie_bit && ((meie_bit && meip_bit) || (msie_bit && msip_bit));
 
     wire [31:0] interrupt_cause;
-    assign interrupt_cause = (meie_bit && meip_bit) ? {1'b1, 23'b0, 1'b1, 7'b0} :
-                             {1'b1, 27'b0, 1'b1, 3'b0};
+    assign interrupt_cause = (meie_bit && meip_bit) ? 32'h8000000B :
+                             32'h80000003;
 
     assign trap_enter  = exception_valid || (interrupt_pending && !exception_valid);
     assign trap_return = mret_req;

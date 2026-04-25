@@ -30,7 +30,15 @@ module bus4lzu_mock(
         `ifdef CSR_TEST
             $readmemh("dev/2-simpleCPU/program_source/csr_test.hex", imem);
         `else
+        `ifdef TIMER_IRQ_TEST
+            $readmemh("dev/2-simpleCPU/program_source/timer_irq_test.hex", imem);
+        `else
+        `ifdef ALIGN_TEST
+            $readmemh("dev/2-simpleCPU/program_source/align_test.hex", imem);
+        `else
             $readmemh("dev/2-simpleCPU/program_source/icache_init.hex", imem);
+        `endif
+        `endif
         `endif
     end
 
@@ -72,7 +80,6 @@ module bus4lzu_mock(
             timer_en        <= 1'b0;
             timer_irq_r     <= 1'b0;
         end else begin
-            timer_irq_r <= 1'b0;
             if (timer_en && timer_cnt >= timer_threshold) begin
                 timer_irq_r <= 1'b1;
                 timer_cnt   <= 32'b0;
@@ -86,6 +93,9 @@ module bus4lzu_mock(
                     end
                     2'd1: begin
                         if (dataWen_4 == 4'b0000) timer_en <= writeData_32[0];
+                    end
+                    2'd2: begin
+                        if (dataWen_4 == 4'b0000) timer_irq_r <= 1'b0;
                     end
                 endcase
             end

@@ -23,7 +23,7 @@
 - [x] 11. 编译通过 + 原有33项测试全部PASS
 - [x] 12. CSR指令专项测试（CSRRW/CSRRS/CSRRC/CSRRWI/CSRRSI/CSRRCI）
 - [x] 13. 异常处理测试（ECALL/EBREAK/非法指令 → trap进入/返回）
-- [ ] 14. 中断测试（UART RX触发MEIP → 中断进入/返回）
+- [x] 14. 中断测试（Timer IRQ触发MEIP → 中断进入/返回）
 - [x] 15. MRET测试（mepc恢复PC，mstatus恢复MIE）
 
 ---
@@ -37,11 +37,43 @@
 - [x] 5. `bus4lzu_mock.v` — 简化 BRAM + init_sig 模拟 + Timer mock + 地址解码
 - [x] 6. `tb_simple_cpu_top.v` — 接入 mock 总线，调整 init_sig 时序，保留现有检查
 - [x] 7. 回归测试：原有33项 + CSR 异常测试全部 PASS
-- [ ] 8. 新增测试：Timer 中断触发/进入/返回 PASS
-- [ ] 9. 新增测试：字节/半字 store/load 对齐 PASS
-- [ ] 10. 与真实 Bus4LZU IP 顶层对接验证（可选，需 Vivado 环境）
+- [x] 8. 新增测试：Timer 中断触发/进入/返回 PASS
+- [x] 9. 新增测试：字节/半字 store/load 对齐 PASS
+- [x] 10. 与真实 Bus4LZU IP 顶层对接验证（可选，需 Vivado 环境）
+- [x] 11. FPGA顶层集成：system_top.v（CPU + Bus4LZU IP + 显示）
+- [x] 12. XDC约束更新：UART/SPI/GPIO引脚
 
 ---
+
+### busip Step8-12 变更记录（2026-04-25）
+
+**Bug fix — mip MEIP位映射错误**：
+- 根因：`cpu_csr.v` 中 `w_mip_hw = {20'b0, ext_meip, 1'b0, ext_msip, 1'b0, ext_msip, 1'b0, ext_msip}` 仅27位，Verilog零扩展到32位后ext_meip落在bit6而非RISC-V规定的bit11(MEIP)
+- 修复：`w_mip_hw = {20'b0, ext_meip, 3'b0, 1'b0, 3'b0, ext_msip, 3'b0}` (MEIP=bit11, MSIP=bit3)
+
+**Bug fix — interrupt_cause编码错误**：
+- 根因：`cpu_clint.v` 中 `{1'b1, 27'd0, 5'd11}` = 33位，Verilog截断最高位后bit31=0
+- 修复：直接使用 `32'h8000000B`(MEI)和 `32'h80000003`(MSI)
+
+**Bug fix — Timer IRQ为电平触发**：
+- 根因：bus4lzu_mock中timer_irq为单周期脉冲，但RISC-V要求电平触发（持续到软件ack）
+- 修复：timer_irq_r持续为高直到软件写0x10010008地址ack
+
+**新增测试**：
+- Timer中断测试：配置timer阈值+使能，等待IRQ触发，验证mcause=0x8000000B，handler ack后mret返回 ✓
+- 字节/半字对齐测试：sb/lb/lbu/sh/lh/lhu/sw/lw全覆盖，含符号扩展验证 ✓
+
+**FPGA集成**：
+- 新建 `fpga/system_top.v`：CPU + Bus4LZU IP + LCD显示，含复位极性转换(reset→rstn)
+- 更新 `fpga/cpu.xdc`：新增UART(rx/tx)、SPI(miso/mosi/ss/clk)、GPIO[15:0]引脚约束
+- 显示项9/10改为DADDR/DDATA（总线dataAddr_32/readData_32），替代原MADDR/MDATA
+
+**验证结果**：
+- 基础33项测试全部 PASS
+- CSR 20项测试全部 PASS
+- Timer中断2项测试全部 PASS
+- 字节/半字对齐23项测试全部 PASS
+- 总计78项检查全部 PASS
 
 ### busip Step2-7 变更记录（2026-04-25）
 

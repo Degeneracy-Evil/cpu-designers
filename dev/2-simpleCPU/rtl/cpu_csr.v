@@ -48,7 +48,7 @@ module cpu_csr(
     reg [31:0] r_mip;
 
     wire [31:0] w_mip_hw;
-    assign w_mip_hw = {20'b0, ext_meip, 1'b0, ext_msip, 1'b0, ext_msip, 1'b0, ext_msip};
+    assign w_mip_hw = {20'b0, ext_meip, 3'b0, 1'b0, 3'b0, ext_msip, 3'b0};
 
     assign csr_addr_valid = (sw_csr_addr == ADDR_MSTATUS) ||
                             (sw_csr_addr == ADDR_MIE)     ||

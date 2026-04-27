@@ -24,6 +24,7 @@ module cpu_mem(
     localparam MEM_IDLE = 2'd0;
     localparam MEM_READ = 2'd1;
     localparam MEM_WRITE = 2'd2;
+    localparam MEM_READ2 = 2'd3;
 
     wire valid_inst;
     wire is_jal_like;
@@ -180,6 +181,9 @@ module cpu_mem(
                     end
                 end
                 MEM_READ: begin
+                    mem_state <= MEM_READ2;
+                end
+                MEM_READ2: begin
                     wb_data_reg <= load_value;
                     done_reg <= 1'b1;
                     mem_state <= MEM_IDLE;

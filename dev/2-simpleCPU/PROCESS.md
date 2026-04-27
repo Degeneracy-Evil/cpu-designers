@@ -39,11 +39,35 @@
 - [x] 7. 回归测试：原有33项 + CSR 异常测试全部 PASS
 - [x] 8. 新增测试：Timer 中断触发/进入/返回 PASS
 - [x] 9. 新增测试：字节/半字 store/load 对齐 PASS
-- [x] 10. 与真实 Bus4LZU IP 顶层对接验证（可选，需 Vivado 环境）
+- [x] 10. 与真实 Bus4LZU IP 顶层对接验证（Vivado 2018.3 + tcl-tunnel，31/31 PASS）
 - [x] 11. FPGA顶层集成：system_top.v（CPU + Bus4LZU IP + 显示）
 - [x] 12. XDC约束更新：UART/SPI/GPIO引脚
 
 ---
+
+### busip Step10 Vivado IP-sim 验证（2026-04-27）
+
+**环境**：WSL2 (Ubuntu 24.04) + Vivado 2018.3 (Windows) + tcl-tunnel HTTP服务
+
+**搭建步骤**：
+1. 通过 tcl-tunnel 创建 Vivado 工程，添加 CPU RTL + ALU RTL + Bus4LZU IP 源文件
+2. 创建两个独立 blk_mem_gen IP：`Sram_icache`（COE初始化）+ `Sram_dcache`（无COE）
+3. 修改 `memory_slot.v` 分别实例化两个 BRAM IP（原设计共用单一 Sram 模块）
+4. `.vh` 头文件通过 `include_dirs` 设置搜索路径（不能 `add_files`）
+5. testbench 中 `force u_bus.init_sig = 0` 跳过 UART 加载，BRAM 已通过 COE 预初始化
+
+**Bug fix — BRAM 1周期读延迟未处理**：
+- 根因：`cpu_mem.v` 的 MEM_READ 状态在呈现地址后的下一个时钟沿就采样 `load_value`，但 BRAM（blk_mem_gen）具有 1 周期读延迟（READ_LATENCY_A=1），此时输出仍是前一次操作地址的数据
+- 表现：x23=0x00070005（期望0x0c），x24=0x0c（期望0x05），x28=0x6f（期望0x00）——load 返回值来自上一个访问地址
+- 对比：`cpu_fetch.v` 已用 `r_wait` 标志正确处理 ICache BRAM 的 1 周期读延迟
+- 修复：`cpu_mem.v` 新增 `MEM_READ2` 状态（2'd3），load 流程变为 IDLE→READ→READ2→IDLE（3周期），READ2 阶段采样 BRAM 输出
+
+**验证结果**：
+- icache_init 程序：31/31 寄存器全部 PASS（仿真耗时 30276ns）
+- csr_test 程序：16/16 CSR寄存器全部 PASS（仿真耗时 50261ns）
+- comprehensive_test 暂不适用（.data段需预加载DCache，Harvard架构下DCache未COE初始化）
+
+**经验文档**：生成至 `tools/tcl-tunnel/vivado-sim-via-tcl-tunnel.md`
 
 ### busip Step8-12 变更记录（2026-04-25）
 

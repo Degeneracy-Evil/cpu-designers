@@ -2,6 +2,7 @@
 
 # 时钟信号连接 (100MHz)
 set_property PACKAGE_PIN AC19 [get_ports clk]
+create_clock -period 10.000 [get_ports clk]
 
 # 复位信号，低电平有效
 set_property PACKAGE_PIN Y3 [get_ports resetn]

@@ -86,7 +86,7 @@ curl -s -X POST "http://127.0.0.1:8000/sessions/$SID/execute" \
 ### Step 1: 创建 Vivado 工程
 
 ```bash
-CMD='create_project simplecpu_ip_sim E:/Xprogram/FPGA/tmp/simplecpu_ip_sim -part xc7a100tfgg484-2 -force'
+CMD='create_project simplecpu_ip_sim E:/Xprogram/FPGA/tmp/simplecpu_ip_sim -part xc7a200tfbg676-2 -force'
 ```
 
 ### Step 2: 添加 RTL 源文件
@@ -375,7 +375,7 @@ SID="你的session_id"
 BASE="E:/Xprogram/FPGA/tmp"
 
 # 1. 创建工程
-curl -s -X POST ".../execute" -d '{"command":"create_project sim $BASE/sim -part xc7a100tfgg484-2 -force"}'
+curl -s -X POST ".../execute" -d '{"command":"create_project sim $BASE/sim -part xc7a200tfbg676-2 -force"}'
 
 # 2. 添加 RTL
 curl -s -X POST ".../execute" -d '{"command":"add_files [glob -directory $BASE/rtl *.v]; update_compile_order -fileset sources_1"}'

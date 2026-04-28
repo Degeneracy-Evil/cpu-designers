@@ -31,20 +31,7 @@ module system_top(
 );
 
     wire cpu_clk;
-    reg  btn_clk_r1;
-    reg  btn_clk_r2;
-    always @(posedge clk) begin
-        if (!resetn) begin
-            btn_clk_r1 <= 1'b0;
-        end else begin
-            btn_clk_r1 <= ~btn_clk;
-        end
-        btn_clk_r2 <= btn_clk_r1;
-    end
-
-    wire clk_en;
-    assign clk_en = !resetn || (!btn_clk_r1 && btn_clk_r2);
-    BUFGCE cpu_clk_cg(.I(clk), .CE(clk_en), .O(cpu_clk));
+    assign cpu_clk = clk;
 
     wire reset;
     assign reset = ~resetn;

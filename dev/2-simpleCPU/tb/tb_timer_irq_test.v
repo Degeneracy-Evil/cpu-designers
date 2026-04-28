@@ -61,6 +61,36 @@ module tb_timer_irq_test;
         .timer_irq(timer_irq)
     );
 
+`ifdef USE_REAL_BUS
+    wire [15:0] gpio_io;
+    soc_top u_bus(
+        .clk(clk),
+        .rstn(~reset),
+        .rx(1'b1),
+        .tx(),
+        .timer_iqr(timer_irq),
+        .init_sig(init_sig),
+        .spi_miso(1'b0),
+        .spi_mosi(),
+        .spi_ss(),
+        .spi_clk(),
+        .gpio_io(gpio_io),
+        .instAddr_32(instAddr_32),
+        .instData_32(instData_32),
+        .dataWen_4(dataWen_4),
+        .dataAddr_32(dataAddr_32),
+        .writeData_32(writeData_32),
+        .readData_32(readData_32)
+    );
+
+    initial begin
+        force u_bus.memory.data_init.r_init_1 = 1'b0;
+    end
+
+    initial begin
+        $readmemh("dev/2-simpleCPU/program_source/timer_irq_test.hex", u_bus.memory.SramDualPort.mem);
+    end
+`else
     bus4lzu_mock u_bus_mock(
         .clk(clk),
         .reset(reset),
@@ -76,6 +106,7 @@ module tb_timer_irq_test;
         .dbg_mem_addr(mem_addr),
         .dbg_mem_data(mem_data)
     );
+`endif
 
     initial begin
         clk = 1'b0;

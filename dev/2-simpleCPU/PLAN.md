@@ -1,156 +1,233 @@
-# simpleCPU 接入 Bus4LZU 总线器件计划（busip分支）
+# simpleCPU 融合 Bus4LZU IP 源码计划（busip分支）
 
 ## 1. 目标与范围
 
-将当前 `dev/2-simpleCPU` 的多周期 CPU 从“内部 BRAM 直连”模型，迁移到通过 **Bus4LZU 总线控制器** 访问外部存储器与外设（UART/GPIO/Timer/SPI）。
+将 `Reference/Bus4LZU` 中的 **Bus4LZU IP 真实源码** 融合到 `dev/2-simpleCPU` 项目中，替换当前仿真用的 `bus4lzu_mock.v`，使 CPU 可直接与真实总线控制器 RTL 协同仿真与综合。
 
-保留现有 CSR/中断/异常体系，仅改造存储器访问层与顶层集成。
+**前置条件**：Phase 1-6（CPU 改造 + mock 验证）已全部完成，78 项测试全部 PASS。
 
-## 2. 设计决策
+## 2. Bus4LZU IP 源码结构
+
+源码根目录：`Reference/Bus4LZU/`
+
+```
+Reference/Bus4LZU/
+├── bus_interface.v              # 实例化模板（bus4LZU_0）
+├── Bus4LZU文档.md               # 技术文档
+├── component.xml                # Vivado IP 组件定义（VLNV: Asyncsys:bus:bus4LZU:1.0, Rev4）
+├── xgui/
+│   └── bus4LZU_v1_0.tcl         # Vivado GUI 定制脚本
+└── sources_1/
+    ├── ip/
+    │   └── Sram/                 # Xilinx blk_mem_gen IP（BRAM）
+    │       ├── Sram.xci          # IP 配置文件
+    │       ├── Sram.dcp          # 综合后网表
+    │       ├── Sram_stub.v       # Verilog stub
+    │       └── ...               # 其他（hdl/sim/synth/doc等）
+    └── new/
+        ├── soc_core.v            # 顶层模块（component.xml 中 modelName）
+        ├── header/
+        │   ├── bus_define.vh     # 总线地址/参数定义
+        │   └── timer_define.vh   # Timer 寄存器定义
+        ├── slot/
+        │   ├── bus_addr_decoder.v  # 地址解码器
+        │   ├── bus_slave_mux.v     # 从设备数据多路复用
+        │   ├── bus_top.v           # 总线顶层（解码+MUX+初始化）
+        │   ├── data_init.v         # UART 数据加载/校验/分流
+        │   ├── data_mux.v          # 初始化选择器（UART vs CPU）
+        │   └── memory_slot.v       # SRAM 封装（双口 BRAM）
+        └── perips/
+            ├── gpio.v             # GPIO 模块
+            ├── spi.v              # SPI 模块
+            ├── timer.v            # Timer 模块
+            ├── uart_rx.v          # UART 接收
+            ├── uart_tx.v          # UART 发送
+            └── uart_top.v         # UART 顶层
+```
+
+### 2.1 关键源文件说明
+
+| 文件 | 作用 | 对 mock 的对应 |
+|------|------|---------------|
+| `soc_core.v` | IP 顶层，例化 bus_top + perips | `bus4lzu_mock.v` 整体 |
+| `bus_top.v` | 地址解码 + 从设备 MUX + 初始化控制 | mock 内地址解码逻辑 |
+| `bus_addr_decoder.v` | 0x0000-0xFFFF→SRAM, 0x10000+→外设 | mock 内 `addr < 16'h10000` 判断 |
+| `bus_slave_mux.v` | 多从设备读数据选择 | mock 内单 SRAM 直连 |
+| `memory_slot.v` | SRAM 双口封装（ICache + DCache） | mock 内 `imem`/`dmem` 行为模型 |
+| `data_init.v` | UART 加载程序 + Checksum 校验 + I/D 分流 | mock 内 `init_sig` 固定延迟 |
+| `data_mux.v` | 初始化选择器（UART 写 vs CPU 写） | mock 内无（组合读0延迟） |
+| `timer.v` | Timer 计数器 + `timer_iqr` 中断 | mock 内 Timer mock |
+| `gpio.v` / `spi.v` | GPIO / SPI 外设 | mock 内无（未实现） |
+| `uart_top.v` / `uart_rx.v` / `uart_tx.v` | UART 串口 | mock 内无（init_sig 跳过加载） |
+| `bus_define.vh` | 地址空间/偏移常量 | mock 内硬编码地址 |
+| `timer_define.vh` | Timer 寄存器偏移常量 | mock 内硬编码偏移 |
+| `Sram.xci` / `Sram.dcp` | Xilinx BRAM IP 核 | mock 内 `reg [31:0] imem/dmem` |
+
+### 2.2 IP 可配置参数
+
+| 参数 | 范围 | 默认值 | 说明 |
+|------|------|--------|------|
+| `CLK_FREQ` | 1-100 | 25 | 系统时钟频率(MHz)，影响 UART 波特率分频 |
+| `GPIO_NUM` | 1-16 | 16 | GPIO 引脚数量，决定 `gpio_io` 位宽 |
+
+### 2.3 IP 接口（bus_interface.v）
+
+```verilog
+bus4LZU_0 your_instance_name (
+  .clk(clk),                    // input wire
+  .rstn(rstn),                  // input wire  (低有效！)
+  .rx(rx),                      // input wire  (UART RX)
+  .tx(tx),                      // output wire (UART TX)
+  .timer_iqr(timer_iqr),        // output wire
+  .init_sig(init_sig),          // output wire (高有效，暂停CPU)
+  .spi_miso(spi_miso),          // input wire
+  .spi_mosi(spi_mosi),          // output wire
+  .spi_ss(spi_ss),              // output wire
+  .spi_clk(spi_clk),            // output wire
+  .gpio_io(gpio_io),            // inout wire [15:0]
+  .instAddr_32(instAddr_32),    // input wire [31:0]
+  .instData_32(instData_32),    // output wire [31:0]
+  .dataWen_4(dataWen_4),        // input wire [3:0]
+  .dataAddr_32(dataAddr_32),    // input wire [31:0]
+  .writeData_32(writeData_32),  // input wire [31:0]
+  .readData_32(readData_32)     // output wire [31:0]
+);
+```
+
+## 3. 设计决策
 
 | 决策项 | 方案 | 理由 |
 |--------|------|------|
-| 取指延迟模型 | **1周期延迟**（发地址→下一周期得指令） | Bus4LZU 读操作固定1周期延迟；参考 livep-2 `prefetch.v` 的 RESET/IDLE/Normal 三级状态机处理 bubble |
-| 访存写使能 | **4位字节掩码 `dataWen_4[3:0]`** | Bus4LZU 支持字节级写使能；参考 livep-2 `lsu.v` 直接生成掩码，无需 read-modify-write |
-| 地址宽度 | **32位字节地址** | Bus4LZU 使用完整字节地址；当前 `pc[12:2]` / `alu_result[12:2]` 需扩展为 `instAddr_32` / `dataAddr_32` |
-| 初始化控制 | **接入 `init_sig`** | Bus4LZU 在 UART 加载程序期间拉高 `init_sig`；CPU 状态机必须暂停，防止执行空内存 |
-| 复位极性 | **CPU 内部保持 `reset` 高有效，顶层反相为 `rstn` 连接 Bus4LZU** | 与当前 CPU 内部模块一致，减少内部改动；顶层做极性转换 |
-| 内部 cache | **移除 `icache.v` / `dcache.v` 行为模型** | 接入 Bus4LZU 后，存储器由总线控制器管理；测试阶段可用简化 BRAM wrapper 替代真实总线做单元测试 |
-| 外设中断 | **Timer 中断接入 `timer_iqr` → MEIP** | Bus4LZU 提供 `timer_iqr`；替换当前仅由 UART RX 驱动的 MEIP，实现完整中断源 |
+| 源码引入方式 | **复制到 `rtl/bus4lzu/` 子目录** | 保持项目自包含，避免依赖外部 Reference 路径；便于后续修改适配 |
+| 头文件处理 | **复制 `.vh` 到 `rtl/bus4lzu/header/`，仿真时通过 `-I` 指定 include 路径** | 与 Vivado IP 打包方式一致（component.xml 中 `isIncludeFile=true`） |
+| BRAM IP 处理 | **仿真用行为模型替代 Sram.xci；综合用 Sram.dcp 或重新打包** | Sram.xci 依赖 Vivado blk_mem_gen，iverilog 无法直接编译；行为模型保持与真实 BRAM 时序一致（1周期读延迟） |
+| mock 去留 | **保留 `bus4lzu_mock.v` 作为快速回归测试选项** | mock 编译快、无外部依赖，适合日常开发；真实 IP 用于完整验证 |
+| UART 冲突 | **CPU 侧移除 `uart_top.v` 实例（已在 Phase 4 完成）** | Bus4LZU 内含 UART，CPU 不再直接驱动 UART |
+| 复位极性 | **顶层 `rstn = ~reset` 连接 Bus4LZU** | Bus4LZU rstn 低有效，CPU reset 高有效，已在 Phase 4 确认 |
 
-## 3. 关键接口映射
+## 4. 关键接口映射（与原 PLAN 一致，此处确认无变更）
 
-### 3.1 CPU → Bus4LZU（simple_cpu_top 输出）
+### 4.1 CPU → Bus4LZU
 
 | CPU 侧信号 | Bus4LZU 侧信号 | 位宽 | 说明 |
 |-----------|---------------|------|------|
 | `instAddr_32` | `.instAddr_32` | 32 | PC 直接输出（字节地址） |
-| `dataWen_4` | `.dataWen_4` | 4 | 字节写掩码；全1表示读，全0表示字写，部分0表示字节/半字写 |
+| `dataWen_4` | `.dataWen_4` | 4 | 字节写掩码；4'b1111=读，其他=写 |
 | `dataAddr_32` | `.dataAddr_32` | 32 | 访存地址（字节地址） |
-| `writeData_32` | `.writeData_32` | 32 | store 数据（字节/半字需按地址偏移对齐到对应字节 lane） |
+| `writeData_32` | `.writeData_32` | 32 | store 数据（已按地址偏移对齐） |
 
-### 3.2 Bus4LZU → CPU（simple_cpu_top 输入）
+### 4.2 Bus4LZU → CPU
 
 | Bus4LZU 侧信号 | CPU 侧信号 | 位宽 | 说明 |
 |---------------|-----------|------|------|
 | `.instData_32` | `instData_32` | 32 | 指令数据，读延迟1周期 |
 | `.readData_32` | `readData_32` | 32 | load 数据，读延迟1周期 |
-| `.init_sig` | `init_sig` | 1 | 初始化暂停信号，高有效时冻结 PC 与状态机 |
-| `.timer_iqr` | `timer_irq` | 1 | 定时器中断，接入 cpu_csr 的 `ext_meip` |
+| `.init_sig` | `init_sig` | 1 | 初始化暂停信号 |
+| `.timer_iqr` | `timer_irq` | 1 | 定时器中断 → MEIP |
 
-### 3.3 系统信号
+## 5. 实现步骤
 
-| 信号 | 方向 | 处理 |
-|------|------|------|
-| `clk` | 输入 | 直连 |
-| `reset` (高有效) | 输入 | CPU 内部使用；顶层反相生成 `rstn` 给 Bus4LZU |
-| `uart_rx` / `uart_tx` | 输入/输出 | 直连 Bus4LZU 的 `rx` / `tx` |
-| `spi_miso` / `spi_mosi` / `spi_ss` / `spi_clk` | 输入/输出 | 直连 |
-| `gpio_io` | 双向 | 直连（位宽匹配 `gpio_num` 参数，默认16） |
+### Phase A：源码引入与目录准备
 
-## 4. 实现步骤
+**目标**：将 Bus4LZU IP 源码复制到项目内，建立编译结构。
 
-### Phase 1：Fetch 阶段改造（参考 livep-2 prefetch）
+- **操作**：
+  1. 创建 `rtl/bus4lzu/` 子目录结构：
+     ```
+     rtl/bus4lzu/
+     ├── soc_core.v
+     ├── header/
+     │   ├── bus_define.vh
+     │   └── timer_define.vh
+     ├── slot/
+     │   ├── bus_addr_decoder.v
+     │   ├── bus_slave_mux.v
+     │   ├── bus_top.v
+     │   ├── data_init.v
+     │   ├── data_mux.v
+     │   └── memory_slot.v
+     ├── perips/
+     │   ├── gpio.v
+     │   ├── spi.v
+     │   ├── timer.v
+     │   ├── uart_rx.v
+     │   ├── uart_tx.v
+     │   └── uart_top.v
+     └── ip/
+         └── sram_model.v        # 行为模型（替代 Sram.xci）
+     ```
+  2. 从 `Reference/Bus4LZU/sources_1/new/` 复制所有 `.v` / `.vh` 文件到对应子目录。
+  3. 检查源码中的 `` `include `` 路径，确认与子目录结构匹配。
 
-**目标**：适配1周期延迟的指令读取。
+### Phase B：BRAM 行为模型适配
 
-- **文件**：`rtl/cpu_fetch.v`
-- **改造内容**：
-  1. 移除 `icache_en` / `icache_addr`（11位字地址），改为输出 `instAddr_32[31:0]`（字节地址，等于 PC）。
-  2. 输入由 `inst_data` 改为 `instData_32`。
-  3. 引入 **2状态机**：`IF_IDLE` → `IF_WAIT`。
-     - `IF_IDLE`：`if_valid` 到来时发地址，进入等待。
-     - `IF_WAIT`：下一周期 `instData_32` 有效，`if_done=1`，返回 IDLE。
-  4. 当 `init_sig` 为高时，冻结在 `IF_IDLE`（不推进，不置 `if_done`）。
+**目标**：创建 `sram_model.v` 替代 Xilinx blk_mem_gen IP，保持与真实 BRAM 的时序一致。
 
-### Phase 2：Mem 阶段改造（参考 livep-2 lsu）
-
-**目标**：适配4位字节写使能与1周期读延迟，消除 read-modify-write。
-
-- **文件**：`rtl/cpu_mem.v`
-- **改造内容**：
-  1. 移除 `MEM_WRITE_MODIFY` / `MEM_WRITE_COMMIT` 状态（不再需要）。
-  2. 输出改为 `dataWen_4[3:0]`、`dataAddr_32[31:0]`、`writeData_32[31:0]`。
-  3. **字节写掩码生成逻辑**（参考 livep-2 `lsu.v`）：
-     - `sw`：根据 `byte_offset` 生成掩码（`0000`=全写, `0001`, `0011`, `0111` 用于未对齐字）。
-     - `sh`：根据 `byte_offset` 生成掩码（`1100`, `1001`, `0011`, `0111`）。
-     - `sb`：根据 `byte_offset` 生成掩码（`1110`, `1101`, `1011`, `0111`）。
-     - 读操作：`dataWen_4 = 4'b1111`（Bus4LZU 文档中 `rd_en` / `wr_en` 由总线内部根据 `dataWen_4` 解码，或按 livep-2 惯例 1111 表示读）。
-  4. store 数据对齐：字节/半字 store 需根据 `byte_offset` 将数据移位到正确的字节 lane（参考 livep-2）。
-  5. load 时序调整：
-     - `MEM_IDLE`：检测 load，输出地址 + `dataWen_4=4'b1111`，进入 `MEM_READ_WAIT`。
-     - `MEM_READ_WAIT`：下一周期 `readData_32` 有效，进行字节/半字提取，置 `mem_done`，返回 `MEM_IDLE`。
-  6. store 时序调整：
-     - `MEM_IDLE`：检测 store，输出地址/数据/掩码，当周期置 `mem_done`（Bus4LZU 写无延迟）。
-
-### Phase 3：Controller 状态机适配
-
-**目标**：兼容 `init_sig` 暂停。
-
-- **文件**：`rtl/cpu_controller.v`
-- **改造内容**：
-  1. 增加 `init_sig` 输入。
-  2. 所有状态转移增加 `init_sig` 门控：当 `init_sig == 1` 时，强制 `next_state = STATE_IDLE`（或等效暂停状态）。
-  3. 所有 `*_valid` 输出增加 `!init_sig` 条件。
-
-### Phase 4：顶层重构
-
-**目标**：移除内部 cache，集成 Bus4LZU 接口。
-
-- **文件**：`rtl/simple_cpu_top.v`
-- **改造内容**：
-  1. **移除模块实例化**：删除 `icache u_icache(...)` 和 `dcache u_dcache(...)`。
-  2. **新增总线接口端口**：
-     - 输出：`instAddr_32`, `dataWen_4`, `dataAddr_32`, `writeData_32`
-     - 输入：`instData_32`, `readData_32`, `init_sig`, `timer_irq`
-  3. **内部信号重连**：
-     - `cpu_fetch` 的 `inst_data` 改为 `instData_32`。
-     - `cpu_mem` 的 `dcache_rdata` 改为 `readData_32`。
-  4. **中断源切换**：`cpu_csr` 的 `ext_meip` 由 `uart_rx_valid` 改为 `timer_irq`（或保留两者经或门合并，视测试需求）。
-  5. **复位反相**：生成 `rstn = ~reset`，用于未来顶层与 Bus4LZU 直连时信号极性匹配（当前测试环境可内部产生）。
-  6. **调试端口 `mem_data` 保留**：通过 `mem_addr` 访问 dcache 的端口不再有效；改为通过总线读取或暂时保留内部 debug 通路（测试阶段可用）。
-
-### Phase 5：总线 wrapper / 测试辅助（参考 livep-2 memory_slot + bus_top）
-
-**目标**：在缺少真实 Bus4LZU IP 核源码的情况下，建立可编译仿真的测试环境。
-
-- **新建文件**：`rtl/bus4lzu_mock.v`（或参考 livep-2 结构）
+- **新建文件**：`rtl/bus4lzu/ip/sram_model.v`
 - **内容**：
-  1. **简化 BRAM**：2块 32-bit × 2048 的 RAM（8KB I-Mem + 8KB D-Mem），行为模型，1周期读延迟，支持4位字节写使能。
-  2. **init_sig 生成逻辑**：上电后固定延迟（如100周期）后拉低 `init_sig`，模拟 UART 加载完成；或使用 testbench 直接控制。
-  3. **Timer 模拟**：简化计数器，达到阈值后输出 `timer_irq` 一个周期。
-  4. **地址解码**：`0x0000_0000 - 0x0000_FFFF` → I-Mem/D-Mem；`0x1001_0000` 区间 → Timer；其余可忽略或返回0。
-- **参考**：`example/livep-2/rtl/memory_slot.v` 的初始化选择器逻辑、`example/livep-2/rtl/bus_top.v` 的从设备多路复用。
+  1. 双口 RAM 行为模型（1读口 + 1写口），32位数据宽度。
+  2. **读延迟1周期**（与 blk_mem_gen READ_LATENCY_A=1 一致）。
+  3. 支持4位字节写使能（`dataWen_4` 掩码写入）。
+  4. 支持 `$readmemh` 初始化（用于 ICache 预加载测试程序）。
+- **修改 `memory_slot.v`**：
+  1. 将 `Sram` IP 实例替换为 `sram_model` 实例。
+  2. 确认端口映射：地址、写数据、读数据、写使能、时钟。
+  3. 注意 `memory_slot.v` 可能例化两个 Sram（ICache + DCache），需分别替换。
 
-### Phase 6：Testbench 改造
+### Phase C：源码适配与编译修复
 
-**目标**：验证总线接入后的功能正确性。
+**目标**：确保 Bus4LZU 源码在 iverilog 环境下可编译。
+
+- **操作**：
+  1. **头文件 include 路径**：确认 `bus_define.vh` / `timer_define.vh` 的 `` `include `` 方式（`"header/bus_define.vh"` vs `` `<bus_define.vh>` ``），必要时调整为相对路径。
+  2. **Xilinx 原语替换**：检查源码中是否使用了 Xilinx 专用原语（如 `BUFG`、`IOBUF` 等），如有则替换为行为模型或移除。
+  3. **参数传递**：确认 `CLK_FREQ` / `GPIO_NUM` 参数在 `soc_core.v` 中的传递方式，确保可在实例化时覆盖。
+  4. **信号位宽/极性确认**：逐一对比 `bus_interface.v` 模板与 `soc_core.v` 端口声明，确保完全一致。
+  5. **编译测试**：`iverilog` 单独编译 `soc_core.v` 及所有依赖，确保无 error。
+
+### Phase D：顶层集成替换 mock
+
+**目标**：在 testbench 中用真实 Bus4LZU 替换 `bus4lzu_mock.v`。
 
 - **文件**：`tb/tb_simple_cpu_top.v`
 - **改造内容**：
-  1. 移除对 `mem_data` 的依赖（或改为通过总线 wrapper 读取）。
-  2. 增加 `init_sig` 控制：复位后保持 `init_sig=1` 若干周期，再拉低释放 CPU。
-  3. 实例化 `bus4lzu_mock` 作为总线代理，连接 CPU 的总线端口。
-  4. 保留现有33项基础测试 + CSR 异常测试用例，确保总线改造不破坏已有功能。
-  5. **新增测试**：
-     - 基础算术/逻辑/分支（原有33项）。
-     - CSR 读写 + 异常（ECALL/EBREAK/非法指令）。
-     - **Timer 中断测试**：配置 timer 计数器，等待 `timer_irq` 触发，验证中断进入/返回流程。
-     - **字节/半字 store/load 对齐测试**：验证 `dataWen_4` 掩码生成与数据提取正确。
+  1. 移除 `bus4lzu_mock` 实例。
+  2. 新增 `soc_core`（或 `bus4LZU_0`）实例，按 `bus_interface.v` 模板连接：
+     - CPU 总线信号直连（`instAddr_32` / `instData_32` / `dataWen_4` / `dataAddr_32` / `writeData_32` / `readData_32`）。
+     - `clk` 直连。
+     - `rstn = ~reset`（极性转换）。
+     - `rx` / `tx` 连接 UART 引脚（或悬空，仿真中不使用 UART 加载）。
+     - `spi_*` / `gpio_io` 悬空或接默认值。
+  3. **init_sig 处理**：
+     - 方案1：testbench `force u_bus.init_sig = 0` 跳过 UART 加载（与 Vivado IP-sim 一致）。
+     - 方案2：保留 `init_sig` 自然行为，仿真开始后等待其拉低。
+  4. **ICache 初始化**：通过 `sram_model` 的 `$readmemh` 预加载测试程序 HEX 文件。
 
-### Phase 7：综合验证与回归
+### Phase E：回归测试与问题修复
 
-- 使用 `tools/mk.py` 编译仿真全部测试：
-  ```bash
-  python tools/mk.py --top dev/2-simpleCPU/tb/tb_simple_cpu_top.v
-  ```
-- 使用 `tools/rv2coe.py` 生成测试程序的 COE/HEX：
-  ```bash
-  python3 tools/rv2coe.py -i dev/2-simpleCPU/program_source/test.S -o dev/2-simpleCPU/program_source/icache_init.hex
-  ```
-- 确保原有测试全部 PASS，新增 Timer 中断测试 PASS。
+**目标**：确保真实 Bus4LZU 替换后所有测试通过。
 
-## 5. 总线位宽与信号变更汇总
+- **测试策略**：
+  1. 先运行基础33项测试，确认取指/访存基本通路正确。
+  2. 运行 CSR 20项测试，确认中断/异常通路不受影响。
+  3. 运行 Timer 中断测试，确认 `timer_iqr` 信号通路正确。
+  4. 运行字节/半字对齐测试，确认 `dataWen_4` 掩码与 `readData_32` 提取正确。
+- **预期问题**：
+  - `memory_slot.v` 中 BRAM 实例化方式与 mock 不同，可能需调整地址位宽/深度。
+  - `data_init.v` / `data_mux.v` 的初始化逻辑可能在 `init_sig=0`（force 跳过）时有副作用。
+  - `bus_addr_decoder.v` 的地址空间划分需与 CPU 访问地址匹配（0x0000-0xFFFF SRAM，0x10000+ 外设）。
+
+### Phase F：编译脚本更新
+
+**目标**：更新 `tools/mk.py` 或仿真脚本，支持真实 IP 编译。
+
+- **操作**：
+  1. 添加 `rtl/bus4lzu/` 下所有 `.v` 文件到编译文件列表。
+  2. 添加 `-I rtl/bus4lzu/header` include 路径。
+  3. 保留 mock 编译选项（可通过 `--use-mock` 参数切换）。
+  4. 更新 `tools/rv2coe.py` 输出路径，确保 HEX 文件可被 `sram_model` 的 `$readmemh` 正确加载。
+
+## 6. 总线位宽与信号变更汇总（与原 PLAN 一致）
 
 | 模块 | 变更项 | 变更前 | 变更后 |
 |------|--------|--------|--------|
@@ -160,35 +237,37 @@
 | `cpu_mem` | 输出 | `dcache_en`, `dcache_we[0:0]`, `dcache_addr[10:0]`, `dcache_wdata[31:0]` | `dataWen_4[3:0]`, `dataAddr_32[31:0]`, `writeData_32[31:0]` |
 | `cpu_mem` | 输入 | `dcache_rdata[31:0]` | `readData_32[31:0]` |
 | `cpu_mem` | store 逻辑 | read-modify-write (3周期) | 直接字节掩码 (1周期) |
-| `cpu_mem` | load 逻辑 | 当周期完成 (2状态) | 1周期等待 (3状态) |
+| `cpu_mem` | load 逻辑 | 当周期完成 (2状态) | 1周期等待 (3状态: IDLE→READ→READ2) |
 | `cpu_controller` | 新增输入 | — | `init_sig` |
 | `simple_cpu_top` | 移除模块 | `icache`, `dcache`, `uart_top` | — |
 | `simple_cpu_top` | 新增端口 | — | 总线接口 + `init_sig` + `timer_irq` |
-| `simple_cpu_top` | 中断源 | `uart_rx_valid` → MEIP | `timer_irq` → MEIP（或合并） |
+| `simple_cpu_top` | 中断源 | `uart_rx_valid` → MEIP | `timer_irq` → MEIP |
 
-## 6. 风险与应对
+## 7. 风险与应对
 
 | 风险 | 影响 | 应对措施 |
 |------|------|----------|
-| fetch 1周期延迟引入后 controller 停留时间变长导致整体周期增加 | 性能下降（仿真时间变长） | 多周期 CPU 天然串行，controller 在 FETCH 多停留1周期不影响正确性；确认所有测试在增加周期数后仍能通过 |
-| store 字节掩码生成错误导致内存污染 | 测试失败 | 参考 livep-2 `lsu.v` 掩码表，逐项验证 sb/sh/sw 四种偏移 |
-| `init_sig` 与现有复位/异常状态机冲突 | 死锁或异常丢失 | `init_sig` 仅冻结状态机到 IDLE，不重置任何寄存器；释放后从 IDLE→FETCH 自然恢复 |
-| 移除内部 cache 后仿真测试无法初始化指令内存 | 无法运行测试 | 在 `bus4lzu_mock` 中支持通过 `readmemh` 直接加载 HEX；或使用 testbench 预写内存 |
+| Bus4LZU 源码含 Xilinx 专用原语/属性，iverilog 无法编译 | 仿真无法运行 | 逐文件检查，用 `` `ifdef `` 条件编译或行为模型替换 |
+| `memory_slot.v` BRAM 接口与行为模型端口不匹配 | 编译/功能错误 | 先阅读 `memory_slot.v` 源码，按其端口声明编写 `sram_model.v` |
+| `soc_core.v` 顶层模块名与 `bus_interface.v` 实例名不一致 | 实例化失败 | `bus_interface.v` 模板用 `bus4LZU_0`，`component.xml` 指定 `modelName=soc_top`，需确认实际模块名 |
+| `data_init.v` UART 加载逻辑在 force `init_sig=0` 时仍有副作用 | CPU 误读 UART 数据 | 阅读源码确认 `init_sig` 与 `data_init` 的交互逻辑 |
+| 地址空间划分与 CPU 预期不一致 | 外设访问失败 | 对比 `bus_addr_decoder.v` 与 `bus_define.vh` 的地址常量，确认与 CPU 侧一致 |
+| BRAM 深度/位宽与测试程序不匹配 | 取指/访存越界 | 确认 Sram.xci 配置的深度/位宽，`sram_model.v` 保持一致 |
 
-## 7. 工具使用指南
+## 8. 工具使用指南
 
-### 编译仿真
+### 编译仿真（真实 IP）
 ```bash
-# 完整编译+运行
 python tools/mk.py --top dev/2-simpleCPU/tb/tb_simple_cpu_top.v
+```
 
-# 仅编译
-python tools/mk.py --top dev/2-simpleCPU/tb/tb_simple_cpu_top.v --compile-only
+### 编译仿真（mock 回归）
+```bash
+python tools/mk.py --top dev/2-simpleCPU/tb/tb_simple_cpu_top.v --use-mock
 ```
 
 ### 生成测试程序
 ```bash
-# 汇编 -> HEX（用于 mock BRAM 初始化）
 python3 tools/rv2coe.py \
   -i dev/2-simpleCPU/program_source/test.S \
   -o dev/2-simpleCPU/program_source/icache_init.hex \
@@ -196,34 +275,63 @@ python3 tools/rv2coe.py \
 ```
 
 ### 参考代码速查
-- **1周期延迟 fetch + bubble**：`example/livep-2/rtl/cpu_core/prefetch.v`
-- **4位字节写使能 LSU**：`example/livep-2/rtl/cpu_core/lsu.v`
-- **初始化选择器 + 双口 RAM**：`example/livep-2/rtl/memory_slot.v`
-- **总线地址解码 + 从设备 MUX**：`example/livep-2/rtl/bus_top.v`
 - **Bus4LZU 实例化模板**：`Reference/Bus4LZU/bus_interface.v`
+- **Bus4LZU 技术文档**：`Reference/Bus4LZU/Bus4LZU文档.md`
+- **Bus4LZU 顶层源码**：`Reference/Bus4LZU/sources_1/new/soc_core.v`
+- **地址解码器**：`Reference/Bus4LZU/sources_1/new/slot/bus_addr_decoder.v`
+- **总线顶层**：`Reference/Bus4LZU/sources_1/new/slot/bus_top.v`
+- **SRAM 封装**：`Reference/Bus4LZU/sources_1/new/slot/memory_slot.v`
+- **初始化控制**：`Reference/Bus4LZU/sources_1/new/slot/data_init.v`
+- **1周期延迟 fetch**：`dev/2-simpleCPU/rtl/cpu_fetch.v`（已改造完成）
+- **4位字节写使能 LSU**：`dev/2-simpleCPU/rtl/cpu_mem.v`（已改造完成）
 
-## 8. 目录结构变更
+## 9. 目录结构变更
 
 ```
 dev/2-simpleCPU/
 ├── rtl/
-│   ├── cpu_fetch.v          # 修改：1周期延迟取指
-│   ├── cpu_mem.v            # 修改：字节掩码 + 1周期读延迟
-│   ├── cpu_controller.v     # 修改：init_sig 门控
-│   ├── simple_cpu_top.v     # 修改：总线接口集成
-│   ├── bus4lzu_mock.v       # 新增：仿真用总线代理
-│   ├── icache.v             # 保留但不再实例化（或删除）
-│   ├── dcache.v             # 保留但不再实例化（或删除）
-│   └── uart_*.v             # 保留但不再实例化（Bus4LZU 内含 UART）
+│   ├── cpu_fetch.v              # 已改造：1周期延迟取指
+│   ├── cpu_mem.v                # 已改造：字节掩码 + 1周期读延迟
+│   ├── cpu_controller.v         # 已改造：init_sig 门控
+│   ├── simple_cpu_top.v         # 已改造：总线接口集成
+│   ├── bus4lzu_mock.v           # 保留：快速回归测试用
+│   ├── bus4lzu/                 # 新增：真实 Bus4LZU IP 源码
+│   │   ├── soc_core.v
+│   │   ├── header/
+│   │   │   ├── bus_define.vh
+│   │   │   └── timer_define.vh
+│   │   ├── slot/
+│   │   │   ├── bus_addr_decoder.v
+│   │   │   ├── bus_slave_mux.v
+│   │   │   ├── bus_top.v
+│   │   │   ├── data_init.v
+│   │   │   ├── data_mux.v
+│   │   │   └── memory_slot.v
+│   │   ├── perips/
+│   │   │   ├── gpio.v
+│   │   │   ├── spi.v
+│   │   │   ├── timer.v
+│   │   │   ├── uart_rx.v
+│   │   │   ├── uart_tx.v
+│   │   │   └── uart_top.v
+│   │   └── ip/
+│   │       └── sram_model.v     # 新增：BRAM 行为模型
+│   ├── icache.v                 # 保留但不再实例化
+│   ├── dcache.v                 # 保留但不再实例化
+│   └── uart_*.v                 # 保留但不再实例化
 ├── tb/
-│   └── tb_simple_cpu_top.v  # 修改：接入 mock 总线
+│   └── tb_simple_cpu_top.v      # 修改：接入真实 Bus4LZU（可切换 mock）
 ├── program_source/
-│   └── icache_init.hex      # 由 rv2coe.py 生成，供 mock BRAM 加载
-└── PLAN.md                  # 本文件
+│   └── icache_init.hex          # 由 rv2coe.py 生成，供 sram_model 加载
+├── fpga/
+│   ├── system_top.v             # FPGA 顶层（CPU + Bus4LZU IP）
+│   └── cpu.xdc                  # 引脚约束
+└── PLAN.md                      # 本文件
 ```
 
 ---
 
-**变更日期**：2026-04-25  
+**变更日期**：2026-04-28  
 **分支**：`busip`  
-**前提**：当前分支已完成 CSR/中断/异常全功能实现（PROCESS.md 第1-15项中除中断测试外全部完成）
+**当前阶段**：融合 Bus4LZU IP 真实源码（Phase A-F）  
+**前提**：Phase 1-6（CPU 改造 + mock 验证）已完成，78 项测试全部 PASS；Vivado IP-sim 验证已完成（31/31 PASS）

@@ -42,6 +42,85 @@
 - [x] 10. 与真实 Bus4LZU IP 顶层对接验证（Vivado 2018.3 + tcl-tunnel，31/31 PASS）
 - [x] 11. FPGA顶层集成：system_top.v（CPU + Bus4LZU IP + 显示）
 - [x] 12. XDC约束更新：UART/SPI/GPIO引脚
+- [x] 13. Bus4LZU RTL源码融合：从Reference/Bus4LZU复制到rtl/bus4lzu/子目录
+- [x] 14. sram_model.v升级4位字节写使能（wea[3:0]/web[3:0]）
+- [x] 15. 4个testbench增加`ifdef USE_REAL_BUS`条件编译（soc_top实例化 vs bus4lzu_mock）
+- [x] 16. timer.v修复：addr[1:0]→addr[3:2]字对齐 + 寄存器重排匹配mock + >=比较 + 默认PERIODIC模式
+- [x] 17. bus_addr_decoder.v扩展：0x10010000-0x1001FFFF→Timer(BUS_SLAVE_3)
+- [x] 18. data_mux.v扩展：总线范围增加0x10010000+地址
+- [x] 19. tb_simple_cpu_top.v：mem[0x04]期望值按USE_REAL_BUS条件区分（统一SRAM vs 独立dmem）
+- [x] 20. 全量回归：4测试×2模式（mock/real）= 8组合全部PASS
+
+---
+
+### busip Step13-20 Bus4LZU RTL融合（2026-04-28）
+
+**目标**：将Bus4LZU IP真实RTL源码融入项目，替代仿真mock，实现iverilog本地co-simulation
+
+**Phase A — 源码复制**：
+- 从`Reference/Bus4LZU/sources_1/new/`复制全部源文件到`rtl/bus4lzu/`子目录结构
+- 目录：soc_core.v, slot/(memory_slot.v, data_init.v, data_mux.v, bus_addr_decoder.v, bus_slave_mux.v, bus_top.v), perips/(uart_rx.v, uart_tx.v, uart_top.v, timer.v, gpio.v, spi.v), header/(bus_define.vh, timer_define.vh, uart_define.vh, gpio_define.vh), ip/sram_model.v
+
+**Phase B — sram_model.v升级**：
+- 原设计：1位写使能（wea/web），仅支持整字写入
+- 升害：CPU执行sb/sh时，未写入字节保留旧值而非新值0，导致字节存储错误
+- 修复：升级为4位字节写使能wea[3:0]/web[3:0]，per-byte写逻辑
+- memory_slot.v已连接`~memory_dbus_we`（4位），无需修改
+
+**Phase C — 编译修复**：
+- bus_slave_mux.v：`include路径修正
+- gpio.v：generate循环硬编码32→`GPIO_NUM`参数化
+
+**Phase D — testbench条件编译**：
+- 4个testbench（tb_simple_cpu_top/tb_csr_test/tb_timer_irq_test/tb_align_test）增加`ifdef USE_REAL_BUS`
+- USE_REAL_BUS时：实例化soc_top（rstn=~reset, rx=1'b1, spi_miso=1'b0, gpio_io悬空）
+- force `u_bus.memory.data_init.r_init_1=0`跳过UART加载
+- $readmemh直接加载`u_bus.memory.SramDualPort.mem`
+- check_mem_word读取Sram层级路径`u_bus.memory.SramDualPort.mem`
+- 非USE_REAL_BUS时：保留原始bus4lzu_mock实例
+
+**Phase E — 地址映射与寄存器兼容性修复**：
+
+*问题1：timer.v寄存器选择使用addr[1:0]字节偏移*
+- 根因：RISC-V lw/sw要求字对齐访问，addr[1:0]恒为00，只能访问CTRL寄存器
+- 修复：addr[1:0]→addr[3:2]，使用字偏移选择寄存器
+
+*问题2：timer.v寄存器顺序与mock不匹配*
+- mock布局（addr[3:2]）：Reg0=threshold, Reg1=enable, Reg2=irq_clear
+- 原timer布局（addr[1:0]）：Reg0=CTRL, Reg1=INTR, Reg2=EXPR, Reg3=COUNTER
+- 修复：重排为Reg0=EXPR(threshold), Reg1=CTRL(start), Reg2=INTR(irq), Reg3=COUNTER
+
+*问题3：timer.v计数器比较使用==而非>=*
+- 修复：`counter == expr_val` → `counter >= expr_val`（增加expr_val!=0保护）
+
+*问题4：timer.v默认ONE_SHOT模式，mock为PERIODIC行为*
+- 修复：默认模式改为TIMER_MODE_PERIODIC
+
+*问题5：bus_addr_decoder.v地址映射与mock不一致*
+- mock Timer地址：0x10010000-0x1001FFFF（addr[31:16]==16'h1001）
+- 原Bus4LZU Timer地址：0x00040000-0x0004FFFF
+- 测试程序按mock地址编译，无法直接运行于原Bus4LZU
+- 修复：bus_addr_decoder.v增加0x10010000-0x1001FFFF→BUS_SLAVE_3解码
+
+*问题6：data_mux.v总线范围不包含mock地址*
+- 原范围：0x00010000-0x0008FFFF
+- 修复：增加`i_memAddr_32[31:16]==16'h1001`条件
+
+*问题7：统一SRAM下mem[0x04]期望值不同*
+- 根因：mock使用独立dmem（零初始化），real Bus4LZU使用统一I/D SRAM
+- `sb x1,4(x0)`仅写byte0，byte1保留指令数据0x01（addi x2,x0,7的编码）
+- mock：mem[0x04]=0x00070005（byte1=0x00），real：mem[0x04]=0x00070105（byte1=0x01）
+- 修复：tb_simple_cpu_top.v按USE_REAL_BUS条件区分期望值
+
+**验证结果**：
+
+| 测试 | mock | real Bus4LZU |
+|------|------|-------------|
+| simple_cpu_top | 33/33 PASS | 33/33 PASS |
+| csr_test | 20/20 PASS | 20/20 PASS |
+| timer_irq_test | 2/2 PASS | 2/2 PASS |
+| align_test | 23/23 PASS | 23/23 PASS |
+| **合计** | **78/78** | **78/78** |
 
 ---
 

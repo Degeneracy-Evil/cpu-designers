@@ -21,10 +21,12 @@ module cpu_mem(
     output     [31:0]  mem_misalign_addr
 );
 
-    localparam MEM_IDLE = 2'd0;
-    localparam MEM_READ = 2'd1;
-    localparam MEM_WRITE_MODIFY = 2'd2;
-    localparam MEM_WRITE_COMMIT = 2'd3;
+    localparam MEM_IDLE = 3'd0;
+    localparam MEM_READ = 3'd1;
+    localparam MEM_READ2 = 3'd2;
+    localparam MEM_WRITE_MODIFY = 3'd3;
+    localparam MEM_WRITE_MODIFY2 = 3'd4;
+    localparam MEM_WRITE_COMMIT = 3'd5;
 
     wire valid_inst;
     wire is_jal_like;
@@ -60,7 +62,7 @@ module cpu_mem(
         inst
     } = exe_mem_bus_r;
 
-    reg [1:0] mem_state;
+    reg [2:0] mem_state;
     reg [31:0] addr_reg;
     reg [31:0] wdata_reg;
     reg [2:0] mem_size_reg;
@@ -79,7 +81,7 @@ module cpu_mem(
     assign byte_offset = addr_reg[1:0];
 
     wire [31:0] mem_word_for_extract;
-    assign mem_word_for_extract = (mem_state == MEM_READ || mem_state == MEM_WRITE_MODIFY) ? dcache_rdata : read_word_reg;
+    assign mem_word_for_extract = (mem_state == MEM_READ2 || mem_state == MEM_WRITE_MODIFY2) ? dcache_rdata : read_word_reg;
 
     wire [7:0] selected_byte;
     assign selected_byte = (byte_offset == 2'b00) ? mem_word_for_extract[7:0] :
@@ -169,12 +171,18 @@ module cpu_mem(
                     end
                 end
                 MEM_READ: begin
+                    mem_state <= MEM_READ2;
+                end
+                MEM_READ2: begin
                     read_word_reg <= dcache_rdata;
                     wb_data_reg <= load_value;
                     done_reg <= 1'b1;
                     mem_state <= MEM_IDLE;
                 end
                 MEM_WRITE_MODIFY: begin
+                    mem_state <= MEM_WRITE_MODIFY2;
+                end
+                MEM_WRITE_MODIFY2: begin
                     read_word_reg <= dcache_rdata;
                     en_reg <= 1'b1;
                     we_reg <= 1'b1;
@@ -192,7 +200,7 @@ module cpu_mem(
                 end
             endcase
 
-            if (mem_state == MEM_WRITE_MODIFY) begin
+            if (mem_state == MEM_WRITE_MODIFY2) begin
                 wdata_reg <= store_merged_word;
             end
         end

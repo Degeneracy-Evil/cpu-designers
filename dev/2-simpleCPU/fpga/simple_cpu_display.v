@@ -29,25 +29,25 @@ module simple_cpu_display(
 
 //-----{时钟和复位信号}begin
     wire cpu_clk;
-    reg  btn_clk_r1;
-    reg  btn_clk_r2;
-    always @(posedge clk)
-    begin
-        if (!resetn)
-        begin
-            btn_clk_r1 <= 1'b0;
-        end
-        else
-        begin
-            btn_clk_r1 <= ~btn_clk;
-        end
-        btn_clk_r2 <= btn_clk_r1;
-    end
+    // reg  btn_clk_r1;
+    // reg  btn_clk_r2;
+    // always @(posedge clk)
+    // begin
+    //     if (!resetn)
+    //     begin
+    //         btn_clk_r1 <= 1'b0;
+    //     end
+    //     else
+    //     begin
+    //         btn_clk_r1 <= ~btn_clk;
+    //     end
+    //     btn_clk_r2 <= btn_clk_r1;
+    // end
 
-    wire clk_en;
-    assign clk_en = !resetn || (!btn_clk_r1 && btn_clk_r2);
-    BUFGCE cpu_clk_cg(.I(clk), .CE(clk_en), .O(cpu_clk));
-
+    // wire clk_en;
+    // assign clk_en = !resetn || (!btn_clk_r1 && btn_clk_r2);
+    // BUFGCE cpu_clk_cg(.I(clk), .CE(clk_en), .O(cpu_clk));
+    assign cpu_clk= clk;
     wire reset;
     assign reset = ~resetn;
 //-----{时钟和复位信号}end
@@ -136,7 +136,7 @@ module simple_cpu_display(
             mem_addr <= input_value;
         end
     end
-    assign rf_addr = display_number - 6'd11;
+    assign rf_addr = (display_number == 6'd45) ? 5'd1 : display_number - 6'd11;
 //-----{从触摸屏获取输入}end
 
 //-----{输出到触摸屏显示}begin
@@ -154,6 +154,7 @@ module simple_cpu_display(
 //  11-42: REG00-REG31  32个通用寄存器
 //  43: STATE   CPU FSM状态
 //  44: SW      拨码开关状态
+//  45: X1      x1寄存器值
     always @(posedge clk)
     begin
         if (display_number > 6'd10 && display_number < 6'd43)
@@ -238,6 +239,12 @@ module simple_cpu_display(
                     display_valid <= 1'b1;
                     display_name  <= "SW   ";
                     display_value <= {24'b0, sw};
+                end
+                6'd45 :
+                begin
+                    display_valid <= 1'b1;
+                    display_name  <= "X1   ";
+                    display_value <= rf_data;
                 end
                 default :
                 begin

@@ -5,10 +5,8 @@ module tb_simple_cpu_top;
     reg clk;
     reg reset;
     reg [4:0] rf_addr;
-    reg [31:0] mem_addr;
 
     wire [31:0] rf_data;
-    wire [31:0] mem_data;
     wire [31:0] if_pc;
     wire [31:0] if_inst;
     wire [31:0] id_pc;
@@ -60,7 +58,6 @@ module tb_simple_cpu_top;
         .timer_irq(timer_irq)
     );
 
-`ifdef USE_REAL_BUS
     wire [15:0] gpio_io;
     soc_top u_bus(
         .clk(clk),
@@ -89,23 +86,6 @@ module tb_simple_cpu_top;
     initial begin
         $readmemh("dev/2-simpleCPU/program_source/icache_init.hex", u_bus.memory.SramDualPort.mem);
     end
-`else
-    bus4lzu_mock u_bus_mock(
-        .clk(clk),
-        .reset(reset),
-        .instAddr_32(instAddr_32),
-        .instData_32(instData_32),
-        .data_req(data_req),
-        .dataWen_4(dataWen_4),
-        .dataAddr_32(dataAddr_32),
-        .writeData_32(writeData_32),
-        .readData_32(readData_32),
-        .init_sig(init_sig),
-        .timer_irq(timer_irq),
-        .dbg_mem_addr(mem_addr),
-        .dbg_mem_data(mem_data)
-    );
-`endif
 
     initial begin
         clk = 1'b0;
@@ -132,7 +112,6 @@ module tb_simple_cpu_top;
         input [31:0] addr;
         input [31:0] expected;
         begin
-`ifdef USE_REAL_BUS
             if (u_bus.memory.SramDualPort.mem[addr[14:2]] === expected) begin
                 pass_count = pass_count + 1;
                 $display("PASS mem[0x%08h] = 0x%08h", addr, u_bus.memory.SramDualPort.mem[addr[14:2]]);
@@ -140,17 +119,6 @@ module tb_simple_cpu_top;
                 fail_count = fail_count + 1;
                 $display("FAIL mem[0x%08h] expected=0x%08h got=0x%08h", addr, expected, u_bus.memory.SramDualPort.mem[addr[14:2]]);
             end
-`else
-            mem_addr = addr;
-            #1;
-            if (mem_data === expected) begin
-                pass_count = pass_count + 1;
-                $display("PASS mem[0x%08h] = 0x%08h", addr, mem_data);
-            end else begin
-                fail_count = fail_count + 1;
-                $display("FAIL mem[0x%08h] expected=0x%08h got=0x%08h", addr, expected, mem_data);
-            end
-`endif
         end
     endtask
 
@@ -158,7 +126,6 @@ module tb_simple_cpu_top;
         pass_count = 0;
         fail_count = 0;
         rf_addr = 5'd0;
-        mem_addr = 32'd0;
         reset = 1'b1;
 
         repeat (5) @(posedge clk);
@@ -199,11 +166,7 @@ module tb_simple_cpu_top;
         check_reg(5'd31, 32'd172);
 
         check_mem_word(32'd0, 32'd12);
-`ifdef USE_REAL_BUS
         check_mem_word(32'd4, 32'h00070105);
-`else
-        check_mem_word(32'd4, 32'h00070005);
-`endif
 
         $display("========================================");
         $display("simpleCPU test summary");

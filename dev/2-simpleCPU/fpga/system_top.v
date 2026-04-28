@@ -3,8 +3,6 @@ module system_top(
     input         clk,
     input         resetn,
 
-    input         btn_clk,
-
     input  [7:0]  sw,
 
     input         uart_rx,
@@ -46,7 +44,11 @@ module system_top(
     wire        init_sig;
     wire        timer_iqr;
 
-    bus4LZU_0 u_bus4lzu (
+    soc_top
+    #(
+        .CLK_FREQ(100),
+        .GPIO_NUM(16)
+    ) u_bus (
         .clk          (cpu_clk      ),
         .rstn         (resetn       ),
         .rx           (uart_rx      ),

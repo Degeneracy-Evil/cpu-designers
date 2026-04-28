@@ -50,6 +50,37 @@
 - [x] 18. data_mux.v扩展：总线范围增加0x10010000+地址
 - [x] 19. tb_simple_cpu_top.v：mem[0x04]期望值按USE_REAL_BUS条件区分（统一SRAM vs 独立dmem）
 - [x] 20. 全量回归：4测试×2模式（mock/real）= 8组合全部PASS
+- [x] 21. 删除bus4lzu_mock.v，移除所有testbench中USE_REAL_BUS条件编译，统一使用soc_top
+- [x] 22. system_top.v：bus4LZU_0(Vivado IP)→soc_top(RTL)，CLK_FREQ=100(100MHz)
+- [x] 23. 全量回归：4测试全部PASS（78/78）
+
+---
+
+### busip Step21-23 删除mock + system_top接入soc_top（2026-04-28）
+
+**目标**：删除仿真mock，统一使用真实Bus4LZU RTL；FPGA顶层接入soc_top
+
+**变更1 — 删除bus4lzu_mock.v**：
+- 删除`rtl/bus4lzu_mock.v`（107行）
+- 4个testbench移除`ifdef USE_REAL_BUS`/`else`/`endif`条件编译，仅保留soc_top实例化路径
+- 移除mock专用信号：`mem_addr`/`mem_data`/`u_bus_mock`
+- mem[0x04]期望值固定为0x00070105（统一SRAM行为）
+
+**变更2 — system_top.v接入soc_top**：
+- 替换：`bus4LZU_0 u_bus4lzu`（Vivado IP黑盒）→ `soc_top #(.CLK_FREQ(100), .GPIO_NUM(16)) u_bus`（RTL）
+- 时钟频率：CLK_FREQ参数从25→100，对应100MHz系统时钟
+- 移除`btn_clk`输入端口（未使用）
+- 端口映射与soc_top RTL完全一致：rstn/rx/tx/timer_iqr/init_sig/spi_*/gpio_io/instAddr_32/instData_32/dataWen_4/dataAddr_32/writeData_32/readData_32
+
+**验证结果**：
+
+| 测试 | 结果 |
+|------|------|
+| simple_cpu_top | 33/33 PASS |
+| csr_test | 20/20 PASS |
+| timer_irq_test | 2/2 PASS |
+| align_test | 23/23 PASS |
+| **合计** | **78/78 PASS** |
 
 ---
 

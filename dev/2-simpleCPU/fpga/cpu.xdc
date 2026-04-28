@@ -8,7 +8,7 @@ create_clock -period 10.000 [get_ports clk]
 set_property PACKAGE_PIN Y3 [get_ports resetn]
 
 # 单步调试按键，低电平有效
-set_property PACKAGE_PIN Y5 [get_ports btn_clk]
+# set_property PACKAGE_PIN Y5 [get_ports btn_clk]
 
 # 拨码开关 SW0-SW7
 set_property PACKAGE_PIN AC21 [get_ports {sw[0]}]

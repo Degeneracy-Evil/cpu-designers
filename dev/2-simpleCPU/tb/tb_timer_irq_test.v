@@ -5,10 +5,8 @@ module tb_timer_irq_test;
     reg clk;
     reg reset;
     reg [4:0] rf_addr;
-    reg [31:0] mem_addr;
 
     wire [31:0] rf_data;
-    wire [31:0] mem_data;
     wire [31:0] if_pc;
     wire [31:0] if_inst;
     wire [31:0] id_pc;
@@ -61,7 +59,6 @@ module tb_timer_irq_test;
         .timer_irq(timer_irq)
     );
 
-`ifdef USE_REAL_BUS
     wire [15:0] gpio_io;
     soc_top u_bus(
         .clk(clk),
@@ -90,23 +87,6 @@ module tb_timer_irq_test;
     initial begin
         $readmemh("dev/2-simpleCPU/program_source/timer_irq_test.hex", u_bus.memory.SramDualPort.mem);
     end
-`else
-    bus4lzu_mock u_bus_mock(
-        .clk(clk),
-        .reset(reset),
-        .instAddr_32(instAddr_32),
-        .instData_32(instData_32),
-        .data_req(data_req),
-        .dataWen_4(dataWen_4),
-        .dataAddr_32(dataAddr_32),
-        .writeData_32(writeData_32),
-        .readData_32(readData_32),
-        .init_sig(init_sig),
-        .timer_irq(timer_irq),
-        .dbg_mem_addr(mem_addr),
-        .dbg_mem_data(mem_data)
-    );
-`endif
 
     initial begin
         clk = 1'b0;
@@ -134,7 +114,6 @@ module tb_timer_irq_test;
         pass_count = 0;
         fail_count = 0;
         rf_addr = 5'd0;
-        mem_addr = 32'd0;
         reset = 1'b1;
 
         repeat (5) @(posedge clk);

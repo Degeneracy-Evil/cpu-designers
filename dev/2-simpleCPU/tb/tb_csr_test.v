@@ -5,10 +5,8 @@ module tb_csr_test;
     reg clk;
     reg reset;
     reg [4:0] rf_addr;
-    reg [31:0] mem_addr;
 
     wire [31:0] rf_data;
-    wire [31:0] mem_data;
     wire [31:0] if_pc;
     wire [31:0] if_inst;
     wire [31:0] id_pc;
@@ -72,7 +70,6 @@ module tb_csr_test;
         .timer_irq(timer_irq)
     );
 
-`ifdef USE_REAL_BUS
     wire [15:0] gpio_io;
     soc_top u_bus(
         .clk(clk),
@@ -101,23 +98,6 @@ module tb_csr_test;
     initial begin
         $readmemh("dev/2-simpleCPU/program_source/csr_test.hex", u_bus.memory.SramDualPort.mem);
     end
-`else
-    bus4lzu_mock u_bus_mock(
-        .clk(clk),
-        .reset(reset),
-        .instAddr_32(instAddr_32),
-        .instData_32(instData_32),
-        .data_req(data_req),
-        .dataWen_4(dataWen_4),
-        .dataAddr_32(dataAddr_32),
-        .writeData_32(writeData_32),
-        .readData_32(readData_32),
-        .init_sig(init_sig),
-        .timer_irq(timer_irq),
-        .dbg_mem_addr(mem_addr),
-        .dbg_mem_data(mem_data)
-    );
-`endif
 
     initial begin
         clk = 1'b0;
@@ -146,7 +126,6 @@ module tb_csr_test;
         input [31:0] expected;
         input [255:0] name;
         begin
-`ifdef USE_REAL_BUS
             if (u_bus.memory.SramDualPort.mem[addr[14:2]] === expected) begin
                 pass_count = pass_count + 1;
                 $display("PASS %0s = 0x%08h", name, u_bus.memory.SramDualPort.mem[addr[14:2]]);
@@ -154,17 +133,6 @@ module tb_csr_test;
                 fail_count = fail_count + 1;
                 $display("FAIL %0s expected=0x%08h got=0x%08h", name, expected, u_bus.memory.SramDualPort.mem[addr[14:2]]);
             end
-`else
-            mem_addr = addr;
-            #1;
-            if (mem_data === expected) begin
-                pass_count = pass_count + 1;
-                $display("PASS %0s = 0x%08h", name, mem_data);
-            end else begin
-                fail_count = fail_count + 1;
-                $display("FAIL %0s expected=0x%08h got=0x%08h", name, expected, mem_data);
-            end
-`endif
         end
     endtask
 
@@ -173,7 +141,6 @@ module tb_csr_test;
         fail_count = 0;
         cycle_count = 0;
         rf_addr = 5'd0;
-        mem_addr = 32'd0;
         reset = 1'b1;
 
         repeat (5) @(posedge clk);

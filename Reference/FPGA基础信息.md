@@ -4,6 +4,8 @@
 
 硬件描述：lcd_module.dcp
 
+系统clock频率：100MHz
+
 ## 存储模块
 
 SRAM：IDT 71V124SA10TYG，128K（地址空间） × 8位（数据位宽），总容量 1Mbit，10ns

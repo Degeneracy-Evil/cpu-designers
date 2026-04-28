@@ -144,6 +144,8 @@ module simple_cpu_top(
     );
 
     cpu_fetch u_fetch(
+        .clk(clk),
+        .reset(reset),
         .if_valid(if_valid),
         .pc(pc),
         .inst_data(icache_dout),

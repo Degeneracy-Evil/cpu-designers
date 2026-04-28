@@ -18,6 +18,8 @@ module dcache(
 );
 
     reg [31:0] mem[0:2047];
+    reg [31:0] douta_reg;
+    reg [31:0] doutb_reg;
     integer i;
 
     initial begin
@@ -25,17 +27,23 @@ module dcache(
             mem[i] = 32'b0;
     end
 
-    assign douta = ena ? mem[addra] : 32'b0;
-    assign doutb = enb ? mem[addrb] : 32'b0;
-
     always @(posedge clka) begin
-        if (ena && wea[0])
-            mem[addra] <= dina;
+        if (ena) begin
+            douta_reg <= mem[addra];
+            if (wea[0])
+                mem[addra] <= dina;
+        end
     end
 
     always @(posedge clkb) begin
-        if (enb && web[0])
-            mem[addrb] <= dinb;
+        if (enb) begin
+            doutb_reg <= mem[addrb];
+            if (web[0])
+                mem[addrb] <= dinb;
+        end
     end
+
+    assign douta = douta_reg;
+    assign doutb = doutb_reg;
 
 endmodule

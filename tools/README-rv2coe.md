@@ -1,6 +1,6 @@
 # rv2coe
 
-把 RISC-V 汇编/C 源文件编译为 COE 初始化文件（适用于 `dev/2-embedded_cpu/program_source/icache_init.coe` 同格式）。
+把 RISC-V 汇编/C 源文件编译为 COE/hex/bin 初始化文件，支持统一输出和指令/数据分离输出（Harvard 架构）。
 
 ## 要求
 
@@ -8,7 +8,9 @@
 - `riscv64-unknown-elf-objcopy`
 - `riscv64-unknown-elf-objdump`（仅 `--check-isa` 时需要）
 
-## 快速开始（优先 asm）
+## 快速开始
+
+### 统一输出（Von Neumann 架构）
 
 ```bash
 python3 tools/rv2coe.py \
@@ -16,14 +18,62 @@ python3 tools/rv2coe.py \
   -o dev/2-embedded_cpu/program_source/icache_init.coe
 ```
 
+### 指令/数据分离输出（Harvard 架构 / bootloader 烧录）
+
+```bash
+python3 tools/rv2coe.py \
+  -i app.S \
+  --inst-bin app.inst.bin \
+  --data-bin app.data.bin
+```
+
+分离输出的文件可直接用于 `bootloader/main.py` 烧录：
+- `*.inst.bin` — 指令存储器（`.text` 段）
+- `*.data.bin` — 数据存储器（`.data` + `.rodata` + `.sdata` 段）
+
 ## 常用参数
 
+### 通用
+
+- `-i` / `--input`：输入源文件（`.S` / `.s` / `.asm` / `.c`）
+- `-o` / `--output`：统一 COE 输出（仅 `.text` 段）
 - `--lang {auto,asm,c}`：指定输入语言，默认自动识别
-- `--march`：默认 `rv32i_zicsr_zifencei`
-- `--abi`：默认 `ilp32`
 - `--entry`：链接入口符号，默认 `_start`
+- `--march`：目标 ISA，默认 `rv32i_zicsr_zifencei`（同时控制 GCC 编译和 ISA 白名单检查）
+- `--abi`：目标 ABI，默认 `ilp32`
 - `--no-check-isa`：关闭 ISA 白名单检查
-- `--depth N`：输出补齐到 N 条指令（默认不补齐）
+- `--depth N`：指令输出补齐到 N 条（默认不补齐）
+- `--data-depth N`：数据输出补齐到 N 条（默认不补齐）
+- `--hex FILE`：同时输出 `$readmemh` 格式 hex 文件
+- `-v` / `--verbose`：打印完整工具链命令
+
+### 指令/数据分离输出
+
+| 参数 | 说明 |
+|------|------|
+| `--inst-coe FILE` | 指令 COE 文件（`.text` 段） |
+| `--inst-hex FILE` | 指令 hex 文件（`$readmemh`） |
+| `--inst-bin FILE` | 指令原始二进制文件（`.inst.bin`） |
+| `--data-coe FILE` | 数据 COE 文件（`.data`+`.rodata`+`.sdata` 段） |
+| `--data-hex FILE` | 数据 hex 文件（`$readmemh`） |
+| `--data-bin FILE` | 数据原始二进制文件（`.data.bin`） |
+
+## 指令集配置（--march）
+
+`--march` 同时控制 GCC 编译选项和 ISA 白名单检查。内置以下 ISA profile：
+
+| Profile | 包含扩展 |
+|---------|---------|
+| `rv32i` | 基硎整数指令集 |
+| `rv32i_zicsr` | + CSR 指令 |
+| `rv32i_zicsr_zifencei` | + 指令缓存刷新（**默认**） |
+| `rv32im*` | + 乘除法（M 扩展） |
+| `rv32imc*` | + 乘除法 + 压缩指令（C 扩展） |
+| `rv32imac*` | + 乘除法 + 原子 + 压缩 |
+| `rv32if*` | + 单精度浮点（F 扩展） |
+| `rv32imaf*` | + 乘除法 + 单精度浮点 |
+
+每个 base profile 均有 `_zicsr` 和 `_zicsr_zifencei` 变体。若 `--march` 未匹配任何内置 profile，ISA 检查将跳过并输出警告。
 
 ## C 输入说明
 
@@ -36,7 +86,7 @@ python3 tools/rv2coe.py \
 ## 示例
 
 ```bash
-# asm -> coe
+# asm -> coe（统一输出）
 python3 tools/rv2coe.py -i app.S -o app.coe
 
 # c -> coe（无标准库）
@@ -44,5 +94,26 @@ python3 tools/rv2coe.py -i app.c -o app.coe --lang c
 
 # 补齐到 2048 words
 python3 tools/rv2coe.py -i app.S -o app.coe --depth 2048
-```
 
+# 指令/数据分离输出（bootloader 烧录）
+python3 tools/rv2coe.py -i app.S \
+  --inst-bin app.inst.bin \
+  --data-bin app.data.bin
+
+# 分离输出 + COE + hex 全格式
+python3 tools/rv2coe.py -i app.S \
+  --inst-coe app.inst.coe \
+  --inst-hex app.inst.hex \
+  --inst-bin app.inst.bin \
+  --data-coe app.data.coe \
+  --data-hex app.data.hex \
+  --data-bin app.data.bin
+
+# 使用 rv32im 编译（乘除法扩展）
+python3 tools/rv2coe.py -i app.S -o app.coe \
+  --march rv32im_zicsr_zifencei --abi ilp32
+
+# 使用 rv32imc 编译（乘除法 + 压缩指令）
+python3 tools/rv2coe.py -i app.S -o app.coe \
+  --march rv32imc_zicsr_zifencei --abi ilp32
+```

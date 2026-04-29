@@ -64,7 +64,7 @@ module tb_simple_cpu_top;
         .rstn(~reset),
         .rx(1'b1),
         .tx(),
-        .timer_iqr(timer_irq),
+        .timer_irq(timer_irq),
         .init_sig(init_sig),
         .spi_miso(1'b0),
         .spi_mosi(),

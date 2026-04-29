@@ -42,7 +42,7 @@ module system_top(
     wire [31:0] readData_32;
     wire        data_req;
     wire        init_sig;
-    wire        timer_iqr;
+    wire        timer_irq;
 
     soc_top
     #(
@@ -53,7 +53,7 @@ module system_top(
         .rstn         (resetn       ),
         .rx           (uart_rx      ),
         .tx           (uart_tx      ),
-        .timer_iqr    (timer_iqr    ),
+        .timer_irq    (timer_irq    ),
         .init_sig     (init_sig     ),
         .spi_miso     (spi_miso     ),
         .spi_mosi     (spi_mosi     ),
@@ -106,7 +106,7 @@ module system_top(
         .readData_32  (readData_32  ),
         .data_req     (data_req     ),
         .init_sig     (init_sig     ),
-        .timer_irq    (timer_iqr    )
+        .timer_irq    (timer_irq    )
     );
 
     reg         display_valid;

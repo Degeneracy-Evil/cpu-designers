@@ -191,14 +191,14 @@ opcode = 1110011，与 System 指令共享 opcode 空间，通过 funct3 区分�
 ### 5.2 mstatus（0x300）位域定义（RV32）
 
 ```
-31          13 12 11 10 9 8 7 6 5 4 3 2 1 0
+31           13 12 11 10 9 8 7 6 5 4 3 2 1 0
 ┌─────────────┬───┬───┬───┬─┬─┬─┬─┬─┬─┬─┬─┬─┐
 │   WPRI      │MPP│   │   │ │ │ │ │ │ │ │ │ │
-│             │   │   │   │S│M│ │M│ │ │M│ │ │
-│             │   │   │   │P│P│ │P│ │ │I│ │ │
-│             │   │   │   │P│I│ │I│ │ │E│ │ │
+│             │   │   │   │S│M│ │S│ │M│ │ │ │
+│             │   │   │   │P│P│ │P│ │P│ │ │ │
+│             │   │   │   │P│I│ │I│ │I│ │ │ │
 │             │   │   │   │ │E│ │E│ │ │ │ │ │
-└─────────────┴───┴───┴───┴─┴─┴─┴─┴─┴─┴─┴─┘
+└─────────────┴───┴───┴───┴─┴─┴─┴─┴─┴─┴─┴─┴─┘
 ```
 
 本项目仅使用以下位域（其余位保持为 0）：
@@ -238,7 +238,7 @@ opcode = 1110011，与 System 指令共享 opcode 空间，通过 funct3 区分�
 | 7 | MTIP | Machine 定时器中断等待 |
 | 11 | MEIP | Machine 外部中断等待 |
 
-> MEIP 由外部中断控制器（UART 等）写入，软件可读不可写。MSIP 可软件读写。
+> MEIP 由外部中断控制器（UART 等）写入，软件可读不可写。MSIP 可软件读写。MTIP 由核心计时器（CLINT）硬件自动置位/清除，软件可读不可写。
 
 ### 5.5 mtvec（0x305）位域定义
 
@@ -290,9 +290,63 @@ opcode = 1110011，与 System 指令共享 opcode 空间，通过 funct3 区分�
 
 ---
 
-## 6. 异常与中断原因编码
+## 6. 核心本地中断控制器（CLINT）与计时器
 
-### 6.1 同步异常编码（Interrupt bit = 0）
+### 6.1 概述
+
+本项目通过 Bus4LZU IP 中的 `timer.v` 外设实现核心计时器，产生定时器中断 MTIP（mip[7]）。计时器为内存映射外设，不属于 CSR 地址空间，CPU 通过标准 Load/Store 指令访问。
+
+### 6.2 计时器地址映射
+
+计时器外设在总线地址空间中的映射：
+
+| 地址范围 | 从设备编号 | 外设 |
+|----------|-----------|------|
+| 0x00040000 - 0x0004FFFF | BUS_SLAVE_3 | Timer |
+
+### 6.3 计时器寄存器（内存映射）
+
+| 偏移量 | 地址（字节） | 名称 | 读写 | 描述 |
+|--------|-------------|------|------|------|
+| 0x00 | BASE + 0x00 | mtimecmp | RW | 比较值，当 mtime >= mtimecmp 时触发中断 |
+| 0x04 | BASE + 0x04 | mctl | RW | 控制寄存器：bit[0]=start（1=启动计数），bit[1]=mode（0=单次，1=周期） |
+| 0x08 | BASE + 0x08 | mtip_flag | RW | 中断标志：bit[0]=irq（1=中断等待），写入 0 清除中断 |
+| 0x0C | BASE + 0x0C | mtime | RW | 计数器当前值，每个时钟周期自增 1（当 start=1 时） |
+
+> BASE = 0x00040000。寄存器按字对齐访问（偏移量按 i_addr[3:2] 译码）。
+
+### 6.4 计时器行为
+
+1. **计数**：当 `start=1` 时，`mtime` 每个时钟周期自增 1。
+2. **比较**：当 `mtime >= mtimecmp` 且 `mtimecmp != 0` 且 `start=1` 时，`mtip_flag` 硬件自动置 1，`timer_irq` 输出高电平。
+3. **周期模式**（mode=1）：触发中断后 `mtime` 自动清零重新计数。
+4. **单次模式**（mode=0）：触发中断后 `start` 硬件自动清零，停止计数。
+5. **中断清除**：软件向 `mtip_flag` 偏移写入 0 清除中断标志。
+
+### 6.5 MTIP 与 mip 寄存器的交互
+- `timer_irq` 信号从 Bus4LZU 输出，连接到 CPU 的 `cpu_clint` 模块。
+
+- MTIP（mip[7]）由硬件直接驱动：`mip[7] = timer_irq`。
+- 软件不可通过 CSR 指令直接写入 mip[7]，该位由计时器硬件控制。
+- 中断触发条件：`MIE=1 && MTIE=1 && MTIP=1` 时，CPU 响应 Machine timer interrupt（mcause = 0x80000007）。
+
+### 6.6 中断优先级
+
+当多个中断同时等待时，按以下优先级响应（编号越小优先级越高）：
+
+| 优先级 | 中断 | mcause Code | 条件 |
+|--------|------|-------------|------|
+| 1 | Machine software interrupt | 3 | MSIE && MSIP |
+| 2 | Machine timer interrupt | 7 | MTIE && MTIP |
+| 3 | Machine external interrupt | 11 | MEIE && MEIP |
+
+> 当前实现中，若多个中断同时有效，按 MEIP > MSIP 优先级选择（MTIP 待集成后更新为 MSIP > MTIP > MEIP）。
+
+---
+
+## 7. 异常与中断原因编码
+
+### 7.1 同步异常编码（Interrupt bit = 0）
 
 | Code | 名称 | 描述 | 本项目是否实现 |
 |------|------|------|----------------|
@@ -306,19 +360,19 @@ opcode = 1110011，与 System 指令共享 opcode 空间，通过 funct3 区分�
 
 > Code 1（Instruction access fault）、5（Load access fault）、7（Store/AMO access fault）在无 MMU 的实现中不会发生，不实现。
 
-### 6.2 中断编码（Interrupt bit = 1）
+### 7.2 中断编码（Interrupt bit = 1）
 
 | Code | 名称 | 描述 | 本项目是否实现 |
 |------|------|------|----------------|
 | 3 | Machine software interrupt | 软件中断 | 是 |
-| 7 | Machine timer interrupt | 定时器中断 | 否（暂不实现定时器） |
+| 7 | Machine timer interrupt | 定时器中断（MTIP） | 是 |
 | 11 | Machine external interrupt | 外部中断（UART等） | 是 |
 
 ---
 
-## 7. 指令译码快速参考
+## 8. 指令译码快速参考
 
-### 7.1 opcode 译码表
+### 8.1 opcode 译码表
 
 | opcode[6:0] | 类型 | 用途 |
 |-------------|------|------|
@@ -334,7 +388,7 @@ opcode = 1110011，与 System 指令共享 opcode 空间，通过 funct3 区分�
 | 0001111 | I | FENCE / FENCE.I |
 | 1110011 | I | SYSTEM / CSR |
 
-### 7.2 译码优先级
+### 8.2 译码优先级
 
 1. 先按 opcode 确定指令大类
 2. 按 funct3 细分（Branch、Load、Store、OP-IMM、OP）
@@ -344,7 +398,7 @@ opcode = 1110011，与 System 指令共享 opcode 空间，通过 funct3 区分�
 
 ---
 
-## 8. 实现统计
+## 9. 实现统计
 
 | 类别 | 指令数 | 指令 |
 |------|--------|------|

@@ -53,6 +53,72 @@
 - [x] 21. 删除bus4lzu_mock.v，移除所有testbench中USE_REAL_BUS条件编译，统一使用soc_top
 - [x] 22. system_top.v：bus4LZU_0(Vivado IP)→soc_top(RTL)，CLK_FREQ=100(100MHz)
 - [x] 23. 全量回归：4测试全部PASS（78/78）
+- [x] 24. MTIP定时器中断实现：timer_irq→MTIP(mip[7])，中断优先级MSIP>MTIP>MEIP
+- [x] 25. 全量回归：4测试全部PASS（78/78）
+
+---
+
+### 2026-04-29 MTIP中断mepc保存修复 + 数据总线stale写信号修复 + timer_seconds测试
+
+**问题1**：中断触发时mepc未保存被中断指令的PC，mret返回到地址0x00，导致CPU重新执行setup代码并重置x1
+
+**根因**：cpu_clint.v中 `hw_mepc_wdata = exception_valid ? exception_pc : csr_mepc`，中断时exception_valid=0，hw_mepc_wdata保持csr_mepc旧值（复位后为0）
+
+**修复**：
+- cpu_clint.v：新增 `interrupt_pc` 输入端口，`hw_mepc_wdata = exception_valid ? exception_pc : interrupt_pc`
+- simple_cpu_top.v：CLINT实例连接 `.interrupt_pc(pc)`
+
+**问题2**：store指令完成后dataWen_4_reg保持写掩码不变，CPU无内存访问时总线持续向外设发送stale WRITE，导致timer的o_irq_1被立即清除（每周期写0到irq寄存器）
+
+**根因**：cpu_mem.v在MEM_IDLE非load/store路径和MEM_WRITE完成路径均未将dataWen_4_reg恢复为4'b1111（read/no-write模式），slot_data将非1111的dataWen_4解释为WRITE
+
+**修复**：
+- cpu_mem.v：MEM_IDLE非load/store分支增加 `dataWen_4_reg <= 4'b1111`
+- cpu_mem.v：misalign分支增加 `dataWen_4_reg <= 4'b1111`
+- cpu_mem.v：MEM_WRITE状态增加 `dataWen_4_reg <= 4'b1111`
+
+**新增测试**：
+- tb_timer_seconds.v：中断驱动秒计数器测试，x1每500周期tick递增1，验证3次tick后x1=1→2→3 ✓
+- 全部5个testbench回归通过：simple_cpu_top(33) + csr_test(20) + timer_irq_test(2) + align_test(23) + timer_seconds(3) = 81/81 PASS
+
+### busip Step24 MTIP定时器中断实现（2026-04-29）
+
+**目标**：将 Bus4LZU 的 `timer_irq` 信号从错误连接的 MEIP（mip[11]）改为正确的 MTIP（mip[7]），实现 RISC-V 标准定时器中断
+
+**变更1 — `cpu_csr.v`**：
+- 新增 `ext_mtip` 输入端口
+- `w_mip_hw` 从 `{20'b0, ext_meip, 3'b0, 1'b0, 3'b0, ext_msip, 3'b0}` 改为 `{20'b0, ext_meip, 3'b0, ext_mtip, 3'b0, ext_msip, 3'b0}`
+- MTIP 正确映射到 mip[7]
+
+**变更2 — `cpu_clint.v`**：
+- 新增 `ext_mtip` 输入端口
+- 新增 `mtie_bit = csr_mie[7]`、`mtip_bit = ext_mtip`
+- `interrupt_pending` 增加 MTIP 条件：`mie_bit && ((msie_bit && msip_bit) || (mtie_bit && mtip_bit) || (meie_bit && meip_bit))`
+- `interrupt_cause` 优先级更新为 RISC-V 标准：MSIP(0x80000003) > MTIP(0x80000007) > MEIP(0x8000000B)
+
+**变更3 — `simple_cpu_top.v`**：
+- `cpu_csr` 实例：`ext_meip` 从 `timer_irq` 改为 `1'b0`，新增 `.ext_mtip(timer_irq)`
+- `cpu_clint` 实例：新增 `.ext_mtip(timer_irq)`
+
+**变更4 — `timer_irq_test.s`**：
+- `mie` 从 `0x800`（MEIE, bit11）改为 `0x080`（MTIE, bit7）
+
+**变更5 — `tb_timer_irq_test.v`**：
+- 期望 mcause 从 `0x8000000B`（MEI）改为 `0x80000007`（MTI）
+
+**变更6 — 文档更新**：
+- `instruction-set.md`：新增第6节 CLINT 与计时器，MTIP 中断标记为"是"，mip 描述补充 MTIP
+- `PLAN.md`：新增 Phase G（MTIP 集成），修正 timer_irq 映射 MEIP→MTIP
+
+**验证结果**：
+
+| 测试 | 结果 |
+|------|------|
+| simple_cpu_top | 33/33 PASS |
+| csr_test | 20/20 PASS |
+| timer_irq_test | 2/2 PASS |
+| align_test | 23/23 PASS |
+| **合计** | **78/78 PASS** |
 
 ---
 
@@ -70,7 +136,7 @@
 - 替换：`bus4LZU_0 u_bus4lzu`（Vivado IP黑盒）→ `soc_top #(.CLK_FREQ(100), .GPIO_NUM(16)) u_bus`（RTL）
 - 时钟频率：CLK_FREQ参数从25→100，对应100MHz系统时钟
 - 移除`btn_clk`输入端口（未使用）
-- 端口映射与soc_top RTL完全一致：rstn/rx/tx/timer_iqr/init_sig/spi_*/gpio_io/instAddr_32/instData_32/dataWen_4/dataAddr_32/writeData_32/readData_32
+- 端口映射与soc_top RTL完全一致：rstn/rx/tx/timer_irq/init_sig/spi_*/gpio_io/instAddr_32/instData_32/dataWen_4/dataAddr_32/writeData_32/readData_32
 
 **验证结果**：
 

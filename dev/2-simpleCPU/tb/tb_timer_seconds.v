@@ -1,6 +1,6 @@
 `timescale 1ns / 1ps
 
-module tb_align_test;
+module tb_timer_seconds;
 
     reg clk;
     reg reset;
@@ -85,7 +85,7 @@ module tb_align_test;
     end
 
     initial begin
-        $readmemh("dev/2-simpleCPU/program_source/align_test.hex", u_bus.memory.SramDualPort.mem);
+        $readmemh("dev/2-simpleCPU/program_source/timer_seconds.hex", u_bus.memory.SramDualPort.mem);
     end
 
     initial begin
@@ -102,25 +102,10 @@ module tb_align_test;
             #1;
             if (rf_data === expected) begin
                 pass_count = pass_count + 1;
-                $display("PASS %0s = 0x%08h", name, rf_data);
+                $display("PASS %0s = %0d", name, rf_data);
             end else begin
                 fail_count = fail_count + 1;
-                $display("FAIL %0s expected=0x%08h got=0x%08h", name, expected, rf_data);
-            end
-        end
-    endtask
-
-    task check_mem_word;
-        input [31:0] addr;
-        input [31:0] expected;
-        input [255:0] name;
-        begin
-            if (u_bus.memory.SramDualPort.mem[addr[14:2]] === expected) begin
-                pass_count = pass_count + 1;
-                $display("PASS %0s = 0x%08h", name, u_bus.memory.SramDualPort.mem[addr[14:2]]);
-            end else begin
-                fail_count = fail_count + 1;
-                $display("FAIL %0s expected=0x%08h got=0x%08h", name, expected, u_bus.memory.SramDualPort.mem[addr[14:2]]);
+                $display("FAIL %0s expected=%0d got=%0d", name, expected, rf_data);
             end
         end
     endtask
@@ -134,41 +119,20 @@ module tb_align_test;
         repeat (5) @(posedge clk);
         reset = 1'b0;
 
-        repeat (5000) @(posedge clk);
+        repeat (800) @(posedge clk);
 
-        check_reg(5'd2,  32'hFFFFFFC1, "x2=lb_0xC1_signed");
-        check_reg(5'd3,  32'h000000C1, "x3=lbu_0xC1_unsigned");
-        check_reg(5'd4,  32'hFFFFFFC2, "x4=lb_0xC2_signed");
-        check_reg(5'd5,  32'h000000C2, "x5=lbu_0xC2_unsigned");
-        check_reg(5'd6,  32'hFFFFFFC3, "x6=lb_0xC3_signed");
-        check_reg(5'd7,  32'h000000C3, "x7=lbu_0xC2_unsigned");
-        check_reg(5'd8,  32'hFFFFFFC4, "x8=lb_0xC4_signed");
-        check_reg(5'd9,  32'h000000C4, "x9=lbu_0xC4_unsigned");
+        check_reg(5'd1, 32'd1, "x1=seconds_after_1st_tick");
 
-        check_reg(5'd20, 32'h00005678, "x20=lh_offset0");
-        check_reg(5'd11, 32'h00005678, "x11=lhu_offset0");
+        repeat (600) @(posedge clk);
 
-        check_reg(5'd12, 32'hFFFFABCD, "x12=lh_offset2_signed");
-        check_reg(5'd13, 32'h0000ABCD, "x13=lhu_offset2_unsigned");
+        check_reg(5'd1, 32'd2, "x1=seconds_after_2nd_tick");
 
-        check_reg(5'd14, 32'hABCD5678, "x14=lw_word0");
+        repeat (600) @(posedge clk);
 
-        check_reg(5'd15, 32'h12345678, "x15=lw_word4");
-
-        check_reg(5'd16, 32'h00000078, "x16=lb_byte4");
-        check_reg(5'd17, 32'h00000056, "x17=lb_byte5");
-        check_reg(5'd18, 32'h00000034, "x18=lb_byte6");
-        check_reg(5'd19, 32'h00000012, "x19=lb_byte7");
-
-        check_reg(5'd22, 32'hFFFFFFFF, "x22=lb_0xFF_signed");
-        check_reg(5'd23, 32'h00000000, "x23=lb_0x00_signed");
-        check_reg(5'd24, 32'h00000000, "x24=lb_0x00_signed");
-        check_reg(5'd25, 32'hFFFFFFFF, "x25=lb_0xFF_signed");
-
-        check_reg(5'd1,  32'h00000001, "x1=test_complete");
+        check_reg(5'd1, 32'd3, "x1=seconds_after_3rd_tick");
 
         $display("========================================");
-        $display("Align test summary");
+        $display("Timer seconds test summary");
         $display("pass=%0d fail=%0d", pass_count, fail_count);
         if (fail_count == 0) begin
             $display("ALL TESTS PASSED");

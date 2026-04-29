@@ -65,7 +65,7 @@ module tb_timer_irq_test;
         .rstn(~reset),
         .rx(1'b1),
         .tx(),
-        .timer_iqr(timer_irq),
+        .timer_irq(timer_irq),
         .init_sig(init_sig),
         .spi_miso(1'b0),
         .spi_mosi(),
@@ -121,7 +121,7 @@ module tb_timer_irq_test;
 
         repeat (8000) @(posedge clk);
 
-        check_reg(5'd2, 32'h8000000B, "x2=mcause_timer_irq");
+        check_reg(5'd2, 32'h80000007, "x2=mcause_timer_irq");
         check_reg(5'd4, 32'h00000001, "x4=handler_entered");
 
         $display("========================================");

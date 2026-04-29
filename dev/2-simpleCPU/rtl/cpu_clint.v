@@ -11,11 +11,15 @@ module cpu_clint(
 
     input              mret_req,
 
+    input       [31:0] interrupt_pc,
+
     input       [31:0] csr_mstatus,
     input       [31:0] csr_mie,
     input       [31:0] csr_mtvec,
     input       [31:0] csr_mepc,
     input       [31:0] csr_mip,
+
+    input              ext_mtip,
 
     output             trap_enter,
     output             trap_return,
@@ -30,17 +34,22 @@ module cpu_clint(
 
     wire mie_bit    = csr_mstatus[3];
     wire meie_bit   = csr_mie[11];
+    wire mtie_bit   = csr_mie[7];
     wire msie_bit   = csr_mie[3];
     wire meip_bit   = csr_mip[11];
+    wire mtip_bit   = ext_mtip;
     wire msip_bit   = csr_mip[3];
     wire mpie_bit   = csr_mstatus[7];
     wire mpp_bits   = csr_mstatus[12:11];
 
-    wire interrupt_pending = mie_bit && ((meie_bit && meip_bit) || (msie_bit && msip_bit));
+    wire interrupt_pending = mie_bit && ((msie_bit && msip_bit) ||
+                                         (mtie_bit && mtip_bit) ||
+                                         (meie_bit && meip_bit));
 
     wire [31:0] interrupt_cause;
-    assign interrupt_cause = (meie_bit && meip_bit) ? 32'h8000000B :
-                             32'h80000003;
+    assign interrupt_cause = (msie_bit && msip_bit) ? 32'h80000003 :
+                             (mtie_bit && mtip_bit) ? 32'h80000007 :
+                             32'h8000000B;
 
     assign trap_enter  = exception_valid || (interrupt_pending && !exception_valid);
     assign trap_return = mret_req;
@@ -50,7 +59,7 @@ module cpu_clint(
     assign hw_csr_wen = trap_enter || trap_return;
 
     assign hw_mepc_wdata = exception_valid ? exception_pc :
-                           csr_mepc;
+                           interrupt_pc;
 
     assign hw_mcause_wdata = exception_valid ? exception_cause :
                              interrupt_cause;

@@ -56,7 +56,7 @@ Reference/Bus4LZU/
 | `memory_slot.v` | SRAM 双口封装（ICache + DCache） | mock 内 `imem`/`dmem` 行为模型 |
 | `data_init.v` | UART 加载程序 + Checksum 校验 + I/D 分流 | mock 内 `init_sig` 固定延迟 |
 | `data_mux.v` | 初始化选择器（UART 写 vs CPU 写） | mock 内无（组合读0延迟） |
-| `timer.v` | Timer 计数器 + `timer_iqr` 中断 | mock 内 Timer mock |
+| `timer.v` | Timer 计数器 + `timer_irq` 中断 | mock 内 Timer mock |
 | `gpio.v` / `spi.v` | GPIO / SPI 外设 | mock 内无（未实现） |
 | `uart_top.v` / `uart_rx.v` / `uart_tx.v` | UART 串口 | mock 内无（init_sig 跳过加载） |
 | `bus_define.vh` | 地址空间/偏移常量 | mock 内硬编码地址 |
@@ -78,7 +78,7 @@ bus4LZU_0 your_instance_name (
   .rstn(rstn),                  // input wire  (低有效！)
   .rx(rx),                      // input wire  (UART RX)
   .tx(tx),                      // output wire (UART TX)
-  .timer_iqr(timer_iqr),        // output wire
+  .timer_irq(timer_irq),          // output wire
   .init_sig(init_sig),          // output wire (高有效，暂停CPU)
   .spi_miso(spi_miso),          // input wire
   .spi_mosi(spi_mosi),          // output wire
@@ -123,7 +123,7 @@ bus4LZU_0 your_instance_name (
 | `.instData_32` | `instData_32` | 32 | 指令数据，读延迟1周期 |
 | `.readData_32` | `readData_32` | 32 | load 数据，读延迟1周期 |
 | `.init_sig` | `init_sig` | 1 | 初始化暂停信号 |
-| `.timer_iqr` | `timer_irq` | 1 | 定时器中断 → MEIP |
+| `.timer_irq` | `timer_irq` | 1 | 定时器中断 → MTIP（mip[7]） |
 
 ## 5. 实现步骤
 
@@ -210,16 +210,48 @@ bus4LZU_0 your_instance_name (
 - **测试策略**：
   1. 先运行基础33项测试，确认取指/访存基本通路正确。
   2. 运行 CSR 20项测试，确认中断/异常通路不受影响。
-  3. 运行 Timer 中断测试，确认 `timer_iqr` 信号通路正确。
+  3. 运行 Timer 中断测试，确认 `timer_irq` 信号通路正确。
   4. 运行字节/半字对齐测试，确认 `dataWen_4` 掩码与 `readData_32` 提取正确。
 - **预期问题**：
   - `memory_slot.v` 中 BRAM 实例化方式与 mock 不同，可能需调整地址位宽/深度。
   - `data_init.v` / `data_mux.v` 的初始化逻辑可能在 `init_sig=0`（force 跳过）时有副作用。
   - `bus_addr_decoder.v` 的地址空间划分需与 CPU 访问地址匹配（0x0000-0xFFFF SRAM，0x10000+ 外设）。
 
-### Phase F：编译脚本更新
+### Phase G：核心计时器中断（MTIP）集成
 
-**目标**：更新 `tools/mk.py` 或仿真脚本，支持真实 IP 编译。
+**目标**：将 Bus4LZU 的 `timer_irq` 信号正确连接为 MTIP（mip[7]），实现 RISC-V 标准定时器中断通路。
+
+**背景**：当前 `cpu_clint.v` 仅处理 MEIP（bit 11）和 MSIP（bit 3），`timer_irq` 错误地连接到 MEIP。RISC-V 特权规范要求定时器中断对应 MTIP（mip[7]）和 MTIE（mie[7]），mcause = 0x80000007。
+
+- **改造内容**：
+
+  1. **`cpu_clint.v`**：
+     - 新增 `ext_mtip` 输入端口（1 位，来自 `timer_irq`）。
+     - `interrupt_pending` 增加 MTIP 条件：`mie_bit && ((meie_bit && meip_bit) || (mtie_bit && mtip_bit) || (msie_bit && msip_bit))`。
+     - `interrupt_cause` 优先级更新：MSIP(3) > MTIP(7) > MEIP(11)。
+       ```verilog
+       assign interrupt_cause = (msie_bit && msip_bit) ? 32'h80000003 :
+                                (mtie_bit && mtip_bit) ? 32'h80000007 :
+                                32'h8000000B;
+       ```
+     - 新增 `mtie_bit = csr_mie[7]` 和 `mtip_bit` 提取。
+
+  2. **`simple_cpu_top.v`**：
+     - 将 `timer_irq` 连接到 `cpu_clint` 的 `ext_mtip` 端口（而非 `ext_meip`）。
+     - 若 MEIP 仍需支持（如 UART 中断），需新增独立 `ext_meip` 输入端口。
+
+  3. **`cpu_csr.v`**（如 mip 硬件位需要扩展）：
+     - 确保 mip[7] 由硬件驱动（`mtip_bit = ext_mtip`），软件不可写。
+
+- **测试策略**：
+  1. 编写定时器中断测试程序：设置 mtimecmp、启动计时器、使能 MTIE + MIE、等待中断。
+  2. 验证 mcause = 0x80000007。
+  3. 验证中断返回后 mtime 清零（周期模式）或 start 清零（单次模式）。
+  4. 验证多中断优先级：同时触发 MSIP + MTIP，确认 mcause = 3（MSIP 优先）。
+
+### Phase H：编译脚本更新
+
+**目标**：更新 `tools/mk.py` 或仿真脚本，支持真实 IP 编译及定时器中断测试。
 
 - **操作**：
   1. 添加 `rtl/bus4lzu/` 下所有 `.v` 文件到编译文件列表。
@@ -241,7 +273,7 @@ bus4LZU_0 your_instance_name (
 | `cpu_controller` | 新增输入 | — | `init_sig` |
 | `simple_cpu_top` | 移除模块 | `icache`, `dcache`, `uart_top` | — |
 | `simple_cpu_top` | 新增端口 | — | 总线接口 + `init_sig` + `timer_irq` |
-| `simple_cpu_top` | 中断源 | `uart_rx_valid` → MEIP | `timer_irq` → MEIP |
+| `simple_cpu_top` | 中断源 | `uart_rx_valid` → MEIP | `timer_irq` → MTIP |
 
 ## 7. 风险与应对
 
@@ -331,7 +363,8 @@ dev/2-simpleCPU/
 
 ---
 
-**变更日期**：2026-04-28  
+**变更日期**：2026-04-29  
 **分支**：`busip`  
-**当前阶段**：融合 Bus4LZU IP 真实源码（Phase A-F）  
-**前提**：Phase 1-6（CPU 改造 + mock 验证）已完成，78 项测试全部 PASS；Vivado IP-sim 验证已完成（31/31 PASS）
+**当前阶段**：融合 Bus4LZU IP 真实源码 + MTIP 定时器中断集成（Phase A-H）  
+**前提**：Phase 1-6（CPU 改造 + mock 验证）已完成，78 项测试全部 PASS；Vivado IP-sim 验证已完成（31/31 PASS）  
+**MTIP 状态**：文档已更新，RTL 改造待实施（Phase G）

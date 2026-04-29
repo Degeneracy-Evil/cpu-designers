@@ -13,7 +13,7 @@ module soc_top
     input  wire        rx          ,    
     output wire        tx          ,
     
-    output wire        timer_iqr       ,
+    output wire        timer_irq       ,
     output wire        init_sig        ,
     
     input  wire        spi_miso    ,
@@ -125,7 +125,7 @@ memory(
        .o_spiClk_1(spi_clk),
        .o_gpioCtrl_32(gpio_ctrl_o),
        .o_gpioData_32(gpio_data_o),
-       .o_irq_1(timer_iqr)
+        .o_irq_1(timer_irq)
  );
 endmodule
 

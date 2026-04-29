@@ -63,7 +63,7 @@ bus4LZU_0 your_instance_name (
   .rstn(rstn),                  // input wire rstn
   .rx(rx),                      // input wire rx
   .tx(tx),                      // output wire tx
-  .timer_iqr(timer_iqr),        // output wire timer_iqr
+  .timer_irq(timer_irq),          // output wire timer_irq
   .init_sig(init_sig),          // output wire init_sig
   .spi_miso(spi_miso),          // input wire spi_miso
   .spi_mosi(spi_mosi),          // output wire spi_mosi

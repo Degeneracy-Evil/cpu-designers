@@ -133,14 +133,16 @@ module cpu_mem(
                         mem_unsigned_reg <= mem_unsigned;
                         wb_rd_reg <= wb_rd;
                         wb_we_reg <= wb_we && valid_inst;
-                        if (!valid_inst || (!is_load && !is_store)) begin
-                            wb_data_reg <= alu_result;
-                            done_reg <= 1'b1;
-                        end else if (misalign_load || misalign_store) begin
-                            wb_data_reg <= 32'b0;
-                            wb_we_reg <= 1'b0;
-                            done_reg <= 1'b1;
-                        end else if (is_load) begin
+            if (!valid_inst || (!is_load && !is_store)) begin
+                wb_data_reg <= alu_result;
+                dataWen_4_reg <= 4'b1111;
+                done_reg <= 1'b1;
+            end else if (misalign_load || misalign_store) begin
+                wb_data_reg <= 32'b0;
+                wb_we_reg <= 1'b0;
+                dataWen_4_reg <= 4'b1111;
+                done_reg <= 1'b1;
+            end else if (is_load) begin
                             dataAddr_32_reg <= alu_result;
                             dataWen_4_reg <= 4'b1111;
                             writeData_32_reg <= 32'b0;
@@ -192,6 +194,7 @@ module cpu_mem(
                     done_reg <= 1'b1;
                     wb_we_reg <= 1'b0;
                     wb_data_reg <= 32'b0;
+                    dataWen_4_reg <= 4'b1111;
                     mem_state <= MEM_IDLE;
                 end
                 default: begin

@@ -19,3 +19,10 @@ bin-release/
 # information for Eclipse / Flash Builder.
 
 __pycache__/
+.venv/
+
+# oh my opencode
+
+node_modules/
+package-lock.json
+package.json

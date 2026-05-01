@@ -20,10 +20,12 @@ module simple_cpu_top(
 
     output [31:0] instAddr_32,
     input  [31:0] instData_32,
+    input         inst_valid,
     output [3:0]  dataWen_4,
     output [31:0] dataAddr_32,
     output [31:0] writeData_32,
     input  [31:0] readData_32,
+    input         data_valid,
     output        data_req,
     input         init_sig,
     input         timer_irq
@@ -311,6 +313,7 @@ module simple_cpu_top(
         .init_sig(init_sig),
         .pc(pc),
         .instData_32(instData_32),
+        .inst_valid(inst_valid),
         .instAddr_32(instAddr_32),
         .if_done(if_done),
         .if_id_bus(if_id_bus),
@@ -372,6 +375,7 @@ module simple_cpu_top(
         .dataAddr_32(dataAddr_32),
         .writeData_32(writeData_32),
         .readData_32(readData_32),
+        .data_valid(data_valid),
         .mem_done(mem_done),
         .mem_wb_bus(mem_wb_bus),
         .mem_pc(mem_pc),

@@ -10,6 +10,7 @@ module cpu_mem(
     output     [31:0]  dataAddr_32,
     output     [31:0]  writeData_32,
     input      [31:0]  readData_32,
+    input              data_valid,
     output             mem_done,
     output     [167:0] mem_wb_bus,
 
@@ -21,10 +22,9 @@ module cpu_mem(
     output     [31:0]  mem_misalign_addr
 );
 
-    localparam MEM_IDLE = 2'd0;
-    localparam MEM_READ = 2'd1;
+    localparam MEM_IDLE  = 2'd0;
+    localparam MEM_READ  = 2'd1;
     localparam MEM_WRITE = 2'd2;
-    localparam MEM_READ2 = 2'd3;
 
     wire valid_inst;
     wire is_jal_like;
@@ -118,7 +118,8 @@ module cpu_mem(
             mem_en_reg <= 1'b0;
         end else begin
             done_reg <= 1'b0;
-            mem_en_reg <= 1'b0;
+            if (mem_state == MEM_IDLE)
+                mem_en_reg <= 1'b0;
 
             if (!mem_valid) begin
                 mem_seen_valid <= 1'b0;
@@ -183,19 +184,20 @@ module cpu_mem(
                     end
                 end
                 MEM_READ: begin
-                    mem_state <= MEM_READ2;
-                end
-                MEM_READ2: begin
-                    wb_data_reg <= load_value;
-                    done_reg <= 1'b1;
-                    mem_state <= MEM_IDLE;
+                    if (data_valid) begin
+                        wb_data_reg <= load_value;
+                        done_reg <= 1'b1;
+                        mem_state <= MEM_IDLE;
+                    end
                 end
                 MEM_WRITE: begin
-                    done_reg <= 1'b1;
-                    wb_we_reg <= 1'b0;
-                    wb_data_reg <= 32'b0;
-                    dataWen_4_reg <= 4'b1111;
-                    mem_state <= MEM_IDLE;
+                    if (data_valid) begin
+                        done_reg <= 1'b1;
+                        wb_we_reg <= 1'b0;
+                        wb_data_reg <= 32'b0;
+                        dataWen_4_reg <= 4'b1111;
+                        mem_state <= MEM_IDLE;
+                    end
                 end
                 default: begin
                     mem_state <= MEM_IDLE;

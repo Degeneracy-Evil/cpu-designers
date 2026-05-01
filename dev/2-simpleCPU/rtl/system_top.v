@@ -36,36 +36,90 @@ module system_top(
 
     wire [31:0] instAddr_32;
     wire [31:0] instData_32;
+    wire        inst_valid;
     wire [3:0]  dataWen_4;
     wire [31:0] dataAddr_32;
     wire [31:0] writeData_32;
     wire [31:0] readData_32;
+    wire        data_valid;
     wire        data_req;
-    wire        init_sig;
     wire        timer_irq;
 
-    soc_top
-    #(
-        .CLK_FREQ(100),
-        .GPIO_NUM(16)
-    ) u_bus (
-        .clk          (cpu_clk      ),
-        .rstn         (resetn       ),
-        .rx           (uart_rx      ),
-        .tx           (uart_tx      ),
-        .timer_irq    (timer_irq    ),
-        .init_sig     (init_sig     ),
-        .spi_miso     (spi_miso     ),
-        .spi_mosi     (spi_mosi     ),
-        .spi_ss       (spi_ss       ),
-        .spi_clk      (spi_clk      ),
-        .gpio_io      (gpio_io      ),
-        .instAddr_32  (instAddr_32  ),
-        .instData_32  (instData_32  ),
-        .dataWen_4    (dataWen_4    ),
-        .dataAddr_32  (dataAddr_32  ),
-        .writeData_32 (writeData_32 ),
-        .readData_32  (readData_32  )
+    wire        bus_req_valid;
+    wire        bus_req_write;
+    wire [31:0] bus_req_addr;
+    wire [31:0] bus_req_wdata;
+    wire [2:0]  bus_req_size;
+    wire [2:0]  bus_req_burst;
+    wire [3:0]  bus_req_prot;
+    wire        bus_req_lock;
+
+    wire        bus_req_ready;
+    wire        bus_resp_valid;
+    wire        bus_resp_error;
+    wire [31:0] bus_resp_rdata;
+
+    cpu_bus_adapter #(
+        .ADDR_WIDTH (32),
+        .DATA_WIDTH (32)
+    ) u_cpu_bus_adapter (
+        .clk        (cpu_clk),
+        .resetn     (resetn),
+        .inst_addr  (instAddr_32),
+        .inst_data  (instData_32),
+        .inst_req   (1'b1),
+        .data_addr  (dataAddr_32),
+        .data_wdata (writeData_32),
+        .data_rdata (readData_32),
+        .data_wen   (dataWen_4),
+        .data_req   (data_req),
+        .req_valid  (bus_req_valid),
+        .req_write  (bus_req_write),
+        .req_addr   (bus_req_addr),
+        .req_wdata  (bus_req_wdata),
+        .req_size   (bus_req_size),
+        .req_burst  (bus_req_burst),
+        .req_prot   (bus_req_prot),
+        .req_lock   (bus_req_lock),
+        .req_ready  (bus_req_ready),
+        .resp_valid (bus_resp_valid),
+        .resp_error (bus_resp_error),
+        .resp_rdata (bus_resp_rdata),
+        .inst_valid (inst_valid),
+        .data_valid (data_valid)
+    );
+
+    ahb_periph_bus #(
+        .ADDR_WIDTH  (32),
+        .DATA_WIDTH  (32),
+        .SLAVE_NUM   (4),
+        .MEM_DEPTH   (8192),
+        .WAIT_STATES (0),
+        .GPIO_NUM    (16),
+        .UART_FREQ   (25)
+    ) u_ahb_periph_bus (
+        .HCLK       (cpu_clk),
+        .HRESETn    (resetn),
+        .req_valid  (bus_req_valid),
+        .req_write  (bus_req_write),
+        .req_addr   (bus_req_addr),
+        .req_wdata  (bus_req_wdata),
+        .req_size   (bus_req_size),
+        .req_burst  (bus_req_burst),
+        .req_prot   (bus_req_prot),
+        .req_lock   (bus_req_lock),
+        .req_ready  (bus_req_ready),
+        .resp_valid (bus_resp_valid),
+        .resp_error (bus_resp_error),
+        .resp_rdata (bus_resp_rdata),
+        .o_timer_irq(timer_irq),
+        .io_gpioPin (gpio_io),
+        .i_uart_rx  (uart_rx),
+        .o_uart_tx  (uart_tx),
+        .o_spiMosi  (spi_mosi),
+        .i_spiMiso  (spi_miso),
+        .o_spiSs    (spi_ss),
+        .o_spiClk   (spi_clk)
     );
 
     wire [ 4:0] rf_addr;
@@ -100,12 +154,14 @@ module system_top(
         .display_state(display_state),
         .instAddr_32  (instAddr_32  ),
         .instData_32  (instData_32  ),
+        .inst_valid   (inst_valid   ),
         .dataWen_4    (dataWen_4    ),
         .dataAddr_32  (dataAddr_32  ),
         .writeData_32 (writeData_32 ),
         .readData_32  (readData_32  ),
+        .data_valid   (data_valid   ),
         .data_req     (data_req     ),
-        .init_sig     (init_sig     ),
+        .init_sig     (1'b0         ),
         .timer_irq    (timer_irq    )
     );
 

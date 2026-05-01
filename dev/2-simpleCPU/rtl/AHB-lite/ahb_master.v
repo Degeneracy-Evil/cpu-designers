@@ -31,7 +31,8 @@ module ahb_master #(
     output reg  [DATA_WIDTH-1:0]   HWDATA,
 
     input  wire                    HREADY,
-    input  wire                    HRESP
+    input  wire                    HRESP,
+    input  wire  [DATA_WIDTH-1:0]  HRDATA
 );
 
     reg [1:0] state;
@@ -132,7 +133,7 @@ module ahb_master #(
                             HTRANS       <= `AHB_TRANS_IDLE;
                             resp_valid_r <= 1'b1;
                             resp_error_r <= 1'b0;
-                            resp_rdata_r <= resp_rdata_r;
+                            resp_rdata_r <= HRDATA;
                         end
                     end
                 end

@@ -44,7 +44,7 @@ module ahb_bus #(
 
     wire [SLAVE_NUM-1:0]   slave_HSELx;
 
-    wire [DATA_WIDTH-1:0]  slave_HRDATA   [0:SLAVE_NUM-1];
+    wire [DATA_WIDTH*SLAVE_NUM-1:0] slave_HRDATA;
     wire [SLAVE_NUM-1:0]   slave_HREADYOUT;
     wire [SLAVE_NUM-1:0]   slave_HRESP;
 
@@ -103,6 +103,13 @@ module ahb_bus #(
 
     genvar g;
     generate
+        for (g = 0; g < SLAVE_NUM; g = g + 1) begin : gen_hrdata
+            wire [DATA_WIDTH-1:0] hrdata;
+            assign slave_HRDATA[g*DATA_WIDTH +: DATA_WIDTH] = hrdata;
+        end
+    endgenerate
+
+    generate
         for (g = 0; g < SLAVE_NUM - 1; g = g + 1) begin : gen_sram_slave
             ahb_sram_slave #(
                 .ADDR_WIDTH  (ADDR_WIDTH),
@@ -123,7 +130,7 @@ module ahb_bus #(
                 .HREADY    (bus_HREADY),
                 .HREADYOUT (slave_HREADYOUT[g]),
                 .HRESP     (slave_HRESP[g]),
-                .HRDATA    (slave_HRDATA[g])
+                .HRDATA    (gen_hrdata[g].hrdata)
             );
         end
     endgenerate
@@ -138,7 +145,7 @@ module ahb_bus #(
         .HREADY    (bus_HREADY),
         .HREADYOUT (slave_HREADYOUT[SLAVE_NUM-1]),
         .HRESP     (slave_HRESP[SLAVE_NUM-1]),
-        .HRDATA    (slave_HRDATA[SLAVE_NUM-1])
+        .HRDATA    (gen_hrdata[SLAVE_NUM-1].hrdata)
     );
 
 endmodule

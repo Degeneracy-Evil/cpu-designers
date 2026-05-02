@@ -52,7 +52,8 @@ module ahb_periph_bus #(
 
     wire [SLAVE_NUM-1:0]   slave_HSELx;
 
-    wire [DATA_WIDTH-1:0]  slave_HRDATA   [0:SLAVE_NUM-1];
+    wire [DATA_WIDTH-1:0]  sram_HRDATA;
+    wire [DATA_WIDTH*SLAVE_NUM-1:0] slave_HRDATA;
     wire [SLAVE_NUM-1:0]   slave_HREADYOUT;
     wire [SLAVE_NUM-1:0]   slave_HRESP;
 
@@ -128,7 +129,7 @@ module ahb_periph_bus #(
         .HREADY    (bus_HREADY),
         .HREADYOUT (slave_HREADYOUT[0]),
         .HRESP     (slave_HRESP[0]),
-        .HRDATA    (slave_HRDATA[0])
+        .HRDATA    (sram_HRDATA)
     );
 
     wire [ADDR_WIDTH-1:0]  bridge_PADDR;
@@ -255,6 +256,6 @@ module ahb_periph_bus #(
         end
     end
 
-    assign slave_HRDATA[1]    = bridge_HRDATA;
+    assign slave_HRDATA = {bridge_HRDATA, sram_HRDATA};
 
 endmodule

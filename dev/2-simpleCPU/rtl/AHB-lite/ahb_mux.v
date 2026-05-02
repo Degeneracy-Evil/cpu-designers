@@ -6,7 +6,7 @@ module ahb_mux #(
     parameter SLAVE_NUM  = 4
 )(
     input  wire  [SLAVE_NUM-1:0]          HSELx,
-    input  wire  [DATA_WIDTH-1:0]         slave_HRDATA   [0:SLAVE_NUM-1],
+    input  wire  [DATA_WIDTH*SLAVE_NUM-1:0] slave_HRDATA,
     input  wire  [SLAVE_NUM-1:0]          slave_HREADYOUT,
     input  wire  [SLAVE_NUM-1:0]          slave_HRESP,
 
@@ -22,7 +22,7 @@ module ahb_mux #(
         HRESP   = 1'b0;
         for (i = 0; i < SLAVE_NUM; i = i + 1) begin
             if (HSELx[i]) begin
-                HRDATA  = slave_HRDATA[i];
+                HRDATA  = slave_HRDATA[i*DATA_WIDTH +: DATA_WIDTH];
                 HREADY  = slave_HREADYOUT[i];
                 HRESP   = slave_HRESP[i];
             end

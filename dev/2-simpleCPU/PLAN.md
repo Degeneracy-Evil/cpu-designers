@@ -247,6 +247,50 @@ assign PSELx[3] = (PADDR[15:14] == 2'b11);  // SPI   @ 0x8000C000
 | 4.1 | 确认SRAM slave在AHB总线上存在但CPU不主动访问 | Phase 1 | 编译通过 |
 | 4.2 | 预留cache miss refill接口（icache/dcache端口B） | 4.1 | 接口定义 |
 
+### Phase 5：FPGA上板验证 — GPIO→LED走马灯
+
+| 步骤 | 内容 | 依赖 | 验证 |
+|------|------|------|------|
+| 5.1 | 修改cpu.xdc：gpio_io[15:0]从EXT0_IO改为LED1-LED12+LED21-LED24 | 无 | 约束文件更新 |
+| 5.2 | 编写led_marquee.s：GPIO_CTRL=0xFFFF输出，走马灯pattern写入GPIO_DATA | 5.1 | 汇编通过 |
+| 5.3 | 修复cpu_decode.v SLL/SRL/SRA寄存器移位alu_src1赋值Bug | 5.2 | 回归全部PASS |
+| 5.4 | 仿真验证：tb_led_marquee检查gpio_io输出pattern正确旋转(16/16 PASS) | 5.3 | 全部PASS |
+| 5.5 | FPGA综合上板：观察LED走马灯效果 | 5.4 | LED视觉验证 |
+
+#### GPIO→LED引脚映射（低电平有效）
+
+| gpio_io位 | LED | FPGA引脚 | 说明 |
+|-----------|-----|---------|------|
+| gpio_io[0] | LED1 | H7 | 低电平点亮 |
+| gpio_io[1] | LED2 | D5 | 低电平点亮 |
+| gpio_io[2] | LED3 | A3 | 低电平点亮 |
+| gpio_io[3] | LED4 | A5 | 低电平点亮 |
+| gpio_io[4] | LED5 | A4 | 低电平点亮 |
+| gpio_io[5] | LED6 | F7 | 低电平点亮 |
+| gpio_io[6] | LED7 | G8 | 低电平点亮 |
+| gpio_io[7] | LED8 | H8 | 低电平点亮 |
+| gpio_io[8] | LED9 | J8 | 低电平点亮 |
+| gpio_io[9] | LED10 | J23 | 低电平点亮 |
+| gpio_io[10] | LED11 | J26 | 低电平点亮 |
+| gpio_io[11] | LED12 | G9 | 低电平点亮 |
+| gpio_io[12] | LED21 | J19 | 低电平点亮 |
+| gpio_io[13] | LED22 | H23 | 低电平点亮 |
+| gpio_io[14] | LED23 | J21 | 低电平点亮 |
+| gpio_io[15] | LED24 | K23 | 低电平点亮 |
+
+#### 走马灯程序逻辑
+
+```
+1. GPIO_CTRL ← 0xFFFF (全部输出模式)
+2. position ← 0
+3. loop:
+   a. pattern ← ~(1 << position)  (active-low: 0=LED亮)
+   b. GPIO_DATA ← pattern
+   c. delay(300次循环)
+   d. position ← (position + 1) % 16
+   e. goto loop
+```
+
 ## 远景
 
 - Cache miss refill：当实现tag/valid逻辑后，cache miss时通过总线从主存SRAM加载数据

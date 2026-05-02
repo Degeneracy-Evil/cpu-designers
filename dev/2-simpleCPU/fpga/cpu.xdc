@@ -23,7 +23,7 @@ set_property PACKAGE_PIN Y6   [get_ports {sw[7]}]
 # IO标准设置
 set_property IOSTANDARD LVCMOS33 [get_ports clk]
 set_property IOSTANDARD LVCMOS33 [get_ports resetn]
-set_property IOSTANDARD LVCMOS33 [get_ports btn_clk]
+# set_property IOSTANDARD LVCMOS33 [get_ports btn_clk]
 set_property IOSTANDARD LVCMOS33 [get_ports {sw[0]}]
 set_property IOSTANDARD LVCMOS33 [get_ports {sw[1]}]
 set_property IOSTANDARD LVCMOS33 [get_ports {sw[2]}]

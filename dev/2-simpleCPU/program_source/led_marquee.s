@@ -17,7 +17,7 @@ loop:
     xori x13, x13, -1
     sw x13, 4(x10)
 
-    li x14, 300
+    li x14, 12500000
 delay:
     addi x14, x14, -1
     bne x14, x0, delay

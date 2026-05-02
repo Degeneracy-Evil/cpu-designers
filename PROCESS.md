@@ -78,3 +78,16 @@
 - `Reference/ips/Sram/Sram_stub.v` — 新建: wea/web [3:0], addra/addrb [17:0]
 - `Reference/ips/Sram/Sram.veo` — wea/web [0:0]→[3:0]
 - `vivado_sim.tcl` — icache/dcache/Sram IP运行时重配置
+
+## Phase 6：tb_led_marquee Vivado仿真修复 — 已完成
+
+| 步骤 | 内容 | 状态 |
+| |------|------|------|
+| 6.1 | 诊断Vivado仿真GPIO=0xzzzz根因：tb_led_marquee无COE映射，icache空→CPU执行NOP→GPIO不驱动 | PASS |
+| 6.2 | 创建led_marquee.coe (从led_marquee.hex转换，17条指令) | PASS |
+| 6.3 | 更新vivado_sim.tcl: tb_coe_map添加led_marquee.coe，runtime 400us→1s | PASS |
+| 6.4 | iverilog回归: tb_led_marquee 16/16 ALL TESTS PASSED | PASS |
+
+### Phase 6 修改的文件
+- `program_source/led_marquee.coe` — 新建: icache COE初始化文件
+- `vivado_sim.tcl` — tb_coe_map添加led_marquee.coe，runtime 400000ns→1000000000ns

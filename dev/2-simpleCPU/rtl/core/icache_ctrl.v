@@ -33,9 +33,7 @@ module icache_ctrl #(
         end
     end
     
-    icache #(
-        .DEPTH(DEPTH)
-    ) u_icache (
+    icache u_icache (
         .clka(clk),
         .ena(cpu_req_valid && !is_mmio),
         .wea(4'b0),

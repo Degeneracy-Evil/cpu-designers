@@ -176,7 +176,7 @@ module tb_led_marquee;
 
     always @(posedge clk) begin
         if (gpio_io !== prev_gpio && reset === 1'b0) begin
-            $display("t=%0t gpio_io=0x%04h", $time, gpio_io);
+            $display("t=%0t gpio_io=0x%04h gpio_data=0x%08h", $time, gpio_io, {u_bus.u_apb_perips.u_gpio.gpio_data_hi, u_bus.u_apb_perips.u_gpio.gpio_data_lo});
             prev_gpio <= gpio_io;
             change_count = change_count + 1;
         end

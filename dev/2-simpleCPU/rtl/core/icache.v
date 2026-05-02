@@ -1,7 +1,7 @@
 `timescale 1ns / 1ps
 
 module icache #(
-    parameter DEPTH = 512
+    parameter DEPTH = 4096
 )(
     input  wire        clka,
     input  wire        ena,

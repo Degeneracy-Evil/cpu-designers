@@ -36,9 +36,7 @@ module dcache_ctrl #(
         end
     end
     
-    dcache #(
-        .DEPTH(DEPTH)
-    ) u_dcache (
+    dcache u_dcache (
         .clka(clk),
         .ena(cpu_req_valid && !is_mmio),
         .wea(~cpu_req_wen), // cpu_req_wen: 1=read,0=write; BRAM wea: 1=write,0=read → invert

@@ -64,9 +64,7 @@ module ahb_sram_slave #(
     wire [31:0] bram_dina  = HWDATA;
     wire [31:0] bram_douta;
 
-    Sram #(
-        .DEPTH (MEM_DEPTH)
-    ) u_bram (
+    Sram u_bram (
         .clka   (HCLK),
         .ena    (bram_ena),
         .wea    (bram_wea),

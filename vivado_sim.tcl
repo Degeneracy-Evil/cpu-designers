@@ -135,14 +135,23 @@ puts "========== Step 2: 添加 RTL 源文件 =========="
 # ALU 模块 (12 个文件)
 add_files [glob -directory $alu_rtl_dir *.v]
 
-# CPU 核心模块 (18 个文件)
-add_files [glob -directory $cpu_core_dir *.v]
+# CPU 核心模块 (Exclude icache.v and dcache.v simulation models)
+set cpu_files [glob -directory $cpu_core_dir *.v]
+set filtered_cpu []
+foreach f $cpu_files {
+    if {![string match "*icache.v" $f] && ![string match "*dcache.v" $f]} {
+        lappend filtered_cpu $f
+    }
+}
+if {[llength $filtered_cpu] > 0} {
+    add_files $filtered_cpu
+}
 
 # AHB-Lite 总线 (7 个文件)
 add_files [glob -directory $ahb_dir *.v]
 
-# AHB-Lite IP (sram_model.v)
-add_files [glob -directory $ahb_ip_dir *.v]
+# AHB-Lite IP (sram_model.v is excluded to use real IP core)
+# add_files [glob -directory $ahb_ip_dir *.v]
 
 # APB 总线 (5 个文件, 不含 perips 子目录)
 add_files [glob -directory $apb_dir *.v]
@@ -183,6 +192,7 @@ puts "========== Step 4: 导入 IP 并配置 ICache COE =========="
 # 导入/读取已生成的 IP
 read_ip "${ips_dir}/icache/icache.xci"
 read_ip "${ips_dir}/dcache/dcache.xci"
+read_ip "${ips_dir}/Sram/Sram.xci"
 
 if { $icache_coe_file ne "" } {
     set_property -dict [list \
@@ -199,6 +209,7 @@ if { $icache_coe_file ne "" } {
 
 generate_target all [get_ips icache]
 generate_target all [get_ips dcache]
+generate_target all [get_ips Sram]
 
 puts "IP 导入与配置完成"
 

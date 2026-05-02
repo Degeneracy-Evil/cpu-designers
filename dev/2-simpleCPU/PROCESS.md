@@ -130,6 +130,44 @@ assign alu_src1 = (shift_op_r | shift_op_i) ? rs1_value :
 
 16/16 PASS，每个步骤间隔 5186 时钟周期。
 
+## 2026-05-02 GPIO 多驱动修复 (DRC MDRV-1)
+
+### 问题
+
+Vivado DRC 报错：
+```
+[DRC MDRV-1] Multiple Driver Nets: Net .../u_gpio/Q[0] has multiple drivers:
+  .../gen_io_data[0].gpio_data_reg[0]/Q and .../gpio_data_reg[0]/Q
+```
+
+### 根因
+
+`gpio.v` 中 `gpio_data` 寄存器被两个 always 块同时驱动：
+1. 主 always 块：GPIO_DATA 写访问时写入整个 `gpio_data`
+2. generate 块：按位写入 `gpio_data[i]`（输出模式写 PWDATA，输入模式采样引脚）
+
+Verilog 中同一 reg 的同一位被多个 always 块驱动属于多驱动冲突，综合工具无法解析。
+
+### 修复
+
+将 `gpio_data` 拆分为两个独立寄存器，每个寄存器由唯一的 always 块驱动：
+
+| 寄存器 | 位宽 | 驱动者 | 用途 |
+|--------|------|--------|------|
+| `gpio_data_lo` | GPIO_NUM | generate 块 | 引脚连接位，含输入/输出模式逻辑 |
+| `gpio_data_hi` | APB_DATA_WIDTH-GPIO_NUM | 主 always 块 | 非引脚位，简单寄存器写入 |
+
+组合输出：`wire gpio_data = {gpio_data_hi, gpio_data_lo}`
+
+generate 块逻辑改为 `else if` 结构，消除同一时钟沿两个分支同时执行的可能：
+- 输出模式 (`gpio_ctrl[i]=1`) 且写 GPIO_DATA → 写入 PWDATA[i]
+- 输入模式 (`gpio_ctrl[i]=0`) → 采样 io_gpioPin[i]
+- 输出模式且无写访问 → 保持原值
+
+### 回归验证
+
+全部 testbench 通过（同上表）。
+
 ### 注意事项
 
 - Vivado 仿真需确保 xvlog 使用 SystemVerilog 模式（`.sv` 后缀或 `-sv` 标志）以支持 `+:` 运算符；

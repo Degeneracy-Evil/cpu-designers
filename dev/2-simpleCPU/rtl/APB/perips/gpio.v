@@ -29,7 +29,14 @@ module gpio #(
     localparam GPIO_DATA = 4'h4;
 
     reg [`APB_DATA_WIDTH-1:0] gpio_ctrl;
-    reg [`APB_DATA_WIDTH-1:0] gpio_data;
+
+    // Split gpio_data to avoid multiple-driver:
+    //   gpio_data_lo [GPIO_NUM-1:0]   — pin-connected, driven by generate block
+    //   gpio_data_hi [APB_DATA_WIDTH-1:GPIO_NUM] — non-pin, driven by main block
+    reg [GPIO_NUM-1:0]               gpio_data_lo;
+    reg [`APB_DATA_WIDTH-1:GPIO_NUM] gpio_data_hi;
+
+    wire [`APB_DATA_WIDTH-1:0] gpio_data = {gpio_data_hi, gpio_data_lo};
 
     wire access_end = PSEL & PENABLE & PREADY;
     wire write_access = PSEL & PENABLE & PWRITE & PREADY;
@@ -41,16 +48,16 @@ module gpio #(
     genvar i;
     generate
         for (i = 0; i < GPIO_NUM; i = i + 1) begin : gen_io_pin
-            assign io_gpioPin[i] = gpio_ctrl[i] ? gpio_data[i] : 1'bz;
+            assign io_gpioPin[i] = gpio_ctrl[i] ? gpio_data_lo[i] : 1'bz;
         end
     endgenerate
 
     always @(posedge PCLK or negedge PRESETn) begin
         if (!PRESETn) begin
-            gpio_ctrl <= {`APB_DATA_WIDTH{1'b0}};
-            gpio_data <= {`APB_DATA_WIDTH{1'b0}};
-            PREADY    <= 1'b1;
-            PSLVERR   <= 1'b0;
+            gpio_ctrl    <= {`APB_DATA_WIDTH{1'b0}};
+            gpio_data_hi <= {(`APB_DATA_WIDTH-GPIO_NUM){1'b0}};
+            PREADY       <= 1'b1;
+            PSLVERR      <= 1'b0;
         end else begin
             PREADY  <= 1'b1;
             PSLVERR <= 1'b0;
@@ -61,7 +68,7 @@ module gpio #(
                         gpio_ctrl <= PWDATA;
                     end
                     GPIO_DATA: begin
-                        gpio_data <= PWDATA;
+                        gpio_data_hi <= PWDATA[`APB_DATA_WIDTH-1:GPIO_NUM];
                     end
                     default: ;
                 endcase
@@ -85,13 +92,12 @@ module gpio #(
         for (i = 0; i < GPIO_NUM; i = i + 1) begin : gen_io_data
             always @(posedge PCLK or negedge PRESETn) begin
                 if (!PRESETn) begin
-                    gpio_data[i] <= 1'b0;
+                    gpio_data_lo[i] <= 1'b0;
                 end else begin
                     if (write_access && (PADDR[3:0] == GPIO_DATA) && gpio_ctrl[i]) begin
-                        gpio_data[i] <= PWDATA[i];
-                    end
-                    if (!gpio_ctrl[i]) begin
-                        gpio_data[i] <= io_gpioPin[i];
+                        gpio_data_lo[i] <= PWDATA[i];
+                    end else if (!gpio_ctrl[i]) begin
+                        gpio_data_lo[i] <= io_gpioPin[i];
                     end
                 end
             end

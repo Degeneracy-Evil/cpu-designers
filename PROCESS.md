@@ -53,3 +53,28 @@
 ### 重新生成的hex文件
 - `program_source/timer_seconds.hex`
 - `program_source/timer_irq_test.hex`
+
+## Phase 5：BRAM IP 字节写使能 + 深度修复 — 已完成
+
+| 步骤 | 内容 | 状态 |
+|------|------|------|
+| 5.1 | 诊断dcache IP `Use_Byte_Write_Enable=false` 导致wea仅1bit，sb/sh写入破坏整字 | PASS |
+| 5.2 | 修复dcache XCI: C_USE_BYTE_WEA=1, C_WEA_WIDTH=4, C_BYTE_SIZE=8, depth 512→4096, addr 9→12bit | PASS |
+| 5.3 | 修复dcache_stub.v: wea[3:0], web[3:0], addra[11:0], addrb[11:0] | PASS |
+| 5.4 | 修复icache XCI: C_USE_BYTE_WEA=1, C_WEA_WIDTH=4, C_BYTE_SIZE=8, Write_Depth_A 512→4096 | PASS |
+| 5.5 | 修复icache_stub.v: wea[3:0], web[3:0] | PASS |
+| 5.6 | 修复Sram XCI: C_USE_BYTE_WEA=1, C_WEA_WIDTH=4, C_BYTE_SIZE=8 (depth 262144不变) | PASS |
+| 5.7 | 创建Sram_stub.v: wea[3:0], web[3:0], addra[17:0], addrb[17:0] | PASS |
+| 5.8 | 更新Sram.veo: wea/web [0:0]→[3:0] | PASS |
+| 5.9 | 更新vivado_sim.tcl: icache/dcache/Sram IP运行时重配置byte write enable + depth | PASS |
+| 5.10 | iverilog回归: tb_simple_cpu_top 33/33 ALL TESTS PASSED | PASS |
+
+### Phase 5 修改的文件
+- `Reference/ips/dcache/dcache.xci` — byte write enable + depth 4096
+- `Reference/ips/dcache/dcache_stub.v` — wea/web [3:0], addra/addrb [11:0]
+- `Reference/ips/icache/icache.xci` — byte write enable + depth 4096
+- `Reference/ips/icache/icache_stub.v` — wea/web [3:0]
+- `Reference/ips/Sram/Sram.xci` — byte write enable (depth 262144 unchanged)
+- `Reference/ips/Sram/Sram_stub.v` — 新建: wea/web [3:0], addra/addrb [17:0]
+- `Reference/ips/Sram/Sram.veo` — wea/web [0:0]→[3:0]
+- `vivado_sim.tcl` — icache/dcache/Sram IP运行时重配置

@@ -16,17 +16,17 @@
 (* x_core_info = "blk_mem_gen_v8_4_2,Vivado 2018.3" *)
 module dcache(clka, ena, wea, addra, dina, douta, clkb, enb, web, addrb, 
   dinb, doutb)
-/* synthesis syn_black_box black_box_pad_pin="clka,ena,wea[0:0],addra[8:0],dina[31:0],douta[31:0],clkb,enb,web[0:0],addrb[8:0],dinb[31:0],doutb[31:0]" */;
+/* synthesis syn_black_box black_box_pad_pin="clka,ena,wea[3:0],addra[11:0],dina[31:0],douta[31:0],clkb,enb,web[3:0],addrb[11:0],dinb[31:0],doutb[31:0]" */;
   input clka;
   input ena;
-  input [0:0]wea;
-  input [8:0]addra;
+  input [3:0]wea;
+  input [11:0]addra;
   input [31:0]dina;
   output [31:0]douta;
   input clkb;
   input enb;
-  input [0:0]web;
-  input [8:0]addrb;
+  input [3:0]web;
+  input [11:0]addrb;
   input [31:0]dinb;
   output [31:0]doutb;
 endmodule

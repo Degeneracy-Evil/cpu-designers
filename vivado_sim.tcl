@@ -194,18 +194,54 @@ read_ip "${ips_dir}/icache/icache.xci"
 read_ip "${ips_dir}/dcache/dcache.xci"
 read_ip "${ips_dir}/Sram/Sram.xci"
 
+# Fix icache IP: enable byte write enables + match behavioral model depth
+# The XCI has Use_Byte_Write_Enable=false (wea=1bit) and depth=512 (9bit addr),
+# but icache_ctrl.v passes 4-bit wea and 12-bit addr (depth=4096).
+set_property -dict [list \
+    CONFIG.Use_Byte_Write_Enable {true} \
+    CONFIG.Byte_Size {8} \
+    CONFIG.Write_Depth_A {4096} \
+    CONFIG.Read_Depth_A {4096} \
+    CONFIG.Write_Depth_B {4096} \
+    CONFIG.Read_Depth_B {4096} \
+] [get_ips icache]
+
 if { $icache_coe_file ne "" } {
     set_property -dict [list \
         CONFIG.Load_Init_File {true} \
         CONFIG.Coe_File $icache_coe_file \
     ] [get_ips icache]
-    puts "ICache IP 已配置 (COE: $icache_coe_file)"
+    puts "ICache IP 已配置 (COE: $icache_coe_file, byte write enable, depth=4096)"
 } else {
     set_property -dict [list \
         CONFIG.Load_Init_File {false} \
     ] [get_ips icache]
-    puts "ICache IP 已配置 (无 COE 初始化)"
+    puts "ICache IP 已配置 (无 COE 初始化, byte write enable, depth=4096)"
 }
+
+# Reconfigure dcache IP: enable byte write enables + match behavioral model depth
+# The XCI has Use_Byte_Write_Enable=false (wea=1bit) and depth=512 (9bit addr),
+# but dcache_ctrl.v passes 4-bit wea and 12-bit addr (depth=4096).
+# Without byte write enables, sb/sh cannot write individual bytes/halfwords.
+set_property -dict [list \
+    CONFIG.Use_Byte_Write_Enable {true} \
+    CONFIG.Byte_Size {8} \
+    CONFIG.Write_Depth_A {4096} \
+    CONFIG.Read_Depth_A {4096} \
+    CONFIG.Write_Depth_B {4096} \
+    CONFIG.Read_Depth_B {4096} \
+] [get_ips dcache]
+puts "Dcache IP 已配置 (byte write enable, depth=4096)"
+
+# Reconfigure Sram IP: enable byte write enables
+# The XCI has Use_Byte_Write_Enable=false (wea=1bit),
+# but ahb_sram_slave.v passes 4-bit bram_wea and 4'b0 for web.
+# Without byte write enables, sb/sh cannot write individual bytes/halfwords.
+set_property -dict [list \
+    CONFIG.Use_Byte_Write_Enable {true} \
+    CONFIG.Byte_Size {8} \
+] [get_ips Sram]
+puts "Sram IP 已配置 (byte write enable)"
 
 generate_target all [get_ips icache]
 generate_target all [get_ips dcache]

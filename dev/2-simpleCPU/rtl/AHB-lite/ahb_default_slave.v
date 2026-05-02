@@ -1,4 +1,7 @@
+// DEPRECATED: Not used in current 2-slave AHB bus (ahb_periph_bus with SLAVE_NUM=2).
+// The 2-slave decoder covers the full 32-bit address space; no default slave needed.
 `include "ahb_def.vh"
+`timescale 1ns / 1ps
 
 module ahb_default_slave #(
     parameter DATA_WIDTH = `AHB_DATA_WIDTH

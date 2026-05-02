@@ -41,8 +41,8 @@ module dcache_ctrl #(
     ) u_dcache (
         .clka(clk),
         .ena(cpu_req_valid && !is_mmio),
-        .wea(~cpu_req_wen),
-        .addra(cpu_req_addr[13:2]),
+        .wea(~cpu_req_wen), // cpu_req_wen: 1=read,0=write; BRAM wea: 1=write,0=read → invert
+        .addra(cpu_req_addr[13:2]), // WARNING: 12-bit index → 4KB direct-mapped; addresses >=16KB wrap and alias
         .dina(cpu_req_wdata),
         .douta(dcache_dout),
         

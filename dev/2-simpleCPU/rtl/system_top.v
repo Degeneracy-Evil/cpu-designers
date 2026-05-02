@@ -67,7 +67,7 @@ module system_top(
         .resetn     (resetn),
         .inst_addr  (instAddr_32),
         .inst_data  (instData_32),
-        .inst_req   (1'b1),
+        .inst_req   (instAddr_32[31]),
         .data_addr  (dataAddr_32),
         .data_wdata (writeData_32),
         .data_rdata (readData_32),

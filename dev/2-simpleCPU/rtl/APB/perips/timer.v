@@ -1,5 +1,6 @@
 `include "apb_def.vh"
 `include "timer_define.vh"
+`timescale 1ns / 1ps
 
 module timer(
     input  wire                        PCLK,

@@ -1,4 +1,5 @@
 `include "apb_def.vh"
+`timescale 1ns / 1ps
 
 module apb_bus #(
     parameter ADDR_WIDTH  = `APB_ADDR_WIDTH,

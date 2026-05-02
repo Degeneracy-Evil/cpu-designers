@@ -1,4 +1,5 @@
 `include "apb_def.vh"
+`timescale 1ns / 1ps
 
 module ahb_lite_to_apb #(
     parameter ADDR_WIDTH = `APB_ADDR_WIDTH,

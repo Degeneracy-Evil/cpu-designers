@@ -83,7 +83,7 @@ module tb_timer_seconds;
         .resetn     (~reset),
         .inst_addr  (instAddr_32),
         .inst_data  (instData_32),
-        .inst_req   (1'b1),
+        .inst_req   (instAddr_32[31]),
         .data_addr  (dataAddr_32),
         .data_wdata (writeData_32),
         .data_rdata (readData_32),
@@ -160,10 +160,10 @@ module tb_timer_seconds;
             #1;
             if (rf_data === expected) begin
                 pass_count = pass_count + 1;
-                $display("PASS %0s = %0d", name, rf_data);
+                $display("PASS %0s = 0x%08h", name, rf_data);
             end else begin
                 fail_count = fail_count + 1;
-                $display("FAIL %0s expected=%0d got=%0d", name, expected, rf_data);
+                $display("FAIL %0s expected=0x%08h got=0x%08h", name, expected, rf_data);
             end
         end
     endtask

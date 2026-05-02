@@ -1,4 +1,5 @@
 `include "apb_def.vh"
+`timescale 1ns / 1ps
 
 module uart_top #(
     parameter FREQ = 25

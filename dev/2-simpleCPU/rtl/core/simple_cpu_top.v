@@ -313,6 +313,7 @@ module simple_cpu_top(
 
     wire [31:0] instData_32_mux;
     wire        inst_valid_mux;
+    wire        icache_mmio_req;
     
     icache_ctrl #(
         .DEPTH(4096)
@@ -325,7 +326,7 @@ module simple_cpu_top(
         .cpu_req_data(instData_32_mux),
         .cpu_req_ready(inst_valid_mux),
         
-        .mmio_req(),             // unused explicitly, keeping simple_cpu_top mmio assignments
+        .mmio_req(icache_mmio_req),
         .mmio_addr(instAddr_32),
         .mmio_data(instData_32),
         .mmio_valid(inst_valid)
@@ -416,7 +417,7 @@ module simple_cpu_top(
         
         .mmio_req(mmio_req),
         .mmio_addr(dataAddr_32),
-        .mmio_wdata(),          // Use explicit simple_cpu_top assigns
+        .mmio_wdata(mmio_wdata),
         .mmio_wen(mmio_wen),
         .mmio_rdata(readData_32),
         .mmio_valid(data_valid)
@@ -538,7 +539,7 @@ module simple_cpu_top(
 
 
     assign dataWen_4    = mmio_wen;
-    assign writeData_32 = mem_writeData_32;
+    assign writeData_32 = mmio_wdata;
 
     assign data_req = mmio_req;
 

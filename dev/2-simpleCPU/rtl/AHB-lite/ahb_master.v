@@ -1,4 +1,5 @@
 `include "ahb_def.vh"
+`timescale 1ns / 1ps
 
 module ahb_master #(
     parameter ADDR_WIDTH = `AHB_ADDR_WIDTH,

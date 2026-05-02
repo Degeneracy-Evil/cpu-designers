@@ -1,4 +1,8 @@
+// DEPRECATED: This module uses the old 4-slave AHB bus structure with default_slave.
+// The current system uses ahb_periph_bus with SLAVE_NUM=2 (HADDR[31] decode).
+// Retained for reference only; do not instantiate in new designs.
 `include "ahb_def.vh"
+`timescale 1ns / 1ps
 
 module ahb_bus #(
     parameter ADDR_WIDTH  = `AHB_ADDR_WIDTH,
@@ -113,7 +117,7 @@ module ahb_bus #(
                 .HTRANS    (bus_HTRANS),
                 .HWRITE    (bus_HWRITE),
                 .HSIZE     (bus_HSIZE),
-                .HBURST    (bus_HBURST),
+                .HBURST    ({1'b0, bus_HBURST}),
                 .HPROT     (bus_HPROT),
                 .HWDATA    (bus_HWDATA),
                 .HREADY    (bus_HREADY),

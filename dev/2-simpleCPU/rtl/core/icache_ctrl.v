@@ -39,7 +39,7 @@ module icache_ctrl #(
         .clka(clk),
         .ena(cpu_req_valid && !is_mmio),
         .wea(4'b0),
-        .addra(cpu_req_addr[13:2]),
+        .addra(cpu_req_addr[13:2]), // WARNING: 12-bit index → 4KB direct-mapped; addresses >=16KB wrap and alias
         .dina(32'b0),
         .douta(icache_dout),
         

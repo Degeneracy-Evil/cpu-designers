@@ -3,6 +3,12 @@
 # 用法:
 #   1. Vivado TCL Shell 直接运行:  source vivado_sim.tcl
 #   2. 通过 tcl-tunnel 远程执行:   source E:/Xprogram/FPGA/tmp/vivado_sim.tcl
+#
+# 注意:
+#   - testbench 中的 $readmemh 使用相对路径，iverilog 可直接解析
+#   - xsim 工作目录为 ${proj_dir}/${proj_name}.sim/sim_1/behav/xsim/
+#     相对路径无法解析，需将 $readmemh 路径改为 Windows 绝对路径
+#     例如: "E:/Xprogram/FPGA/tmp/dev/2-simpleCPU/program_source/icache_init.hex"
 # =============================================================================
 
 # ---------------------------------------------------------------------------
@@ -43,7 +49,7 @@ set sys_rtl_dir     "${dev_dir}/2-simpleCPU/rtl"
 # Testbench 目录
 set tb_dir          "${dev_dir}/2-simpleCPU/tb"
 
-# 程序源文件目录 (COE 文件)
+# 程序源文件目录 (COE / HEX 文件)
 set prog_dir        "${dev_dir}/2-simpleCPU/program_source"
 
 # FPGA 目录 (约束文件、DCP)
@@ -53,15 +59,59 @@ set fpga_dir        "${dev_dir}/2-simpleCPU/fpga"
 set ips_dir         "${base_dir}/Reference/ips"
 
 # === 仿真配置 ===
-# 选择 testbench: tb_simple_cpu_top / tb_csr_test / tb_align_test / tb_timer_irq_test / tb_timer_seconds / tb_ahb_bus / tb_apb_perips / tb_cpu_bus_adapter
+# 选择 testbench:
+#   tb_simple_cpu_top  — CPU 全功能测试 (33 PASS, 需要 icache_init.hex)
+#   tb_csr_test        — CSR 指令测试 (20 PASS, 需要 csr_test.hex)
+#   tb_align_test      — 对齐测试 (23 PASS, 需要 align_test.hex)
+#   tb_timer_irq_test  — Timer 中断测试 (需要 timer_irq_test.hex)
+#   tb_timer_seconds   — Timer 秒计数测试 (需要 timer_seconds.hex)
+#   tb_led_marquee     — LED 走马灯测试 (16 PASS, 需要 led_marquee.hex)
+#   tb_ahb_bus         — AHB 总线测试 (3 PASS, 无需 hex)
+#   tb_apb_perips      — APB 外设测试 (10 PASS, 无需 hex)
+#   tb_cpu_bus_adapter — CPU 总线适配器测试 (6 PASS, 无需 hex)
 set tb_name         "tb_simple_cpu_top"
 
-# 仿真运行时间 (ns)
-set sim_run_time    "100000ns"
+# === testbench → COE/HEX 文件映射 ===
+# ICache BRAM IP 的 COE 初始化文件 (设为 "" 则不加载 COE)
+# 仅对使用 CPU 全系统的 testbench 有意义 (tb_simple_cpu_top 等)
+# tb_ahb_bus / tb_apb_perips / tb_cpu_bus_adapter 不需要 COE
+array set tb_coe_map {
+    tb_simple_cpu_top  "icache_init.coe"
+    tb_csr_test        "csr_test.coe"
+    tb_align_test      "comprehensive_test.coe"
+    tb_timer_irq_test  "comprehensive_test.coe"
+    tb_timer_seconds   "comprehensive_test.coe"
+    tb_led_marquee     ""
+    tb_ahb_bus         ""
+    tb_apb_perips      ""
+    tb_cpu_bus_adapter ""
+}
 
-# === BRAM IP 配置 ===
-# ICache COE 初始化文件 (设为 "" 则不加载 COE)
-set icache_coe_file "${prog_dir}/icache_init.coe"
+# === testbench → 仿真运行时间映射 (ns) ===
+array set tb_runtime_map {
+    tb_simple_cpu_top  "100000ns"
+    tb_csr_test        "60000ns"
+    tb_align_test      "60000ns"
+    tb_timer_irq_test  "100000ns"
+    tb_timer_seconds   "30000ns"
+    tb_led_marquee     "400000ns"
+    tb_ahb_bus         "5000ns"
+    tb_apb_perips      "2000ns"
+    tb_cpu_bus_adapter "5000ns"
+}
+
+set icache_coe_file ""
+if { [info exists tb_coe_map($tb_name)] } {
+    set coe_name $tb_coe_map($tb_name)
+    if { $coe_name ne "" } {
+        set icache_coe_file "${prog_dir}/${coe_name}"
+    }
+}
+
+set sim_run_time "100000ns"
+if { [info exists tb_runtime_map($tb_name)] } {
+    set sim_run_time $tb_runtime_map($tb_name)
+}
 
 # IP 输出目录
 set ip_output_dir   "${proj_dir}/${proj_name}.srcs/sources_1/ip"
@@ -113,12 +163,17 @@ puts "RTL 源文件添加完成"
 puts "========== Step 3: 设置 include 目录 =========="
 
 set_property include_dirs [list \
+    $alu_rtl_dir \
+    $cpu_core_dir \
     $ahb_dir \
+    $ahb_ip_dir \
     $apb_dir \
     $apb_header_dir \
+    $apb_perips_dir \
+    $tb_dir \
 ] [current_fileset]
 
-puts "Include 目录: $ahb_dir, $apb_dir, $apb_header_dir"
+puts "Include 目录已设置 (8 个目录)"
 
 # ---------------------------------------------------------------------------
 # Step 4: 导入 IP 并配置 ICache COE
@@ -128,8 +183,6 @@ puts "========== Step 4: 导入 IP 并配置 ICache COE =========="
 # 导入/读取已生成的 IP
 read_ip "${ips_dir}/icache/icache.xci"
 read_ip "${ips_dir}/dcache/dcache.xci"
-# 若有其他IP也同样导入，按需取消下行注释
-# read_ip "${ips_dir}/Sram/Sram.xci"
 
 if { $icache_coe_file ne "" } {
     set_property -dict [list \
@@ -187,11 +240,13 @@ puts "Testbench 已添加: $tb_name"
 # ---------------------------------------------------------------------------
 puts "========== Step 7: 启动仿真 =========="
 
-# 设置 xsim 仿真运行时间 (覆盖默认 1000ns)
+# 设置 xsim 仿真运行时间
 set_property xsim.simulate.runtime $sim_run_time [get_filesets sim_1]
 
 # 启用 xsim 日志记录, 将 testbench 的 $display 输出写入日志文件
 set_property xsim.simulate.log_all_objects true [get_filesets sim_1]
+
+puts "仿真配置: tb=$tb_name, runtime=$sim_run_time, coe=$icache_coe_file"
 
 launch_simulation -mode behavioral
 

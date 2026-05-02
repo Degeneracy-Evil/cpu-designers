@@ -92,7 +92,7 @@ module system_top(
     ahb_periph_bus #(
         .ADDR_WIDTH  (32),
         .DATA_WIDTH  (32),
-        .SLAVE_NUM   (4),
+        .SLAVE_NUM   (2),
         .MEM_DEPTH   (262144),
         .WAIT_STATES (0),
         .GPIO_NUM    (16),

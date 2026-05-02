@@ -110,7 +110,7 @@ module tb_align_test;
     ahb_periph_bus #(
         .ADDR_WIDTH  (32),
         .DATA_WIDTH  (32),
-        .SLAVE_NUM   (4),
+        .SLAVE_NUM   (2),
         .MEM_DEPTH   (262144),
         .WAIT_STATES (0),
         .GPIO_NUM    (16),
@@ -142,6 +142,8 @@ module tb_align_test;
 
     initial begin
         $readmemh("dev/2-simpleCPU/program_source/align_test.hex", u_bus.u_ahb_sram_slave.u_bram.mem);
+        $readmemh("dev/2-simpleCPU/program_source/align_test.hex", dut.u_icache_wrap.u_icache.mem);
+        $readmemh("dev/2-simpleCPU/program_source/align_test.hex", dut.u_dcache_wrap.u_dcache.mem);
     end
 
     initial begin

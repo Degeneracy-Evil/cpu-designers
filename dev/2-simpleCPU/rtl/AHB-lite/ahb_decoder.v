@@ -13,8 +13,8 @@ module ahb_decoder #(
         if (SLAVE_NUM == 1) begin : gen_single_slave
             assign HSELx[0] = 1'b1;
         end else if (SLAVE_NUM == 2) begin : gen_two_slave
-            assign HSELx[0] = (HADDR[ADDR_WIDTH-1:20] == {ADDR_WIDTH-20{1'b0}});
-            assign HSELx[1] = (HADDR[ADDR_WIDTH-1:20] != {ADDR_WIDTH-20{1'b0}});
+            assign HSELx[0] = ~HADDR[31];
+            assign HSELx[1] =  HADDR[31];
         end else if (SLAVE_NUM == 4) begin : gen_four_slave
             assign HSELx[0] = (HADDR[31:20] == 12'h000);
             assign HSELx[1] = (HADDR[31:20] == 12'h001);

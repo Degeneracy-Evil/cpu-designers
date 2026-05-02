@@ -1,3 +1,5 @@
+.equ TIMER_BASE, 0x80004000
+
 .section .text
 .globl _start
 
@@ -13,7 +15,7 @@ _start:
     li x10, 0x080
     csrw mie, x10
 
-    lui x10, 0x00104
+    lui x10, 0x80004
     li x11, 500
     sw x11, 0(x10)
 
@@ -26,7 +28,7 @@ loop:
 handler:
     addi x1, x1, 1
 
-    lui x10, 0x00104
+    lui x10, 0x80004
     sw x0, 8(x10)
 
     li x10, 0x08

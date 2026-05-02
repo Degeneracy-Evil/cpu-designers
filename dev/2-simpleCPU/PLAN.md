@@ -1,43 +1,12 @@
-# simpleCPU bus重构计划
+# simpleCPU Cache-First 访存架构计划
 
-## 原因
+## 设计目标
 
-为了获得更规范的总线架构以及更高的内存交换效率
+CPU首先访问cache（icache/dcache），MMIO区域（地址最高位为1）绕过cache通过总线访问外设。主存暂不使用，仅作占位。
 
-## 选型
+## 架构总览
 
-低速外设总线：APB (AMBA 3 APB4)
-
-高速系统总线：AHB-Lite (AMBA 3 AHB-Lite)
-
-## 设计
-
-低速外设总线连接外设，高速系统总线连接外设总线桥以及主存。
-
-系统总线数据位宽：32位
-
-## 涉及的更改部分
-
-构建：APB, AHB（已完成）
-
-更改：core
-  主要内容：cache（L1）封装进核心，构建：mem模块->MMU(暂时直接映射)->cache控制器->（未hit）缓存主存交换/MMIO访问外设 基本存储框架
-
-目前主存缓存映射采用硬映射方式，即缓存即固定对应主存的低位部分。
-
-更改：system_top：整合bus以及core以及LCD显示模块（主要调试用，所以直连核心、bus）
-
-## 远景
-
-在后续实验开始制作MMU等存储体系时不需要大改CPU架构
-
----
-
-# 详细实施计划
-
-## 一、架构总览
-
-### 1.1 目标架构框图
+### 目标架构框图
 
 ```
                      +------------------+
@@ -52,656 +21,295 @@
       +--------+--------+          +-------------------+
                |
       +--------v--------+
-      |  icache / dcache |   ← Phase 5: cache优先，miss时才访问总线
+      |  MMU (直接映射)  |   vaddr = paddr
       +--------+--------+
                |
       +--------v--------+
-      |  cpu_bus_adapter |   ← 新建：CPU总线接口→AHB请求适配
-      +--------+--------+
-               |
-      +--------v-----------------------------------+
-      |              AHB-Lite 系统总线              |
-      |  +----------+  +----------+  +----------+  |
-      |  | ahb_     |  | ahb_     |  | ahb_     |  |
-      |  | master   |  | decoder  |  | mux      |  |
-      |  +----------+  +-----+----+  +----------+  |
-      |                      |                      |
-      |  +----------+  +----v-----+  +----------+  |
-      |  | ahb_sram |  | ahb_lite |  | ahb_     |  |
-      |  | _slave   |  | _to_apb  |  | default  |  |
-      |  | (主存1MB)|  | (桥)     |  | _slave   |  |
-      |  +----------+  +----+-----+  +----------+  |
-      +----------------------|----------------------+
+      |  icache_ctrl /  |   ← cache优先，MMIO(addr[31]==1)时绕过cache
+      |  dcache_ctrl    |
+      +---+--------+----+
+          |        |
+   (cache hit)  (MMIO)
+          |        |
+   +------v--+  +--v------------------+
+   | icache  |  | cpu_bus_adapter     |
+   | dcache  |  | (I/D仲裁→AHB请求)  |
+   +---------+  +--------+-----------+
+                         |
+      +------------------v------------------+
+      |           AHB-Lite 系统总线          |
+      |  +----------+  +----------+        |
+      |  | ahb_     |  | ahb_     |        |
+      |  | master   |  | decoder  |        |
+      |  +----------+  +-----+----+        |
+      |                      |              |
+      |  +----------+  +----v-----+       |
+      |  | ahb_sram |  | ahb_lite |       |
+      |  | _slave   |  | _to_apb  |       |
+      |  | (主存占位)|  | (桥)     |       |
+      |  +----------+  +----+-----+       |
+      +----------------------|-------------+
                              |
-      +----------------------v----------------------+
-      |              APB 外设总线                   |
-      |  +----------+  +----------+  +----------+  |
-      |  | apb_     |  | apb_     |  | apb_     |  |
-      |  | decoder  |  | perips   |  | (master) |  |
-      |  +----------+  +-----+----+  +----------+  |
-      |                      |                      |
-      |  +------+ +------+ +----+ +---+            |
-      |  | GPIO | | Timer| |UART| |SPI|            |
-      |  +------+ +------+ +----+ +---+            |
-      +--------------------------------------------+
+      +----------------------v-------------+
+      |           APB 外设总线             |
+      |  +------+ +------+ +----+ +---+  |
+      |  | GPIO | | Timer| |UART| |SPI|  |
+      |  +------+ +------+ +----+ +---+  |
+      +-----------------------------------+
 ```
 
-> **当前状态（Phase 5之前）**：icache/dcache未接入，CPU直接通过cpu_bus_adapter访问AHB总线。
-> **MMIO路径**：外设地址(0x00100000-0x001FFFFF)绕过cache，直连AHB总线→APB桥→外设。
+### CPU访存路径
 
-### 1.2 与当前架构的对比
+**取指路径（I侧）**：
+```
+cpu_fetch → MMU → icache_ctrl
+  → addr[31]==0 (非MMIO): icache BRAM读取 (16KB, DEPTH=4096)
+  → addr[31]==1 (MMIO):   绕过cache → cpu_bus_adapter → AHB bus → 外设
+```
 
-| 项目 | 当前 (Bus4LZU) | 目标 (AHB+APB) |
-|------|---------------|----------------|
-| 系统总线 | Bus4LZU (自定义) | AHB-Lite (AMBA标准) |
-| 外设总线 | Bus4LZU bus_top (自定义) | APB4 (AMBA标准) |
-| 总线桥 | 无 (统一总线) | AHB-Lite-to-APB 桥 |
-| CPU接口 | 直连Bus4LZU信号 | cpu_bus_adapter → AHB master |
-| 主存 | memory_slot (SRAM) | ahb_sram_slave (SRAM) |
-| 地址解码 | bus_addr_decoder (自定义) | ahb_decoder + apb_decoder |
-| Cache | icache/dcache存在但未使用(CPU直连总线) | L1 I$/D$ 封装进核心，cache优先，miss才访问总线 |
+**访存路径（D侧）**：
+```
+cpu_mem → MMU → dcache_ctrl
+  → addr[31]==0 (非MMIO): dcache BRAM读写 (16KB, DEPTH=4096)
+  → addr[31]==1 (MMIO):   绕过cache → cpu_bus_adapter → AHB bus → 外设
+```
 
-### 1.3 关键设计决策
+> **关键原则**：CPU首先访问cache，MMIO地址(addr[31]==1)绕过cache直连总线。主存SRAM仅作占位，当前不主动使用。
 
-**决策1：I+D统一AHB总线**
-- CPU有独立的I侧(instAddr_32/instData_32)和D侧(dataAddr_32/writeData_32/readData_32)
-- 方案：单AHB总线 + cpu_bus_adapter内部仲裁（I请求优先，D请求次之）
-- 理由：与当前Bus4LZU统一SRAM架构一致，实现简单，避免双master复杂性
+## Cache设计
 
-**决策2：init_sig处理**
-- Bus4LZU的init_sig用于UART加载期间冻结CPU
-- 方案：新架构中init_sig恒接0（使用COE初始化BRAM，无需UART加载）
-- 理由：COE初始化已在Vivado验证中成功使用，UART加载为可选功能
+### 当前实现（icache_ctrl / dcache_ctrl）
 
-**决策3：地址映射重新设计**
-- 现有软件地址(UART@0x00010000, GPIO@0x00020000等)全部落入AHB SRAM区间
-- 方案：重新设计AMBA规范的地址映射，同步更新所有测试程序
-- 理由：AMBA标准地址空间应清晰分离主存与外设，避免地址冲突
+icache_ctrl和dcache_ctrl已实现并集成在simple_cpu_top.v中，**不做修改**。
 
-**决策4：主存SRAM容量匹配解码区间**
-- AHB解码器为SRAM分配1MB区间(HADDR[31:20]==12'h000)，SRAM需覆盖完整1MB
-- 方案：MEM_DEPTH从8192(32KB)扩展至262144(1MB)，Sram模型参数化
-- 理由：地址大小与内存大小必须对应，否则高位地址访问会越界/回绕
+**icache_ctrl** (`rtl/core/icache_ctrl.v`)：
+- DEPTH=4096，12位索引(addr[13:2])，覆盖16KB地址空间
+- MMIO判断：`is_mmio = cpu_req_addr[31]`
+- 非MMIO：使能icache BRAM读取（只读，wea=4'b0）
+- MMIO：绕过cache，输出mmio_req/mmio_addr，从总线获取mmio_data/mmio_valid
+- 输出MUX：`cpu_req_data = is_mmio ? mmio_data : icache_dout`
 
-**决策5：Cache优先访存原则**
-- CPU的fetch和mem模块首先访问icache/dcache，仅在cache miss时才通过总线访问主存
-- 方案：cache接入CPU取指/访存路径，MMIO地址绕过cache直连总线
-- 理由：减少总线访问延迟，提高取指和访存效率；外设访问不可缓存
+**dcache_ctrl** (`rtl/core/dcache_ctrl.v`)：
+- DEPTH=4096，12位索引(addr[13:2])，覆盖16KB地址空间
+- MMIO判断：`is_mmio = cpu_req_addr[31]`
+- 非MMIO：使能dcache BRAM读写（wea=~cpu_req_wen，反相写使能）
+- MMIO：绕过cache，输出mmio_req/mmio_addr/mmio_wdata/mmio_wen
+- 输出MUX：`cpu_req_rdata = is_mmio ? mmio_rdata : dcache_dout`
 
----
+**icache / dcache** (`rtl/core/icache.v`, `rtl/core/dcache.v`)：
+- 双端口BRAM数据阵列，DEPTH=4096，每项32bit
+- 端口A：CPU读写侧（clka, ena, wea, addra, dina, douta）
+- 端口B：预留refill侧（当前未使用，enb=0）
+- 字节写使能：wea[3:0]分别控制byte0-3
 
-## 二、地址映射设计
+### Cache地址映射
 
-### 2.1 AHB-Lite地址映射（4 Slave, HADDR[31:20]解码）
+- Cache大小：4096 × 4B = 16KB
+- 索引位：addr[13:2]（12位，索引4096项）
+- 字节偏移：addr[1:0]（2位）
+- 覆盖地址范围：0x00000000 - 0x00003FFF（16KB）
+- 映射方式：硬映射（直接对应地址低位，无tag/valid比较）
+
+> **注意**：当前cache为直接映射BRAM，无tag存储和valid位。地址超出16KB且addr[31]==0时，索引回绕（addr[13:2]截断）。程序需确保代码和数据位于0x00000000-0x00003FFF范围内。
+
+### MMU
+
+MMU.v当前为直接映射：`paddr = vaddr`，虚拟地址等于物理地址。
+
+## MMIO设计
+
+### MMIO判断
+
+```verilog
+wire is_mmio = addr[31];  // 地址最高位为1时为MMIO区域
+```
+
+- MMIO区域：0x80000000 - 0xFFFFFFFF（2GB地址空间）
+- 非MMIO区域：0x00000000 - 0x7FFFFFFF（2GB地址空间，cache覆盖前16KB）
+
+### MMIO访问路径
+
+```
+CPU → cache_ctrl (检测is_mmio) → cpu_bus_adapter → AHB bus → APB bridge → 外设
+```
+
+MMIO访问绕过cache，直接通过cpu_bus_adapter发起AHB总线请求，经AHB-to-APB桥访问外设。
+
+## 主存占位
+
+主存SRAM（ahb_sram_slave）在AHB总线上作为Slave存在，但当前不主动使用：
+
+- CPU的指令和数据访问优先走cache（addr[31]==0时）
+- MMIO访问走总线→外设（addr[31]==1时）
+- 主存SRAM仅在以下场景使用：
+  - 未来实现cache miss refill时作为后备存储
+  - 调试时直接通过总线访问
+- 当前MEM_DEPTH=262144(1MB)，地址范围由AHB解码器决定
+
+## 地址映射
+
+### AHB-Lite地址映射（基于addr[31]解码，2 Slave）
 
 | Slave | HSELx | 地址范围 | 大小 | 功能 |
 |-------|-------|---------|------|------|
-| 0 | HSELx[0] | 0x00000000 - 0x000FFFFF | 1MB | 主存SRAM (ahb_sram_slave, MEM_DEPTH=262144) |
-| 1 | HSELx[1] | 0x00100000 - 0x001FFFFF | 1MB | AHB-to-APB桥 (外设) |
-| 2 | HSELx[2] | 0x10000000 - 0x100FFFFF | 1MB | 保留 (未来MMIO扩展) |
-| 3 | HSELx[3] | 其余 | - | 默认从设备 (ERROR) |
+| 0 | addr[31]==0 | 0x00000000 - 0x7FFFFFFF | 2GB | 主存SRAM占位 (ahb_sram_slave) |
+| 1 | addr[31]==1 | 0x80000000 - 0xFFFFFFFF | 2GB | AHB-to-APB桥 (外设MMIO) |
 
-### 2.2 APB外设地址映射（4 Slave, PADDR[15:14]解码）
+> **注意**：当前ahb_decoder使用HADDR[31:20]进行4-slave解码，需修改为基于HADDR[31]的2-slave解码以匹配新的MMIO定义。两个slave覆盖完整32位地址空间，无需default slave。
 
-APB地址空间位于AHB Slave 1范围内(0x00100000-0x001FFFFF)。
+### APB外设地址映射（4 Slave, PADDR[15:14]解码）
 
-| PSELx | 地址范围 | 大小 | 外设 | 对应Bus4LZU旧地址 |
-|-------|---------|------|------|-------------------|
-| PSELx[0] | 0x00100000 - 0x00103FFF | 16KB | GPIO | 0x00020000 |
-| PSELx[1] | 0x00104000 - 0x00107FFF | 16KB | Timer | 0x10010000 |
-| PSELx[2] | 0x00108000 - 0x0010BFFF | 16KB | UART | 0x00010000 |
-| PSELx[3] | 0x0010C000 - 0x0010FFFF | 16KB | SPI | 0x00080000 |
+APB地址空间位于AHB Slave 1范围内(0x80000000起)。
 
-### 2.3 APB解码器（已完成）
+| PSELx | 地址范围 | 大小 | 外设 |
+|-------|---------|------|------|
+| PSELx[0] | 0x80000000 - 0x80003FFF | 16KB | GPIO |
+| PSELx[1] | 0x80004000 - 0x80007FFF | 16KB | Timer |
+| PSELx[2] | 0x80008000 - 0x8000BFFF | 16KB | UART |
+| PSELx[3] | 0x8000C000 - 0x8000FFFF | 16KB | SPI |
 
-apb_decoder已修改为使用PADDR[15:14]进行解码（每区16KB），匹配AHB-to-APB桥传递的地址：
+### APB解码器
 
 ```verilog
-// 4 Slave APB decoder (modified)
-assign PSELx[0] = (PADDR[15:14] == 2'b00);  // GPIO  @ 0x00100000
-assign PSELx[1] = (PADDR[15:14] == 2'b01);  // Timer @ 0x00104000
-assign PSELx[2] = (PADDR[15:14] == 2'b10);  // UART  @ 0x00108000
-assign PSELx[3] = (PADDR[15:14] == 2'b11);  // SPI   @ 0x0010C000
+assign PSELx[0] = (PADDR[15:14] == 2'b00);  // GPIO  @ 0x80000000
+assign PSELx[1] = (PADDR[15:14] == 2'b01);  // Timer @ 0x80004000
+assign PSELx[2] = (PADDR[15:14] == 2'b10);  // UART  @ 0x80008000
+assign PSELx[3] = (PADDR[15:14] == 2'b11);  // SPI   @ 0x8000C000
 ```
 
-### 2.4 地址映射汇总（软件视角）
+### 地址映射汇总（软件视角）
 
-| 用途 | 新地址 | 旧地址(Bus4LZU) | 偏移/说明 |
-|------|--------|----------------|----------|
-| 主存SRAM | 0x00000000 | 0x00000000 | 不变 |
-| GPIO CTRL | 0x00100000 | 0x00020000 | +0x000E0000 |
-| GPIO DATA | 0x00100004 | 0x00020004 | +0x000E0000 |
-| Timer EXPR | 0x00104000 | 0x10010000 | 完全重映射 |
-| Timer CTRL | 0x00104004 | 0x10010004 | 完全重映射 |
-| Timer INTR | 0x00104008 | 0x10010008 | 完全重映射 |
-| Timer COUNTER | 0x0010400C | 0x1001000C | 完全重映射 |
-| UART | 0x00108000 | 0x00010000 | +0x000F8000 |
-| SPI | 0x0010C000 | 0x00080000 | +0x0008C000 |
+| 用途 | 地址 | 说明 |
+|------|------|------|
+| Cache (指令+数据) | 0x00000000 - 0x00003FFF | 16KB, icache/dcache BRAM直接映射 |
+| 主存占位 | 0x00004000 - 0x7FFFFFFF | SRAM占位, 当前不使用 |
+| GPIO CTRL | 0x80000000 | MMIO, 绕过cache |
+| GPIO DATA | 0x80000004 | MMIO, 绕过cache |
+| Timer EXPR | 0x80004000 | MMIO, 绕过cache |
+| Timer CTRL | 0x80004004 | MMIO, 绕过cache |
+| Timer INTR | 0x80004008 | MMIO, 绕过cache |
+| Timer COUNTER | 0x8000400C | MMIO, 绕过cache |
+| UART | 0x80008000 | MMIO, 绕过cache |
+| SPI | 0x8000C000 | MMIO, 绕过cache |
 
----
-
-## 三、新增模块设计
-
-### 3.1 cpu_bus_adapter（CPU总线→AHB请求适配器）
-
-**职责**：将CPU核心的Bus4LZU风格接口转换为AHB-Lite master的req/resp接口，
-并处理I侧/D侧的仲裁。
-
-**接口定义**：
-
-```verilog
-module cpu_bus_adapter #(
-    parameter ADDR_WIDTH = 32,
-    parameter DATA_WIDTH = 32
-)(
-    input  wire                        clk,
-    input  wire                        resetn,
-
-    // CPU I-side interface (Bus4LZU style)
-    input  wire  [ADDR_WIDTH-1:0]      inst_addr,       // instAddr_32
-    output wire  [DATA_WIDTH-1:0]      inst_data,       // instData_32
-    input  wire                        inst_req,        // if_valid (取指请求)
-
-    // CPU D-side interface (Bus4LZU style)
-    input  wire  [ADDR_WIDTH-1:0]      data_addr,       // dataAddr_32
-    input  wire  [DATA_WIDTH-1:0]      data_wdata,      // writeData_32
-    output wire  [DATA_WIDTH-1:0]      data_rdata,      // readData_32
-    input  wire  [3:0]                 data_wen,        // dataWen_4 (反相: 1111=read)
-    input  wire                        data_req,        // mem_en
-
-    // AHB-Lite master request interface
-    output reg                         req_valid,
-    output reg                         req_write,
-    output reg  [ADDR_WIDTH-1:0]       req_addr,
-    output reg  [DATA_WIDTH-1:0]       req_wdata,
-    output reg  [2:0]                  req_size,        // HSIZE
-    output reg  [2:0]                  req_burst,
-    output reg  [3:0]                  req_prot,
-    output reg                         req_lock,
-
-    // AHB-Lite master response interface
-    input  wire                        req_ready,
-    input  wire                        resp_valid,
-    input  wire                        resp_error,
-    input  wire  [DATA_WIDTH-1:0]      resp_rdata
-);
-```
-
-**dataWen_4 → req_write/req_size 转换逻辑**：
-
-| dataWen_4 | 含义 | req_write | req_size (HSIZE) |
-|-----------|------|-----------|-----------------|
-| 4'b1111 | 读 (word) | 0 | 3'b010 (WORD) |
-| 4'b1110 | 写 byte0 | 1 | 3'b000 (BYTE) |
-| 4'b1101 | 写 byte1 | 1 | 3'b000 (BYTE) |
-| 4'b1011 | 写 byte2 | 1 | 3'b000 (BYTE) |
-| 4'b0111 | 写 byte3 | 1 | 3'b000 (BYTE) |
-| 4'b1100 | 写 halfword0 | 1 | 3'b001 (HWORD) |
-| 4'b0011 | 写 halfword1 | 1 | 3'b001 (HWORD) |
-| 4'b0000 | 写 word | 1 | 3'b010 (WORD) |
-
-**I/D仲裁策略**：
-- 状态机：IDLE → I_REQ → I_WAIT → D_REQ → D_WAIT → IDLE
-- I请求优先：当if_valid有效时优先发出I侧AHB请求
-- D请求跟随：I侧完成后若有data_req则发出D侧AHB请求
-- 响应路由：根据当前服务侧(I/D)将resp_rdata路由到inst_data或data_rdata
-
-**延迟处理**：
-- CPU fetch阶段已有r_wait机制处理1周期读延迟
-- CPU mem阶段已有MEM_READ2状态处理1周期读延迟
-- AHB master的2相位(ADDR+DATA)协议增加额外1周期延迟
-- 需在adapter中处理：req_valid发出后等待req_ready，resp_valid返回后才能完成
-
-### 3.2 ahb_periph_bus（AHB异构总线顶层）
-
-**职责**：替代当前ahb_bus（全SRAM slave），支持异构从设备（SRAM + AHB-to-APB桥 + 默认）。
-
-**与ahb_bus的区别**：
-- Slave 0: ahb_sram_slave (主存SRAM，可COE初始化)
-- Slave 1: ahb_lite_to_apb + apb_perips (外设桥)
-- Slave 2: 保留 (可接未来MMIO设备)
-- Slave 3: ahb_default_slave (错误响应)
-
-**接口定义**：
-
-```verilog
-module ahb_periph_bus #(
-    parameter ADDR_WIDTH  = 32,
-    parameter DATA_WIDTH  = 32,
-    parameter MEM_DEPTH   = 262144,
-    parameter WAIT_STATES = 0,
-    parameter GPIO_NUM    = 16,
-    parameter UART_FREQ   = 25
-)(
-    input  wire                    HCLK,
-    input  wire                    HRESETn,
-
-    // AHB master request
-    input  wire                    req_valid,
-    input  wire                    req_write,
-    input  wire  [ADDR_WIDTH-1:0]  req_addr,
-    input  wire  [DATA_WIDTH-1:0]  req_wdata,
-    input  wire  [2:0]             req_size,
-    input  wire  [2:0]             req_burst,
-    input  wire  [3:0]             req_prot,
-    input  wire                    req_lock,
-
-    // AHB master response
-    output wire                    req_ready,
-    output wire                    resp_valid,
-    output wire                    resp_error,
-    output wire  [DATA_WIDTH-1:0]  resp_rdata,
-
-    // Peripheral external pins
-    output wire                    o_timer_irq,
-    inout  wire [GPIO_NUM-1:0]     io_gpioPin,
-    input  wire                    i_uart_rx,
-    output wire                    o_uart_tx,
-    output wire                    o_spiMosi,
-    input  wire                    i_spiMiso,
-    output wire                    o_spiSs,
-    output wire                    o_spiClk
-);
-```
-
-**内部结构**：
-```
-ahb_periph_bus
-  ├── ahb_master          (请求→AHB信号)
-  ├── ahb_decoder         (HADDR→HSELx[3:0])
-  ├── ahb_mux             (多slave响应→总线响应)
-  ├── ahb_sram_slave[0]   (主存SRAM, HSELx[0])
-  ├── ahb_lite_to_apb     (AHB→APB桥, HSELx[1])
-  │     └── apb_perips    (GPIO/Timer/UART/SPI)
-  ├── [保留: HSELx[2]]    (未来扩展)
-  └── ahb_default_slave   (错误, HSELx[3])
-```
-
----
-
-## 四、现有模块修改清单
-
-### 4.1 ahb_decoder.v
-
-**修改内容**：无需修改（当前4-slave解码已匹配目标地址映射）
-
-**验证**：
-- HADDR[31:20]==12'h000 → HSELx[0] (SRAM) ✓
-- HADDR[31:20]==12'h001 → HSELx[1] (APB桥) ✓
-- HADDR[31:20]==12'h100 → HSELx[2] (保留) ✓
-- 其余 → HSELx[3] (default) ✓
-
-### 4.2 apb_decoder.v
-
-**修改内容**：已完成——4-slave解码已从PADDR[31:30]改为PADDR[15:14]
-
-**当前代码**（已修改）：
-```verilog
-assign PSELx[0] = (addr_region[15:14] == 2'b00);  // 每区16KB
-assign PSELx[1] = (addr_region[15:14] == 2'b01);
-assign PSELx[2] = (addr_region[15:14] == 2'b10);
-assign PSELx[3] = (addr_region[15:14] == 2'b11);
-```
-
-**注意**：8-slave解码也已修改为PADDR[15:13]（每区8KB）。
-
-### 4.3 apb_perips.v
-
-**修改内容**：新增参数化APB解码位宽，确保PADDR传递到各外设时偏移正确
-
-**当前状态**：已完整实现GPIO/Timer/UART/SPI的APB4接口，无需修改逻辑
-**需确认**：各外设使用PADDR[3:2]（字偏移）选择寄存器，与APB子地址无关
-
-### 4.4 ahb_sram_slave.v
-
-**修改内容**：SRAM已从32KB(MEM_DEPTH=8192)扩展至1MB(MEM_DEPTH=262144)，匹配AHB解码器1MB地址区间
-
-**修改详情**：
-- MEM_DEPTH默认值：8192 → 262144
-- INDEX_WIDTH：$clog2(8192)=13 → $clog2(262144)=18
-- BRAM地址切片：HADDR[14:2] → HADDR[19:2]（18位索引，覆盖完整1MB空间）
-- Sram模型已参数化：新增DEPTH参数，地址位宽自动为$clog2(DEPTH)
-
-**当前状态**：使用参数化Sram模型(BRAM)，支持MEM_DEPTH参数化，可选COE初始化
-**需确认**：BRAM初始化方式（$readmemh或COE），确保testbench可预加载指令
-
-### 4.5 system_top.v
-
-**修改内容**：替换soc_top(Bus4LZU)为ahb_periph_bus + cpu_bus_adapter
-
-**修改前**：
-```
-system_top
-  ├── soc_top (Bus4LZU)
-  ├── simple_cpu_top (CPU)
-  └── lcd_module
-```
-
-**修改后**：
-```
-system_top
-  ├── simple_cpu_top (CPU, 不变)
-  ├── cpu_bus_adapter (新建)
-  ├── ahb_periph_bus (新建)
-  └── lcd_module (不变)
-```
-
-**信号连接变化**：
-
-| 信号 | 旧连接 (Bus4LZU) | 新连接 (AHB+APB) |
-|------|-----------------|-----------------|
-| instAddr_32 | CPU→soc_top | CPU→adapter |
-| instData_32 | soc_top→CPU | adapter→CPU |
-| dataAddr_32 | CPU→soc_top | CPU→adapter |
-| writeData_32 | CPU→soc_top | CPU→adapter |
-| readData_32 | soc_top→CPU | adapter→CPU |
-| dataWen_4 | CPU→soc_top | CPU→adapter |
-| data_req | CPU→(未连接soc_top) | CPU→adapter |
-| init_sig | soc_top→CPU | 恒0 (COE初始化) |
-| timer_irq | soc_top→CPU | ahb_periph_bus→CPU |
-| uart_rx/tx | soc_top端口 | ahb_periph_bus端口 |
-| spi_*/gpio_io | soc_top端口 | ahb_periph_bus端口 |
-
-### 4.6 simple_cpu_top.v
-
-**修改内容**：无需修改（CPU核心接口不变，adapter处理所有转换）
-
-**前提**：cpu_bus_adapter正确处理延迟和信号转换
-
----
-
-## 五、测试程序地址更新
-
-### 5.1 需更新的汇编程序
-
-所有引用外设地址的测试程序需更新：
-
-| 文件 | 修改内容 |
-|------|---------|
-| timer_irq_test.s | Timer地址 0x10010000→0x00104000 |
-| timer_seconds.s | Timer地址 0x10010000→0x00104000 |
-| comprehensive_test.s | 如有外设地址引用需更新 |
-| 其他.s | 检查并更新所有外设地址 |
-
-### 5.2 地址常量定义（建议）
-
-在汇编程序头部统一定义外设地址常量，便于后续修改：
+### 汇编地址常量定义
 
 ```asm
-.equ GPIO_BASE,  0x00100000
-.equ TIMER_BASE, 0x00104000
-.equ UART_BASE,  0x00108000
-.equ SPI_BASE,   0x0010C000
+.equ GPIO_BASE,  0x80000000
+.equ TIMER_BASE, 0x80004000
+.equ UART_BASE,  0x80008000
+.equ SPI_BASE,   0x8000C000
 ```
 
----
+## 总线基础设施
 
-## 六、实施阶段与步骤
+### AHB-Lite系统总线
 
-### Phase 1：基础设施搭建
+- 连接cpu_bus_adapter（唯一master）与SRAM占位+APB桥（2个slaves）
+- cpu_bus_adapter内部仲裁I侧/D侧请求（I请求优先）
+- dataWen_4→req_write/req_size转换逻辑
 
-| 步骤 | 内容 | 依赖 | 验证 |
-|------|------|------|------|
-| 1.1 | 修改apb_decoder.v：PADDR[31:30]→PADDR[15:14]解码 | 无 | 编译通过 |
-| 1.2 | 新建ahb_periph_bus.v：异构AHB总线(SRAM+桥+默认) | ahb_lite_to_apb, apb_perips | 编译通过 |
-| 1.3 | ahb_periph_bus连接apb_perips外设引脚(timer_irq/gpio/uart/spi) | 1.2 | 编译通过 |
-| 1.4 | 新建cpu_bus_adapter.v：I/D仲裁+信号转换 | 无 | 编译通过 |
-| 1.5 | cpu_bus_adapter: dataWen_4→req_write/req_size转换逻辑 | 1.4 | 单元测试 |
-| 1.6 | cpu_bus_adapter: I/D仲裁状态机 | 1.4 | 单元测试 |
-| 1.7 | cpu_bus_adapter: 延迟处理(req_ready/resp_valid握手) | 1.6 | 单元测试 |
+### APB外设总线
 
-### Phase 2：顶层集成
+- 通过AHB-to-APB桥连接到AHB总线
+- 4个外设：GPIO, Timer, UART, SPI
+- apb_decoder使用PADDR[15:14]解码（每区16KB）
 
-| 步骤 | 内容 | 依赖 | 验证 |
-|------|------|------|------|
-| 2.1 | 修改system_top.v：替换soc_top为cpu_bus_adapter+ahb_periph_bus | Phase 1 | 编译通过 |
-| 2.2 | 连接外设引脚(uart_rx/tx, spi_*, gpio_io) | 2.1 | 编译通过 |
-| 2.3 | 连接timer_irq信号 | 2.1 | 编译通过 |
-| 2.4 | init_sig处理：恒接0或简单复位逻辑 | 2.1 | 编译通过 |
-| 2.5 | LCD显示模块信号连接确认 | 2.1 | 编译通过 |
+## 实施阶段
 
-### Phase 3：测试程序适配
+### Phase 1：AHB解码器更新
 
 | 步骤 | 内容 | 依赖 | 验证 |
 |------|------|------|------|
-| 3.1 | 更新timer_irq_test.s：Timer地址→0x00104000 | 2.1 | 重新生成.hex |
-| 3.2 | 更新timer_seconds.s：Timer地址→0x00104000 | 2.1 | 重新生成.hex |
-| 3.3 | 更新其他.s文件的外设地址 | 2.1 | 重新生成.hex |
-| 3.4 | 统一定义外设地址常量(.equ) | 3.1-3.3 | 汇编通过 |
+| 1.1 | 修改ahb_decoder.v：新增SLAVE_NUM==2的HADDR[31]解码逻辑 | 无 | 编译通过 |
+| 1.2 | 修改ahb_periph_bus.v：SLAVE_NUM=4→2，移除default slave和reserved slave | 1.1 | 编译通过 |
+| 1.3 | 修改system_top.v：ahb_periph_bus实例化SLAVE_NUM=2 | 1.2 | 编译通过 |
 
-### Phase 4：仿真验证
-
-| 步骤 | 内容 | 依赖 | 验证 |
-|------|------|------|------|
-| 4.1 | 新建tb_ahb_bus.v：AHB总线功能测试 | Phase 1 | SRAM读写+桥访问+默认错误 |
-| 4.2 | 新建tb_apb_perips.v：APB外设独立测试 | Phase 1 | GPIO/Timer/UART/SPI寄存器读写 |
-| 4.3 | 新建tb_cpu_bus_adapter.v：适配器功能测试 | 1.4-1.7 | I/D仲裁+信号转换+延迟 |
-| 4.4 | 修改现有testbench：替换soc_top为ahb_periph_bus | Phase 2, 3 | 编译通过 |
-| 4.5 | testbench: BRAM预加载($readmemh) | 4.4 | 指令正确加载 |
-| 4.6 | 回归测试：simple_cpu_top 33项 | 4.4 | 33/33 PASS |
-| 4.7 | 回归测试：csr_test 20项 | 4.4 | 20/20 PASS |
-| 4.8 | 回归测试：timer_irq_test | 4.4 | PASS |
-| 4.9 | 回归测试：align_test 23项 | 4.4 | 23/23 PASS |
-| 4.10 | 回归测试：timer_seconds | 4.4 | PASS |
-| 4.11 | 全量回归：81/81 PASS | 4.6-4.10 | 全部PASS |
-
-### Phase 5：Cache集成（可与Phase 1-4并行设计）
+### Phase 2：测试程序地址更新
 
 | 步骤 | 内容 | 依赖 | 验证 |
 |------|------|------|------|
-| 5.1 | 激活icache.v：接入cpu_fetch取指路径 | Phase 2 | 取指命中/未命中 |
-| 5.2 | 激活dcache.v：接入cpu_mem访存路径 | Phase 2 | Load/Store命中/未命中 |
-| 5.3 | cache控制器：未命中时发起AHB总线请求 | 5.1, 5.2 | Cache fill正确 |
-| 5.4 | 硬映射策略：cache固定映射主存低位部分 | 5.3 | 地址映射正确 |
-| 5.5 | MMIO判断：外设地址范围绕过cache直连总线 | 5.3 | 外设访问不走cache |
-| 5.6 | simple_cpu_top.v：封装cache进核心 | 5.1-5.5 | 编译通过 |
-| 5.7 | 回归测试：81/81 PASS | 5.6 | 全部PASS |
+| 2.1 | 更新所有汇编程序外设地址：0x001xxxxx→0x8000xxxx | Phase 1 | 重新生成.hex |
+| 2.2 | 统一定义外设地址常量(.equ) | 2.1 | 汇编通过 |
 
-### Phase 6：MMU直接映射（Phase 5完成后）
+### Phase 3：仿真验证
 
 | 步骤 | 内容 | 依赖 | 验证 |
 |------|------|------|------|
-| 6.1 | 实现MMU.v：直接映射模式(虚拟地址=物理地址) | Phase 5 | 地址透传 |
-| 6.2 | 存储访问路径：core→MMU→cache控制器→总线 | 6.1 | 完整路径验证 |
-| 6.3 | 为未来TLB/SV32预留接口 | 6.1 | 接口定义 |
-| 6.4 | 回归测试：81/81 PASS | 6.2 | 全部PASS |
+| 3.1 | 验证cache命中路径：指令和数据在0x00000000-0x00003FFF内正确读写 | Phase 1 | 功能正确 |
+| 3.2 | 验证MMIO路径：外设地址(0x80000000+)绕过cache正确访问 | Phase 1 | 功能正确 |
+| 3.3 | 回归测试：全部PASS | 3.1, 3.2 | 全部PASS |
 
----
+### Phase 4：主存占位确认
 
-## 七、已修复的矛盾
+| 步骤 | 内容 | 依赖 | 验证 |
+|------|------|------|------|
+| 4.1 | 确认SRAM slave在AHB总线上存在但CPU不主动访问 | Phase 1 | 编译通过 |
+| 4.2 | 预留cache miss refill接口（icache/dcache端口B） | 4.1 | 接口定义 |
 
-### 7.1 地址大小与内存大小不对应（已修复）
+## 远景
 
-**矛盾**：AHB解码器为SRAM分配1MB地址区间(0x00000000-0x000FFFFF)，但ahb_sram_slave的MEM_DEPTH=8192仅提供32KB存储。地址0x00008000-0x000FFFFF虽被解码器选中(HSELx[0])，但超出SRAM实际容量，会导致地址回绕或越界访问。
+- Cache miss refill：当实现tag/valid逻辑后，cache miss时通过总线从主存SRAM加载数据
+- MMU扩展：从直接映射升级为SV32分页映射
+- 主存激活：当cache miss refill实现后，主存SRAM从占位变为实际使用
 
-**修复**：
-- Sram模型参数化：新增DEPTH参数，地址位宽自动为$clog2(DEPTH)
-- MEM_DEPTH扩展：8192(32KB) → 262144(1MB)
-- BRAM地址切片：HADDR[14:2](13位) → HADDR[19:2](18位)，覆盖完整1MB
-- 所有实例化处同步更新：system_top.v, ahb_periph_bus.v, ahb_bus.v, 6个testbench, bus4lzu/memory_slot.v
+## 已修复的矛盾
 
-### 7.2 地址大小与解码位置不对应（已修复）
+### icache/dcache地址位宽与条目数不对应（已修复）
 
-**矛盾**：
-- ahb_sram_slave使用HADDR[INDEX_WIDTH+1:2]作为BRAM索引，INDEX_WIDTH=$clog2(MEM_DEPTH)
-- 旧MEM_DEPTH=8192时INDEX_WIDTH=13，使用HADDR[14:2]，仅覆盖地址[14:0]=32KB
-- 但解码器HADDR[31:20]==12'h000分配了1MB区间，地址[19:15]被SRAM忽略
+icache.v和dcache.v已参数化(DEPTH参数)，地址位宽=$clog2(DEPTH)。
 
-**修复**：MEM_DEPTH扩展至262144后，INDEX_WIDTH=18，使用HADDR[19:2]，完整覆盖1MB区间，与解码器1MB区间精确匹配。
+### CPU访存路径已集成cache
 
-### 7.3 icache/dcache地址位宽与条目数不对应（已修复）
+icache_ctrl和dcache_ctrl已集成在simple_cpu_top.v中：
+- icache_ctrl: 取指路径，cache优先，MMIO绕过
+- dcache_ctrl: 访存路径，cache优先，MMIO绕过
 
-**矛盾**：icache.v和dcache.v声明13位地址输入(addra[12:0]/addrb[12:0])，暗示8192项存储，但实际仅512项(mem[0:511])。当地址≥512时访问越界，Verilog返回X。
+## 风险与注意事项
 
-**修复**：参数化icache/dcache，DEPTH=512，地址位宽=$clog2(512)=9位，消除越界风险。
-
-### 7.4 CPU访存路径未经过cache（待Phase 5修复）
-
-**矛盾**：设计目标为CPU首先访问icache/dcache，miss时才通过总线访问主存。但当前实现中icache/dcache未接入，cpu_fetch和cpu_mem直接通过cpu_bus_adapter访问AHB总线。
-
-**当前路径**：cpu_fetch/mem → cpu_bus_adapter → AHB bus → SRAM/外设
-**目标路径**：cpu_fetch/mem → icache/dcache → (miss) → cpu_bus_adapter → AHB bus → SRAM/外设
-
-**修复计划**：Phase 5集成cache，补充tag存储、valid位、命中/未命中逻辑、cache fill状态机。
-
----
-
-## 八、风险与注意事项
-
-### 8.1 延迟兼容性（高风险）
+### 地址回绕（中风险）
 
 | 风险 | 说明 | 缓解 |
 |------|------|------|
-| AHB 2相位延迟 | AHB master的ADDR→DATA两相位增加1周期延迟，CPU fetch/mem的r_wait/MEM_READ2仅处理BRAM 1周期延迟 | adapter中需正确处理AHB握手时序，可能需要调整CPU延迟预期 |
-| APB 3相位延迟 | AHB-to-APB桥的SETUP→ACCESS→完成增加2周期延迟 | 外设访问(Timer/UART等)本身较慢，CPU mem阶段应能容忍 |
-| I/D仲裁延迟 | I侧和D侧共享总线，仲裁可能引入额外等待周期 | adapter的仲裁状态机需正确stall CPU |
+| Cache索引回绕 | addr[13:2]仅12位，地址≥16KB时索引回绕，可能读到错误数据 | 程序限制在16KB内；未来添加tag比较逻辑 |
 
-### 8.2 写使能转换（中风险）
+### AHB解码器变更（中风险）
 
 | 风险 | 说明 | 缓解 |
 |------|------|------|
-| dataWen_4语义 | CPU的dataWen_4使用反相逻辑(0=写,1=不写)，AHB使用HWRITE(1=写) | adapter中严格转换，增加断言检查 |
-| 字节对齐 | AHB的HSIZE+HADDR决定写入字节，CPU的dataWen_4直接指定字节位 | 确保HSIZE和HADDR组合产生正确的字节写使能 |
+| 解码逻辑变更 | 从HADDR[31:20] 4-slave改为HADDR[31] 2-slave，影响所有总线从设备选择 | 仔细验证SRAM和APB桥的HSELx条件 |
 
-### 8.3 地址映射（中风险）
-
-| 风险 | 说明 | 缓解 |
-|------|------|------|
-| 软件地址更新遗漏 | 部分汇编程序硬编码外设地址 | 全局搜索0x10010000/0x00010000/0x00020000/0x00080000 |
-| APB解码粒度 | PADDR[15:14]仅4个区，每区16KB，未来扩展受限 | 预留AHB Slave 2(0x10000000)作为扩展空间 |
-
-### 8.4 init_sig处理（低风险）
+### 外设地址变更（中风险）
 
 | 风险 | 说明 | 缓解 |
 |------|------|------|
-| 无UART加载 | init_sig恒0意味着无法通过UART加载程序 | 使用COE初始化BRAM；未来可添加UART加载逻辑 |
+| 软件地址更新 | 所有汇编程序外设地址需从0x001xxxxx更新为0x8000xxxx | 全局搜索替换 |
 
----
-
-## 九、文件变更汇总
-
-### 新建文件
-
-| 文件路径 | 说明 | 预计行数 |
-|---------|------|---------|
-| rtl/core/cpu_bus_adapter.v | CPU总线→AHB请求适配器(I/D仲裁+信号转换) | ~200 |
-| rtl/AHB-lite/ahb_periph_bus.v | AHB异构总线顶层(SRAM+桥+默认) | ~180 |
-| tb/tb_ahb_bus.v | AHB总线功能测试 | ~150 |
-| tb/tb_apb_perips.v | APB外设独立测试 | ~150 |
-| tb/tb_cpu_bus_adapter.v | 适配器功能测试 | ~200 |
+## 文件变更汇总
 
 ### 修改文件
 
 | 文件路径 | 修改内容 | 影响范围 |
 |---------|---------|---------|
-| rtl/AHB-lite/ip/sram_model.v | 参数化DEPTH，默认262144(1MB)，地址位宽$clog2(DEPTH) | 接口变更 |
-| rtl/AHB-lite/ahb_sram_slave.v | MEM_DEPTH默认8192→262144，传递DEPTH给Sram | 默认值变更 |
-| rtl/AHB-lite/ahb_periph_bus.v | MEM_DEPTH默认8192→262144 | 默认值变更 |
-| rtl/AHB-lite/ahb_bus.v | MEM_DEPTH默认8192→262144 | 默认值变更 |
-| rtl/core/icache.v | 参数化DEPTH=512，地址位宽$clog2(DEPTH)=9 | 接口变更 |
-| rtl/core/dcache.v | 参数化DEPTH=512，地址位宽$clog2(DEPTH)=9 | 接口变更 |
-| rtl/system_top.v | MEM_DEPTH 8192→262144 | 参数值变更 |
-| rtl/bus4lzu/slot/memory_slot.v | Sram实例传递DEPTH=262144，地址切片[14:2]→[19:2] | 接口+逻辑变更 |
-| rtl/APB/apb_decoder.v | PADDR[31:30]→PADDR[15:14]解码（已完成） | 4行 |
-| program_source/*.s | 外设地址更新 | 多文件，每文件少量 |
-| tb/*.v | MEM_DEPTH 8192→262144 | 6个testbench |
+| rtl/AHB-lite/ahb_decoder.v | 新增SLAVE_NUM==2的HADDR[31]解码 | 解码逻辑变更 |
+| rtl/AHB-lite/ahb_periph_bus.v | SLAVE_NUM 4→2，移除default/reserved slave | 从设备连接变更 |
+| rtl/system_top.v | ahb_periph_bus实例SLAVE_NUM=2 | 参数变更 |
+| program_source/*.s | 外设地址0x001xxxxx→0x8000xxxx | 多文件 |
+| tb/*.v | 适配新地址映射 | testbench更新 |
 
----
+### 不变文件
 
-## 十、Cache集成详细设计（Phase 5）
+| 文件路径 | 说明 |
+|---------|------|
+| rtl/core/icache.v | BRAM数据阵列，已参数化，不变 |
+| rtl/core/dcache.v | BRAM数据阵列，已参数化，不变 |
+| rtl/core/icache_ctrl.v | cache控制器，MMIO判断addr[31]，不变 |
+| rtl/core/dcache_ctrl.v | cache控制器，MMIO判断addr[31]，不变 |
+| rtl/core/simple_cpu_top.v | 已集成cache_ctrl，不变 |
+| rtl/core/MMU.v | 直接映射，不变 |
+| rtl/core/cpu_bus_adapter.v | I/D仲裁+信号转换，不变 |
 
-### 9.1 当前Cache状态
-
-- `icache.v`：512项×32bit BRAM数据阵列，已参数化(DEPTH=512, ADDR_WIDTH=9)，**仅实现数据存储，尚未实现tag/valid/hit逻辑**，未接入CPU（cpu_fetch直连总线取指）
-- `dcache.v`：512项×32bit BRAM数据阵列，已参数化(DEPTH=512, ADDR_WIDTH=9)，**仅实现数据存储，尚未实现tag/valid/hit逻辑**，未接入CPU（cpu_mem直连总线访存）
-- `MMU.v`：直接返回地址（直接映射）
-
-**当前CPU访存路径（Phase 5之前）**：
-```
-cpu_fetch → cpu_bus_adapter → AHB bus → ahb_sram_slave (主存)
-cpu_mem   → cpu_bus_adapter → AHB bus → ahb_sram_slave (主存)
-外设地址  → cpu_bus_adapter → AHB bus → APB bridge → 外设
-```
-
-**目标CPU访存路径（Phase 5完成后，cache优先，miss时才访问总线）**：
-```
-cpu_fetch → icache → (hit)  → instData_32
-                    → (miss) → cache_controller → AHB bus → fill → icache
-cpu_mem   → dcache → (hit)  → readData_32
-                    → (miss) → cache_controller → AHB bus → fill → dcache
-外设地址  → MMIO判断 → 绕过cache → AHB bus → APB bridge → 外设
-```
-
-> **关键设计原则**：CPU的fetch和mem模块**首先访问icache/dcache**，仅在cache miss时才通过总线访问主存，而非直接访问总线。外设地址(MMIO)绕过cache直连总线。
-
-### 9.2 Cache集成路径
-
-（见9.1中"目标CPU访存路径"）
-
-### 9.3 硬映射策略
-
-当前阶段采用硬映射：cache固定对应主存低位部分。
-
-- I-Cache (512项×4B = 2KB)：映射主存 0x00000000-0x000007FF
-  - 索引位：addr[10:2]（9位，索引512项）
-  - 标签位：addr[31:11]（21位，用于tag比较判断命中）
-  - 字节偏移：addr[1:0]（2位）
-- D-Cache (512项×4B = 2KB)：映射主存 0x00000000-0x000007FF
-  - 地址划分同I-Cache
-- 超出cache范围的地址：直接访问AHB总线（uncached）
-
-> **注意**：当前icache.v/dcache.v仅实现了BRAM数据阵列（DEPTH=512, 9位地址），尚未实现tag存储、valid位和命中/未命中比较逻辑。Phase 5需要补充这些逻辑才能构成完整的cache。
-
-### 9.4 MMIO判断逻辑
-
-地址落入外设范围(0x00100000-0x001FFFFF)时绕过cache：
-
-```verilog
-wire is_mmio = (dataAddr_32[31:20] == 12'h001);  // APB外设区
-wire is_uncached = is_mmio || (dataAddr_32 >= CACHE_SIZE);  // 超出cache范围
-```
-
-### 9.5 Cache控制器状态机
-
-```
-IDLE → (miss) → REFILL_REQ → REFILL_WAIT → REFILL_DONE → IDLE
-```
-
-- REFILL_REQ：向AHB总线发起cache line填充请求
-- REFILL_WAIT：等待AHB响应(resp_valid)
-- REFILL_DONE：写入cache BRAM，置valid位，返回数据
-
----
-
-## 十一、验收标准
-
-### Phase 1-4 完成标准
-
-- [ ] cpu_bus_adapter编译通过，I/D仲裁功能正确
-- [ ] ahb_periph_bus编译通过，SRAM读写+APB桥访问正确
-- [ ] system_top编译通过，所有外设引脚正确连接
-- [ ] 所有测试程序地址更新完成
-- [ ] 81/81 回归测试全部PASS
-- [ ] 无Bus4LZU依赖（可删除rtl/bus4lzu/目录）
-
-### Phase 5 完成标准
-
-- [ ] I-Cache接入cpu_fetch，命中时1周期延迟取指(BRAM IP 仅在时钟上升沿读写数据)
-- [ ] D-Cache接入cpu_mem，命中时1周期延迟访存(BRAM IP 仅在时钟上升沿读写数据)
-- [ ] Cache未命中时正确发起总线请求并填充
-- [ ] MMIO地址绕过cache直接访问总线
-- [ ] 81/81 回归测试全部PASS
-
-### Phase 6 完成标准
-
-- [ ] MMU直接映射实现，虚拟地址=物理地址
-- [ ] 存储访问完整路径：core→MMU→cache→bus
-- [ ] 为TLB/SV32预留标准接口
-- [ ] 81/81 回归测试全部PASS
-
----
-
-## 十二、资源
+## 资源
 
 ### tools
 

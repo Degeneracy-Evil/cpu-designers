@@ -3,7 +3,7 @@
 module ahb_periph_bus #(
     parameter ADDR_WIDTH  = `AHB_ADDR_WIDTH,
     parameter DATA_WIDTH  = `AHB_DATA_WIDTH,
-    parameter SLAVE_NUM   = 4,
+    parameter SLAVE_NUM   = 2,
     parameter MEM_DEPTH   = 262144,
     parameter WAIT_STATES = 0,
     parameter GPIO_NUM    = 16,
@@ -254,23 +254,6 @@ module ahb_periph_bus #(
         end
     end
 
-    ahb_default_slave #(
-        .DATA_WIDTH (DATA_WIDTH)
-    ) u_ahb_default_slave (
-        .HCLK      (HCLK),
-        .HRESETn   (HRESETn),
-        .HSEL      (slave_HSELx[SLAVE_NUM-1]),
-        .HTRANS    (bus_HTRANS),
-        .HREADY    (bus_HREADY),
-        .HREADYOUT (slave_HREADYOUT[SLAVE_NUM-1]),
-        .HRESP     (slave_HRESP[SLAVE_NUM-1]),
-        .HRDATA    (slave_HRDATA[SLAVE_NUM-1])
-    );
-
     assign slave_HRDATA[1]    = bridge_HRDATA;
-
-    assign slave_HREADYOUT[2] = 1'b1;
-    assign slave_HRESP[2]     = 1'b0;
-    assign slave_HRDATA[2]    = {DATA_WIDTH{1'b0}};
 
 endmodule

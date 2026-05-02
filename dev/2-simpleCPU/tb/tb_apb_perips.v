@@ -31,7 +31,7 @@ module tb_apb_perips;
     ahb_periph_bus #(
         .ADDR_WIDTH  (32),
         .DATA_WIDTH  (32),
-        .SLAVE_NUM   (4),
+        .SLAVE_NUM   (2),
         .MEM_DEPTH   (262144),
         .WAIT_STATES (0),
         .GPIO_NUM    (16),
@@ -143,47 +143,47 @@ module tb_apb_perips;
         repeat (2) @(posedge HCLK);
 
         begin : gpio_test
-            ahb_write(32'h00100000, 32'h0000FFFF);
-            ahb_read(32'h00100000, rd_val);
+            ahb_write(32'h80000000, 32'h0000FFFF);
+            ahb_read(32'h80000000, rd_val);
             check("GPIO_CTRL write/read", rd_val, 32'h0000FFFF);
 
-            ahb_write(32'h00100004, 32'h0000AAAA);
-            ahb_read(32'h00100004, rd_val);
+            ahb_write(32'h80000004, 32'h0000AAAA);
+            ahb_read(32'h80000004, rd_val);
             check("GPIO_DATA write/read", rd_val, 32'h0000AAAA);
         end
 
         begin : timer_test
-            ahb_write(32'h00104000, 32'd200);
-            ahb_read(32'h00104000, rd_val);
+            ahb_write(32'h80004000, 32'd200);
+            ahb_read(32'h80004000, rd_val);
             check("Timer_EXPR write/read", rd_val, 32'd200);
 
-            ahb_write(32'h00104004, 32'h00000003);
-            ahb_read(32'h00104004, rd_val);
+            ahb_write(32'h80004004, 32'h00000003);
+            ahb_read(32'h80004004, rd_val);
             check("Timer_CTRL write/read", rd_val, 32'h00000003);
 
-            ahb_read(32'h00104008, rd_val);
+            ahb_read(32'h80004008, rd_val);
             check("Timer_IRQ initial", rd_val[0], 1'b0);
         end
 
         begin : uart_test
-            ahb_write(32'h00108000, 32'h00000003);
-            ahb_read(32'h00108000, rd_val);
+            ahb_write(32'h80008000, 32'h00000003);
+            ahb_read(32'h80008000, rd_val);
             check("UART_CTRL write/read", rd_val, 32'h00000003);
 
-            ahb_read(32'h00108004, rd_val);
+            ahb_read(32'h80008004, rd_val);
             check("UART_STATUS read", rd_val, 32'h00000000);
         end
 
         begin : spi_test
-            ahb_write(32'h0010C000, 32'h0000000F);
-            ahb_read(32'h0010C000, rd_val);
+            ahb_write(32'h8000C000, 32'h0000000F);
+            ahb_read(32'h8000C000, rd_val);
             check("SPI_CTRL write/read", rd_val, 32'h0000000F);
 
-            ahb_write(32'h0010C004, 32'h000000AB);
-            ahb_read(32'h0010C004, rd_val);
+            ahb_write(32'h8000C004, 32'h000000AB);
+            ahb_read(32'h8000C004, rd_val);
             check("SPI_DATA write/read", rd_val, 32'h000000AB);
 
-            ahb_read(32'h0010C008, rd_val);
+            ahb_read(32'h8000C008, rd_val);
             check("SPI_STATUS read", rd_val, 32'h00000000);
         end
 

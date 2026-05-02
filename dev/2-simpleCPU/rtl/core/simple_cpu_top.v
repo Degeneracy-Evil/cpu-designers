@@ -78,6 +78,9 @@ module simple_cpu_top(
 
     wire mem_en;
 
+    wire [31:0] mmu_inst_paddr;
+    wire [31:0] mmu_data_paddr;
+
     wire [4:0] rs1_addr;
     wire [4:0] rs2_addr;
     wire [31:0] rs1_value;
@@ -306,15 +309,37 @@ module simple_cpu_top(
         .state(fsm_state)
     );
 
+    wire [31:0] fetch_vaddr;
+
+    wire [31:0] instData_32_mux;
+    wire        inst_valid_mux;
+    
+    icache_ctrl #(
+        .DEPTH(4096)
+    ) u_icache_wrap (
+        .clk(clk),
+        .reset(reset),
+        
+        .cpu_req_valid(if_valid),
+        .cpu_req_addr(mmu_inst_paddr),
+        .cpu_req_data(instData_32_mux),
+        .cpu_req_ready(inst_valid_mux),
+        
+        .mmio_req(),             // unused explicitly, keeping simple_cpu_top mmio assignments
+        .mmio_addr(instAddr_32),
+        .mmio_data(instData_32),
+        .mmio_valid(inst_valid)
+    );
+
     cpu_fetch u_fetch(
         .clk(clk),
         .reset(reset),
         .if_valid(if_valid),
         .init_sig(init_sig),
         .pc(pc),
-        .instData_32(instData_32),
-        .inst_valid(inst_valid),
-        .instAddr_32(instAddr_32),
+        .instData_32(instData_32_mux),
+        .inst_valid(inst_valid_mux),
+        .instAddr_32(fetch_vaddr),
         .if_done(if_done),
         .if_id_bus(if_id_bus),
         .if_pc(if_pc),
@@ -365,17 +390,49 @@ module simple_cpu_top(
         .exe_csr_old_val(exe_csr_old_val)
     );
 
+    wire [3:0]  mem_dataWen_4;
+    wire [31:0] mem_dataAddr_32;
+    wire [31:0] mem_writeData_32;
+
+    wire [31:0] readData_32_mux;
+    wire        data_valid_mux;
+
+    wire [31:0] mmio_wdata;
+    wire [3:0]  mmio_wen;
+    wire        mmio_req;
+    
+    dcache_ctrl #(
+        .DEPTH(4096)
+    ) u_dcache_wrap (
+        .clk(clk),
+        .reset(reset),
+        
+        .cpu_req_valid(mem_en),
+        .cpu_req_addr(mmu_data_paddr),
+        .cpu_req_wdata(mem_writeData_32),
+        .cpu_req_wen(mem_dataWen_4),
+        .cpu_req_rdata(readData_32_mux),
+        .cpu_req_ready(data_valid_mux),
+        
+        .mmio_req(mmio_req),
+        .mmio_addr(dataAddr_32),
+        .mmio_wdata(),          // Use explicit simple_cpu_top assigns
+        .mmio_wen(mmio_wen),
+        .mmio_rdata(readData_32),
+        .mmio_valid(data_valid)
+    );
+
     cpu_mem u_mem(
         .clk(clk),
         .reset(reset),
         .mem_valid(mem_valid),
         .exe_mem_bus_r(exe_mem_bus_r),
         .mem_en(mem_en),
-        .dataWen_4(dataWen_4),
-        .dataAddr_32(dataAddr_32),
-        .writeData_32(writeData_32),
-        .readData_32(readData_32),
-        .data_valid(data_valid),
+        .dataWen_4(mem_dataWen_4),
+        .dataAddr_32(mem_dataAddr_32),
+        .writeData_32(mem_writeData_32),
+        .readData_32(readData_32_mux),
+        .data_valid(data_valid_mux),
         .mem_done(mem_done),
         .mem_wb_bus(mem_wb_bus),
         .mem_pc(mem_pc),
@@ -465,7 +522,25 @@ module simple_cpu_top(
 
     assign hw_csr_wen = trap_enter_valid || trap_return_valid;
 
-    assign data_req = mem_en;
+    MMU u_mmu_inst(
+        .clk(clk),
+        .reset(reset),
+        .vaddr(fetch_vaddr),
+        .paddr(mmu_inst_paddr)
+    );
+
+    MMU u_mmu_data(
+        .clk(clk),
+        .reset(reset),
+        .vaddr(mem_dataAddr_32),
+        .paddr(mmu_data_paddr)
+    );
+
+
+    assign dataWen_4    = mmio_wen;
+    assign writeData_32 = mem_writeData_32;
+
+    assign data_req = mmio_req;
 
     assign display_state = {28'b0, fsm_state};
 

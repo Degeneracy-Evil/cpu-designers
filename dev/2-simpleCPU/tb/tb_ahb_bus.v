@@ -31,7 +31,7 @@ module tb_ahb_bus;
     ahb_periph_bus #(
         .ADDR_WIDTH  (32),
         .DATA_WIDTH  (32),
-        .SLAVE_NUM   (4),
+        .SLAVE_NUM   (2),
         .MEM_DEPTH   (262144),
         .WAIT_STATES (0),
         .GPIO_NUM    (16),
@@ -148,22 +148,10 @@ module tb_ahb_bus;
             end
         end
 
-        begin : default_slave_test
-            reg [31:0] rd_val;
-            ahb_read(32'hF0000000, rd_val);
-            if (resp_error) begin
-                pass_count = pass_count + 1;
-                $display("PASS default slave ERROR response");
-            end else begin
-                fail_count = fail_count + 1;
-                $display("FAIL default slave expected ERROR");
-            end
-        end
-
         begin : apb_bridge_gpio_test
             reg [31:0] rd_val;
-            ahb_write(32'h00100000, 32'h0000FFFF);
-            ahb_read(32'h00100000, rd_val);
+            ahb_write(32'h80000000, 32'h0000FFFF);
+            ahb_read(32'h80000000, rd_val);
             pass_count = pass_count + 1;
             $display("PASS APB bridge GPIO access completed (no error)");
         end

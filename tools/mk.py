@@ -102,7 +102,9 @@ def find_instantiated_modules(src: str) -> Set[str]:
     return modules
 
 
-def collect_verilog_files(search_roots: Iterable[Path], build_dir: Path) -> List[Path]:
+def collect_verilog_files(
+    search_roots: Iterable[Path], build_dir: Path, exclude_patterns: Iterable[str] = ()
+) -> List[Path]:
     files: List[Path] = []
     build_dir_resolved = build_dir.resolve()
     for root in search_roots:
@@ -116,6 +118,13 @@ def collect_verilog_files(search_roots: Iterable[Path], build_dir: Path) -> List
                     continue
             except Exception:
                 pass
+            skip = False
+            for pat in exclude_patterns:
+                if pat in str(path):
+                    skip = True
+                    break
+            if skip:
+                continue
             files.append(path.resolve())
     return sorted(set(files))
 
@@ -211,6 +220,12 @@ def parse_args() -> argparse.Namespace:
         help="Search roots for Verilog files. Can be used multiple times.",
     )
     parser.add_argument(
+        "--exclude",
+        action="append",
+        default=[],
+        help="Substring pattern to exclude from file search. Can be used multiple times.",
+    )
+    parser.add_argument(
         "--build-dir",
         default="build",
         help="Build output directory. Default: build",
@@ -239,6 +254,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--iverilog", default="iverilog", help="iverilog executable name/path.")
     parser.add_argument("--vvp", default="vvp", help="vvp executable name/path.")
+    parser.add_argument(
+        "--iverilog-flag",
+        action="append",
+        default=["-g2005-sv"],
+        help="Extra flag for iverilog. Can be used multiple times. Default: -g2005-sv",
+    )
     parser.add_argument("--compile-only", action="store_true", help="Only compile, do not run.")
     parser.add_argument("--run-only", action="store_true", help="Only run existing vvp output.")
     parser.add_argument("--dry-run", action="store_true", help="Print commands only.")
@@ -274,7 +295,7 @@ def main() -> int:
 
     if do_compile:
         search_roots = [(workspace / p).resolve() for p in args.search_root]
-        all_verilog_files = collect_verilog_files(search_roots, build_dir)
+        all_verilog_files = collect_verilog_files(search_roots, build_dir, args.exclude)
         module_map = build_module_map(all_verilog_files)
 
         resolved = resolve_dependency_files(top_file, module_map)
@@ -289,7 +310,7 @@ def main() -> int:
         include_dirs = {str(p.parent) for p in resolved}
         include_dirs.update(str((workspace / p).resolve()) for p in args.include_dir)
 
-        compile_cmd: List[str] = [args.iverilog, "-Wall"]
+        compile_cmd: List[str] = [args.iverilog, "-Wall"] + args.iverilog_flag
         if args.top_module:
             compile_cmd.extend(["-s", args.top_module])
         for macro in args.define:

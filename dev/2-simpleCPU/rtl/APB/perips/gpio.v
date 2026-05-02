@@ -49,7 +49,6 @@ module gpio #(
             gpio_ctrl <= {`APB_DATA_WIDTH{1'b0}};
             gpio_data <= {`APB_DATA_WIDTH{1'b0}};
             PREADY    <= 1'b1;
-            PRDATA    <= {`APB_DATA_WIDTH{1'b0}};
             PSLVERR   <= 1'b0;
         end else begin
             PREADY  <= 1'b1;
@@ -66,16 +65,18 @@ module gpio #(
                     default: ;
                 endcase
             end
+        end
+    end
 
-            if (read_access) begin
-                case (PADDR[3:0])
-                    GPIO_CTRL: PRDATA <= gpio_ctrl;
-                    GPIO_DATA: PRDATA <= gpio_data;
-                    default:   PRDATA <= {`APB_DATA_WIDTH{1'b0}};
-                endcase
-            end else if (!PSEL || !PENABLE) begin
-                PRDATA <= {`APB_DATA_WIDTH{1'b0}};
-            end
+    always @(*) begin
+        if (read_access) begin
+            case (PADDR[3:0])
+                GPIO_CTRL: PRDATA = gpio_ctrl;
+                GPIO_DATA: PRDATA = gpio_data;
+                default:   PRDATA = {`APB_DATA_WIDTH{1'b0}};
+            endcase
+        end else begin
+            PRDATA = {`APB_DATA_WIDTH{1'b0}};
         end
     end
 

@@ -4,7 +4,7 @@ module ahb_bus #(
     parameter ADDR_WIDTH  = `AHB_ADDR_WIDTH,
     parameter DATA_WIDTH  = `AHB_DATA_WIDTH,
     parameter SLAVE_NUM   = 4,
-    parameter MEM_DEPTH   = 8192,
+    parameter MEM_DEPTH   = 262144,
     parameter WAIT_STATES = 0
 )(
     input  wire                    HCLK,

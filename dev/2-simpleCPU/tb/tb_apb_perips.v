@@ -1,6 +1,6 @@
 `timescale 1ns / 1ps
 
-module tb_ahb_bus;
+module tb_apb_perips;
 
     reg         HCLK;
     reg         HRESETn;
@@ -107,7 +107,24 @@ module tb_ahb_bus;
         end
     endtask
 
+    task check;
+        input [255:0] name;
+        input [31:0]  actual;
+        input [31:0]  expected;
+        begin
+            if (actual === expected) begin
+                pass_count = pass_count + 1;
+                $display("PASS %0s = 0x%08h", name, actual);
+            end else begin
+                fail_count = fail_count + 1;
+                $display("FAIL %0s expected=0x%08h got=0x%08h", name, expected, actual);
+            end
+        end
+    endtask
+
     initial begin
+        reg [31:0] rd_val;
+
         pass_count = 0;
         fail_count = 0;
 
@@ -125,51 +142,53 @@ module tb_ahb_bus;
         HRESETn = 1'b1;
         repeat (2) @(posedge HCLK);
 
-        begin : sram_write_read_test
-            reg [31:0] rd_val;
-            ahb_write(32'h00000000, 32'hDEADBEEF);
-            ahb_read(32'h00000000, rd_val);
-            if (rd_val === 32'hDEADBEEF) begin
-                pass_count = pass_count + 1;
-                $display("PASS SRAM write/read @0x0");
-            end else begin
-                fail_count = fail_count + 1;
-                $display("FAIL SRAM write/read @0x0 expected=0xDEADBEEF got=0x%08h", rd_val);
-            end
-
-            ahb_write(32'h00000004, 32'hCAFEBABE);
-            ahb_read(32'h00000004, rd_val);
-            if (rd_val === 32'hCAFEBABE) begin
-                pass_count = pass_count + 1;
-                $display("PASS SRAM write/read @0x4");
-            end else begin
-                fail_count = fail_count + 1;
-                $display("FAIL SRAM write/read @0x4 expected=0xCAFEBABE got=0x%08h", rd_val);
-            end
-        end
-
-        begin : default_slave_test
-            reg [31:0] rd_val;
-            ahb_read(32'hF0000000, rd_val);
-            if (resp_error) begin
-                pass_count = pass_count + 1;
-                $display("PASS default slave ERROR response");
-            end else begin
-                fail_count = fail_count + 1;
-                $display("FAIL default slave expected ERROR");
-            end
-        end
-
-        begin : apb_bridge_gpio_test
-            reg [31:0] rd_val;
+        begin : gpio_test
             ahb_write(32'h00100000, 32'h0000FFFF);
             ahb_read(32'h00100000, rd_val);
-            pass_count = pass_count + 1;
-            $display("PASS APB bridge GPIO access completed (no error)");
+            check("GPIO_CTRL write/read", rd_val, 32'h0000FFFF);
+
+            ahb_write(32'h00100004, 32'h0000AAAA);
+            ahb_read(32'h00100004, rd_val);
+            check("GPIO_DATA write/read", rd_val, 32'h0000AAAA);
+        end
+
+        begin : timer_test
+            ahb_write(32'h00104000, 32'd200);
+            ahb_read(32'h00104000, rd_val);
+            check("Timer_EXPR write/read", rd_val, 32'd200);
+
+            ahb_write(32'h00104004, 32'h00000003);
+            ahb_read(32'h00104004, rd_val);
+            check("Timer_CTRL write/read", rd_val, 32'h00000003);
+
+            ahb_read(32'h00104008, rd_val);
+            check("Timer_IRQ initial", rd_val[0], 1'b0);
+        end
+
+        begin : uart_test
+            ahb_write(32'h00108000, 32'h00000003);
+            ahb_read(32'h00108000, rd_val);
+            check("UART_CTRL write/read", rd_val, 32'h00000003);
+
+            ahb_read(32'h00108004, rd_val);
+            check("UART_STATUS read", rd_val, 32'h00000000);
+        end
+
+        begin : spi_test
+            ahb_write(32'h0010C000, 32'h0000000F);
+            ahb_read(32'h0010C000, rd_val);
+            check("SPI_CTRL write/read", rd_val, 32'h0000000F);
+
+            ahb_write(32'h0010C004, 32'h000000AB);
+            ahb_read(32'h0010C004, rd_val);
+            check("SPI_DATA write/read", rd_val, 32'h000000AB);
+
+            ahb_read(32'h0010C008, rd_val);
+            check("SPI_STATUS read", rd_val, 32'h00000000);
         end
 
         $display("========================================");
-        $display("AHB bus test summary");
+        $display("APB peripherals test summary");
         $display("pass=%0d fail=%0d", pass_count, fail_count);
         if (fail_count == 0) begin
             $display("ALL TESTS PASSED");

@@ -32,7 +32,6 @@ module timer(
 
     always @(posedge PCLK or negedge PRESETn) begin
         if (!PRESETn) begin
-            PRDATA   <= {`APB_DATA_WIDTH{1'b0}};
             PREADY   <= 1'b1;
             PSLVERR  <= 1'b0;
             start    <= 1'b0;
@@ -43,17 +42,6 @@ module timer(
         end else begin
             PREADY  <= 1'b1;
             PSLVERR <= 1'b0;
-
-            if (read_access) begin
-                case (PADDR[3:2])
-                    2'd0: PRDATA <= expr_val;
-                    2'd1: PRDATA <= {30'b0, mode, start};
-                    2'd2: PRDATA <= {31'b0, o_irq};
-                    2'd3: PRDATA <= counter;
-                endcase
-            end else if (!PSEL || !PENABLE) begin
-                PRDATA <= {`APB_DATA_WIDTH{1'b0}};
-            end
 
             if (write_access && (PADDR[3:2] == 2'd0)) begin
                 expr_val <= PWDATA;
@@ -79,6 +67,19 @@ module timer(
             end else if (start) begin
                 counter <= counter + 1'b1;
             end
+        end
+    end
+
+    always @(*) begin
+        if (read_access) begin
+            case (PADDR[3:2])
+                2'd0: PRDATA = expr_val;
+                2'd1: PRDATA = {30'b0, mode, start};
+                2'd2: PRDATA = {31'b0, o_irq};
+                2'd3: PRDATA = counter;
+            endcase
+        end else begin
+            PRDATA = {`APB_DATA_WIDTH{1'b0}};
         end
     end
 

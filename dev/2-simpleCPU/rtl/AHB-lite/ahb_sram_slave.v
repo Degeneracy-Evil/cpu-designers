@@ -3,7 +3,7 @@
 module ahb_sram_slave #(
     parameter ADDR_WIDTH   = `AHB_ADDR_WIDTH,
     parameter DATA_WIDTH   = `AHB_DATA_WIDTH,
-    parameter MEM_DEPTH    = 8192,
+    parameter MEM_DEPTH    = 262144,
     parameter WAIT_STATES  = 0
 )(
     input  wire                    HCLK,
@@ -63,7 +63,9 @@ module ahb_sram_slave #(
     wire [31:0] bram_dina  = HWDATA;
     wire [31:0] bram_douta;
 
-    Sram u_bram (
+    Sram #(
+        .DEPTH (MEM_DEPTH)
+    ) u_bram (
         .clka   (HCLK),
         .ena    (bram_ena),
         .wea    (bram_wea),

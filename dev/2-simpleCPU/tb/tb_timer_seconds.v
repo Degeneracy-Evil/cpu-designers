@@ -111,7 +111,7 @@ module tb_timer_seconds;
         .ADDR_WIDTH  (32),
         .DATA_WIDTH  (32),
         .SLAVE_NUM   (4),
-        .MEM_DEPTH   (8192),
+        .MEM_DEPTH   (262144),
         .WAIT_STATES (0),
         .GPIO_NUM    (16),
         .UART_FREQ   (25)

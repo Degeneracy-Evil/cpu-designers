@@ -1,25 +1,27 @@
 `timescale 1ns / 1ps
 
-module dcache(
+module dcache #(
+    parameter DEPTH = 512
+)(
     input  wire        clka,
     input  wire        ena,
     input  wire [3:0]  wea,
-    input  wire [12:0] addra,
+    input  wire [$clog2(DEPTH)-1:0] addra,
     input  wire [31:0] dina,
     output wire [31:0] douta,
     input  wire        clkb,
     input  wire        enb,
     input  wire [3:0]  web,
-    input  wire [12:0] addrb,
+    input  wire [$clog2(DEPTH)-1:0] addrb,
     input  wire [31:0] dinb,
     output wire [31:0] doutb
 );
 
-    reg [31:0] mem [0:511];
+    reg [31:0] mem [0:DEPTH-1];
 
     integer i;
     initial begin
-        for (i = 0; i < 512; i = i + 1)
+        for (i = 0; i < DEPTH; i = i + 1)
             mem[i] = 32'b0;
     end
 

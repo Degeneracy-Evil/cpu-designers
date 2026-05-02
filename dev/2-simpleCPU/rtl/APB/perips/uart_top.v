@@ -113,21 +113,22 @@ module uart_top #(
         if (!PRESETn) begin
             PREADY  <= 1'b1;
             PSLVERR <= 1'b0;
-            PRDATA  <= {`APB_DATA_WIDTH{1'b0}};
         end else begin
             PREADY  <= 1'b1;
             PSLVERR <= 1'b0;
+        end
+    end
 
-            if (read_access) begin
-                case (PADDR[7:0])
-                    UART_CTRL:   PRDATA <= uart_ctrl;
-                    UART_STATUS: PRDATA <= uart_status;
-                    UART_RXDATA: PRDATA <= uart_rx;
-                    default:     PRDATA <= {`APB_DATA_WIDTH{1'b0}};
-                endcase
-            end else if (!PSEL || !PENABLE) begin
-                PRDATA <= {`APB_DATA_WIDTH{1'b0}};
-            end
+    always @(*) begin
+        if (read_access) begin
+            case (PADDR[7:0])
+                UART_CTRL:   PRDATA = uart_ctrl;
+                UART_STATUS: PRDATA = uart_status;
+                UART_RXDATA: PRDATA = uart_rx;
+                default:     PRDATA = {`APB_DATA_WIDTH{1'b0}};
+            endcase
+        end else begin
+            PRDATA = {`APB_DATA_WIDTH{1'b0}};
         end
     end
 

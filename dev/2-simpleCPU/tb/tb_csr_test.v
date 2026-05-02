@@ -122,7 +122,7 @@ module tb_csr_test;
         .ADDR_WIDTH  (32),
         .DATA_WIDTH  (32),
         .SLAVE_NUM   (4),
-        .MEM_DEPTH   (8192),
+        .MEM_DEPTH   (262144),
         .WAIT_STATES (0),
         .GPIO_NUM    (16),
         .UART_FREQ   (25)
@@ -182,12 +182,12 @@ module tb_csr_test;
         input [31:0] expected;
         input [255:0] name;
         begin
-            if (u_bus.u_ahb_sram_slave.u_bram.mem[addr[14:2]] === expected) begin
+            if (u_bus.u_ahb_sram_slave.u_bram.mem[addr[19:2]] === expected) begin
                 pass_count = pass_count + 1;
-                $display("PASS %0s = 0x%08h", name, u_bus.u_ahb_sram_slave.u_bram.mem[addr[14:2]]);
+                $display("PASS %0s = 0x%08h", name, u_bus.u_ahb_sram_slave.u_bram.mem[addr[19:2]]);
             end else begin
                 fail_count = fail_count + 1;
-                $display("FAIL %0s expected=0x%08h got=0x%08h", name, expected, u_bus.u_ahb_sram_slave.u_bram.mem[addr[14:2]]);
+                $display("FAIL %0s expected=0x%08h got=0x%08h", name, expected, u_bus.u_ahb_sram_slave.u_bram.mem[addr[19:2]]);
             end
         end
     endtask

@@ -16,15 +16,15 @@
 | 2 | ahb_periph_bus编译通过，SRAM读写+APB桥访问正确 | ✅ | tb_ahb_bus PASS 4/4 |
 | 3 | system_top编译通过，所有外设引脚正确连接 | ✅ | timer_irq/gpio/uart/spi引脚均已连接 |
 | 4 | 所有测试程序地址更新完成 | ✅ | timer_irq_test.s, timer_seconds.s 已更新Timer地址; comprehensive_test.s, csr_test.s, align_test.s 无外设地址引用 |
-| 5 | 81/81 回归测试全部PASS | ✅ | 33+20+23+2+3=81/81 PASS (另有新增单元测试6+4=10项) |
+| 5 | 81/81 回归测试全部PASS | ✅ | 33+20+23+2+3=81/81 PASS (另有新增单元测试6+4+10=20项) |
 | 6 | 无Bus4LZU依赖（可删除rtl/bus4lzu/目录） | ✅ | system_top.v已无任何bus4lzu引用; bus4lzu/目录可安全删除 |
 
 ### Phase 5 完成标准
 
 | # | 标准 | 状态 |
 |---|------|------|
-| 1 | I-Cache接入cpu_fetch，命中时0周期延迟取指 | ⬜ 未开始 |
-| 2 | D-Cache接入cpu_mem，命中时0周期延迟访存 | ⬜ 未开始 |
+| 1 | I-Cache接入cpu_fetch，命中时1周期延迟取指(BRAM IP仅在时钟上升沿读写数据) | ⬜ 未开始 |
+| 2 | D-Cache接入cpu_mem，命中时1周期延迟访存(BRAM IP仅在时钟上升沿读写数据) | ⬜ 未开始 |
 | 3 | Cache未命中时正确发起总线请求并填充 | ⬜ 未开始 |
 | 4 | MMIO地址绕过cache直接访问总线 | ⬜ 未开始 |
 | 5 | 81/81 回归测试全部PASS | ⬜ 未开始 |
@@ -52,7 +52,8 @@
 | **原始回归小计** | **✅ PASS** | **81** |
 | tb_cpu_bus_adapter (新增) | ✅ PASS | 6 |
 | tb_ahb_bus (新增) | ✅ PASS | 4 |
-| **总计** | **✅ PASS** | **91** |
+| tb_apb_perips (新增) | ✅ PASS | 10 |
+| **总计** | **✅ PASS** | **101** |
 
 ---
 
@@ -94,7 +95,7 @@
 | 步骤 | 内容 | 状态 |
 |------|------|------|
 | 4.1 | 新建tb_ahb_bus.v：SRAM读写+桥访问+默认错误响应 | ✅ |
-| 4.2 | (tb_apb_perips.v未单独创建，APB外设通过集成测试覆盖) | — |
+| 4.2 | 新建tb_apb_perips.v：APB外设读写验证(GPIO/Timer/UART/SPI) | ✅ |
 | 4.3 | 新建tb_cpu_bus_adapter.v：I/D仲裁+信号转换+延迟 | ✅ |
 | 4.4 | 重写全部4个现有testbench + 新增2个单元testbench | ✅ |
 | 4.5 | BRAM预加载($readmemh)路径更新为u_bus.u_ahb_sram_slave.u_bram.mem | ✅ |
@@ -207,6 +208,33 @@
 
 ---
 
+### 问题8：AHB-to-APB桥缺少HRDATA输出 — APB外设读数据返回'z'
+
+**现象**：ahb_periph_bus.v中slave_HRDATA[1]未赋值，AHB mux选中桥从设备时HRDATA为'z'。
+
+**根因**：ahb_lite_to_apb.v没有HRDATA输出端口，ahb_periph_bus.v未将桥的读数据连接到AHB mux。
+
+**解决**：
+1. 为ahb_lite_to_apb.v添加HRDATA输出端口，在BR_ACCESS状态PREADY时锁存PRDATA
+2. 在ahb_periph_bus.v中声明bridge_HRDATA线网，连接桥的HRDATA输出
+3. 赋值slave_HRDATA[1] = bridge_HRDATA
+
+**文件**：`ahb_lite_to_apb.v`, `ahb_periph_bus.v`
+
+---
+
+### 问题9：APB外设PRDATA寄存型输出导致桥锁存时序错位
+
+**现象**：tb_apb_perips中GPIO/Timer/UART写后读回返回0x00000000（SPI正常）。
+
+**根因**：GPIO/Timer/UART的PRDATA使用`always @(posedge PCLK)`寄存输出，而桥在同一时钟沿锁存PRDATA。由于非阻塞赋值语义，桥锁存的是PRDATA的旧值（0）。SPI使用组合输出`always @(*)`故不受影响。
+
+**解决**：将GPIO/Timer/UART的PRDATA从寄存型改为组合型输出（`always @(*)`），与SPI保持一致。这符合APB4协议：PRDATA在ACCESS相位有效即可。
+
+**文件**：`gpio.v`, `timer.v`, `uart_top.v`
+
+---
+
 ## 关键设计决策记录
 
 | 决策 | 选择 | 理由 |
@@ -231,6 +259,7 @@
 | rtl/AHB-lite/ahb_periph_bus.v | AHB异构总线顶层 (SRAM + AHB-to-APB桥 + 保留 + 默认从设备) |
 | tb/tb_cpu_bus_adapter.v | 适配器单元测试 (6项) |
 | tb/tb_ahb_bus.v | AHB总线单元测试 (4项) |
+| tb/tb_apb_perips.v | APB外设读写测试 (10项: GPIO_CTRL/DATA, Timer_EXPR/CTRL/IRQ, UART_CTRL/STATUS, SPI_CTRL/DATA/STATUS) |
 | tb/lcd_module_stub.v | LCD模块仿真桩 |
 | program_source/Makefile | 测试程序构建脚本 |
 | program_source/link.ld | 链接脚本 (起始地址0x0) |
@@ -242,6 +271,10 @@
 |------|---------|
 | rtl/APB/apb_decoder.v | 4-slave: PADDR[31:30]→[15:14]; 8-slave: [31:29]→[15:13] |
 | rtl/AHB-lite/ahb_master.v | 新增HRDATA输入端口, resp_rdata_r<=HRDATA |
+| rtl/APB/ahb_lite_to_apb.v | 新增HRDATA输出端口, BR_ACCESS时锁存PRDATA |
+| rtl/APB/perips/gpio.v | PRDATA从寄存型改为组合型输出 |
+| rtl/APB/perips/timer.v | PRDATA从寄存型改为组合型输出 |
+| rtl/APB/perips/uart_top.v | PRDATA从寄存型改为组合型输出 |
 | rtl/core/cpu_fetch.v | 删除r_wait, 改为inst_valid握手 |
 | rtl/core/cpu_mem.v | 删除MEM_READ2, 增加data_valid输入, 修复mem_en_reg持久化 |
 | rtl/core/simple_cpu_top.v | 新增inst_valid/data_valid输入端口 |
@@ -257,7 +290,7 @@
 
 ### 不变文件（与PLAN.md §八一致）
 
-simple_cpu_top.v (仅新增端口), cpu_controller.v, cpu_decode.v, cpu_execute.v, cpu_wb.v, cpu_regfile.v, cpu_csr.v, cpu_clint.v, ahb_decoder.v, ahb_mux.v, ahb_default_slave.v, ahb_sram_slave.v, ahb_lite_to_apb.v, apb_perips.v, timer.v, gpio.v, uart_top.v, spi.v
+simple_cpu_top.v (仅新增端口), cpu_controller.v, cpu_decode.v, cpu_execute.v, cpu_wb.v, cpu_regfile.v, cpu_csr.v, cpu_clint.v, ahb_decoder.v, ahb_mux.v, ahb_default_slave.v, ahb_sram_slave.v, apb_perips.v, spi.v
 
 ---
 

@@ -19,6 +19,7 @@ module ahb_lite_to_apb #(
 
     output reg                   HREADYOUT,
     output reg                   HRESP,
+    output reg  [DATA_WIDTH-1:0] HRDATA,
 
     output reg  [ADDR_WIDTH-1:0] PADDR,
     output reg  [2:0]            PPROT,
@@ -77,6 +78,7 @@ module ahb_lite_to_apb #(
             PSTRB       <= {(DATA_WIDTH/8){1'b0}};
             HREADYOUT   <= 1'b1;
             HRESP       <= 1'b0;
+            HRDATA      <= {DATA_WIDTH{1'b0}};
         end else begin
             case (br_state)
                 BR_IDLE: begin
@@ -110,6 +112,7 @@ module ahb_lite_to_apb #(
 
                 BR_ACCESS: begin
                     if (PREADY) begin
+                        HRDATA <= PRDATA;
                         if (PSLVERR) begin
                             HRESP <= 1'b1;
                             if (HREADY) begin

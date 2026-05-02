@@ -141,9 +141,11 @@ module tb_timer_seconds;
     );
 
     initial begin
+`ifndef XILINX_SIMULATOR
         $readmemh("dev/2-simpleCPU/program_source/timer_seconds.hex", u_bus.u_ahb_sram_slave.u_bram.mem);
         $readmemh("dev/2-simpleCPU/program_source/timer_seconds.hex", dut.u_icache_wrap.u_icache.mem);
         $readmemh("dev/2-simpleCPU/program_source/timer_seconds.hex", dut.u_dcache_wrap.u_dcache.mem);
+`endif
     end
 
     initial begin

@@ -1,37 +1,37 @@
 # =============================================================================
-# vivado_sim.tcl â€” Vivado ä»¿çœŸè‡ªåŠ¨åŒ–è„šæœ¬
-# ç”¨æ³•:
-#   1. Vivado TCL Shell ç›´æ¥è¿è¡Œ:  source vivado_sim.tcl
-#   2. é€šè¿‡ tcl-tunnel è¿œç¨‹æ‰§è¡Œ:   source E:/Xprogram/FPGA/tmp/vivado_sim.tcl
+# vivado_sim.tcl ¡ª Vivado ·ÂÕæ×Ô¶¯»¯½Å±¾
+# ÓÃ·¨:
+#   1. Vivado TCL Shell Ö±½ÓÔËĞĞ:  source vivado_sim.tcl
+#   2. Í¨¹ı tcl-tunnel Ô¶³ÌÖ´ĞĞ:   source E:/Xprogram/FPGA/tmp/vivado_sim.tcl
 # =============================================================================
 
 # ---------------------------------------------------------------------------
-# ç”¨æˆ·å¯é…ç½®å˜é‡ (æ ¹æ®å®é™…ç¯å¢ƒä¿®æ”¹)
+# ÓÃ»§¿ÉÅäÖÃ±äÁ¿ (¸ù¾İÊµ¼Ê»·¾³ĞŞ¸Ä)
 # ---------------------------------------------------------------------------
 
-# é¡¹ç›®åç§°
+# ÏîÄ¿Ãû³Æ
 set proj_name       "simplecpu_sim"
 
-# FPGA å™¨ä»¶å‹å·
+# FPGA Æ÷¼şĞÍºÅ
 set device_part     "xc7a200tfbg676-2"
 
-# === è·¯å¾„è®¾ç½® ===
-# è‹¥é€šè¿‡ tcl-tunnel åœ¨ Windows ç«¯ Vivado è¿è¡Œï¼Œéœ€ä½¿ç”¨ Windows è·¯å¾„æ ¼å¼
-# ä¾‹å¦‚: set base_dir "E:/Xprogram/FPGA/tmp"
-# è‹¥åœ¨ Linux ç«¯ Vivado è¿è¡Œï¼Œä½¿ç”¨ Linux è·¯å¾„æ ¼å¼
-# ä¾‹å¦‚: set base_dir "/home/wood/cpu-designers"
+# === Â·¾¶ÉèÖÃ ===
+# ÈôÍ¨¹ı tcl-tunnel ÔÚ Windows ¶Ë Vivado ÔËĞĞ£¬ĞèÊ¹ÓÃ Windows Â·¾¶¸ñÊ½
+# ÀıÈç: set base_dir "E:/Xprogram/FPGA/tmp"
+# ÈôÔÚ Linux ¶Ë Vivado ÔËĞĞ£¬Ê¹ÓÃ Linux Â·¾¶¸ñÊ½
+# ÀıÈç: set base_dir "/home/wood/cpu-designers"
 set base_dir        "E:/Xprogram/FPGA/tmp"
 
-# é¡¹ç›®è¾“å‡ºç›®å½•
+# ÏîÄ¿Êä³öÄ¿Â¼
 set proj_dir        "${base_dir}/${proj_name}"
 
-# RTL æºæ–‡ä»¶æ ¹ç›®å½• (æŒ‡å‘æœ¬ä»“åº“ dev/ ç›®å½•)
+# RTL Ô´ÎÄ¼ş¸ùÄ¿Â¼ (Ö¸Ïò±¾²Ö¿â dev/ Ä¿Â¼)
 set dev_dir         "${base_dir}/dev"
 
-# ALU RTL ç›®å½•
+# ALU RTL Ä¿Â¼
 set alu_rtl_dir     "${dev_dir}/1-alu/rtl"
 
-# CPU RTL ç›®å½•
+# CPU RTL Ä¿Â¼
 set cpu_core_dir    "${dev_dir}/2-simpleCPU/rtl/core"
 set ahb_dir         "${dev_dir}/2-simpleCPU/rtl/AHB-lite"
 set ahb_ip_dir      "${dev_dir}/2-simpleCPU/rtl/AHB-lite/ip"
@@ -40,74 +40,77 @@ set apb_header_dir  "${dev_dir}/2-simpleCPU/rtl/APB/header"
 set apb_perips_dir  "${dev_dir}/2-simpleCPU/rtl/APB/perips"
 set sys_rtl_dir     "${dev_dir}/2-simpleCPU/rtl"
 
-# Testbench ç›®å½•
+# Testbench Ä¿Â¼
 set tb_dir          "${dev_dir}/2-simpleCPU/tb"
 
-# ç¨‹åºæºæ–‡ä»¶ç›®å½• (COE æ–‡ä»¶)
+# ³ÌĞòÔ´ÎÄ¼şÄ¿Â¼ (COE ÎÄ¼ş)
 set prog_dir        "${dev_dir}/2-simpleCPU/program_source"
 
-# FPGA ç›®å½• (çº¦æŸæ–‡ä»¶ã€DCP)
+# FPGA Ä¿Â¼ (Ô¼ÊøÎÄ¼ş¡¢DCP)
 set fpga_dir        "${dev_dir}/2-simpleCPU/fpga"
 
-# === ä»¿çœŸé…ç½® ===
-# é€‰æ‹© testbench: tb_simple_cpu_top / tb_csr_test / tb_align_test / tb_timer_irq_test / tb_timer_seconds / tb_ahb_bus / tb_apb_perips / tb_cpu_bus_adapter
+# === IP Â·¾¶ ===
+set ips_dir         "${base_dir}/Reference/ips"
+
+# === ·ÂÕæÅäÖÃ ===
+# Ñ¡Ôñ testbench: tb_simple_cpu_top / tb_csr_test / tb_align_test / tb_timer_irq_test / tb_timer_seconds / tb_ahb_bus / tb_apb_perips / tb_cpu_bus_adapter
 set tb_name         "tb_simple_cpu_top"
 
-# ä»¿çœŸè¿è¡Œæ—¶é—´ (ns)
+# ·ÂÕæÔËĞĞÊ±¼ä (ns)
 set sim_run_time    "100000ns"
 
-# === BRAM IP é…ç½® ===
-# ICache COE åˆå§‹åŒ–æ–‡ä»¶ (è®¾ä¸º "" åˆ™ä¸åŠ è½½ COE)
+# === BRAM IP ÅäÖÃ ===
+# ICache COE ³õÊ¼»¯ÎÄ¼ş (ÉèÎª "" Ôò²»¼ÓÔØ COE)
 set icache_coe_file "${prog_dir}/icache_init.coe"
 
-# IP è¾“å‡ºç›®å½•
+# IP Êä³öÄ¿Â¼
 set ip_output_dir   "${proj_dir}/${proj_name}.srcs/sources_1/ip"
 
 # ---------------------------------------------------------------------------
-# Step 1: åˆ›å»º Vivado å·¥ç¨‹
+# Step 1: ´´½¨ Vivado ¹¤³Ì
 # ---------------------------------------------------------------------------
-puts "========== Step 1: åˆ›å»ºå·¥ç¨‹ =========="
+puts "========== Step 1: ´´½¨¹¤³Ì =========="
 
 create_project $proj_name $proj_dir -part $device_part -force
 set_property target_language Verilog [current_project]
 set_property simulator_language Verilog [current_project]
 
-puts "å·¥ç¨‹å·²åˆ›å»º: $proj_dir"
+puts "¹¤³ÌÒÑ´´½¨: $proj_dir"
 
 # ---------------------------------------------------------------------------
-# Step 2: æ·»åŠ  RTL æºæ–‡ä»¶
+# Step 2: Ìí¼Ó RTL Ô´ÎÄ¼ş
 # ---------------------------------------------------------------------------
-puts "========== Step 2: æ·»åŠ  RTL æºæ–‡ä»¶ =========="
+puts "========== Step 2: Ìí¼Ó RTL Ô´ÎÄ¼ş =========="
 
-# ALU æ¨¡å— (12 ä¸ªæ–‡ä»¶)
+# ALU Ä£¿é (12 ¸öÎÄ¼ş)
 add_files [glob -directory $alu_rtl_dir *.v]
 
-# CPU æ ¸å¿ƒæ¨¡å— (18 ä¸ªæ–‡ä»¶)
+# CPU ºËĞÄÄ£¿é (18 ¸öÎÄ¼ş)
 add_files [glob -directory $cpu_core_dir *.v]
 
-# AHB-Lite æ€»çº¿ (7 ä¸ªæ–‡ä»¶)
+# AHB-Lite ×ÜÏß (7 ¸öÎÄ¼ş)
 add_files [glob -directory $ahb_dir *.v]
 
 # AHB-Lite IP (sram_model.v)
 add_files [glob -directory $ahb_ip_dir *.v]
 
-# APB æ€»çº¿ (5 ä¸ªæ–‡ä»¶, ä¸å« perips å­ç›®å½•)
+# APB ×ÜÏß (5 ¸öÎÄ¼ş, ²»º¬ perips ×ÓÄ¿Â¼)
 add_files [glob -directory $apb_dir *.v]
 
-# APB å¤–è®¾ (7 ä¸ªæ–‡ä»¶)
+# APB ÍâÉè (7 ¸öÎÄ¼ş)
 add_files [glob -directory $apb_perips_dir *.v]
 
-# ç³»ç»Ÿé¡¶å±‚
+# ÏµÍ³¶¥²ã
 add_files "${sys_rtl_dir}/system_top.v"
 
 update_compile_order -fileset sources_1
 
-puts "RTL æºæ–‡ä»¶æ·»åŠ å®Œæˆ"
+puts "RTL Ô´ÎÄ¼şÌí¼ÓÍê³É"
 
 # ---------------------------------------------------------------------------
-# Step 3: è®¾ç½®å¤´æ–‡ä»¶æœç´¢è·¯å¾„ (.vh æ–‡ä»¶ä¸èƒ½é€šè¿‡ add_files æ·»åŠ )
+# Step 3: ÉèÖÃÍ·ÎÄ¼şËÑË÷Â·¾¶ (.vh ÎÄ¼ş²»ÄÜÍ¨¹ı add_files Ìí¼Ó)
 # ---------------------------------------------------------------------------
-puts "========== Step 3: è®¾ç½® include ç›®å½• =========="
+puts "========== Step 3: ÉèÖÃ include Ä¿Â¼ =========="
 
 set_property include_dirs [list \
     $ahb_dir \
@@ -115,119 +118,87 @@ set_property include_dirs [list \
     $apb_header_dir \
 ] [current_fileset]
 
-puts "Include ç›®å½•: $ahb_dir, $apb_dir, $apb_header_dir"
+puts "Include Ä¿Â¼: $ahb_dir, $apb_dir, $apb_header_dir"
 
 # ---------------------------------------------------------------------------
-# Step 4: åˆ›å»º ICache BRAM IP (blk_mem_gen, å¸¦ COE åˆå§‹åŒ–)
+# Step 4: µ¼Èë IP ²¢ÅäÖÃ ICache COE
 # ---------------------------------------------------------------------------
-puts "========== Step 4: åˆ›å»º ICache BRAM IP =========="
+puts "========== Step 4: µ¼Èë IP ²¢ÅäÖÃ ICache COE =========="
 
-set icache_ip_dir "${ip_output_dir}/Sram_icache"
-file mkdir $icache_ip_dir
-
-create_ip -name blk_mem_gen -vendor xilinx.com -library ip \
-    -module_name Sram_icache -dir $icache_ip_dir
+# µ¼Èë/¶ÁÈ¡ÒÑÉú³ÉµÄ IP
+read_ip "${ips_dir}/icache/icache.xci"
+read_ip "${ips_dir}/dcache/dcache.xci"
+# ÈôÓĞÆäËûIPÒ²Í¬Ñùµ¼Èë£¬°´ĞèÈ¡ÏûÏÂĞĞ×¢ÊÍ
+# read_ip "${ips_dir}/Sram/Sram.xci"
 
 if { $icache_coe_file ne "" } {
     set_property -dict [list \
-        CONFIG.Memory_Type {Single_Port_RAM} \
-        CONFIG.Read_Width_A {32} \
-        CONFIG.Write_Width_A {32} \
-        CONFIG.Write_Depth_A {8192} \
-        CONFIG.Operating_Mode_A {READ_FIRST} \
-        CONFIG.Use_Byte_Write_Enable {true} \
-        CONFIG.Register_PortA_Output_of_Memory_Primitives {false} \
         CONFIG.Load_Init_File {true} \
         CONFIG.Coe_File $icache_coe_file \
-        CONFIG.Fill_Remaining_Memory_Locations {true} \
-        CONFIG.Primitive {8kx2} \
-    ] [get_ips Sram_icache]
-    puts "ICache IP å·²é…ç½® (COE: $icache_coe_file)"
+    ] [get_ips icache]
+    puts "ICache IP ÒÑÅäÖÃ (COE: $icache_coe_file)"
 } else {
     set_property -dict [list \
-        CONFIG.Memory_Type {Single_Port_RAM} \
-        CONFIG.Read_Width_A {32} \
-        CONFIG.Write_Width_A {32} \
-        CONFIG.Write_Depth_A {8192} \
-        CONFIG.Operating_Mode_A {READ_FIRST} \
-        CONFIG.Use_Byte_Write_Enable {true} \
-        CONFIG.Register_PortA_Output_of_Memory_Primitives {false} \
         CONFIG.Load_Init_File {false} \
-        CONFIG.Fill_Remaining_Memory_Locations {true} \
-        CONFIG.Primitive {8kx2} \
-    ] [get_ips Sram_icache]
-    puts "ICache IP å·²é…ç½® (æ—  COE åˆå§‹åŒ–)"
+    ] [get_ips icache]
+    puts "ICache IP ÒÑÅäÖÃ (ÎŞ COE ³õÊ¼»¯)"
 }
 
-generate_target all [get_ips Sram_icache]
+generate_target all [get_ips icache]
+generate_target all [get_ips dcache]
 
-puts "ICache BRAM IP ç”Ÿæˆå®Œæˆ"
-
-# ---------------------------------------------------------------------------
-# Step 5: åˆ›å»º DCache BRAM IP (blk_mem_gen, æ—  COE åˆå§‹åŒ–)
-# ---------------------------------------------------------------------------
-puts "========== Step 5: åˆ›å»º DCache BRAM IP =========="
-
-set dcache_ip_dir "${ip_output_dir}/Sram_dcache"
-file mkdir $dcache_ip_dir
-
-create_ip -name blk_mem_gen -vendor xilinx.com -library ip \
-    -module_name Sram_dcache -dir $dcache_ip_dir
-
-set_property -dict [list \
-    CONFIG.Memory_Type {Single_Port_RAM} \
-    CONFIG.Read_Width_A {32} \
-    CONFIG.Write_Width_A {32} \
-    CONFIG.Write_Depth_A {8192} \
-    CONFIG.Operating_Mode_A {READ_FIRST} \
-    CONFIG.Use_Byte_Write_Enable {true} \
-    CONFIG.Register_PortA_Output_of_Memory_Primitives {false} \
-    CONFIG.Load_Init_File {false} \
-    CONFIG.Fill_Remaining_Memory_Locations {true} \
-    CONFIG.Primitive {8kx2} \
-] [get_ips Sram_dcache]
-
-generate_target all [get_ips Sram_dcache]
-
-puts "DCache BRAM IP ç”Ÿæˆå®Œæˆ"
+puts "IP µ¼ÈëÓëÅäÖÃÍê³É"
 
 # ---------------------------------------------------------------------------
-# Step 6: æ·»åŠ  testbench
+# Step 5: Ìí¼ÓÆäËûÔ´ÎÄ¼ş (DCP, XDC)
 # ---------------------------------------------------------------------------
-puts "========== Step 6: æ·»åŠ  testbench =========="
+puts "========== Step 5: Ìí¼Ó DCP Óë constraints =========="
 
-# æ·»åŠ  testbench ä¸»æ–‡ä»¶
+# Ìí¼Ó LCD DCP ×÷ÎªÔ´ÎÄ¼ş
+add_files "${fpga_dir}/lcd_module.dcp"
+
+# Ìí¼Ó XDC ×÷ÎªÔ¼ÊøÎÄ¼ş
+add_files -fileset constrs_1 "${fpga_dir}/cpu.xdc"
+
+puts "DCP ºÍÔ¼ÊøÎÄ¼şÌí¼ÓÍê³É"
+
+# ---------------------------------------------------------------------------
+# Step 6: Ìí¼Ó testbench
+# ---------------------------------------------------------------------------
+puts "========== Step 6: Ìí¼Ó testbench =========="
+
+# Ìí¼Ó testbench Ö÷ÎÄ¼ş
 add_files -fileset sim_1 "${tb_dir}/${tb_name}.v"
 
-# æ·»åŠ  LCD æ¨¡å— stub (ä»¿çœŸç”¨, æ›¿ä»£ lcd_module.dcp)
+# Ìí¼Ó LCD Ä£¿é stub (·ÂÕæÓÃ, Ìæ´ú lcd_module.dcp)
 if { [file exists "${tb_dir}/lcd_module_stub.v"] } {
     add_files -fileset sim_1 "${tb_dir}/lcd_module_stub.v"
 }
 
-# è®¾ç½®ä»¿çœŸé¡¶å±‚æ¨¡å—
+# ÉèÖÃ·ÂÕæ¶¥²ãÄ£¿é
 set_property top $tb_name [get_filesets sim_1]
 
 update_compile_order -fileset sim_1
 
-puts "Testbench å·²æ·»åŠ : $tb_name"
+puts "Testbench ÒÑÌí¼Ó: $tb_name"
 
 # ---------------------------------------------------------------------------
-# Step 7: å¯åŠ¨è¡Œä¸ºçº§ä»¿çœŸ
+# Step 7: Æô¶¯ĞĞÎª¼¶·ÂÕæ
 # ---------------------------------------------------------------------------
-puts "========== Step 7: å¯åŠ¨ä»¿çœŸ =========="
+puts "========== Step 7: Æô¶¯·ÂÕæ =========="
 
 launch_simulation -mode behavioral
 
-puts "ä»¿çœŸå·²å¯åŠ¨, é»˜è®¤è¿è¡Œ 1000ns"
+puts "·ÂÕæÒÑÆô¶¯, Ä¬ÈÏÔËĞĞ 1000ns"
 
 # ---------------------------------------------------------------------------
-# Step 8: ç»§ç»­è¿è¡Œä»¿çœŸè‡³æŒ‡å®šæ—¶é—´
+# Step 8: ¼ÌĞøÔËĞĞ·ÂÕæÖÁÖ¸¶¨Ê±¼ä
 # ---------------------------------------------------------------------------
-puts "========== Step 8: è¿è¡Œä»¿çœŸ $sim_run_time =========="
+puts "========== Step 8: ÔËĞĞ·ÂÕæ $sim_run_time =========="
 
 run $sim_run_time
 
 puts "========================================"
-puts "ä»¿çœŸè¿è¡Œå®Œæˆ: $sim_run_time"
+puts "·ÂÕæÔËĞĞÍê³É: $sim_run_time"
 puts "Testbench: $tb_name"
 puts "========================================"

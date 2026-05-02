@@ -51,8 +51,8 @@ module ahb_lite_to_apb #(
 
     always @(*) begin
         case (HSIZE)
-            3'b000: latch_strb = (DATA_WIDTH/8)'(1) << HADDR[$clog2(DATA_WIDTH/8)-1:0];
-            3'b001: latch_strb = (DATA_WIDTH/8)'(3) << {HADDR[$clog2(DATA_WIDTH/8)-1:1], 1'b0};
+            3'b000: latch_strb = 1 << HADDR[$clog2(DATA_WIDTH/8)-1:0];
+            3'b001: latch_strb = 3 << {HADDR[$clog2(DATA_WIDTH/8)-1:1], 1'b0};
             3'b010: latch_strb = {(DATA_WIDTH/8){1'b1}};
             default: latch_strb = {(DATA_WIDTH/8){1'b1}};
         endcase

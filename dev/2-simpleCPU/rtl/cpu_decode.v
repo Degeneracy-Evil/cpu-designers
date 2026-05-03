@@ -166,8 +166,7 @@ module cpu_decode(
 
   assign shift_op_r = inst_sll | inst_srl | inst_sra;
   assign shift_op_i = inst_slli | inst_srli | inst_srai;
-  assign alu_src1 = shift_op_r ? {27'b0, rs2_value[4:0]} :
-         (shift_op_r | shift_op_i) ? rs1_value :
+  assign alu_src1 = (shift_op_r | shift_op_i) ? rs1_value :
          (inst_auipc | inst_jal | is_branch) ? pc :
          inst_jalr ? rs1_value :
          rs1_value;

@@ -10,17 +10,18 @@ module cpu_fetch(
     output [10:0] icache_addr,
     output        if_done,
     output [95:0] if_id_bus,
-
+    // display
     output [31:0] if_pc,
     output [31:0] if_inst
 );
 
-    wire [31:0] pc_plus4;
+    wire [31:0] pc_plus4; // 预计算的pc+4值
     assign pc_plus4 = pc + 32'd4;
 
     assign icache_en = if_valid;
-    assign icache_addr = pc[12:2];
+    assign icache_addr = pc[12:2]; //按字节取
 
+    // 固定进行一周期的等待（即到上升沿icache发送数据后）
     reg r_bram_sent;
     always @(posedge clk or posedge reset) begin
         if (reset)

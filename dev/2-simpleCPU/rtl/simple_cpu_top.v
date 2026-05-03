@@ -3,7 +3,7 @@
 module simple_cpu_top(
     input         clk,
     input         reset,
-
+    // 连接显示屏，调试用
     input  [4:0]  rf_addr,
     input  [31:0] mem_addr,
     output [31:0] rf_data,
@@ -21,7 +21,7 @@ module simple_cpu_top(
     output [31:0] display_state
 );
 
-    reg [31:0] pc;
+    reg [31:0] pc; // pc寄存器
 
     wire if_done;
     wire id_done;
@@ -34,7 +34,7 @@ module simple_cpu_top(
     wire exe_valid;
     wire mem_valid;
     wire wb_valid;
-    wire [2:0] fsm_state;
+    wire [2:0] fsm_state; // 连接控制器和屏幕，做展示
 
     wire dec_is_branch;
     wire dec_need_exe;
@@ -45,16 +45,19 @@ module simple_cpu_top(
     wire exe_is_ctrl_flow;
     wire exe_is_branch;
 
+    // 模块间总线
     wire [95:0] if_id_bus;
     wire [291:0] id_exe_bus;
     wire [173:0] exe_mem_bus;
     wire [134:0] mem_wb_bus;
 
+    // 模块间总线寄存器 稳定信号
     reg [95:0] if_id_bus_r;
     reg [291:0] id_exe_bus_r;
     reg [173:0] exe_mem_bus_r;
     reg [134:0] mem_wb_bus_r;
 
+    // i/dcache接线
     wire icache_en;
     wire [10:0] icache_addr;
     wire [31:0] icache_dout;
@@ -65,16 +68,19 @@ module simple_cpu_top(
     wire [31:0] dcache_wdata;
     wire [31:0] dcache_rdata;
 
+    // 寄存器堆接线
+    // 与解码器
     wire [4:0] rs1_addr;
     wire [4:0] rs2_addr;
     wire [31:0] rs1_value;
     wire [31:0] rs2_value;
-
+    // 与回写模块
     wire rf_wen;
     wire [4:0] rf_waddr;
     wire [31:0] rf_wdata;
     wire wb_is_jal_like;
 
+    // 预先加4的pc值
     wire [31:0] id_pc_plus4;
     wire [31:0] exe_pc_plus4;
     wire [31:0] wb_pc_plus4;
@@ -86,6 +92,7 @@ module simple_cpu_top(
     wire [31:0] actual_rf_wdata;
     assign actual_rf_wdata = wb_is_jal_like ? wb_pc_plus4 : rf_wdata;
 
+    // 上升沿驱动，节律控制
     always @(posedge clk or posedge reset) begin
         if (reset) begin
             pc <= 32'b0;
@@ -93,7 +100,7 @@ module simple_cpu_top(
             id_exe_bus_r <= 292'b0;
             exe_mem_bus_r <= 174'b0;
             mem_wb_bus_r <= 135'b0;
-        end else begin
+        end else begin //模块间寄存器和总线的连接，以及pc修改
             if (if_done) begin
                 if_id_bus_r <= if_id_bus;
             end
@@ -122,7 +129,7 @@ module simple_cpu_top(
             end
         end
     end
-
+    // 各个模块实例化
     cpu_controller u_ctrl(
         .clk(clk),
         .reset(reset),

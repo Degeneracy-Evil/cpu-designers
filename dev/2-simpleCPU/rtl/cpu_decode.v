@@ -12,10 +12,11 @@ module cpu_decode(
     output             dec_is_branch,
     output             dec_need_exe,
     output     [291:0] id_exe_bus,
-
+    // display
     output     [31:0]  id_pc,
     output     [31:0]  id_inst
   );
+  // opcode 列表
   localparam OPCODE_LUI    = 7'b0110111;
   localparam OPCODE_AUIPC  = 7'b0010111;
   localparam OPCODE_JAL    = 7'b1101111;
@@ -25,12 +26,13 @@ module cpu_decode(
   localparam OPCODE_STORE  = 7'b0100011;
   localparam OPCODE_OP_IMM = 7'b0010011;
   localparam OPCODE_OP     = 7'b0110011;
-
+  // 解码总线数据
   wire [31:0] pc_plus4;
   wire [31:0] pc;
   wire [31:0] inst;
   assign {pc_plus4, pc, inst} = if_id_bus_r;
 
+  // 指令数据重组
   wire [6:0] opcode;
   wire [2:0] funct3;
   wire [6:0] funct7;
@@ -57,7 +59,7 @@ module cpu_decode(
                .immU(imm_u),
                .immJ(imm_j)
              );
-
+  // 指令列表，解码用，相当于bool变量
   wire inst_lui;
   wire inst_auipc;
   wire inst_jal;
@@ -139,6 +141,7 @@ module cpu_decode(
   assign inst_or   = (opcode == OPCODE_OP) && (funct3 == 3'b110) && (funct7 == 7'b0000000);
   assign inst_and  = (opcode == OPCODE_OP) && (funct3 == 3'b111) && (funct7 == 7'b0000000);
 
+  // 判断指令类型
   wire is_branch;
   wire is_load;
   wire is_store;
@@ -153,12 +156,13 @@ module cpu_decode(
          inst_addi | inst_slti | inst_sltiu | inst_xori | inst_ori | inst_andi | inst_slli | inst_srli | inst_srai |
          inst_add | inst_sub | inst_sll | inst_slt | inst_sltu | inst_xor | inst_srl | inst_sra | inst_or | inst_and;
 
-  wire use_fixed_wb;
+  wire use_fixed_wb; // 使用固定值写回（忽略ALU结果）
   assign use_fixed_wb = inst_lui;
 
-  wire valid_inst;
+  wire valid_inst; // 合法指令
   assign valid_inst = is_branch | is_load | is_store | is_jal_like | is_alu;
 
+  // 填充ALU数据
   wire [31:0] alu_src1;
   wire [31:0] alu_src2;
   wire shift_op_r;
@@ -179,7 +183,7 @@ module cpu_decode(
          (is_load) ? imm_i :
          (is_store) ? imm_s :
          rs2_value;
-
+  // 生成ALU控制信号
   wire [15:0] alu_control;
   assign alu_control = inst_lui ? 16'b0000_0000_0000_0010 :
          (inst_add | inst_addi | inst_auipc | is_load | is_store | inst_jal | inst_jalr | is_branch) ? 16'b0001_0000_0000_0000 :
@@ -197,7 +201,7 @@ module cpu_decode(
   wire wb_we;
   assign wb_we = valid_inst && (is_alu | is_load | is_jal_like);
 
-  wire [2:0] mem_size;
+  wire [2:0] mem_size; // mem访存用的大小
   assign mem_size = (inst_lb | inst_lbu | inst_sb) ? 3'b000 :
          (inst_lh | inst_lhu | inst_sh) ? 3'b001 :
          3'b010;

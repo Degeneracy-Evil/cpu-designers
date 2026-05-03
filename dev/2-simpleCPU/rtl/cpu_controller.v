@@ -27,9 +27,9 @@ module cpu_controller(
     localparam STATE_MEM    = 3'd4;
     localparam STATE_WB     = 3'd5;
 
-    reg [2:0] state_r;
-    reg [2:0] next_state;
-
+    reg [2:0] state_r;      // 状态
+    reg [2:0] next_state;   // 下一状态
+    // 初始化和状态转换驱动，均在上升沿
     always @(posedge clk or posedge reset) begin
         if (reset) begin
             state_r <= STATE_IDLE;
@@ -37,7 +37,7 @@ module cpu_controller(
             state_r <= next_state;
         end
     end
-
+    // 状态机定义
     always @(*) begin
         case (state_r)
             STATE_IDLE: begin
@@ -50,18 +50,18 @@ module cpu_controller(
                 if (!id_done) begin
                     next_state = STATE_DECODE;
                 end else if (dec_illegal) begin
-                    next_state = STATE_FETCH;
+                    next_state = STATE_FETCH; // 错误指令码
                 end else if (dec_need_exe) begin
                     next_state = STATE_EXEC;
                 end else begin
-                    next_state = STATE_FETCH;
+                    next_state = STATE_FETCH; // 错误
                 end
             end
             STATE_EXEC: begin
                 if (!exe_done) begin
-                    next_state = STATE_EXEC;
+                    next_state = STATE_EXEC; // 执行等待
                 end else if (exe_is_branch) begin
-                    next_state = STATE_FETCH;
+                    next_state = STATE_FETCH; // 分支指令
                 end else begin
                     next_state = STATE_MEM;
                 end
@@ -77,7 +77,7 @@ module cpu_controller(
             end
         endcase
     end
-
+    // 动态生成模块使能信号
     assign if_valid = (state_r == STATE_FETCH);
     assign id_valid = (state_r == STATE_DECODE);
     assign exe_valid = (state_r == STATE_EXEC);

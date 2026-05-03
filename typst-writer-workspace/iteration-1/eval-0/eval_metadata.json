@@ -1,0 +1,6 @@
+{
+  "eval_id": 0,
+  "eval_name": "academic-template",
+  "prompt": "Create a simple academic paper template in Typst called 'paper.typ'. It should have a title, author, abstract, and two column layout. Include some placeholder text.",
+  "assertions": []
+}

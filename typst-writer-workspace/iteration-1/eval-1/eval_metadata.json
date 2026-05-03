@@ -1,0 +1,6 @@
+{
+  "eval_id": 1,
+  "eval_name": "math-styling",
+  "prompt": "Write a short document 'math_notes.typ' explaining the quadratic formula. Set the page size to a5, use a serif font, and make all level 1 headings centered and blue.",
+  "assertions": []
+}

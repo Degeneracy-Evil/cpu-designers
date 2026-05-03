@@ -1,0 +1,6 @@
+{
+  "eval_id": 2,
+  "eval_name": "cetz-drawing",
+  "prompt": "Using the CeTZ package, draw a simple flowchart in 'flowchart.typ' that shows 'Start' -> 'Process' -> 'End'.",
+  "assertions": []
+}

@@ -94,12 +94,13 @@ module cpu_mem(
                         (mem_unsigned_reg ? {16'b0, selected_half} : {{16{selected_half[15]}}, selected_half}) :
                         readData_32;
 
+    wire misalign_addr;
+    assign misalign_addr = (mem_size == 3'b001 && alu_result[0]) ||
+                           (mem_size == 3'b010 && alu_result[1:0] != 2'b00);
     wire misalign_load;
     wire misalign_store;
-    assign misalign_load = is_load && ((mem_size == 3'b001 && alu_result[0] != 1'b0) ||
-                                       (mem_size == 3'b010 && alu_result[1:0] != 2'b00));
-    assign misalign_store = is_store && ((mem_size == 3'b001 && alu_result[0] != 1'b0) ||
-                                         (mem_size == 3'b010 && alu_result[1:0] != 2'b00));
+    assign misalign_load  = is_load  && misalign_addr;
+    assign misalign_store = is_store && misalign_addr;
 
     always @(posedge clk or posedge reset) begin
         if (reset) begin
@@ -216,8 +217,8 @@ module cpu_mem(
     assign mem_pc = pc;
     assign mem_inst = inst;
 
-    assign mem_misalign_load  = misalign_load;
-    assign mem_misalign_store = misalign_store;
+    assign mem_misalign_load  = is_load  && misalign_addr;
+    assign mem_misalign_store = is_store && misalign_addr;
     assign mem_misalign_addr  = alu_result;
 
 endmodule

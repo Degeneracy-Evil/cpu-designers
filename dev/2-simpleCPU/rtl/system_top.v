@@ -28,9 +28,6 @@ module system_top(
     output        ct_rstn
 );
 
-    wire cpu_clk;
-    assign cpu_clk = clk;
-
     wire reset;
     assign reset = ~resetn;
 
@@ -63,7 +60,7 @@ module system_top(
         .ADDR_WIDTH (32),
         .DATA_WIDTH (32)
     ) u_cpu_bus_adapter (
-        .clk        (cpu_clk),
+        .clk        (clk),
         .resetn     (resetn),
         .inst_addr  (instAddr_32),
         .inst_data  (instData_32),
@@ -98,7 +95,7 @@ module system_top(
         .GPIO_NUM    (16),
         .UART_FREQ   (25)
     ) u_ahb_periph_bus (
-        .HCLK       (cpu_clk),
+        .HCLK       (clk),
         .HRESETn    (resetn),
         .req_valid  (bus_req_valid),
         .req_write  (bus_req_write),
@@ -137,7 +134,7 @@ module system_top(
     wire [31:0] display_state;
 
     simple_cpu_top cpu(
-        .clk          (cpu_clk      ),
+        .clk          (clk      ),
         .reset        (reset        ),
         .rf_addr      (rf_addr      ),
         .rf_data      (rf_data      ),

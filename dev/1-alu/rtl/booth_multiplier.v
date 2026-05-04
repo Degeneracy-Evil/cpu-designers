@@ -25,14 +25,13 @@ module booth_multiplier(
   reg Q_1;              // Q的扩展位(Q[-1])
   reg [31:0] M;         // 被乘数寄存器
 
-  wire [1:0] booth_pair;  // Booth对: {Q[0], Q_1}
+  wire [1:0] booth_pair;
   wire [31:0] add_result;
-  wire [31:0] sub_result;
-  wire add_cout;
-  wire sub_cout;
   wire [31:0] count_ext;
   wire [31:0] count_inc_ext;
-  wire count_inc_cout;
+
+  wire no_op = (booth_pair == 2'b00 || booth_pair == 2'b11);
+  wire [31:0] shift_src = no_op ? A : add_result;
 
   assign booth_pair = {Q[0], Q_1};
   assign count_ext = {26'b0, count};
@@ -77,7 +76,7 @@ module booth_multiplier(
                     .b(add_op_b),
                     .cin(add_cin),
                     .sum(add_result),
-                    .cout(add_cout)
+                    .cout()
                   );
 
   cla_adder_32bit count_incrementer(
@@ -85,7 +84,7 @@ module booth_multiplier(
                     .b(32'b0),
                     .cin(1'b1),
                     .sum(count_inc_ext),
-                    .cout(count_inc_cout)
+                    .cout()
                   );
 
   // 状态机
@@ -118,23 +117,11 @@ module booth_multiplier(
 
         COMPUTE:
         begin
-          if (count < 32)
+          if (count < 6'd32)
           begin
-            // Booth算法核心: 根据Booth对决定操作
-            if (booth_pair == 2'b00 || booth_pair == 2'b11)
-            begin
-              // 不操作，直接算术右移
-              A <= {A[31], A[31:1]};
-              Q <= {A[0], Q[31:1]};
-              Q_1 <= Q[0];
-            end
-            else
-            begin
-              // 先加减，再算术右移
-              A <= {add_result[31], add_result[31:1]};
-              Q <= {add_result[0], Q[31:1]};
-              Q_1 <= Q[0];
-            end
+            A <= {shift_src[31], shift_src[31:1]};
+            Q <= {shift_src[0], Q[31:1]};
+            Q_1 <= Q[0];
             count <= count_inc_ext[5:0];
           end
           else

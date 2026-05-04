@@ -102,3 +102,54 @@ make clean
 - `*.elf` — ELF 可执行文件
 - `*.verilog.hex` — Verilog 格式字节 HEX（中间产物）
 - `*.hex` — 最终 32-bit word 格式 HEX（供仿真器加载）
+
+## COE 文件生成（Vivado 仿真用）
+
+Vivado 仿真通过 Xilinx `blk_mem_gen` IP 加载 COE 初始化文件，而非 iverilog 的 `$readmemh`。修改汇编源后需重新生成 `.coe` 文件。
+
+### 方法一：rv2coe.py 一步编译（推荐）
+
+```bash
+# 直接从 .s 编译为 .coe
+python3 tools/rv2coe.py \
+  -i dev/2-simpleCPU/program_source/led_marquee.s \
+  -o dev/2-simpleCPU/program_source/led_marquee.coe
+
+# 同时输出 .hex（供 iverilog $readmemh）
+python3 tools/rv2coe.py \
+  -i dev/2-simpleCPU/program_source/led_marquee.s \
+  -o dev/2-simpleCPU/program_source/led_marquee.coe \
+  --hex dev/2-simpleCPU/program_source/led_marquee.hex
+```
+
+### 方法二：Makefile + rv2coe.py
+
+```bash
+# 1. 编辑汇编源
+vim dev/2-simpleCPU/program_source/led_marquee.s
+
+# 2. 重新编译生成 .hex（供 iverilog 仿真）
+make -C dev/2-simpleCPU/program_source led_marquee.hex
+
+# 3. 生成 .coe（供 Vivado 仿真）
+python3 tools/rv2coe.py \
+  -i dev/2-simpleCPU/program_source/led_marquee.s \
+  -o dev/2-simpleCPU/program_source/led_marquee.coe
+```
+
+### COE 与 testbench 的对应关系
+
+`vivado_sim.tcl` 中 `tb_coe_map` 字典定义了每个 testbench 使用的 COE 文件：
+
+```tcl
+set tb_coe_map {
+  tb_simple_cpu_top  "icache_init.coe"
+  tb_csr_test        "csr_test.coe"
+  tb_align_test      "comprehensive_test.coe"
+  tb_timer_irq_test  "comprehensive_test.coe"
+  tb_timer_seconds   "comprehensive_test.coe"
+  tb_led_marquee     "led_marquee.coe"
+}
+```
+
+添加新 testbench 时，需在此映射中追加对应的 COE 文件路径。

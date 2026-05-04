@@ -16,7 +16,7 @@
 # ---------------------------------------------------------------------------
 
 # 项目名称
-set proj_name       "simplecpu_sim"
+set proj_name       "simplecpu_bus"
 
 # FPGA 器件型号
 set device_part     "xc7a200tfbg676-2"

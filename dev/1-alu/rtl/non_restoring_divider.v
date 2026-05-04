@@ -34,15 +34,13 @@ module non_restoring_divider(
   wire [31:0] abs_divisor_comb;
   wire [31:0] neg_dividend;
   wire [31:0] neg_divisor;
-  wire neg_dividend_cout;
-  wire neg_divisor_cout;
 
   cla_adder_32bit neg_dividend_adder(
                     .a(~dividend),
                     .b(32'b0),
                     .cin(1'b1),
                     .sum(neg_dividend),
-                    .cout(neg_dividend_cout)
+                    .cout()
                   );
 
   cla_adder_32bit neg_divisor_adder(
@@ -50,7 +48,7 @@ module non_restoring_divider(
                     .b(32'b0),
                     .cin(1'b1),
                     .sum(neg_divisor),
-                    .cout(neg_divisor_cout)
+                    .cout()
                   );
 
   mux_2to1 #(32) mux_abs_dividend(
@@ -77,11 +75,8 @@ module non_restoring_divider(
   wire q_next_bit;
 
   wire [31:0] sub_op;
-  wire sub_cout;
-  wire add_cout;
   wire [31:0] count_ext;
   wire [31:0] count_inc_ext;
-  wire count_inc_cout;
 
   assign sub_op = ~D;
   assign count_ext = {26'b0, count};
@@ -91,7 +86,7 @@ module non_restoring_divider(
                     .b(sub_op),
                     .cin(1'b1),
                     .sum(r_sub_d),
-                    .cout(sub_cout)
+                    .cout()
                   );
 
   cla_adder_32bit adder(
@@ -99,7 +94,7 @@ module non_restoring_divider(
                     .b(D),
                     .cin(1'b0),
                     .sum(r_add_d),
-                    .cout(add_cout)
+                    .cout()
                   );
 
   cla_adder_32bit count_incrementer(
@@ -107,7 +102,7 @@ module non_restoring_divider(
                     .b(32'b0),
                     .cin(1'b1),
                     .sum(count_inc_ext),
-                    .cout(count_inc_cout)
+                    .cout()
                   );
 
   mux_2to1 #(32) mux_r_next(
@@ -122,14 +117,13 @@ module non_restoring_divider(
 
   // FIX阶段：终态余数为负时执行 R = R + D
   wire [31:0] r_fix_add;
-  wire fix_add_cout;
 
   cla_adder_32bit fix_adder(
                     .a(R),
                     .b(D),
                     .cin(1'b0),
                     .sum(r_fix_add),
-                    .cout(fix_add_cout)
+                    .cout()
                   );
 
   // 状态机
@@ -238,15 +232,13 @@ module non_restoring_divider(
   wire [31:0] neg_R;
   wire [31:0] final_quotient;
   wire [31:0] final_remainder;
-  wire neg_q_cout;
-  wire neg_r_cout;
 
   cla_adder_32bit neg_q_adder(
                     .a(~Q),
                     .b(32'b0),
                     .cin(1'b1),
                     .sum(neg_Q),
-                    .cout(neg_q_cout)
+                    .cout()
                   );
 
   cla_adder_32bit neg_r_adder(
@@ -254,7 +246,7 @@ module non_restoring_divider(
                     .b(32'b0),
                     .cin(1'b1),
                     .sum(neg_R),
-                    .cout(neg_r_cout)
+                    .cout()
                   );
 
   mux_2to1 #(32) mux_final_quotient(
@@ -273,7 +265,7 @@ module non_restoring_divider(
 
   // 参考C实现的两类整除特殊修正
   wire operand_same_sign;
-  assign operand_same_sign = ~(sign_dividend ^ sign_divisor);
+  assign operand_same_sign = ~result_sign;
 
   // 同号整除修正: remainder == divisor -> quotient += 1, remainder -= divisor
   wire same_sign_special_hit;
@@ -282,7 +274,6 @@ module non_restoring_divider(
 
   wire [31:0] rem_minus_divisor;
   wire [31:0] rem_sub_op;
-  wire rem_minus_divisor_cout;
   assign rem_sub_op = ~divisor_reg;
 
   cla_adder_32bit rem_minus_divisor_adder(
@@ -290,28 +281,26 @@ module non_restoring_divider(
                     .b(rem_sub_op),
                     .cin(1'b1),
                     .sum(rem_minus_divisor),
-                    .cout(rem_minus_divisor_cout)
+                    .cout()
                   );
 
   wire [31:0] quot_plus_one;
-  wire quot_plus_one_cout;
   cla_adder_32bit quot_plus_one_adder(
                     .a(final_quotient),
                     .b(32'b0),
                     .cin(1'b1),
                     .sum(quot_plus_one),
-                    .cout(quot_plus_one_cout)
+                    .cout()
                   );
 
   // 异号整除修正: remainder + divisor == 0 -> quotient -= 1, remainder = 0
   wire [31:0] rem_plus_divisor;
-  wire rem_plus_divisor_cout;
   cla_adder_32bit rem_plus_divisor_adder(
                     .a(final_remainder),
                     .b(divisor_reg),
                     .cin(1'b0),
                     .sum(rem_plus_divisor),
-                    .cout(rem_plus_divisor_cout)
+                    .cout()
                   );
 
   wire diff_sign_special_hit;
@@ -319,13 +308,12 @@ module non_restoring_divider(
          (rem_plus_divisor == 32'b0);
 
   wire [31:0] quot_minus_one;
-  wire quot_minus_one_cout;
   cla_adder_32bit quot_minus_one_adder(
                     .a(final_quotient),
                     .b(32'hFFFF_FFFF),
                     .cin(1'b0),
                     .sum(quot_minus_one),
-                    .cout(quot_minus_one_cout)
+                    .cout()
                   );
 
   reg [31:0] corrected_quotient;

@@ -14,9 +14,9 @@ module timer(
     input  wire  [`APB_DATA_WIDTH-1:0] PWDATA,
     input  wire  [`APB_STRB_WIDTH-1:0] PSTRB,
 
-    output reg                         PREADY,
+    output wire                        PREADY,
     output reg  [`APB_DATA_WIDTH-1:0]  PRDATA,
-    output reg                         PSLVERR,
+    output wire                        PSLVERR,
 
     output reg                         o_irq
 );
@@ -31,19 +31,17 @@ module timer(
 
     wire expr_flag = (start && (counter >= expr_val) && (expr_val != 32'b0));
 
+    assign PREADY  = 1'b1;
+    assign PSLVERR = 1'b0;
+
     always @(posedge PCLK or negedge PRESETn) begin
         if (!PRESETn) begin
-            PREADY   <= 1'b1;
-            PSLVERR  <= 1'b0;
             start    <= 1'b0;
             mode     <= `TIMER_MODE_PERIODIC;
             o_irq    <= 1'b0;
             expr_val <= 32'h0;
             counter  <= 32'h0;
         end else begin
-            PREADY  <= 1'b1;
-            PSLVERR <= 1'b0;
-
             if (write_access && (PADDR[3:2] == 2'd0)) begin
                 expr_val <= PWDATA;
             end

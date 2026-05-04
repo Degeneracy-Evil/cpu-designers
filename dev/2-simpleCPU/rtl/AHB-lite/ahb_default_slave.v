@@ -36,12 +36,6 @@ module ahb_default_slave #(
                 HRESP       <= 1'b1;
                 HRDATA      <= {DATA_WIDTH{1'b0}};
                 error_state <= 1'b1;
-            end else if (HSEL && HREADY && (HTRANS == `AHB_TRANS_IDLE)) begin
-                HREADYOUT <= 1'b1;
-                HRESP     <= 1'b0;
-            end else if (HSEL && HREADY && (HTRANS == `AHB_TRANS_BUSY)) begin
-                HREADYOUT <= 1'b1;
-                HRESP     <= 1'b0;
             end else begin
                 HREADYOUT <= 1'b1;
                 HRESP     <= 1'b0;

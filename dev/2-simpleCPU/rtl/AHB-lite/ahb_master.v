@@ -42,13 +42,7 @@ module ahb_master #(
     localparam ST_DATA   = 2'b10;
     localparam ST_ERROR  = 2'b11;
 
-    reg [ADDR_WIDTH-1:0]  latch_addr;
-    reg                   latch_write;
     reg [DATA_WIDTH-1:0]  latch_wdata;
-    reg [2:0]             latch_size;
-    reg [2:0]             latch_burst;
-    reg [3:0]             latch_prot;
-    reg                   latch_lock;
 
     reg resp_valid_r;
     reg resp_error_r;
@@ -71,13 +65,7 @@ module ahb_master #(
             HPROT        <= 4'b0011;
             HMASTLOCK    <= 1'b0;
             HWDATA       <= {DATA_WIDTH{1'b0}};
-            latch_addr   <= {ADDR_WIDTH{1'b0}};
-            latch_write  <= 1'b0;
             latch_wdata  <= {DATA_WIDTH{1'b0}};
-            latch_size   <= `AHB_SIZE_WORD;
-            latch_burst  <= `AHB_BURST_SINGLE;
-            latch_prot   <= 4'b0011;
-            latch_lock   <= 1'b0;
             resp_valid_r <= 1'b0;
             resp_error_r <= 1'b0;
             resp_rdata_r <= {DATA_WIDTH{1'b0}};
@@ -96,13 +84,7 @@ module ahb_master #(
                         HBURST      <= req_burst;
                         HPROT       <= req_prot;
                         HMASTLOCK   <= req_lock;
-                        latch_addr  <= req_addr;
-                        latch_write <= req_write;
                         latch_wdata <= req_wdata;
-                        latch_size  <= req_size;
-                        latch_burst <= req_burst;
-                        latch_prot  <= req_prot;
-                        latch_lock  <= req_lock;
                     end
                 end
 

@@ -42,9 +42,6 @@ module alu_32bit(
   wire [31:0] nor_result;
   wire [31:0] slt_result;
   wire [31:0] sltu_result;
-  wire [31:0] sll_result;
-  wire [31:0] srl_result;
-  wire [31:0] sra_result;
   wire [31:0] shift_result;
   wire [31:0] lui_result;
   wire [63:0] mul_result;
@@ -107,9 +104,6 @@ module alu_32bit(
             .result(shift_result)
           );
 
-  assign sll_result = shift_result;
-  assign srl_result = shift_result;
-  assign sra_result = shift_result;
 
   lui lui_inst(
         .imm(src2),
@@ -121,8 +115,6 @@ module alu_32bit(
   reg div_start;
   reg mul_busy;
   reg div_busy;
-  reg mul_active;
-  reg div_active;
   reg req_hold;
   reg result_valid_reg;
   reg div_by_zero_reg;
@@ -137,8 +129,6 @@ module alu_32bit(
   wire [15:0] op_vector_minus_1;
   wire has_op;
   wire op_is_onehot;
-  wire flush_int;
-  wire result_ready_int;
   wire req_fire;
   wire req_mul;
   wire req_div;
@@ -149,9 +139,6 @@ module alu_32bit(
   assign op_vector_minus_1 = op_vector - 16'b1;
   assign has_op = |op_vector;
   assign op_is_onehot = has_op & ((op_vector & op_vector_minus_1) == 16'b0);
-
-  assign flush_int = flush;
-  assign result_ready_int = result_ready;
 
   assign illegal_op = req_valid & (~op_is_onehot);
   assign alu_busy = mul_busy | div_busy;
@@ -171,8 +158,6 @@ module alu_32bit(
       div_start <= 1'b0;
       mul_busy <= 1'b0;
       div_busy <= 1'b0;
-      mul_active <= 1'b0;
-      div_active <= 1'b0;
       req_hold <= 1'b0;
       result_valid_reg <= 1'b0;
       div_by_zero_reg <= 1'b0;
@@ -187,12 +172,10 @@ module alu_32bit(
       // 默认将start拉低，形成单周期脉冲
       mul_start <= 1'b0;
       div_start <= 1'b0;
-      if (flush_int)
+      if (flush)
       begin
         mul_busy <= 1'b0;
         div_busy <= 1'b0;
-        mul_active <= 1'b0;
-        div_active <= 1'b0;
         req_hold <= 1'b0;
         result_valid_reg <= 1'b0;
         div_by_zero_reg <= 1'b0;
@@ -208,25 +191,23 @@ module alu_32bit(
           req_hold <= 1'b1;
         end
 
-        if (result_valid_reg && result_ready_int)
+        if (result_valid_reg && result_ready)
         begin
           result_valid_reg <= 1'b0;
         end
 
         // 乘法完成后锁存结果
-        if (mul_done && (mul_busy || mul_active))
+        if (mul_done && mul_busy)
         begin
           mul_busy <= 1'b0;
-          mul_active <= 1'b0;
           result_hold_reg <= mul_result[31:0];
           result_valid_reg <= 1'b1;
         end
 
         // 除法完成后锁存结果
-        if (div_done && (div_busy || div_active))
+        if (div_done && div_busy)
         begin
           div_busy <= 1'b0;
-          div_active <= 1'b0;
           result_hold_reg <= div_quotient;
           result_valid_reg <= 1'b1;
         end
@@ -235,7 +216,6 @@ module alu_32bit(
         begin
           mul_start <= 1'b1;
           mul_busy <= 1'b1;
-          mul_active <= 1'b1;
           mul_src1_reg <= src1;
           mul_src2_reg <= src2;
           div_by_zero_reg <= 1'b0;
@@ -244,7 +224,6 @@ module alu_32bit(
         begin
           div_start <= 1'b1;
           div_busy <= 1'b1;
-          div_active <= 1'b1;
           div_src1_reg <= src1;
           div_src2_reg <= src2;
           div_by_zero_reg <= (src2 == 32'b0);
@@ -296,9 +275,9 @@ module alu_32bit(
                         .nor_result(nor_result),
                         .or_result(or_result),
                         .xor_result(xor_result),
-                        .sll_result(sll_result),
-                        .srl_result(srl_result),
-                        .sra_result(sra_result),
+                        .sll_result(shift_result),
+                        .srl_result(shift_result),
+                        .sra_result(shift_result),
                         .lui_result(lui_result),
                         .sel(alu_control),
                         .y(comb_result)

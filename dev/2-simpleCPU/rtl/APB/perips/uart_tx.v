@@ -39,22 +39,22 @@ always@(*)
 begin
     case(state)
         S_IDLE:
-            if(i_txDataValid_1 == 1'b1)
+            if(i_txDataValid_1)
                 next_state <= S_START;
             else
                 next_state <= S_IDLE;
         S_START:
-            if($unsigned(cycle_cnt)== CYCLE - 1)
+            if(cycle_cnt == CYCLE - 1)
                 next_state <= S_SEND_BYTE;
             else
                 next_state <= S_START;
         S_SEND_BYTE:
-            if($unsigned(cycle_cnt) == CYCLE - 1  && bit_cnt == 3'd7)
+            if(cycle_cnt == CYCLE - 1  && bit_cnt == 3'd7)
                 next_state <= S_STOP;
             else
                 next_state <= S_SEND_BYTE;
         S_STOP:
-            if($unsigned(cycle_cnt) == CYCLE - 1)
+            if(cycle_cnt == CYCLE - 1)
                 next_state <= S_IDLE;
             else
                 next_state <= S_STOP;
@@ -69,11 +69,11 @@ begin
             o_txDataReady_1 <= 1'b0;
         end
     else if(state == S_IDLE)
-        if(i_txDataValid_1 == 1'b1)
+        if(i_txDataValid_1)
             o_txDataReady_1 <= 1'b0;
         else
             o_txDataReady_1 <= 1'b1;
-    else if(state == S_STOP && $unsigned(cycle_cnt) == CYCLE - 1)
+    else if(state == S_STOP && cycle_cnt == CYCLE - 1)
             o_txDataReady_1 <= 1'b1;
 end
 
@@ -84,7 +84,7 @@ begin
         begin
             tx_data_latch <= 8'd0;
         end
-    else if(state == S_IDLE && i_txDataValid_1 == 1'b1)
+    else if(state == S_IDLE && i_txDataValid_1)
             tx_data_latch <= i_txData_8;
         
 end
@@ -95,12 +95,10 @@ begin
         begin
             bit_cnt <= 3'd0;
         end
-    else if(state == S_SEND_BYTE)
-        if($unsigned(cycle_cnt) == CYCLE - 1)
+    else if(state == S_SEND_BYTE) begin
+        if(cycle_cnt == CYCLE - 1)
             bit_cnt <= bit_cnt + 3'd1;
-        else
-            bit_cnt <= bit_cnt;
-    else
+    end else
         bit_cnt <= 3'd0;
 end
 
@@ -109,7 +107,7 @@ always@(posedge clk or negedge rst)
 begin
     if(rst == 1'b0)
         cycle_cnt <= 16'd0;
-    else if((state == S_SEND_BYTE && $unsigned(cycle_cnt) == CYCLE - 1) || next_state != state)
+    else if((state == S_SEND_BYTE && cycle_cnt == CYCLE - 1) || next_state != state)
         cycle_cnt <= 16'd0;
     else
         cycle_cnt <= cycle_cnt + 16'd1;    

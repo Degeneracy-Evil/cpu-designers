@@ -17,7 +17,7 @@ module logic_unit(
   assign or_result  = a | b;
   assign not_result = ~a;
   assign xor_result = a ^ b;
-  assign nor_result = ~(a | b);
+  assign nor_result = ~or_result;
 
   assign slt_result[31:1] = 31'b0;
   assign slt_result[0] = (a[31] & ~b[31]) | (~(a[31] ^ b[31]) & sub_result[31]);

@@ -173,3 +173,100 @@ generate 块逻辑改为 `else if` 结构，消除同一时钟沿两个分支同
 - Vivado 仿真需确保 xvlog 使用 SystemVerilog 模式（`.sv` 后缀或 `-sv` 标志）以支持 `+:` 运算符；
   或直接使用 Verilog-2001 模式（`+:` 属于 Verilog-2001 标准部分选择，Vivado 默认支持）
 - `+:` 部分选择运算符属于 Verilog-2001 标准，无需 SystemVerilog 扩展
+
+## 2026-05-04 全项目代码质量优化
+
+### 概述
+
+对 dev/1-alu/ 和 dev/2-simpleCPU/ 全部 RTL 文件进行代码质量审查，识别 56 项问题（2 个 Bug、14 项死代码、8 项冗余逻辑、5 项重复代码、若干冗余模式），逐一修复并通过仿真回归验证。
+
+### Bug 修复
+
+#### 1. csr_rs1_bus 字段提取错误 (simple_cpu_top.v)
+
+CSRRS/CSRRC 指令判断是否写入 CSR 时需检查 `rs1==x0`，但原代码从指令的 `rd` 字段（inst[11:7]）提取而非 `rs1` 字段（inst[19:15]），导致所有 CSRRS/CSRRC 指令均执行写入。
+
+```verilog
+// 修改前
+wire [4:0] csr_rs1_bus = inst_r[11:7];   // 错误：提取 rd 字段
+// 修改后
+wire [4:0] csr_rs1_bus = inst_r[19:15];  // 正确：提取 rs1 字段
+```
+
+#### 2. MIP 寄存器读取使用组合逻辑值 (cpu_csr.v)
+
+CSR 读 `mip` 时原代码返回组合逻辑 `w_mip_hw`，软件读到的是当前周期的硬件中断状态而非寄存器锁存值，与硬件写入行为不一致。
+
+```verilog
+// 修改前
+csr_mip: csr_rdata = w_mip_hw;
+// 修改后
+csr_mip: csr_rdata = r_mip;
+```
+
+### 死代码移除
+
+| 文件 | 移除项 | 原因 |
+|------|--------|------|
+| simple_cpu_top.v | `exe_csr_wen/waddr/wdata/old_val` 4 根线网 | 声明并赋值但从未被引用 |
+| simple_cpu_top.v | `instruction_complete` 线网 | 声明并赋值但从未被引用 |
+| cpu_controller.v | `instruction_complete` 线网 | 同上 |
+| MMU.v | `clk`/`reset` 端口 | 声明但模块内未使用 |
+| alu_32bit.v | `mul_active`/`div_active` 寄存器 | 与 `mul_busy`/`div_busy` 完全相同 |
+| alu_32bit.v | `flush_int`/`result_ready_int` 线网 | 直通赋值，无逻辑意义 |
+| alu_32bit.v | `sll_result`/`srl_result`/`sra_result` 别名 | 直通赋值，改为直接传递 `shift_result` |
+| non_restoring_divider.v | 8 根 `_cout` 线网 | 声明并赋值但从未被引用 |
+| booth_multiplier.v | `sub_result`/`sub_cout`/`add_cout`/`count_inc_cout` | 声明并赋值但从未被引用 |
+| cla_adder_16bit.v | `g0`/`p0`…`g3`/`p3` 8 根线网 | 声明并赋值但从未被引用 |
+| ahb_lite_to_apb.v | `latch_addr`/`latch_write`/`latch_wdata`/`latch_prot` 4 个寄存器 | 声明并赋值但从未被引用 |
+| gpio.v | `access_end` 线网 | 声明并赋值但从未被引用 |
+| apb_slave.v | `access_end` 线网 | 同上 |
+| ahb_master.v | `latch_addr`/`latch_write`/`latch_size`/`latch_burst`/`latch_prot`/`latch_lock` 6 个寄存器 | 声明并赋值但从未被引用 |
+
+### 冗余逻辑简化
+
+| 文件 | 修改 | 说明 |
+|------|------|------|
+| cpu_clint.v | `trap_enter` 简化为 `exception_valid \|\| interrupt_pending` | 原为 4 项 OR，其中 2 项被包含 |
+| cpu_clint.v | `cur_mpp` 从 wire 改为 localparam | MPP 硬编码为 Machine 模式 (2'b11) |
+| cpu_clint.v | 移除 `mpp_bits` 线网 | 仅赋值未被引用 |
+| cpu_controller.v | 移除 STATE_DECODE 中 `dec_is_branch` 冗余分支 | 该条件下 state 不会改变 |
+| cpu_decode.v | `alu_src1` 移位指令简化 | 移除 3 路穿透到 rs1_value 的冗余 |
+| cpu_decode.v | `wb_we` 移除 `is_load` 条件 | load 指令的写使能已由 `is_load` 自身覆盖 |
+| cpu_mem.v | 提取 `misalign_addr` 公共子表达式 | 消除重复的地址对齐判断 |
+| cpu_mem.v | `alu_result[0] != 1'b0` → `alu_result[0]` | 语义等价，更简洁 |
+| branch_comparator.v | 6 项 OR 链改为 case 语句 | 更清晰，综合等价 |
+| cpu_bus_adapter.v | 9 路分支合并为 5 路 | 合并相同处理逻辑的 case 项 |
+| simple_cpu_top.v | 合并 trap_enter/trap_return PC 赋值 | 消除重复的 PC 选择逻辑 |
+| simple_cpu_top.v | 简化 `exception_valid_r` 自赋值 | 移除 `else exception_valid_r <= exception_valid_r` |
+| logic_unit.v | `nor_result` 复用 `~or_result` | 消除重复的按位 OR 计算 |
+| non_restoring_divider.v | `operand_same_sign` → `~result_sign` | 语义等价，减少冗余信号 |
+| booth_multiplier.v | 提取 `no_op`/`shift_src` 组合逻辑 | 简化 COMPUTE 状态内的条件嵌套 |
+| system_top.v | 移除 `cpu_clk` 直通线网 | 全部引用替换为 `clk` |
+
+### UART/外设冗余模式清理
+
+| 文件 | 修改 |
+|------|------|
+| uart_tx.v | 移除 `$unsigned()` 强制转换（5 处）、`== 1'b1` 冗余比较（2 处）、`bit_cnt <= bit_cnt` 自赋值 |
+| uart_rx.v | 移除 `$unsigned()` 强制转换（4 处）、`bit_cnt <= bit_cnt` 自赋值、`rx_bits <= rx_bits` 自赋值 |
+| uart_top.v | PREADY/PSLVERR 从寄存常量改为 assign |
+| gpio.v | PREADY/PSLVERR 从寄存常量改为 assign |
+| timer.v | PREADY/PSLVERR 从寄存常量改为 assign |
+| spi.v | PREADY/PSLVERR 从寄存常量改为 assign |
+| apb_decoder.v | 移除 `addr_region` 别名，直接使用 PADDR |
+
+### AHB 总线冗余逻辑清理
+
+| 文件 | 修改 |
+|------|------|
+| ahb_default_slave.v | 合并 IDLE/BUSY/!HSEL 三个相同分支为一个 else |
+| ahb_sram_slave.v | 合并 IDLE/BUSY 与 !HSEL 两个相同分支 |
+| ahb_decoder.v | 默认 slave 选择改为 `~(HSELx[0]\|HSELx[1]\|...)` 复用已有选择信号 |
+
+### 回归验证
+
+```
+iverilog -g2012 编译通过，无 error/warning
+vvp 仿真结果：pass=33 fail=0 — ALL TESTS PASSED
+```

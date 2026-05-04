@@ -102,7 +102,7 @@ module cpu_csr(
             ADDR_MEPC:     sw_csr_rdata = r_mepc;
             ADDR_MCAUSE:   sw_csr_rdata = r_mcause;
             ADDR_MTVAL:    sw_csr_rdata = r_mtval;
-            ADDR_MIP:      sw_csr_rdata = w_mip_hw;
+            ADDR_MIP:      sw_csr_rdata = r_mip;
             default:       sw_csr_rdata = 32'b0;
         endcase
     end
@@ -114,6 +114,6 @@ module cpu_csr(
     assign csr_mepc     = r_mepc;
     assign csr_mcause   = r_mcause;
     assign csr_mtval    = r_mtval;
-    assign csr_mip      = w_mip_hw;
+    assign csr_mip      = r_mip;
 
 endmodule

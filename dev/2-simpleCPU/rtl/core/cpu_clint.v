@@ -40,7 +40,6 @@ module cpu_clint(
     wire mtip_bit   = ext_mtip;
     wire msip_bit   = csr_mip[3];
     wire mpie_bit   = csr_mstatus[7];
-    wire mpp_bits   = csr_mstatus[12:11];
 
     wire interrupt_pending = mie_bit && ((msie_bit && msip_bit) ||
                                          (mtie_bit && mtip_bit) ||
@@ -51,7 +50,7 @@ module cpu_clint(
                              (mtie_bit && mtip_bit) ? 32'h80000007 :
                              32'h8000000B;
 
-    assign trap_enter  = exception_valid || (interrupt_pending && !exception_valid);
+    assign trap_enter  = exception_valid || interrupt_pending;
     assign trap_return = mret_req;
 
     assign trap_pc = mret_req ? csr_mepc : {csr_mtvec[31:2], 2'b00};
@@ -67,8 +66,7 @@ module cpu_clint(
     assign hw_mtval_wdata = exception_valid ? exception_mtval :
                             32'b0;
 
-    wire [1:0] cur_mpp;
-    assign cur_mpp = 2'b11;
+    localparam [1:0] cur_mpp = 2'b11;
 
     assign hw_mstatus_wdata = trap_enter ?
                               {csr_mstatus[31:13], cur_mpp, csr_mstatus[10:8], mie_bit, csr_mstatus[6:4], 1'b0, csr_mstatus[2:0]} :

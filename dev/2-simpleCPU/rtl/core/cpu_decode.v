@@ -215,17 +215,14 @@ module cpu_decode(
 
   assign shift_op_r = inst_sll | inst_srl | inst_sra;
   assign shift_op_i = inst_slli | inst_srli | inst_srai;
-   assign alu_src1 = (shift_op_r | shift_op_i) ? rs1_value :
-          (inst_auipc | inst_jal | is_branch) ? pc :
-          inst_jalr ? rs1_value :
-          rs1_value;
+   assign alu_src1 = (inst_auipc | inst_jal | is_branch) ? pc : rs1_value;
   assign alu_src2 = (inst_lui | inst_auipc) ? imm_u :
          inst_jal ? imm_j :
          inst_jalr ? imm_i :
          is_branch ? imm_b :
          (inst_addi | inst_slti | inst_sltiu | inst_xori | inst_ori | inst_andi) ? imm_i :
          shift_op_i ? {27'b0, inst[24:20]} :
-         (is_load) ? imm_i :
+          is_load ? imm_i :
          (is_store) ? imm_s :
          rs2_value;
 
@@ -244,7 +241,7 @@ module cpu_decode(
          16'b0;
 
   wire wb_we;
-  assign wb_we = valid_inst && (is_alu | is_load | is_jal_like | is_csr);
+   assign wb_we = valid_inst && (is_alu | is_jal_like | is_csr);
 
   wire [2:0] mem_size;
   assign mem_size = (inst_lb | inst_lbu | inst_sb) ? 3'b000 :

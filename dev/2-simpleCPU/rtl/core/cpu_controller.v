@@ -52,11 +52,6 @@ module cpu_controller(
         end
     end
 
-    wire instruction_complete;
-    assign instruction_complete = (state_r == STATE_WB && wb_done) ||
-                                  (state_r == STATE_DECODE && id_done && dec_illegal) ||
-                                  (state_r == STATE_EXEC && exe_done && exe_is_branch);
-
     always @(*) begin
         if (init_sig) begin
             next_state = STATE_IDLE;
@@ -81,8 +76,6 @@ module cpu_controller(
                         next_state = STATE_CSR_ACCESS;
                     end else if (!dec_need_exe) begin
                         next_state = STATE_FETCH;
-                    end else if (dec_is_branch) begin
-                        next_state = STATE_EXEC;
                     end else begin
                         next_state = STATE_EXEC;
                     end

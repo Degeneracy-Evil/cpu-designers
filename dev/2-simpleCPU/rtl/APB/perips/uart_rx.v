@@ -65,17 +65,17 @@ begin
             else
                 next_state <= S_IDLE;
         S_START:
-            if($unsigned(cycle_cnt) == CYCLE - 1)//one data cycle 
+            if(cycle_cnt == CYCLE - 1)
                 next_state <= S_REC_BYTE;
             else
                 next_state <= S_START;
         S_REC_BYTE:
-            if($unsigned(cycle_cnt) == CYCLE - 1  && bit_cnt == 3'd7)  //receive 8bit data
+            if(cycle_cnt == CYCLE - 1  && bit_cnt == 3'd7)
                 next_state <= S_STOP;
             else
                 next_state <= S_REC_BYTE;
         S_STOP:
-            if($unsigned(cycle_cnt) == CYCLE/2 - 1)//half bit cycle,to avoid missing the next byte receiver
+            if(cycle_cnt == CYCLE/2 - 1)
                 next_state <= S_DATA;
             else
                 next_state <= S_STOP;
@@ -113,12 +113,10 @@ begin
         begin
             bit_cnt <= 3'd0;
         end
-    else if(state == S_REC_BYTE)
-        if($unsigned(cycle_cnt) == CYCLE - 1)
+    else if(state == S_REC_BYTE) begin
+        if(cycle_cnt == CYCLE - 1)
             bit_cnt <= bit_cnt + 3'd1;
-        else
-            bit_cnt <= bit_cnt;
-    else
+    end else
         bit_cnt <= 3'd0;
 end
 
@@ -127,7 +125,7 @@ always@(posedge clk or negedge rst)
 begin
     if(rst == 1'b0)
         cycle_cnt <= 16'd0;
-    else if((state == S_REC_BYTE && $unsigned(cycle_cnt) == CYCLE - 1) || next_state != state)
+    else if((state == S_REC_BYTE && cycle_cnt == CYCLE - 1) || next_state != state)
         cycle_cnt <= 16'd0;
     else
         cycle_cnt <= cycle_cnt + 16'd1;    
@@ -137,10 +135,8 @@ always@(posedge clk or negedge rst)
 begin
     if(rst == 1'b0)
         rx_bits <= 8'd0;
-    else if(state == S_REC_BYTE && $unsigned(cycle_cnt) == CYCLE/2 - 1)
+    else if(state == S_REC_BYTE && cycle_cnt == CYCLE/2 - 1)
         rx_bits[bit_cnt] <= i_rxPin_1;
-    else
-        rx_bits <= rx_bits; 
 end
 endmodule 
 

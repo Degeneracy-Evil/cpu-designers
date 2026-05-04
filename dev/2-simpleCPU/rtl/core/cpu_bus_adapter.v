@@ -62,42 +62,19 @@ module cpu_bus_adapter #(
         d_write_r = 1'b0;
         d_size_r  = `AHB_SIZE_WORD;
         case (data_wen)
-            4'b1111: begin
-                d_write_r = 1'b0;
-                d_size_r  = `AHB_SIZE_WORD;
-            end
-            4'b1110: begin
+            4'b1111: ;
+            4'b1110, 4'b1101, 4'b1011, 4'b0111: begin
                 d_write_r = 1'b1;
                 d_size_r  = `AHB_SIZE_BYTE;
             end
-            4'b1101: begin
-                d_write_r = 1'b1;
-                d_size_r  = `AHB_SIZE_BYTE;
-            end
-            4'b1011: begin
-                d_write_r = 1'b1;
-                d_size_r  = `AHB_SIZE_BYTE;
-            end
-            4'b0111: begin
-                d_write_r = 1'b1;
-                d_size_r  = `AHB_SIZE_BYTE;
-            end
-            4'b1100: begin
-                d_write_r = 1'b1;
-                d_size_r  = `AHB_SIZE_HWORD;
-            end
-            4'b0011: begin
+            4'b1100, 4'b0011: begin
                 d_write_r = 1'b1;
                 d_size_r  = `AHB_SIZE_HWORD;
             end
             4'b0000: begin
                 d_write_r = 1'b1;
-                d_size_r  = `AHB_SIZE_WORD;
             end
-            default: begin
-                d_write_r = 1'b0;
-                d_size_r  = `AHB_SIZE_WORD;
-            end
+            default: ;
         endcase
     end
 

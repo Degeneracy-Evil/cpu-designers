@@ -15,9 +15,9 @@ module uart_top #(
     input  wire  [`APB_DATA_WIDTH-1:0] PWDATA,
     input  wire  [`APB_STRB_WIDTH-1:0] PSTRB,
 
-    output reg                         PREADY,
+    output wire                        PREADY,
     output reg  [`APB_DATA_WIDTH-1:0]  PRDATA,
-    output reg                         PSLVERR,
+    output wire                        PSLVERR,
 
     input  wire                        i_rx,
     output wire                        o_tx
@@ -110,15 +110,8 @@ module uart_top #(
         end
     end
 
-    always @(posedge PCLK or negedge PRESETn) begin
-        if (!PRESETn) begin
-            PREADY  <= 1'b1;
-            PSLVERR <= 1'b0;
-        end else begin
-            PREADY  <= 1'b1;
-            PSLVERR <= 1'b0;
-        end
-    end
+    assign PREADY  = 1'b1;
+    assign PSLVERR = 1'b0;
 
     always @(*) begin
         if (read_access) begin

@@ -102,11 +102,6 @@ module simple_cpu_top(
     wire [31:0] actual_rf_wdata;
     assign actual_rf_wdata = wb_is_jal_like ? wb_pc_plus4 : rf_wdata;
 
-    wire exe_csr_wen;
-    wire [11:0] exe_csr_waddr;
-    wire [31:0] exe_csr_wdata;
-    wire [31:0] exe_csr_old_val;
-
     wire [31:0] csr_read_data;
     wire csr_addr_valid_out;
 
@@ -140,9 +135,9 @@ module simple_cpu_top(
     assign exception_at_decode = (id_valid && id_done) && (dec_illegal || dec_is_ecall || dec_is_ebreak);
 
     wire [31:0] decode_exception_cause;
-    assign decode_exception_cause = dec_illegal  ? {1'b0, 27'd0, 5'd2} :
-                                    dec_is_ecall ? {1'b0, 27'd0, 5'd11} :
-                                    {1'b0, 27'd0, 5'd3};
+    assign decode_exception_cause = dec_illegal  ? 32'd2 :
+                                    dec_is_ecall ? 32'd11 :
+                                                   32'd3;
 
     wire [31:0] decode_exception_mtval;
     assign decode_exception_mtval = dec_illegal ? id_inst_wire : 32'b0;
@@ -158,8 +153,7 @@ module simple_cpu_top(
     wire [31:0] misalign_exception_mtval;
 
     assign misalign_exception_valid = mem_valid && mem_done && (mem_misalign_load || mem_misalign_store);
-    assign misalign_exception_cause = mem_misalign_load  ? {1'b0, 27'd0, 5'd4} :
-                                      {1'b0, 27'd0, 5'd6};
+    assign misalign_exception_cause = mem_misalign_load ? 32'd4 : 32'd6;
     assign misalign_exception_pc    = mem_pc;
     assign misalign_exception_mtval = mem_misalign_addr;
 
@@ -181,7 +175,7 @@ module simple_cpu_top(
             exception_mtval_r <= 32'b0;
         end else begin
             if (exception_valid) begin
-                exception_valid_r <= exception_valid;
+                exception_valid_r <= 1'b1;
                 exception_cause_r <= exception_cause;
                 exception_pc_r    <= exception_pc;
                 exception_mtval_r <= exception_mtval;
@@ -209,7 +203,7 @@ module simple_cpu_top(
 
     assign csr_funct3_bus   = id_exe_bus_r[71:69];
     assign csr_uimm_bus    = id_exe_bus_r[68:64];
-    assign csr_rs1_bus     = id_exe_bus_r[275:271];
+    assign csr_rs1_bus     = id_exe_bus_r[19:15];
     assign csr_rs1_val_bus = id_exe_bus_r[154:123];
     assign csr_rd_bus      = id_exe_bus_r[275:271];
     assign csr_pc_plus4_bus= id_exe_bus_r[315:284];
@@ -260,9 +254,7 @@ module simple_cpu_top(
                 mem_wb_bus_r <= csr_wb_bus;
             end
 
-            if (trap_enter_valid) begin
-                pc <= clint_trap_pc;
-            end else if (trap_return_valid) begin
+            if (trap_enter_valid || trap_return_valid) begin
                 pc <= clint_trap_pc;
             end else if (exe_valid && exe_done) begin
                 if (exe_is_ctrl_flow && exe_branch_taken) begin
@@ -385,10 +377,10 @@ module simple_cpu_top(
         .exe_is_branch(exe_is_branch),
         .exe_pc(exe_pc),
         .exe_inst(exe_inst),
-        .exe_csr_wen(exe_csr_wen),
-        .exe_csr_waddr(exe_csr_waddr),
-        .exe_csr_wdata(exe_csr_wdata),
-        .exe_csr_old_val(exe_csr_old_val)
+        .exe_csr_wen(),
+        .exe_csr_waddr(),
+        .exe_csr_wdata(),
+        .exe_csr_old_val()
     );
 
     wire [3:0]  mem_dataWen_4;
@@ -514,25 +506,19 @@ module simple_cpu_top(
         .trap_enter(clint_trap_enter),
         .trap_return(clint_trap_return),
         .trap_pc(clint_trap_pc),
-        .hw_csr_wen(),
+        .hw_csr_wen(hw_csr_wen),
         .hw_mepc_wdata(hw_mepc_wdata),
         .hw_mcause_wdata(hw_mcause_wdata),
         .hw_mtval_wdata(hw_mtval_wdata),
         .hw_mstatus_wdata(hw_mstatus_wdata)
     );
 
-    assign hw_csr_wen = trap_enter_valid || trap_return_valid;
-
     MMU u_mmu_inst(
-        .clk(clk),
-        .reset(reset),
         .vaddr(fetch_vaddr),
         .paddr(mmu_inst_paddr)
     );
 
     MMU u_mmu_data(
-        .clk(clk),
-        .reset(reset),
         .vaddr(mem_dataAddr_32),
         .paddr(mmu_data_paddr)
     );

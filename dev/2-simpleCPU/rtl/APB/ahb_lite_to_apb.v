@@ -41,11 +41,7 @@ module ahb_lite_to_apb #(
 
     reg [1:0] br_state;
 
-    reg [ADDR_WIDTH-1:0]   latch_addr;
-    reg                    latch_write;
-    reg [DATA_WIDTH-1:0]   latch_wdata;
     reg [DATA_WIDTH/8-1:0] latch_strb;
-    reg [2:0]              latch_prot;
 
     wire ahb_transfer = HSEL & HREADY & (HTRANS[1]);
 
@@ -53,7 +49,6 @@ module ahb_lite_to_apb #(
         case (HSIZE)
             3'b000: latch_strb = 1 << HADDR[$clog2(DATA_WIDTH/8)-1:0];
             3'b001: latch_strb = 3 << {HADDR[$clog2(DATA_WIDTH/8)-1:1], 1'b0};
-            3'b010: latch_strb = {(DATA_WIDTH/8){1'b1}};
             default: latch_strb = {(DATA_WIDTH/8){1'b1}};
         endcase
     end
@@ -67,10 +62,6 @@ module ahb_lite_to_apb #(
     always @(posedge HCLK or negedge HRESETn) begin
         if (!HRESETn) begin
             br_state    <= BR_IDLE;
-            latch_addr  <= {ADDR_WIDTH{1'b0}};
-            latch_write <= 1'b0;
-            latch_wdata <= {DATA_WIDTH{1'b0}};
-            latch_prot  <= 3'b0;
             PADDR       <= {ADDR_WIDTH{1'b0}};
             PSEL        <= 1'b0;
             PENABLE     <= 1'b0;
@@ -85,9 +76,6 @@ module ahb_lite_to_apb #(
                 BR_IDLE: begin
                     if (ahb_transfer) begin
                         br_state    <= BR_SETUP;
-                        latch_addr  <= HADDR;
-                        latch_write <= HWRITE;
-                        latch_prot  <= {~HPROT[1], ~HPROT[2], ~HPROT[0]};
                         PADDR       <= HADDR;
                         PSEL        <= 1'b1;
                         PENABLE     <= 1'b0;
@@ -107,7 +95,6 @@ module ahb_lite_to_apb #(
                     br_state  <= BR_ACCESS;
                     PENABLE   <= 1'b1;
                     PWDATA    <= HWDATA;
-                    latch_wdata <= HWDATA;
                     HREADYOUT <= 1'b0;
                 end
 
@@ -128,9 +115,6 @@ module ahb_lite_to_apb #(
                         end else begin
                             if (ahb_transfer) begin
                                 br_state    <= BR_SETUP;
-                                latch_addr  <= HADDR;
-                                latch_write <= HWRITE;
-                                latch_prot  <= {~HPROT[1], ~HPROT[2], ~HPROT[0]};
                                 PADDR       <= HADDR;
                                 PSEL        <= 1'b1;
                                 PENABLE     <= 1'b0;

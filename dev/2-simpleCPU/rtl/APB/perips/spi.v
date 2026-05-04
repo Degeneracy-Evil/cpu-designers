@@ -13,9 +13,9 @@ module spi(
     input  wire  [`APB_DATA_WIDTH-1:0] PWDATA,
     input  wire  [`APB_STRB_WIDTH-1:0] PSTRB,
 
-    output reg                         PREADY,
+    output wire                        PREADY,
     output reg  [`APB_DATA_WIDTH-1:0]  PRDATA,
-    output reg                         PSLVERR,
+    output wire                        PSLVERR,
 
     output reg                         o_spiMosi,
     input  wire                        i_spiMiso,
@@ -46,14 +46,13 @@ module spi(
     assign o_spiSs  = ~spi_ctrl[3];
     assign div_cnt  = spi_ctrl[15:8];
 
+    assign PREADY  = 1'b1;
+    assign PSLVERR = 1'b0;
+
     always @(posedge PCLK or negedge PRESETn) begin
         if (!PRESETn) begin
             en <= 1'b0;
-            PREADY  <= 1'b1;
-            PSLVERR <= 1'b0;
         end else begin
-            PREADY  <= 1'b1;
-            PSLVERR <= 1'b0;
 
             if (write_access && (PADDR[3:0] == SPI_CTRL) && PWDATA[0]) begin
                 en <= 1'b1;

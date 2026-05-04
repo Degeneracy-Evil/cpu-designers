@@ -32,8 +32,6 @@ module apb_slave #(
     wire [REG_ADDR_WIDTH-1:0] reg_idx;
     assign reg_idx = PADDR[REG_ADDR_WIDTH+1:2];
 
-    wire access_end = PSEL & PENABLE & PREADY;
-
     integer i;
     always @(posedge PCLK or negedge PRESETn) begin
         if (!PRESETn) begin

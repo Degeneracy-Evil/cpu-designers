@@ -109,11 +109,8 @@ module ahb_sram_slave #(
                 HREADYOUT <= 1'b0;
                 HRESP     <= 1'b0;
                 wait_cnt  <= BRAM_LATENCY + WAIT_STATES;
-            end else if (HSEL && HREADY && (HTRANS == `AHB_TRANS_IDLE || HTRANS == `AHB_TRANS_BUSY)) begin
-                HREADYOUT <= 1'b1;
-                HRESP     <= 1'b0;
-                latch_sel <= 1'b0;
-            end else if (!HSEL && HREADY) begin
+            end else if ((HSEL && HREADY && (HTRANS == `AHB_TRANS_IDLE || HTRANS == `AHB_TRANS_BUSY)) ||
+                         (!HSEL && HREADY)) begin
                 HREADYOUT <= 1'b1;
                 HRESP     <= 1'b0;
                 latch_sel <= 1'b0;

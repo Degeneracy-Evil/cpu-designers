@@ -11,38 +11,25 @@ module cpu_controller(
     input        dec_is_branch,
     input        dec_need_exe,
     input        dec_illegal,
-    input        dec_is_csr,
-    input        dec_is_ecall,
-    input        dec_is_ebreak,
-    input        dec_is_mret,
-    input        dec_is_fence,
     input        exe_is_branch,
-    input        trap_pending,
-    input        exception_at_decode,
     output       if_valid,
     output       id_valid,
     output       exe_valid,
     output       mem_valid,
     output       wb_valid,
-    output       csr_valid,
-    output       trap_enter_valid,
-    output       trap_return_valid,
 
-    output [3:0] state
+    output [2:0] state
 );
-    localparam STATE_IDLE       = 4'd0;
-    localparam STATE_FETCH      = 4'd1;
-    localparam STATE_DECODE     = 4'd2;
-    localparam STATE_EXEC       = 4'd3;
-    localparam STATE_MEM        = 4'd4;
-    localparam STATE_WB         = 4'd5;
-    localparam STATE_CSR_ACCESS = 4'd6;
-    localparam STATE_TRAP_ENTER = 4'd7;
-    localparam STATE_TRAP_RETURN= 4'd8;
+    localparam STATE_IDLE   = 3'd0;
+    localparam STATE_FETCH  = 3'd1;
+    localparam STATE_DECODE = 3'd2;
+    localparam STATE_EXEC   = 3'd3;
+    localparam STATE_MEM    = 3'd4;
+    localparam STATE_WB     = 3'd5;
 
-    reg [3:0] state_r;
-    reg [3:0] next_state;
-
+    reg [2:0] state_r;      // 状态
+    reg [2:0] next_state;   // 下一状态
+    // 初始化和状态转换驱动，均在上升沿
     always @(posedge clk or posedge reset) begin
         if (reset) begin
             state_r <= STATE_IDLE;
@@ -50,12 +37,7 @@ module cpu_controller(
             state_r <= next_state;
         end
     end
-
-    wire instruction_complete;
-    assign instruction_complete = (state_r == STATE_WB && wb_done) ||
-                                  (state_r == STATE_DECODE && id_done && dec_illegal) ||
-                                  (state_r == STATE_EXEC && exe_done && exe_is_branch);
-
+    // 状态机定义
     always @(*) begin
         case (state_r)
             STATE_IDLE: begin
@@ -67,27 +49,19 @@ module cpu_controller(
             STATE_DECODE: begin
                 if (!id_done) begin
                     next_state = STATE_DECODE;
-                end else if (exception_at_decode) begin
-                    next_state = STATE_TRAP_ENTER;
-                end else if (dec_is_mret) begin
-                    next_state = STATE_TRAP_RETURN;
-                end else if (dec_is_fence) begin
-                    next_state = STATE_FETCH;
-                end else if (dec_is_csr) begin
-                    next_state = STATE_CSR_ACCESS;
-                end else if (!dec_need_exe) begin
-                    next_state = STATE_FETCH;
-                end else if (dec_is_branch) begin
+                end else if (dec_illegal) begin
+                    next_state = STATE_FETCH; // 错误指令码
+                end else if (dec_need_exe) begin
                     next_state = STATE_EXEC;
                 end else begin
-                    next_state = STATE_EXEC;
+                    next_state = STATE_FETCH; // 错误
                 end
             end
             STATE_EXEC: begin
                 if (!exe_done) begin
-                    next_state = STATE_EXEC;
+                    next_state = STATE_EXEC; // 执行等待
                 end else if (exe_is_branch) begin
-                    next_state = trap_pending ? STATE_TRAP_ENTER : STATE_FETCH;
+                    next_state = STATE_FETCH; // 分支指令
                 end else begin
                     next_state = STATE_MEM;
                 end
@@ -96,35 +70,19 @@ module cpu_controller(
                 next_state = mem_done ? STATE_WB : STATE_MEM;
             end
             STATE_WB: begin
-                if (wb_done) begin
-                    next_state = trap_pending ? STATE_TRAP_ENTER : STATE_FETCH;
-                end else begin
-                    next_state = STATE_WB;
-                end
-            end
-            STATE_CSR_ACCESS: begin
-                next_state = STATE_WB;
-            end
-            STATE_TRAP_ENTER: begin
-                next_state = STATE_FETCH;
-            end
-            STATE_TRAP_RETURN: begin
-                next_state = STATE_FETCH;
+                next_state = wb_done ? STATE_FETCH : STATE_WB;
             end
             default: begin
                 next_state = STATE_IDLE;
             end
         endcase
     end
-
-    assign if_valid         = (state_r == STATE_FETCH);
-    assign id_valid         = (state_r == STATE_DECODE);
-    assign exe_valid        = (state_r == STATE_EXEC);
-    assign mem_valid        = (state_r == STATE_MEM);
-    assign wb_valid         = (state_r == STATE_WB);
-    assign csr_valid        = (state_r == STATE_CSR_ACCESS);
-    assign trap_enter_valid = (state_r == STATE_TRAP_ENTER);
-    assign trap_return_valid= (state_r == STATE_TRAP_RETURN);
+    // 动态生成模块使能信号
+    assign if_valid = (state_r == STATE_FETCH);
+    assign id_valid = (state_r == STATE_DECODE);
+    assign exe_valid = (state_r == STATE_EXEC);
+    assign mem_valid = (state_r == STATE_MEM);
+    assign wb_valid = (state_r == STATE_WB);
     assign state = state_r;
 
 endmodule

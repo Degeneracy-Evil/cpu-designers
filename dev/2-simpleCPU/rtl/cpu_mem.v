@@ -1,24 +1,22 @@
 `timescale 1ns / 1ps
 
+// 访存单元 跳过方式：is_load/is_store
 module cpu_mem(
     input              clk,
     input              reset,
     input              mem_valid,
-    input      [206:0] exe_mem_bus_r,
+    input      [173:0] exe_mem_bus_r,
     output             dcache_en,
     output     [0:0]   dcache_we,
     output     [10:0]  dcache_addr,
     output     [31:0]  dcache_wdata,
     input      [31:0]  dcache_rdata,
     output             mem_done,
-    output     [167:0] mem_wb_bus,
+    output     [134:0] mem_wb_bus,
 
+    // display使用
     output     [31:0]  mem_pc,
-    output     [31:0]  mem_inst,
-
-    output             mem_misalign_load,
-    output             mem_misalign_store,
-    output     [31:0]  mem_misalign_addr
+    output     [31:0]  mem_inst
 );
 
     localparam MEM_IDLE = 3'd0;
@@ -32,14 +30,12 @@ module cpu_mem(
     wire is_jal_like;
     wire is_load;
     wire is_store;
-    wire is_csr;
     wire wb_we;
     wire [4:0] wb_rd;
     wire [31:0] alu_result;
     wire [2:0] mem_size;
     wire mem_unsigned;
     wire [31:0] store_data;
-    wire [31:0] csr_rdata;
     wire [31:0] pc_plus4;
     wire [31:0] pc;
     wire [31:0] inst;
@@ -50,14 +46,12 @@ module cpu_mem(
         is_jal_like,
         is_load,
         is_store,
-        is_csr,
         wb_we,
         wb_rd,
         alu_result,
         mem_size,
         mem_unsigned,
         store_data,
-        csr_rdata,
         pc,
         inst
     } = exe_mem_bus_r;
@@ -212,12 +206,8 @@ module cpu_mem(
     assign dcache_wdata = wdata_reg;
 
     assign mem_done = done_reg;
-    assign mem_wb_bus = {pc_plus4, is_jal_like, is_csr, wb_we_reg, wb_rd_reg, wb_data_reg, csr_rdata, pc, inst};
+    assign mem_wb_bus = {pc_plus4, is_jal_like, wb_we_reg, wb_rd_reg, wb_data_reg, pc, inst};
     assign mem_pc = pc;
     assign mem_inst = inst;
-
-    assign mem_misalign_load  = misalign_load;
-    assign mem_misalign_store = misalign_store;
-    assign mem_misalign_addr  = alu_result;
 
 endmodule

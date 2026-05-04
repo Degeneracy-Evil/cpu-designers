@@ -21,15 +21,9 @@ module icache(
     reg [31:0] douta_reg;
     reg [31:0] doutb_reg;
 
-    `ifdef CSR_TEST
-    initial begin
-        $readmemh("dev/2-simpleCPU/program_source/csr_test.hex", mem);
-    end
-    `else
     initial begin
         $readmemh("dev/2-simpleCPU/program_source/icache_init.hex", mem);
     end
-    `endif
 
     always @(posedge clka) begin
         if (ena) begin

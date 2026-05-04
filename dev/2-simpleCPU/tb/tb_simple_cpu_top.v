@@ -21,8 +21,6 @@ module tb_simple_cpu_top;
     wire [31:0] wb_inst;
     wire [31:0] display_state;
 
-    wire uart_tx_pin;
-
     integer pass_count;
     integer fail_count;
 
@@ -43,9 +41,7 @@ module tb_simple_cpu_top;
         .mem_inst(mem_inst),
         .wb_pc(wb_pc),
         .wb_inst(wb_inst),
-        .display_state(display_state),
-        .uart_rx_pin(1'b0),
-        .uart_tx_pin(uart_tx_pin)
+        .display_state(display_state)
     );
 
     initial begin

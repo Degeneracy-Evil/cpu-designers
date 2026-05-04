@@ -30,13 +30,7 @@ set dev_dir         "${base_dir}/dev"
 set alu_rtl_dir     "${dev_dir}/1-alu/rtl"
 
 # CPU RTL 目录
-set cpu_core_dir    "${dev_dir}/2-simpleCPU/rtl/core"
-set ahb_dir         "${dev_dir}/2-simpleCPU/rtl/AHB-lite"
-set ahb_ip_dir      "${dev_dir}/2-simpleCPU/rtl/AHB-lite/ip"
-set apb_dir         "${dev_dir}/2-simpleCPU/rtl/APB"
-set apb_header_dir  "${dev_dir}/2-simpleCPU/rtl/APB/header"
-set apb_perips_dir  "${dev_dir}/2-simpleCPU/rtl/APB/perips"
-set sys_rtl_dir     "${dev_dir}/2-simpleCPU/rtl"
+set cpu_rtl_dir     "${dev_dir}/2-simpleCPU/rtl"
 
 # Testbench 目录
 set tb_dir          "${dev_dir}/2-simpleCPU/tb"
@@ -116,7 +110,7 @@ puts "========== Step 2: 添加 RTL 源文件 =========="
 add_files [glob -nocomplain -directory $alu_rtl_dir *.v]
 
 # CPU 核心模块 (Exclude icache.v and dcache.v simulation models)
-set cpu_files [glob -nocomplain -directory $cpu_core_dir *.v]
+set cpu_files [glob -nocomplain -directory $cpu_rtl_dir *.v]
 set filtered_cpu []
 foreach f $cpu_files {
     if {![string match "*icache.v" $f] && ![string match "*dcache.v" $f]} {
@@ -125,20 +119,6 @@ foreach f $cpu_files {
 }
 if {[llength $filtered_cpu] > 0} {
     add_files $filtered_cpu
-}
-
-# AHB-Lite 总线
-add_files [glob -nocomplain -directory $ahb_dir *.v]
-
-# APB 总线
-add_files [glob -nocomplain -directory $apb_dir *.v]
-
-# APB 外设
-add_files [glob -nocomplain -directory $apb_perips_dir *.v]
-
-# 系统顶层
-if {[file exists "${sys_rtl_dir}/system_top.v"]} {
-    add_files "${sys_rtl_dir}/system_top.v"
 }
 
 update_compile_order -fileset sources_1
@@ -152,12 +132,7 @@ puts "========== Step 3: 设置 include 目录 =========="
 
 set_property include_dirs [list \
     $alu_rtl_dir \
-    $cpu_core_dir \
-    $ahb_dir \
-    $ahb_ip_dir \
-    $apb_dir \
-    $apb_header_dir \
-    $apb_perips_dir \
+    $cpu_rtl_dir \
     $tb_dir \
 ] [current_fileset]
 

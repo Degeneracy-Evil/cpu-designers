@@ -334,11 +334,13 @@
 *指令识别：*
 
 当前实现中我们通过opcode、funct3、funct7的组合匹配识别37条指令，产生独立的单比特标志信号（如`inst_add`、`inst_beq`等），这样利于排查以及后续添加指令。完成具体指令识别后，指令会被再归类为：
-#move(dx: 2em)[- `is_branch`：6条分支指令
-- `is_load`：5条Load指令
-- `is_store`：3条Store指令
-- `is_jal_like`：JAL、JALR
-- `is_alu`：所有需要ALU运算的指令（含LUI、AUIPC、Load、Store的地址计算）]
+#move(dx: 2em)[
+  - `is_branch`：6条分支指令
+  - `is_load`：5条Load指令
+  - `is_store`：3条Store指令
+  - `is_jal_like`：JAL、JALR
+  - `is_alu`：所有需要ALU运算的指令（含LUI、AUIPC、Load、Store的地址计算）
+]
 
 *ALU操作数选择：*
 
@@ -399,15 +401,6 @@
 
 执行模块调用ALU完成运算，并处理分支和跳转指令的目标地址计算与条件判断。
 
-*ALU接口：*
-
-使用`alu_32bit`模块（来自1-alu实验）ALU可能需要多个周期（乘除法），通过握手协议交互：
-#move(dx: 2em)[
-- `req_valid`→`alu_ready`：发起运算请求
-- `result_valid`→`result_ready`：接收运算结果
-]
-详细接口和握手逻辑见2.7.2节。
-
 *执行流程：*
 
 #move(dx: 2em)[
@@ -417,15 +410,17 @@
 
 *分支与跳转处理：*
 
-#move(dx: 2em)[- `branch_comparator`模块根据`branch_funct3`和`rs1_value/rs2_value`判断分支条件是否成立
-- 分支目标地址：ALU计算`pc + imm_b`的结果
-- JALR目标地址：`alu_result & 0xFFFFFFFE`（清除最低位）
-- `exe_branch_taken`：分支指令取`branch_cond_true`，JAL/JALR指令取1
-- `exe_is_ctrl_flow`：分支或跳转指令时为1，通知顶层更新PC]
+#move(dx: 2em)[
+  - `branch_comparator`模块根据`branch_funct3`和`rs1_value/rs2_value`判断分支条件是否成立
+  - 分支目标地址：ALU计算`pc + imm_b`的结果
+  - JALR目标地址：`alu_result & 0xFFFFFFFE`（清除最低位）
+  - `exe_branch_taken`：分支指令取`branch_cond_true`，JAL/JALR指令取1
+  - `exe_is_ctrl_flow`：分支或跳转指令时为1，通知顶层更新PC
+]
 
 === 分支比较器（branch\_comparator）
 
-纯组合逻辑模块，根据`branch_funct3`和两个操作数判断分支条件是否成立。
+我们采用独立的分支比较器协助处理计算任务，内部是大小比较器，纯组合逻辑模块，根据`branch_funct3`和两个操作数判断分支条件是否成立。
 
 *接口：*
 
@@ -469,6 +464,8 @@
 
 === ALU接口与握手协议
 
+ALU模块基于上一次实验的结果进行了改进，主要是添加了握手逻辑以支持多周期运算的交互。
+
 执行模块通过握手协议与`alu_32bit`模块交互，支持单周期组合运算和多周期乘除法运算。
 
 *ALU端口映射：*
@@ -507,26 +504,20 @@
 
 *use\_fixed\_wb快速路径：*
 
-当`use_fixed_wb=1`（如LUI指令）时，跳过ALU握手，直接将`wb_fixed_data`锁存为结果，1周期完成。
+当`use_fixed_wb=1`（LUI指令）时，跳过ALU握手，直接将`wb_fixed_data`锁存为结果，1周期完成。
 
 *控制编码（one-hot，bit0保留）：*
 
-#table(
+#move(dx: 2em)[#table(
   columns: (auto, auto, auto, auto, auto, auto, auto, auto),
   align: center,
   stroke: 0.5pt,
   inset: 4pt,
   [*15*], [*14*], [*13*], [*12*], [*11*], [*10*], [*9*], [*8*],
   [MUL], [DIV], [NOT], [ADD], [SUB], [SLT], [SLTU], [AND],
-)
-#table(
-  columns: (auto, auto, auto, auto, auto, auto, auto, auto),
-  align: center,
-  stroke: 0.5pt,
-  inset: 4pt,
   [*7*], [*6*], [*5*], [*4*], [*3*], [*2*], [*1*], [*0*],
   [NOR], [OR], [XOR], [SLL], [SRL], [SRA], [LUI], [—],
-)
+)]
 
 *输出总线（exe\_mem\_bus，174位）位映射：*
 
@@ -609,43 +600,41 @@
   content("l3", anchor: "south", padding: .1, [#text(size: 10pt, "1 cycle")])
 
   line("read2", (rel: (0, 1.8), to: "read2"), (rel: (0, 1.8), to: "idle"), "idle", mark: (end: "straight"), name: "l4")
-  content("l4", anchor: "south", padding: .0, [#text(size: 10pt, "sample→done")])
+  content("l4", anchor: "south", padding: .1, [#text(size: 10pt, "done")])
 
   line("wmod", "wmod2", mark: (end: "straight"), name: "l5")
   content("l5", anchor: "south", padding: .1, [#text(size: 10pt, "1 cycle")])
 
   line("wmod2", "wcommit", mark: (end: "straight"), name: "l6")
-  content("l6", anchor: "south", padding: .1, [#text(size: 10pt, "merge→we")])
+  content("l6", anchor: "south", padding: .1, [#text(size: 10pt, "1 cycle")])
 
   line(
     "wcommit",
-    (rel: (0, +1.2), to: "wcommit"),
-    (rel: (1, -1), to: "idle"),
     "idle",
     mark: (end: "straight"),
     name: "l7",
   )
-  content("l7", anchor: "east", padding: .0, [#text(size: 10pt, "done")])
+  content(("l7.start", 50%, "l7.end"), angle: "l7.start", padding: .1, anchor: "north", [#text(size: 10pt, "done")])
 
-  line(
-    (rel: (-0.8, 0), to: "idle.north"),
-    (rel: (-0.8, 1.5), to: "idle.north"),
-    (rel: (0.8, 1.5), to: "read2.north"),
-    (rel: (0.8, 0), to: "read2.north"),
-    mark: (end: "straight"),
-    stroke: (dash: "dashed"),
-    name: "lb1",
-  )
-  content("lb1", anchor: "south", padding: .1, [#text(size: 10pt, "!is_load&&!is_store→done")])
+  // line(
+  //   (rel: (-0.8, 0), to: "idle.north"),
+  //   (rel: (-0.8, 1.5), to: "idle.north"),
+  //   (rel: (0.8, 1.5), to: "read2.north"),
+  //   (rel: (0.8, 0), to: "read2.north"),
+  //   mark: (end: "straight"),
+  //   stroke: (dash: "dashed"),
+  //   name: "lb1",
+  // )
+  // content("lb1", anchor: "south", padding: .1, [#text(size: 10pt, "!is_load&&!is_store→done")])
 
-  line(
-    (rel: (0, -0.3), to: "idle.east"),
-    (rel: (0, 0.3), to: "wmod2.west"),
-    mark: (end: "straight"),
-    stroke: (dash: "dashed"),
-    name: "lb2",
-  )
-  content("lb2", anchor: "north", padding: .1, [#text(size: 10pt, "misalign→done")])
+  // line(
+  //   (rel: (0, -0.3), to: "idle.east"),
+  //   (rel: (0, 0.3), to: "wmod2.west"),
+  //   mark: (end: "straight"),
+  //   stroke: (dash: "dashed"),
+  //   name: "lb2",
+  // )
+  // content("lb2", anchor: "north", padding: .1, [#text(size: 10pt, "misalign→done")])
 })]
 
 *非访存指令快速通过：*
@@ -656,7 +645,7 @@
 
 - LH/LHU：地址最低位不为0
 - LW/SW：地址最低2位不为00
-- 检测到未对齐时，取消写回使能，直接完成。
+- 检测到未对齐时，认为出错，取消写回使能，直接完成。
 
 *Load数据提取与扩展：*
 
@@ -668,6 +657,11 @@
 *Store读-改-写：*
 
 对于SB/SH指令，需要先读出原32位字，再将待写数据合并到对应字节位置，最后写回整个字。合并逻辑根据`mem_size`和`byte_offset`进行字节级拼接。
+
+#move(dx: 2em)[```v
+wire [31:0] store_merged_word;
+assign store_merged_word = (mem_size_reg == 3'b010) ? wdata_reg : (mem_size_reg == 3'b001) ? (byte_offset[1] ? {wdata_reg[15:0], mem_word_for_extract[15:0]} : {mem_word_for_extract[31:16], wdata_reg[15:0]}) : (byte_offset == 2'b00) ? {mem_word_for_extract[31:8], wdata_reg[7:0]} : (byte_offset == 2'b01) ? {mem_word_for_extract[31:16], wdata_reg[7:0], mem_word_for_extract[7:0]} : (byte_offset == 2'b10) ? {mem_word_for_extract[31:24], wdata_reg[7:0], mem_word_for_extract[15:0]} : {wdata_reg[7:0], mem_word_for_extract[23:0]};
+```]
 
 *BRAM延迟适配时序（读路径）：*
 
@@ -689,7 +683,7 @@
 *输出总线（mem\_wb\_bus，135位）位映射：*
 
 #table(
-  columns: (auto, auto, auto, auto),
+  columns: (auto, auto, 1fr, 2fr),
   align: (center, center, center, left),
   stroke: 0.5pt,
   inset: 4pt,
@@ -732,11 +726,8 @@ assign actual_rf_wdata = wb_is_jal_like ? wb_pc_plus4 : rf_wdata;
 
   let box_w = 2.4
   let box_h = 1.0
-  let gap_x = 0.8
+  let gap_x = 1
   let gap_y = 1.2
-
-  rect((-1.2, 2 * gap_y), (-1.2 + box_w, 2 * gap_y + box_h), name: "ctrl")
-  content("ctrl", [#text(size: 9pt, "Controller")])
 
   let stages = (
     ("fetch", "Fetch"),
@@ -761,19 +752,30 @@ assign actual_rf_wdata = wb_is_jal_like ? wb_pc_plus4 : rf_wdata;
   rect((rel: (-1.25, -1.5), to: "mem"), (rel: (1.25, -2.5), to: "mem"), name: "dcache")
   content("dcache", [#text(size: 9pt, "dCache")])
 
-  line("fetch", "decode", mark: (end: "straight"), label: [#text(size: 7pt, "96bit")], label-side: left)
-  line("decode", "execute", mark: (end: "straight"), label: [#text(size: 7pt, "292bit")], label-side: left)
-  line("execute", "mem", mark: (end: "straight"), label: [#text(size: 7pt, "174bit")], label-side: left)
-  line("mem", "wb", mark: (end: "straight"), label: [#text(size: 7pt, "135bit")], label-side: left)
+  rect((rel: (-1.25, 1.5), to: "fetch"), (rel: (1.25, 2.5), to: "fetch"), name: "ctrl")
+  content("ctrl", [#text(size: 9pt, "Controller")])
+
+  line("fetch", "decode", mark: (end: "straight"), name: "lfd")
+  content("lfd", anchor: "south", padding: .1, text(size: 9pt, "96bit"))
+  line("decode", "execute", mark: (end: "straight"), name: "lde")
+  content("lde", anchor: "south", padding: .1, text(size: 9pt, "292bit"))
+  line("execute", "mem", mark: (end: "straight"), name: "lem")
+  content("lem", anchor: "south", padding: .1, text(size: 9pt, "174bit"))
+  line("mem", "wb", mark: (end: "straight"), name: "lmw")
+  content("lmw", anchor: "south", padding: .1, text(size: 9pt, "135bit"))
 
   line("icache", "fetch", mark: (end: "straight"))
   line("dcache", "mem", mark: (symbol: "straight"), bend: -20)
 
-  line("ctrl", (rel: (0, -2), to: "ctrl"), stroke: (dash: "dashed"))
-  content((rel: (0, -1), to: "ctrl"), [#text(size: 10pt, "valid信号")])
+  line("ctrl.south", "fetch", stroke: (dash: "dashed"))
+  line("ctrl.south", "decode.north", stroke: (dash: "dashed"))
+  line("ctrl.south", "execute.north", stroke: (dash: "dashed"))
+  line("ctrl.south", "mem.north", stroke: (dash: "dashed"))
+  line("ctrl.south", "wb.north", stroke: (dash: "dashed"))
+  content((rel: (1.8, -0.9), to: "ctrl"), box(height: 10pt, fill: white)[#text(size: 12pt, "valid信号")])
 
-  line("regfile.west", "decode.north", mark: (symbol: "straight"))
-  line("wb.north", "regfile.east", mark: (symbol: "straight"))
+  line("regfile.west", "decode.north", mark: (end: "straight"))
+  line("wb.north", "regfile.east", mark: (end: "straight"))
 })]
 
 *模块间数据通路：*

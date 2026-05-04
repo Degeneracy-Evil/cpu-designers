@@ -65,7 +65,7 @@ module cpu_execute(
     wire is_jalr;
     assign is_jalr = (inst[6:0] == 7'b1100111) && (inst[14:12] == 3'b000);
 
-    wire branch_cond_true;
+    wire branch_cond_true; // 比较结果
     branch_comparator u_cmp(
         .rs1_value(rs1_value),
         .rs2_value(rs2_value),

@@ -8,7 +8,7 @@
 #   - testbench 中的 $readmemh 使用相对路径，iverilog 可直接解析
 #   - xsim 工作目录为 ${proj_dir}/${proj_name}.sim/sim_1/behav/xsim/
 #     相对路径无法解析，需将 $readmemh 路径改为绝对路径
-#     例如: "<repo_root>/dev/2-simpleCPU/program_source/cpu_test.hex"
+#     例如: "<repo_root>/dev/program_source/cpu_test.hex"
 # =============================================================================
 
 # ---------------------------------------------------------------------------
@@ -36,25 +36,25 @@ set proj_dir        "${base_dir}/project/${proj_name}"
 set dev_dir         "${base_dir}/dev"
 
 # ALU RTL 目录
-set alu_rtl_dir     "${dev_dir}/1-alu/rtl"
+set alu_rtl_dir     "${dev_dir}/rtl/ALU"
 
 # CPU RTL 目录
-set cpu_core_dir    "${dev_dir}/2-simpleCPU/rtl/core"
-set ahb_dir         "${dev_dir}/2-simpleCPU/rtl/AHB-lite"
-set ahb_ip_dir      "${dev_dir}/2-simpleCPU/rtl/AHB-lite/ip"
-set apb_dir         "${dev_dir}/2-simpleCPU/rtl/APB"
-set apb_header_dir  "${dev_dir}/2-simpleCPU/rtl/APB/header"
-set apb_perips_dir  "${dev_dir}/2-simpleCPU/rtl/APB/perips"
-set sys_rtl_dir     "${dev_dir}/2-simpleCPU/rtl"
+set cpu_core_dir    "${dev_dir}/rtl/core"
+set ahb_dir         "${dev_dir}/rtl/AHB-lite"
+set ahb_ip_dir      "${dev_dir}/rtl/AHB-lite/ip"
+set apb_dir         "${dev_dir}/rtl/APB"
+set apb_header_dir  "${dev_dir}/rtl/APB/header"
+set apb_perips_dir  "${dev_dir}/rtl/APB/perips"
+set sys_rtl_dir     "${dev_dir}/rtl"
 
 # Testbench 目录
-set tb_dir          "${dev_dir}/2-simpleCPU/tb"
+set tb_dir          "${dev_dir}/tb"
 
 # 程序源文件目录 (COE / HEX 文件)
-set prog_dir        "${dev_dir}/2-simpleCPU/program_source"
+set prog_dir        "${dev_dir}/program_source"
 
 # FPGA 目录 (约束文件、DCP)
-set fpga_dir        "${dev_dir}/2-simpleCPU/fpga"
+set fpga_dir        "${dev_dir}/fpga"
 
 # === IP 路径 ===
 set ips_dir         "${base_dir}/Reference/ips"

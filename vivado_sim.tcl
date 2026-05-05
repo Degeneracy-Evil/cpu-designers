@@ -22,14 +22,15 @@ set proj_name       "simplecpu_bus"
 set device_part     "xc7a200tfbg676-2"
 
 # === 路径设置 ===
-# 若通过 tcl-tunnel 在 Windows 端 Vivado 运行，需使用 Windows 路径格式
-# 例如: set base_dir "E:/Xprogram/FPGA/tmp"
-# 若在 Linux 端 Vivado 运行，使用 Linux 路径格式
-# 例如: set base_dir "/home/wood/cpu-designers"
-set base_dir        "E:/Xprogram/FPGA/tmp"
+# base_dir 自动取脚本所在目录, 无需手动修改
+# 若需覆盖, 可取消注释并修改下行:
+# set base_dir        "E:/Xprogram/FPGA/tmp"
+if { ![info exists base_dir] } {
+    set base_dir    [file dirname [file normalize [info script]]]
+}
 
-# 项目输出目录
-set proj_dir        "${base_dir}/${proj_name}"
+# 项目输出目录 (Vivado 工程文件统一存放于 project/ 子目录)
+set proj_dir        "${base_dir}/project/${proj_name}"
 
 # RTL 源文件根目录 (指向本仓库 dev/ 目录)
 set dev_dir         "${base_dir}/dev"

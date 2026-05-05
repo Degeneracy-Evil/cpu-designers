@@ -4,7 +4,7 @@ OBJCOPY = riscv64-unknown-elf-objcopy
 ARCH = rv32i_zicsr
 ABI = ilp32
 
-PROGS = comprehensive_test csr_test align_test timer_irq_test timer_seconds icache_init led_marquee
+PROGS = cpu_test led_marquee
 
 all: $(PROGS:%=%.hex)
 

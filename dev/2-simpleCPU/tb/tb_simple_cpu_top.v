@@ -142,9 +142,9 @@ module tb_simple_cpu_top;
 
     initial begin
 `ifndef XILINX_SIMULATOR
-        $readmemh("dev/2-simpleCPU/program_source/icache_init.hex", u_bus.u_ahb_sram_slave.u_bram.mem);
-        $readmemh("dev/2-simpleCPU/program_source/icache_init.hex", dut.u_icache_wrap.u_icache.mem);
-        $readmemh("dev/2-simpleCPU/program_source/icache_init.hex", dut.u_dcache_wrap.u_dcache.mem);
+        $readmemh("dev/2-simpleCPU/program_source/cpu_test.hex", u_bus.u_ahb_sram_slave.u_bram.mem);
+        $readmemh("dev/2-simpleCPU/program_source/cpu_test.hex", dut.u_icache_wrap.u_icache.mem);
+        $readmemh("dev/2-simpleCPU/program_source/cpu_test.hex", dut.u_dcache_wrap.u_dcache.mem);
 `endif
     end
 
@@ -197,42 +197,43 @@ module tb_simple_cpu_top;
         repeat (5) @(posedge clk);
         reset = 1'b0;
 
-        repeat (10000) @(posedge clk);
+        repeat (50000) @(posedge clk);
 
-        check_reg(5'd1,  32'd5);
-        check_reg(5'd2,  32'd77);
-        check_reg(5'd3,  32'd12);
-        check_reg(5'd4,  32'd184);
-        check_reg(5'd5,  32'd200);
-        check_reg(5'd6,  32'd1);
-        check_reg(5'd7,  32'd0);
-        check_reg(5'd8,  32'd2);
-        check_reg(5'd9,  32'd0);
-        check_reg(5'd10, 32'd0);
-        check_reg(5'd11, 32'd7);
-        check_reg(5'd12, 32'd5);
-        check_reg(5'd13, 32'd1);
-        check_reg(5'd14, 32'd1);
-        check_reg(5'd15, 32'd6);
-        check_reg(5'd16, 32'd13);
-        check_reg(5'd17, 32'd9);
-        check_reg(5'd18, 32'd40);
-        check_reg(5'd19, 32'd20);
-        check_reg(5'd20, 32'd10);
-        check_reg(5'd21, 32'h12345000);
-        check_reg(5'd22, 32'd84);
-        check_reg(5'd23, 32'd12);
-        check_reg(5'd24, 32'd5);
-        check_reg(5'd25, 32'd5);
-        check_reg(5'd26, 32'd7);
-        check_reg(5'd27, 32'd7);
-        check_reg(5'd28, 32'd0);
-        check_reg(5'd29, 32'd0);
-        check_reg(5'd30, 32'd0);
-        check_reg(5'd31, 32'd172);
+        check_reg(5'd1,  32'h00000008);
+        check_reg(5'd2,  32'h00000000);
+        check_reg(5'd3,  32'h00000000);
+        check_reg(5'd4,  32'h00000000);
+        check_reg(5'd5,  32'h00000000);
+        check_reg(5'd6,  32'h0000aaaa);
+        check_reg(5'd7,  32'h00000000);
+        check_reg(5'd8,  32'h00005555);
+        check_reg(5'd9,  32'h00005555);
+        check_reg(5'd10, 32'h80004000);
+        check_reg(5'd11, 32'h00000001);
+        check_reg(5'd12, 32'h00005554);
+        check_reg(5'd13, 32'h00005454);
+        check_reg(5'd14, 32'h00000000);
+        check_reg(5'd15, 32'h00000005);
+        check_reg(5'd16, 32'h00000007);
+        check_reg(5'd17, 32'h00000007);
+        check_reg(5'd18, 32'h00000006);
+        check_reg(5'd19, 32'h00000002);
+        check_reg(5'd20, 32'h00000220);
+        check_reg(5'd21, 32'h00000003);
+        check_reg(5'd22, 32'h00000050);
+        check_reg(5'd23, 32'h00000000);
+        check_reg(5'd24, 32'h00000000);
+        check_reg(5'd25, 32'hffffffff);
+        check_reg(5'd26, 32'h00000007);
+        check_reg(5'd27, 32'h00000007);
+        check_reg(5'd28, 32'h00000000);
+        check_reg(5'd29, 32'h00000000);
+        check_reg(5'd30, 32'h00000000);
+        check_reg(5'd31, 32'h000000ac);
 
-        check_mem_word(32'd0, 32'd12);
-        check_mem_word(32'd4, 32'h00070105);
+        check_mem_word(32'd0, 32'habcd5678);
+        check_mem_word(32'd4, 32'h12345678);
+        check_mem_word(32'd8, 32'hff0000ff);
 
         $display("========================================");
         $display("simpleCPU test summary");

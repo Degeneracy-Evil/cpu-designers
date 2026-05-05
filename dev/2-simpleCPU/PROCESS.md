@@ -56,10 +56,6 @@ input wire [DATA_WIDTH-1:0] slave_HRDATA [0:SLAVE_NUM-1],
 | tb_ahb_bus | 3 | 0 |
 | tb_apb_perips | 10 | 0 |
 | tb_cpu_bus_adapter | 6 | 0 |
-| tb_csr_test | 20 | 0 |
-| tb_align_test | 23 | 0 |
-| tb_timer_irq_test | 2 | 0 |
-| tb_timer_seconds | 3 | 0 |
 
 ## 2026-05-02 SLL/SRL/SRA 寄存器移位指令 Bug 修复
 
@@ -96,10 +92,6 @@ assign alu_src1 = (shift_op_r | shift_op_i) ? rs1_value :
 | tb_simple_cpu_top | PASS (33/33) |
 | tb_ahb_bus | PASS |
 | tb_apb_perips | PASS (10/10) |
-| tb_csr_test | PASS (20/20) |
-| tb_align_test | PASS (23/23) |
-| tb_timer_irq_test | PASS |
-| tb_timer_seconds | PASS |
 | tb_alu_cpu_integration | PASS (12/12) |
 | tb_led_marquee | PASS (16/16) |
 

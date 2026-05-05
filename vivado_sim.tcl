@@ -2,13 +2,13 @@
 # vivado_sim.tcl — Vivado 仿真自动化脚本
 # 用法:
 #   1. Vivado TCL Shell 直接运行:  source vivado_sim.tcl
-#   2. 通过 tcl-tunnel 远程执行:   source E:/Xprogram/FPGA/tmp/vivado_sim.tcl
+#   2. 通过 tcl-tunnel 远程执行:   source <repo_root>/vivado_sim.tcl
 #
 # 注意:
 #   - testbench 中的 $readmemh 使用相对路径，iverilog 可直接解析
 #   - xsim 工作目录为 ${proj_dir}/${proj_name}.sim/sim_1/behav/xsim/
-#     相对路径无法解析，需将 $readmemh 路径改为 Windows 绝对路径
-#     例如: "E:/Xprogram/FPGA/tmp/dev/2-simpleCPU/program_source/icache_init.hex"
+#     相对路径无法解析，需将 $readmemh 路径改为绝对路径
+#     例如: "<repo_root>/dev/2-simpleCPU/program_source/cpu_test.hex"
 # =============================================================================
 
 # ---------------------------------------------------------------------------
@@ -61,11 +61,8 @@ set ips_dir         "${base_dir}/Reference/ips"
 
 # === 仿真配置 ===
 # 选择 testbench:
-#   tb_simple_cpu_top  — CPU 全功能测试 (33 PASS, 需要 icache_init.hex)
-#   tb_csr_test        — CSR 指令测试 (20 PASS, 需要 csr_test.hex)
-#   tb_align_test      — 对齐测试 (23 PASS, 需要 align_test.hex)
-#   tb_timer_irq_test  — Timer 中断测试 (需要 timer_irq_test.hex)
-#   tb_timer_seconds   — Timer 秒计数测试 (需要 timer_seconds.hex)
+#   tb_simple_cpu_top  — CPU 全功能测试 (34 PASS, 需要 cpu_test.hex)
+#   tb_uart_hello      — UART 发送测试 (12 PASS, 需要 uart_hello.hex)
 #   tb_led_marquee     — LED 走马灯测试 (16 PASS, 需要 led_marquee.hex)
 #   tb_ahb_bus         — AHB 总线测试 (3 PASS, 无需 hex)
 #   tb_apb_perips      — APB 外设测试 (10 PASS, 无需 hex)
@@ -77,11 +74,8 @@ set tb_name         "tb_simple_cpu_top"
 # 仅对使用 CPU 全系统的 testbench 有意义 (tb_simple_cpu_top 等)
 # tb_ahb_bus / tb_apb_perips / tb_cpu_bus_adapter 不需要 COE
 array set tb_coe_map {
-    tb_simple_cpu_top  "icache_init.coe"
-    tb_csr_test        "csr_test.coe"
-    tb_align_test      "comprehensive_test.coe"
-    tb_timer_irq_test  "comprehensive_test.coe"
-    tb_timer_seconds   "comprehensive_test.coe"
+    tb_simple_cpu_top  "cpu_test.coe"
+    tb_uart_hello      "uart_hello.coe"
     tb_led_marquee     "led_marquee.coe"
     tb_ahb_bus         ""
     tb_apb_perips      ""
@@ -90,11 +84,8 @@ array set tb_coe_map {
 
 # === testbench → 仿真运行时间映射 (ns) ===
 array set tb_runtime_map {
-    tb_simple_cpu_top  "100000ns"
-    tb_csr_test        "60000ns"
-    tb_align_test      "60000ns"
-    tb_timer_irq_test  "100000ns"
-    tb_timer_seconds   "30000ns"
+    tb_simple_cpu_top  "500000ns"
+    tb_uart_hello      "5000000ns"
     tb_led_marquee     "1000000000ns"
     tb_ahb_bus         "5000ns"
     tb_apb_perips      "2000ns"

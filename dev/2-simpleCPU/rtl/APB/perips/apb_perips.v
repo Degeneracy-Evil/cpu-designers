@@ -7,7 +7,7 @@ module apb_perips #(
     parameter STRB_WIDTH  = `APB_STRB_WIDTH,
     parameter PROT_WIDTH  = `APB_PROT_WIDTH,
     parameter GPIO_NUM    = 16,
-    parameter UART_FREQ   = 25
+    parameter UART_FREQ   = 100
 )(
     input  wire                  PCLK,
     input  wire                  PRESETn,

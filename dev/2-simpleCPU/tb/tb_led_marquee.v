@@ -114,7 +114,7 @@ module tb_led_marquee;
         .MEM_DEPTH   (262144),
         .WAIT_STATES (0),
         .GPIO_NUM    (16),
-        .UART_FREQ   (25)
+        .UART_FREQ   (100)
     ) u_bus (
         .HCLK       (clk),
         .HRESETn    (~reset),

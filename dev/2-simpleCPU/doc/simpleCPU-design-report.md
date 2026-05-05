@@ -25,7 +25,8 @@ SimpleCPU 是一个基于 RISC-V RV32I 指令集的**多周期处理器**实现�
 | CSR | mstatus/mie/mtvec/mscratch/mepc/mcause/mtval/mip (8个) |
 | 异常 | 非法指令、ECALL、EBREAK、地址未对齐 |
 | 中断 | MEIP(外部)/MTIP(Timer)/MSIP(软件)，电平触发 |
-| 外设 | GPIO(16bit)/Timer/UART(RX+TX)/SPI，APB 总线挂载 |
+| 系统时钟 | 100 MHz |
+| 外设 | GPIO(16bit)/Timer/UART(RX+TX, 115200 baud)/SPI，APB 总线挂载 |
 | FPGA | Xilinx 7系列，含 LCD 调试显示 |
 
 ---

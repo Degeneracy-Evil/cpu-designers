@@ -256,6 +256,35 @@ csr_mip: csr_rdata = r_mip;
 | ahb_sram_slave.v | 合并 IDLE/BUSY 与 !HSEL 两个相同分支 |
 | ahb_decoder.v | 默认 slave 选择改为 `~(HSELx[0]\|HSELx[1]\|...)` 复用已有选择信号 |
 
+### 系统时钟频率更新 (25MHz → 100MHz)
+
+UART 外设默认时钟频率从 25 MHz 更新为 100 MHz，与 FPGA 系统时钟一致。
+
+| 文件 | 修改 |
+|------|------|
+| uart_tx.v / uart_rx.v | `CLK_FRE` 默认值 25 → 100 |
+| uart_top.v | `FREQ` 默认值 25 → 100 |
+| apb_perips.v | `UART_FREQ` 默认值 25 → 100 |
+| ahb_periph_bus.v | `UART_FREQ` 默认值 25 → 100 |
+| system_top.v | `.UART_FREQ(25)` → `.UART_FREQ(100)` |
+| tb_*.v (5 个测试台) | `.UART_FREQ(25)` → `.UART_FREQ(100)` |
+| tb_uart_hello.v | `CLK_FRE` 从 25 → 100，UART 解码器改为中心采样 |
+
+CYCLE = 100×10⁶ / 115200 = 868，波特率误差 0.0064%。
+
+### UART 解码器中心采样重构
+
+tb_uart_hello.v 的 UART 解码器从边沿采样改为中心采样：
+
+- RX_IDLE：检测起始位下降沿
+- RX_START：等待 CYCLE/2 时钟到达起始位中心，验证仍为 0
+- RX_DATA：每 CYCLE 时钟采样一个数据位（位于位周期中心）
+- RX_STOP：等待 CYCLE 时钟到达停止位中心，存储已解码字符
+
+### mk.py 编译修复
+
+mk.py 自动发现 `.vh`/`.svh` 头文件目录并添加为 `-I` 包含路径，修复 `timer_define.vh` 找不到的编译错误。
+
 ### 回归验证
 
 ```

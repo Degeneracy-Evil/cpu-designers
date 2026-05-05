@@ -4,7 +4,7 @@ OBJCOPY = riscv64-unknown-elf-objcopy
 ARCH = rv32i_zicsr
 ABI = ilp32
 
-PROGS = cpu_test led_marquee
+PROGS = cpu_test led_marquee uart_hello
 
 all: $(PROGS:%=%.hex)
 

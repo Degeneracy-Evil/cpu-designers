@@ -93,7 +93,7 @@ module system_top(
         .MEM_DEPTH   (262144),
         .WAIT_STATES (0),
         .GPIO_NUM    (16),
-        .UART_FREQ   (25)
+        .UART_FREQ   (100)
     ) u_ahb_periph_bus (
         .HCLK       (clk),
         .HRESETn    (resetn),

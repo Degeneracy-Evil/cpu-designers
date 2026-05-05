@@ -1,0 +1,297 @@
+`timescale 1ns / 1ps
+
+module tb_uart_hello;
+
+    reg clk;
+    reg reset;
+
+    wire [31:0] instAddr_32;
+    wire [31:0] instData_32;
+    wire        inst_valid;
+    wire [3:0]  dataWen_4;
+    wire [31:0] dataAddr_32;
+    wire [31:0] writeData_32;
+    wire [31:0] readData_32;
+    wire        data_valid;
+    wire        data_req;
+    wire        timer_irq;
+
+    wire        bus_req_valid;
+    wire        bus_req_write;
+    wire [31:0] bus_req_addr;
+    wire [31:0] bus_req_wdata;
+    wire [2:0]  bus_req_size;
+    wire [2:0]  bus_req_burst;
+    wire [3:0]  bus_req_prot;
+    wire        bus_req_lock;
+    wire        bus_req_ready;
+    wire        bus_resp_valid;
+    wire        bus_resp_error;
+    wire [31:0] bus_resp_rdata;
+
+    wire        uart_tx;
+
+    simple_cpu_top dut(
+        .clk(clk),
+        .reset(reset),
+        .rf_addr(5'b0),
+        .rf_data(),
+        .if_pc(),
+        .if_inst(),
+        .id_pc(),
+        .id_inst(),
+        .exe_pc(),
+        .exe_inst(),
+        .mem_pc(),
+        .mem_inst(),
+        .wb_pc(),
+        .wb_inst(),
+        .display_state(),
+        .instAddr_32(instAddr_32),
+        .instData_32(instData_32),
+        .inst_valid(inst_valid),
+        .dataWen_4(dataWen_4),
+        .dataAddr_32(dataAddr_32),
+        .writeData_32(writeData_32),
+        .readData_32(readData_32),
+        .data_valid(data_valid),
+        .data_req(data_req),
+        .init_sig(1'b0),
+        .timer_irq(timer_irq)
+    );
+
+    cpu_bus_adapter #(
+        .ADDR_WIDTH (32),
+        .DATA_WIDTH (32)
+    ) u_adapter (
+        .clk        (clk),
+        .resetn     (~reset),
+        .inst_addr  (instAddr_32),
+        .inst_data  (instData_32),
+        .inst_req   (1'b1),
+        .data_addr  (dataAddr_32),
+        .data_wdata (writeData_32),
+        .data_rdata (readData_32),
+        .data_wen   (dataWen_4),
+        .data_req   (data_req),
+        .req_valid  (bus_req_valid),
+        .req_write  (bus_req_write),
+        .req_addr   (bus_req_addr),
+        .req_wdata  (bus_req_wdata),
+        .req_size   (bus_req_size),
+        .req_burst  (bus_req_burst),
+        .req_prot   (bus_req_prot),
+        .req_lock   (bus_req_lock),
+        .req_ready  (bus_req_ready),
+        .resp_valid (bus_resp_valid),
+        .resp_error (bus_resp_error),
+        .resp_rdata (bus_resp_rdata),
+        .inst_valid (inst_valid),
+        .data_valid (data_valid)
+    );
+
+    wire [15:0] gpio_io;
+
+    ahb_periph_bus #(
+        .ADDR_WIDTH  (32),
+        .DATA_WIDTH  (32),
+        .SLAVE_NUM   (2),
+        .MEM_DEPTH   (262144),
+        .WAIT_STATES (0),
+        .GPIO_NUM    (16),
+        .UART_FREQ   (100)
+    ) u_bus (
+        .HCLK       (clk),
+        .HRESETn    (~reset),
+        .req_valid  (bus_req_valid),
+        .req_write  (bus_req_write),
+        .req_addr   (bus_req_addr),
+        .req_wdata  (bus_req_wdata),
+        .req_size   (bus_req_size),
+        .req_burst  (bus_req_burst),
+        .req_prot   (bus_req_prot),
+        .req_lock   (bus_req_lock),
+        .req_ready  (bus_req_ready),
+        .resp_valid (bus_resp_valid),
+        .resp_error (bus_resp_error),
+        .resp_rdata (bus_resp_rdata),
+        .o_timer_irq(timer_irq),
+        .io_gpioPin (gpio_io),
+        .i_uart_rx  (1'b1),
+        .o_uart_tx  (uart_tx),
+        .o_spiMosi  (),
+        .i_spiMiso  (1'b0),
+        .o_spiSs    (),
+        .o_spiClk   ()
+    );
+
+    initial begin
+        $readmemh("dev/2-simpleCPU/program_source/uart_hello.hex", u_bus.u_ahb_sram_slave.u_bram.mem);
+        $readmemh("dev/2-simpleCPU/program_source/uart_hello.hex", dut.u_icache_wrap.u_icache.mem);
+        $readmemh("dev/2-simpleCPU/program_source/uart_hello.hex", dut.u_dcache_wrap.u_dcache.mem);
+    end
+
+    initial begin
+        clk = 1'b0;
+        forever #5 clk = ~clk;
+    end
+
+    localparam CLK_FRE    = 100;
+    localparam BAUD_RATE  = 115200;
+    localparam CYCLE      = CLK_FRE * 1000000 / BAUD_RATE;
+    localparam BIT_PERIOD = CYCLE * 10;
+
+    localparam MSG_LEN = 11;
+    reg [7:0] expected_msg [0:MSG_LEN-1];
+    reg [7:0] decoded_msg [0:MSG_LEN-1];
+    integer   decoded_count;
+    integer   pass_count;
+    integer   fail_count;
+
+    initial begin
+        expected_msg[0]  = "H";
+        expected_msg[1]  = "e";
+        expected_msg[2]  = "l";
+        expected_msg[3]  = "l";
+        expected_msg[4]  = "o";
+        expected_msg[5]  = " ";
+        expected_msg[6]  = "W";
+        expected_msg[7]  = "o";
+        expected_msg[8]  = "r";
+        expected_msg[9]  = "l";
+        expected_msg[10] = "d";
+    end
+
+    localparam RX_IDLE  = 2'd0;
+    localparam RX_START = 2'd1;
+    localparam RX_DATA  = 2'd2;
+    localparam RX_STOP  = 2'd3;
+
+    reg [1:0] rx_state;
+    reg [7:0] rx_shift;
+    reg [2:0] rx_bit_cnt;
+    integer   rx_timer;
+
+    always @(posedge clk) begin
+        if (reset) begin
+            rx_state      <= RX_IDLE;
+            rx_shift      <= 8'h0;
+            rx_bit_cnt    <= 3'd0;
+            rx_timer      <= 0;
+            decoded_count <= 0;
+        end else begin
+            case (rx_state)
+                RX_IDLE: begin
+                    if (uart_tx === 1'b0) begin
+                        rx_state <= RX_START;
+                        rx_timer <= 0;
+                    end
+                end
+                RX_START: begin
+                    if (rx_timer == (CYCLE / 2 - 1)) begin
+                        if (uart_tx === 1'b0) begin
+                            rx_state   <= RX_DATA;
+                            rx_shift   <= 8'h0;
+                            rx_bit_cnt <= 3'd0;
+                            rx_timer   <= 0;
+                        end else begin
+                            rx_state <= RX_IDLE;
+                        end
+                    end else begin
+                        rx_timer <= rx_timer + 1;
+                    end
+                end
+                RX_DATA: begin
+                    if (rx_timer == CYCLE - 1) begin
+                        rx_shift   <= {uart_tx, rx_shift[7:1]};
+                        rx_bit_cnt <= rx_bit_cnt + 3'd1;
+                        rx_timer   <= 0;
+                        if (rx_bit_cnt == 3'd7) begin
+                            rx_state <= RX_STOP;
+                        end
+                    end else begin
+                        rx_timer <= rx_timer + 1;
+                    end
+                end
+                RX_STOP: begin
+                    if (rx_timer == CYCLE - 1) begin
+                        rx_state <= RX_IDLE;
+                        if (decoded_count < MSG_LEN) begin
+                            decoded_msg[decoded_count] <= rx_shift;
+                            decoded_count <= decoded_count + 1;
+                        end
+                    end else begin
+                        rx_timer <= rx_timer + 1;
+                    end
+                end
+            endcase
+        end
+    end
+
+    initial begin
+        $dumpfile("dev/2-simpleCPU/tb/waveform/uart_hello.vcd");
+        $dumpvars(0, u_bus.u_apb_perips.u_uart.uart_tx_inst);
+    end
+
+    integer i;
+
+    initial begin
+        pass_count = 0;
+        fail_count = 0;
+        reset = 1'b1;
+
+        repeat (5) @(posedge clk);
+        reset = 1'b0;
+
+        repeat (3000000) @(posedge clk);
+
+        $display("========================================");
+        $display("UART Hello World test");
+        $display("Decoded %0d characters:", decoded_count);
+        begin
+            string s;
+            s = "";
+            for (i = 0; i < decoded_count; i = i + 1) begin
+                $write("%c", decoded_msg[i]);
+                s = {s, $sformatf("%c", decoded_msg[i])};
+            end
+            $display("");
+        end
+
+        if (decoded_count != MSG_LEN) begin
+            fail_count = fail_count + 1;
+            $display("FAIL: expected %0d chars, got %0d", MSG_LEN, decoded_count);
+        end else begin
+            pass_count = pass_count + 1;
+            $display("PASS: character count = %0d", MSG_LEN);
+        end
+
+        for (i = 0; i < MSG_LEN; i = i + 1) begin
+            if (i < decoded_count) begin
+                if (decoded_msg[i] === expected_msg[i]) begin
+                    pass_count = pass_count + 1;
+                    $display("PASS char[%0d]: expected='%c' (0x%02h) got='%c' (0x%02h)",
+                             i, expected_msg[i], expected_msg[i], decoded_msg[i], decoded_msg[i]);
+                end else begin
+                    fail_count = fail_count + 1;
+                    $display("FAIL char[%0d]: expected='%c' (0x%02h) got='%c' (0x%02h)",
+                             i, expected_msg[i], expected_msg[i], decoded_msg[i], decoded_msg[i]);
+                end
+            end else begin
+                fail_count = fail_count + 1;
+                $display("FAIL char[%0d]: expected='%c' (0x%02h) got=MISSING",
+                         i, expected_msg[i], expected_msg[i]);
+            end
+        end
+
+        $display("========================================");
+        $display("UART test summary: pass=%0d fail=%0d", pass_count, fail_count);
+        if (fail_count == 0)
+            $display("ALL TESTS PASSED");
+        else
+            $display("TEST FAILED");
+        $display("========================================");
+        $finish;
+    end
+
+endmodule

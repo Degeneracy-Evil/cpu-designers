@@ -222,8 +222,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--exclude",
         action="append",
-        default=[],
-        help="Substring pattern to exclude from file search. Can be used multiple times.",
+        default=["Reference"],
+        help="Substring pattern to exclude from file search. Can be used multiple times. Default: Reference",
     )
     parser.add_argument(
         "--build-dir",
@@ -308,6 +308,9 @@ def main() -> int:
         resolved = sorted(set(resolved))
 
         include_dirs = {str(p.parent) for p in resolved}
+        for vf in all_verilog_files:
+            if vf.suffix.lower() in (".vh", ".svh"):
+                include_dirs.add(str(vf.parent))
         include_dirs.update(str((workspace / p).resolve()) for p in args.include_dir)
 
         compile_cmd: List[str] = [args.iverilog, "-Wall"] + args.iverilog_flag

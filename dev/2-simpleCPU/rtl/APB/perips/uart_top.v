@@ -2,7 +2,7 @@
 `timescale 1ns / 1ps
 
 module uart_top #(
-    parameter FREQ = 25
+    parameter FREQ = 100
 )(
     input  wire                        PCLK,
     input  wire                        PRESETn,

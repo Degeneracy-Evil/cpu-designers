@@ -8,7 +8,7 @@ module ahb_periph_bus #(
     parameter MEM_DEPTH   = 262144,
     parameter WAIT_STATES = 0,
     parameter GPIO_NUM    = 16,
-    parameter UART_FREQ   = 25
+    parameter UART_FREQ   = 100
 )(
     input  wire                    HCLK,
     input  wire                    HRESETn,

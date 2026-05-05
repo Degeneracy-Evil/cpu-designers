@@ -93,33 +93,49 @@ module cpu_execute(
         .branch_cond_true(branch_cond_true)
     );
 
-    reg req_valid;
-    reg result_ready;
-    reg exe_active;
-    reg exe_seen_valid;
+    wire is_mul;
+    wire is_div;
+    wire is_mu_op;
+    assign is_mul   = alu_control[15];
+    assign is_div   = alu_control[14];
+    assign is_mu_op = is_mul | is_div;
 
     wire [31:0] alu_result;
-    wire alu_busy;
-    wire alu_ready;
-    wire result_valid;
-    wire illegal_op;
-    wire div_by_zero;
 
     alu_32bit u_alu(
-        .clk(clk),
-        .reset(reset),
         .alu_control(alu_control),
         .src1(alu_src1),
         .src2(alu_src2),
-        .req_valid(req_valid),
+        .result(alu_result)
+    );
+
+    wire [31:0] mu_result;
+    wire        mu_busy;
+    wire        mu_ready;
+    wire        mu_result_valid;
+    wire        mu_div_by_zero;
+
+    reg mu_req_valid;
+    reg mu_result_ready;
+    reg mu_active;
+
+    wire [1:0] mu_control;
+    assign mu_control = {is_div, is_mul};
+
+    mu_unit u_mu(
+        .clk(clk),
+        .reset(reset),
+        .mu_control(mu_control),
+        .src1(alu_src1),
+        .src2(alu_src2),
+        .req_valid(mu_req_valid),
         .flush(1'b0),
-        .result_ready(result_ready),
-        .result(alu_result),
-        .alu_busy(alu_busy),
-        .alu_ready(alu_ready),
-        .result_valid(result_valid),
-        .illegal_op(illegal_op),
-        .div_by_zero(div_by_zero)
+        .result_ready(mu_result_ready),
+        .result(mu_result),
+        .mu_busy(mu_busy),
+        .mu_ready(mu_ready),
+        .result_valid(mu_result_valid),
+        .div_by_zero(mu_div_by_zero)
     );
 
     reg [31:0] result_reg;
@@ -127,12 +143,13 @@ module cpu_execute(
     reg        done_reg;
     reg [31:0] branch_target_reg;
     reg        branch_taken_reg;
+    reg        exe_seen_valid;
 
     always @(posedge clk or posedge reset) begin
         if (reset) begin
-            req_valid <= 1'b0;
-            result_ready <= 1'b0;
-            exe_active <= 1'b0;
+            mu_req_valid <= 1'b0;
+            mu_result_ready <= 1'b0;
+            mu_active <= 1'b0;
             exe_seen_valid <= 1'b0;
             result_reg <= 32'b0;
             result_ok <= 1'b0;
@@ -141,39 +158,44 @@ module cpu_execute(
             branch_taken_reg <= 1'b0;
         end else begin
             done_reg <= 1'b0;
-            result_ready <= 1'b0;
+            mu_result_ready <= 1'b0;
 
             if (!exe_valid) begin
                 exe_seen_valid <= 1'b0;
             end
 
-            if (!exe_active && exe_valid && !exe_seen_valid) begin
+            if (!mu_active && exe_valid && !exe_seen_valid) begin
+                exe_seen_valid <= 1'b1;
                 if (use_fixed_wb) begin
                     result_reg <= wb_fixed_data;
                     result_ok <= valid_inst;
                     done_reg <= 1'b1;
-                    exe_seen_valid <= 1'b1;
                     branch_target_reg <= 32'b0;
                     branch_taken_reg <= 1'b0;
+                end else if (is_mu_op) begin
+                    mu_req_valid <= 1'b1;
+                    mu_active <= 1'b1;
                 end else begin
-                    req_valid <= 1'b1;
-                    exe_active <= 1'b1;
-                    exe_seen_valid <= 1'b1;
+                    result_reg <= alu_result;
+                    result_ok <= valid_inst;
+                    done_reg <= 1'b1;
+                    branch_target_reg <= is_jalr ? (alu_result & 32'hffff_fffc) : alu_result;
+                    branch_taken_reg <= is_branch ? branch_cond_true : is_jal_like;
                 end
             end
 
-            if (exe_active) begin
-                if (req_valid && alu_ready) begin
-                    req_valid <= 1'b0;
+            if (mu_active) begin
+                if (mu_req_valid && mu_ready) begin
+                    mu_req_valid <= 1'b0;
                 end
-                if (result_valid) begin
-                    result_ready <= 1'b1;
-                    result_reg <= alu_result;
-                    result_ok <= valid_inst && !illegal_op;
+                if (mu_result_valid) begin
+                    mu_result_ready <= 1'b1;
+                    result_reg <= mu_result;
+                    result_ok <= valid_inst;
                     done_reg <= 1'b1;
-                    exe_active <= 1'b0;
-                    req_valid <= 1'b0;
-                    branch_target_reg <= is_jalr ? (alu_result & 32'hffff_fffc) : alu_result;
+                    mu_active <= 1'b0;
+                    mu_req_valid <= 1'b0;
+                    branch_target_reg <= is_jalr ? (mu_result & 32'hffff_fffc) : mu_result;
                     branch_taken_reg <= is_branch ? branch_cond_true : is_jal_like;
                 end
             end

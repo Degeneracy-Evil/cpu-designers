@@ -1,8 +1,6 @@
 `timescale 1ns / 1ps
 
 module alu_result_selector(
-    input  [31:0] mul_result,
-    input  [31:0] div_result,
     input  [31:0] not_result,
     input  [31:0] add_result,
     input  [31:0] sub_result,
@@ -32,8 +30,6 @@ module alu_result_selector(
   wire [31:0] y_sub;
   wire [31:0] y_add;
   wire [31:0] y_not;
-  wire [31:0] y_div;
-  wire [31:0] y_mul;
 
   assign y_lui  = {32{sel[1]}}  & lui_result;
   assign y_sra  = {32{sel[2]}}  & sra_result;
@@ -48,10 +44,8 @@ module alu_result_selector(
   assign y_sub  = {32{sel[11]}} & sub_result;
   assign y_add  = {32{sel[12]}} & add_result;
   assign y_not  = {32{sel[13]}} & not_result;
-  assign y_div  = {32{sel[14]}} & div_result;
-  assign y_mul  = {32{sel[15]}} & mul_result;
 
   assign y = y_lui | y_sra | y_srl | y_sll | y_xor |
          y_or | y_nor | y_and | y_sltu | y_slt |
-         y_sub | y_add | y_not | y_div | y_mul;
+         y_sub | y_add | y_not;
 endmodule

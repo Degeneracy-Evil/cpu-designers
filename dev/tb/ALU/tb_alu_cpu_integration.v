@@ -2,64 +2,33 @@
 
 module tb_alu_cpu_integration;
 
-  reg clk;
-  reg reset;
   reg [15:0] alu_control;
   reg [31:0] src1;
   reg [31:0] src2;
-  reg req_valid;
-  reg flush;
-  reg result_ready;
 
   wire [31:0] result;
-  wire alu_busy;
-  wire alu_ready;
-  wire result_valid;
-  wire illegal_op;
-  wire div_by_zero;
 
   integer pass_count;
   integer fail_count;
-  integer rv_pulse_count;
-  integer timeout_count;
-  integer rv_before;
-  reg result_valid_d;
 
-  localparam OP_MUL = 16'b1000_0000_0000_0000;
-  localparam OP_DIV = 16'b0100_0000_0000_0000;
   localparam OP_ADD = 16'b0001_0000_0000_0000;
+  localparam OP_SUB = 16'b0000_1000_0000_0000;
+  localparam OP_AND = 16'b0000_0001_0000_0000;
+  localparam OP_OR  = 16'b0000_0000_0100_0000;
+  localparam OP_XOR = 16'b0000_0000_0010_0000;
+  localparam OP_SLL = 16'b0000_0000_0001_0000;
+  localparam OP_SRL = 16'b0000_0000_0000_1000;
+  localparam OP_SRA = 16'b0000_0000_0000_0100;
+  localparam OP_LUI = 16'b0000_0000_0000_0010;
+  localparam OP_SLT = 16'b0000_0100_0000_0000;
+  localparam OP_SLTU = 16'b0000_0010_0000_0000;
 
   alu_32bit dut(
-              .clk(clk),
-              .reset(reset),
               .alu_control(alu_control),
               .src1(src1),
               .src2(src2),
-              .req_valid(req_valid),
-              .flush(flush),
-              .result_ready(result_ready),
-              .result(result),
-              .alu_busy(alu_busy),
-              .alu_ready(alu_ready),
-              .result_valid(result_valid),
-              .illegal_op(illegal_op),
-              .div_by_zero(div_by_zero)
+              .result(result)
             );
-
-  initial
-  begin
-    clk = 1'b0;
-    forever #5 clk = ~clk;
-  end
-
-  always @(posedge clk)
-  begin
-    result_valid_d <= result_valid;
-    if (result_valid && !result_valid_d)
-    begin
-      rv_pulse_count = rv_pulse_count + 1;
-    end
-  end
 
   task expect_true;
     input cond;
@@ -78,143 +47,100 @@ module tb_alu_cpu_integration;
     end
   endtask
 
-  task wait_result_valid;
-    input integer max_cycles;
-    output integer hit;
-    integer i;
-    begin
-      hit = 0;
-      for (i = 0; i < max_cycles; i = i + 1)
-      begin
-        @(posedge clk);
-        if (result_valid)
-        begin
-          hit = 1;
-          i = max_cycles;
-        end
-      end
-    end
-  endtask
-
   initial
   begin
     pass_count = 0;
     fail_count = 0;
-    rv_pulse_count = 0;
-    result_valid_d = 1'b0;
-
-    reset = 1'b1;
-    alu_control = 16'b0;
-    src1 = 32'b0;
-    src2 = 32'b0;
-    req_valid = 1'b0;
-    flush = 1'b0;
-    result_ready = 1'b1;
-
-    repeat (3) @(posedge clk);
-    reset = 1'b0;
-    repeat (2) @(posedge clk);
 
     $display("========================================");
-    $display("ALU CPU Integration Test");
+    $display("ALU Single-Cycle Integration Test");
     $display("========================================");
-
-    // Test 1: req_valid持续高电平时，乘法只触发一次
-    alu_control = OP_MUL;
-    src1 = 32'd3;
-    src2 = 32'd7;
-    req_valid = 1'b1;
-
-    timeout_count = 0;
-    while (!result_valid && timeout_count < 120)
-    begin
-      @(posedge clk);
-      timeout_count = timeout_count + 1;
-    end
-
-    expect_true(timeout_count < 120, "MUL result_valid arrives with held req_valid");
-    expect_true(result == 32'd21, "MUL result is correct");
-
-    repeat (6) @(posedge clk);
-    expect_true(rv_pulse_count == 1, "Held req_valid does not retrigger MUL");
-
-    req_valid = 1'b0;
-    alu_control = 16'b0;
-    repeat (2) @(posedge clk);
-
-    // Test 2: 非法one-hot组合被检测且不会触发执行
-    rv_before = rv_pulse_count;
-    alu_control = 16'b1001_0000_0000_0000; // MUL + ADD
-    src1 = 32'd8;
-    src2 = 32'd2;
-    req_valid = 1'b1;
-    @(posedge clk);
-
-    expect_true(illegal_op == 1'b1, "Illegal one-hot is flagged");
-    expect_true(alu_busy == 1'b0, "Illegal request does not start multi-cycle unit");
-
-    repeat (8) @(posedge clk);
-    expect_true(rv_pulse_count == rv_before, "Illegal request does not produce result_valid");
-
-    req_valid = 1'b0;
-    alu_control = 16'b0;
-    repeat (2) @(posedge clk);
-
-    // Test 3: flush期间取消除法，后续不应回灌结果
-    rv_before = rv_pulse_count;
-    alu_control = OP_DIV;
-    src1 = 32'd1000;
-    src2 = 32'd7;
-    req_valid = 1'b1;
-    @(posedge clk);
-    req_valid = 1'b0;
-
-    repeat (5) @(posedge clk);
-    flush = 1'b1;
-    @(posedge clk);
-    flush = 1'b0;
-
-    @(posedge clk);
-    expect_true(alu_busy == 1'b0, "Flush clears busy state");
-
-    repeat (50) @(posedge clk);
-    expect_true(rv_pulse_count == rv_before, "Flushed DIV does not publish stale result");
-
-    // Test 4: 除零标志可见，并在后续普通请求中清除
-    alu_control = OP_DIV;
-    src1 = 32'd123;
-    src2 = 32'd0;
-    req_valid = 1'b1;
-    @(posedge clk);
-    req_valid = 1'b0;
-
-    wait_result_valid(20, timeout_count);
-    expect_true(timeout_count == 1, "DIV by zero returns quickly");
-    expect_true(result == 32'd0, "DIV by zero quotient is zero");
-    expect_true(div_by_zero == 1'b1, "DIV by zero flag is set");
 
     alu_control = OP_ADD;
-    src1 = 32'd1;
-    src2 = 32'd2;
-    req_valid = 1'b1;
-    @(posedge clk);
-    req_valid = 1'b0;
-    @(posedge clk);
-    expect_true(div_by_zero == 1'b0, "DIV by zero flag clears on next valid request");
+    src1 = 32'd10;
+    src2 = 32'd20;
+    #1;
+    expect_true(result == 32'd30, "ADD 10 + 20 = 30");
+
+    alu_control = OP_SUB;
+    src1 = 32'd100;
+    src2 = 32'd30;
+    #1;
+    expect_true(result == 32'd70, "SUB 100 - 30 = 70");
+
+    alu_control = OP_AND;
+    src1 = 32'hFF00_FF00;
+    src2 = 32'h0FF0_0FF0;
+    #1;
+    expect_true(result == 32'h0F00_0F00, "AND FF00.. & 0FF0.. = 0F00..");
+
+    alu_control = OP_OR;
+    src1 = 32'hFF00_FF00;
+    src2 = 32'h0FF0_0FF0;
+    #1;
+    expect_true(result == 32'hFFF0_FFF0, "OR FF00.. | 0FF0.. = FFF0..");
+
+    alu_control = OP_XOR;
+    src1 = 32'hFF00_FF00;
+    src2 = 32'h0FF0_0FF0;
+    #1;
+    expect_true(result == 32'hF0F0_F0F0, "XOR FF00.. ^ 0FF0.. = F0F0..");
+
+    alu_control = OP_SLL;
+    src1 = 32'h0000_0001;
+    src2 = 32'd4;
+    #1;
+    expect_true(result == 32'h0000_0010, "SLL 1 << 4 = 16");
+
+    alu_control = OP_SRL;
+    src1 = 32'h8000_0000;
+    src2 = 32'd4;
+    #1;
+    expect_true(result == 32'h0800_0000, "SRL 0x80000000 >> 4 = 0x08000000");
+
+    alu_control = OP_SRA;
+    src1 = 32'h8000_0000;
+    src2 = 32'd4;
+    #1;
+    expect_true(result == 32'hF800_0000, "SRA 0x80000000 >>> 4 = 0xF8000000");
+
+    alu_control = OP_SLT;
+    src1 = 32'hFFFF_FFFF;
+    src2 = 32'd0;
+    #1;
+    expect_true(result == 32'd1, "SLT -1 < 0 = 1");
+
+    alu_control = OP_SLT;
+    src1 = 32'd0;
+    src2 = 32'hFFFF_FFFF;
+    #1;
+    expect_true(result == 32'd0, "SLT 0 < -1 = 0");
+
+    alu_control = OP_SLTU;
+    src1 = 32'd0;
+    src2 = 32'hFFFF_FFFF;
+    #1;
+    expect_true(result == 32'd1, "SLTU 0 < 0xFFFFFFFF = 1");
+
+    alu_control = OP_LUI;
+    src1 = 32'd0;
+    src2 = 32'h0001_0000;
+    #1;
+    expect_true(result == 32'h0000_0000, "LUI imm=0x00010000 result=0x00000000");
 
     $display("========================================");
-    $display("CPU Integration Summary");
+    $display("ALU Single-Cycle Summary");
     $display("========================================");
     $display("Passed: %0d", pass_count);
     $display("Failed: %0d", fail_count);
 
     if (fail_count == 0)
     begin
-      $display("ALL CPU INTEGRATION TESTS PASSED");
+      $display("ALL ALU TESTS PASSED");
     end
     else
     begin
-      $display("CPU INTEGRATION TESTS FAILED");
+      $display("ALU TESTS FAILED");
     end
 
     $finish;

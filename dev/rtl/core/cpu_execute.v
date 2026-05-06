@@ -12,6 +12,7 @@ module cpu_execute(
     output     [31:0]  exe_branch_target,
     output             exe_is_ctrl_flow,
     output             exe_is_branch,
+    output             exe_need_mem,
 
     output     [31:0]  exe_pc,
     output     [31:0]  exe_inst,
@@ -217,6 +218,7 @@ module cpu_execute(
     assign exe_branch_target = branch_target_reg;
     assign exe_is_ctrl_flow = is_branch | is_jal_like;
     assign exe_is_branch = is_branch;
+    assign exe_need_mem  = is_load | is_store;
 
     assign exe_csr_wen    = is_csr && !csr_no_write;
     assign exe_csr_waddr  = csr_addr;

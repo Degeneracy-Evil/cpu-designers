@@ -226,7 +226,7 @@ jalr_target:
     csrw mie, x10
 
     lui x10, 0x80004
-    li x11, 200
+    li x11, 100000
     sw x11, 0(x10)
 
     lui x10, 0x80004

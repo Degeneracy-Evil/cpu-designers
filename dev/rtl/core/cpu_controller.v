@@ -17,6 +17,7 @@ module cpu_controller(
     input        dec_is_mret,
     input        dec_is_fence,
     input        exe_is_branch,
+    input        exe_need_mem,
     input        trap_pending,
     input        exception_at_decode,
     input        init_sig,
@@ -28,6 +29,7 @@ module cpu_controller(
     output       csr_valid,
     output       trap_enter_valid,
     output       trap_return_valid,
+    output       exe_to_wb,
 
     output [3:0] state
 );
@@ -85,8 +87,10 @@ module cpu_controller(
                         next_state = STATE_EXEC;
                     end else if (exe_is_branch) begin
                         next_state = trap_pending ? STATE_TRAP_ENTER : STATE_FETCH;
-                    end else begin
+                    end else if (exe_need_mem) begin
                         next_state = STATE_MEM;
+                    end else begin
+                        next_state = STATE_WB;
                     end
                 end
                 STATE_MEM: begin
@@ -123,6 +127,7 @@ module cpu_controller(
     assign csr_valid        = (state_r == STATE_CSR_ACCESS) && !init_sig;
     assign trap_enter_valid = (state_r == STATE_TRAP_ENTER) && !init_sig;
     assign trap_return_valid= (state_r == STATE_TRAP_RETURN) && !init_sig;
+    assign exe_to_wb        = (state_r == STATE_EXEC) && exe_done && !exe_is_branch && !exe_need_mem && !init_sig;
     assign state = state_r;
 
 endmodule

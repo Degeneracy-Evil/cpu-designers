@@ -90,9 +90,19 @@ dev/
     除法器增加 `is_unsigned` 支持 DIVU/REMU，`cpu_decode` 添加 M 指令识别，
     `id_exe_bus` 扩展至 320 位 (is_mu + mu_funct3)
 
-### P2 — 远期
+### P3 - 优化数据通路 (已完成)
 
-- [ ] **双发射**：将CPU升级为双发射CPU，进一步提升性能 
+- [x] **回写数据链路优化**
+  - 现状：回写只能在访存单元之后执行，不需要访存的指令也需要经过MEM，CPU空转。
+  - 目标：在执行单元和访存单元之间直接建立数据通路，不需要访存的指令直接进入回写阶段。
+  - 关键更变：
+    - `cpu_controller.v`: 新增 `exe_need_mem` 输入和 `exe_to_wb` 输出；FSM STATE_EXEC 分支增加判断——非分支且非访存指令直接跳转 STATE_WB，访存指令仍走 STATE_MEM
+    - `cpu_execute.v`: 新增 `exe_need_mem` 输出（`is_load | is_store`）
+    - `simple_cpu_top.v`: 新增 `exe_wb_bus` 组合逻辑，将 `exe_mem_bus` 映射为 `mem_wb_bus` 格式；`mem_wb_bus_r` 加载条件增加 `exe_to_wb` 分支（优先于 `mem_done` 和 `csr_valid`）
+  - 收益: ALU/JAL/JALR/LUI/AUIPC/MUL/DIV 等非访存指令减少 1 个 FSM 状态（跳过 MEM），CPI 降低
+
+### P4 — 远期
+
 - [ ] **MMU 实现**: 当前 paddr=vaddr 直通，接口已预留，可扩展为简单 SV32 页表
 - [ ] **中断优先级完善**: 当前 MEIP > MSIP，需补充完整优先级 MSIP > MTIP > MEIP
 - [ ] **mtvec Vectored 模式**: 当前仅 Direct 模式，可扩展 Vectored 异常向量

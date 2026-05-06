@@ -50,6 +50,7 @@ module simple_cpu_top(
     wire csr_valid;
     wire trap_enter_valid;
     wire trap_return_valid;
+    wire exe_to_wb;
     wire [3:0] fsm_state;
 
     wire dec_is_branch;
@@ -68,6 +69,7 @@ module simple_cpu_top(
     wire [31:0] exe_branch_target;
     wire exe_is_ctrl_flow;
     wire exe_is_branch;
+    wire exe_need_mem;
 
     wire [95:0]  if_id_bus;
     wire [319:0] id_exe_bus;
@@ -105,6 +107,19 @@ module simple_cpu_top(
     wire [31:0] actual_rf_wdata;
     assign actual_rf_wdata = wb_is_jal_like ? wb_pc_plus4 : rf_wdata;
 
+    wire [167:0] exe_wb_bus;
+    assign exe_wb_bus = {
+        exe_mem_bus[206:175],
+        exe_mem_bus[173],
+        exe_mem_bus[170],
+        exe_mem_bus[169] & exe_mem_bus[174],
+        exe_mem_bus[168:164],
+        exe_mem_bus[163:132],
+        exe_mem_bus[95:64],
+        exe_mem_bus[63:32],
+        exe_mem_bus[31:0]
+    };
+
     wire mem_misalign_load;
     wire mem_misalign_store;
     wire [31:0] mem_misalign_addr;
@@ -136,10 +151,11 @@ module simple_cpu_top(
             if (exe_done) begin
                 exe_mem_bus_r <= exe_mem_bus;
             end
-            if (mem_done) begin
+            if (exe_to_wb) begin
+                mem_wb_bus_r <= exe_wb_bus;
+            end else if (mem_done) begin
                 mem_wb_bus_r <= mem_wb_bus;
-            end
-            if (csr_valid) begin
+            end else if (csr_valid) begin
                 mem_wb_bus_r <= csr_wb_bus;
             end
 
@@ -176,6 +192,7 @@ module simple_cpu_top(
         .dec_is_mret(dec_is_mret),
         .dec_is_fence(dec_is_fence),
         .exe_is_branch(exe_is_branch),
+        .exe_need_mem(exe_need_mem),
         .trap_pending(trap_pending),
         .exception_at_decode(exception_at_decode),
         .init_sig(init_sig),
@@ -187,6 +204,7 @@ module simple_cpu_top(
         .csr_valid(csr_valid),
         .trap_enter_valid(trap_enter_valid),
         .trap_return_valid(trap_return_valid),
+        .exe_to_wb(exe_to_wb),
         .state(fsm_state)
     );
 
@@ -267,6 +285,7 @@ module simple_cpu_top(
         .exe_branch_target(exe_branch_target),
         .exe_is_ctrl_flow(exe_is_ctrl_flow),
         .exe_is_branch(exe_is_branch),
+        .exe_need_mem(exe_need_mem),
         .exe_pc(exe_pc),
         .exe_inst(exe_inst),
         .exe_csr_wen(),

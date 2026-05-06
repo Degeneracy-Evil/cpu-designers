@@ -2,27 +2,27 @@
 `include "ahb_def.vh"
 
 module cpu_mem(
-    input              clk,
-    input              reset,
-    input              mem_valid,
-    input      [206:0] exe_mem_bus_r,
-    output             mem_en,
-    output             mem_hwrite,
-    output      [2:0]  mem_hsize,
-    output     [31:0]  dataAddr_32,
-    output     [31:0]  writeData_32,
-    input      [31:0]  readData_32,
-    input              data_valid,
-    output             mem_done,
-    output     [167:0] mem_wb_bus,
+        input              clk,
+        input              reset,
+        input              mem_valid,
+        input      [206:0] exe_mem_bus_r,
+        output             mem_en,
+        output             mem_hwrite,
+        output      [2:0]  mem_hsize,
+        output     [31:0]  dataAddr_32,
+        output     [31:0]  writeData_32,
+        input      [31:0]  readData_32,
+        input              data_valid,
+        output             mem_done,
+        output     [167:0] mem_wb_bus,
 
-    output     [31:0]  mem_pc,
-    output     [31:0]  mem_inst,
+        output     [31:0]  mem_pc,
+        output     [31:0]  mem_inst,
 
-    output             mem_misalign_load,
-    output             mem_misalign_store,
-    output     [31:0]  mem_misalign_addr
-);
+        output             mem_misalign_load,
+        output             mem_misalign_store,
+        output     [31:0]  mem_misalign_addr
+    );
 
     localparam MEM_IDLE  = 2'd0;
     localparam MEM_READ  = 2'd1;
@@ -45,22 +45,22 @@ module cpu_mem(
     wire [31:0] inst;
 
     assign {
-        pc_plus4,
-        valid_inst,
-        is_jal_like,
-        is_load,
-        is_store,
-        is_csr,
-        wb_we,
-        wb_rd,
-        alu_result,
-        mem_size,
-        mem_unsigned,
-        store_data,
-        csr_rdata,
-        pc,
-        inst
-    } = exe_mem_bus_r;
+            pc_plus4,
+            valid_inst,
+            is_jal_like,
+            is_load,
+            is_store,
+            is_csr,
+            wb_we,
+            wb_rd,
+            alu_result,
+            mem_size,
+            mem_unsigned,
+            store_data,
+            csr_rdata,
+            pc,
+            inst
+        } = exe_mem_bus_r;
 
     reg [1:0] mem_state;
     reg [31:0] addr_reg;
@@ -83,23 +83,23 @@ module cpu_mem(
 
     wire [7:0] selected_byte;
     assign selected_byte = (byte_offset == 2'b00) ? readData_32[7:0] :
-                           (byte_offset == 2'b01) ? readData_32[15:8] :
-                           (byte_offset == 2'b10) ? readData_32[23:16] :
-                                                    readData_32[31:24];
+           (byte_offset == 2'b01) ? readData_32[15:8] :
+           (byte_offset == 2'b10) ? readData_32[23:16] :
+           readData_32[31:24];
 
     wire [15:0] selected_half;
     assign selected_half = byte_offset[1] ? readData_32[31:16] : readData_32[15:0];
 
     wire [31:0] load_value;
     assign load_value = (mem_size_reg == 3'b000) ?
-                        (mem_unsigned_reg ? {24'b0, selected_byte} : {{24{selected_byte[7]}}, selected_byte}) :
-                        (mem_size_reg == 3'b001) ?
-                        (mem_unsigned_reg ? {16'b0, selected_half} : {{16{selected_half[15]}}, selected_half}) :
-                        readData_32;
+           (mem_unsigned_reg ? {24'b0, selected_byte} : {{24{selected_byte[7]}}, selected_byte}) :
+           (mem_size_reg == 3'b001) ?
+           (mem_unsigned_reg ? {16'b0, selected_half} : {{16{selected_half[15]}}, selected_half}) :
+           readData_32;
 
     wire misalign_addr;
     assign misalign_addr = (mem_size == 3'b001 && alu_result[0]) ||
-                           (mem_size == 3'b010 && alu_result[1:0] != 2'b00);
+           (mem_size == 3'b010 && alu_result[1:0] != 2'b00);
     wire misalign_load;
     wire misalign_store;
     assign misalign_load  = is_load  && misalign_addr;
@@ -121,7 +121,8 @@ module cpu_mem(
             dataAddr_32_reg <= 32'b0;
             writeData_32_reg <= 32'b0;
             mem_en_reg <= 1'b0;
-        end else begin
+        end
+        else begin
             done_reg <= 1'b0;
             if (mem_state == MEM_IDLE)
                 mem_en_reg <= 1'b0;
@@ -139,25 +140,28 @@ module cpu_mem(
                         mem_unsigned_reg <= mem_unsigned;
                         wb_rd_reg <= wb_rd;
                         wb_we_reg <= wb_we && valid_inst;
-            if (!valid_inst || (!is_load && !is_store)) begin
-                wb_data_reg <= alu_result;
-                hwrite_reg <= 1'b0;
-                hsize_reg <= `AHB_SIZE_WORD;
-                done_reg <= 1'b1;
-            end else if (misalign_load || misalign_store) begin
-                wb_data_reg <= 32'b0;
-                wb_we_reg <= 1'b0;
-                hwrite_reg <= 1'b0;
-                hsize_reg <= `AHB_SIZE_WORD;
-                done_reg <= 1'b1;
-            end else if (is_load) begin
+                        if (!valid_inst || (!is_load && !is_store)) begin
+                            wb_data_reg <= alu_result;
+                            hwrite_reg <= 1'b0;
+                            hsize_reg <= `AHB_SIZE_WORD;
+                            done_reg <= 1'b1;
+                        end
+                        else if (misalign_load || misalign_store) begin
+                            wb_data_reg <= 32'b0;
+                            wb_we_reg <= 1'b0;
+                            hwrite_reg <= 1'b0;
+                            hsize_reg <= `AHB_SIZE_WORD;
+                            done_reg <= 1'b1;
+                        end
+                        else if (is_load) begin
                             dataAddr_32_reg <= alu_result;
                             hwrite_reg <= 1'b0;
                             hsize_reg <= `AHB_SIZE_WORD;
                             writeData_32_reg <= 32'b0;
                             mem_en_reg <= 1'b1;
                             mem_state <= MEM_READ;
-                        end else begin
+                        end
+                        else begin
                             dataAddr_32_reg <= alu_result;
                             hwrite_reg <= 1'b1;
                             mem_en_reg <= 1'b1;
@@ -219,7 +223,15 @@ module cpu_mem(
     assign writeData_32 = writeData_32_reg;
 
     assign mem_done = done_reg;
-    assign mem_wb_bus = {pc_plus4, is_jal_like, is_csr, wb_we_reg, wb_rd_reg, wb_data_reg, csr_rdata, pc, inst};
+    assign mem_wb_bus = {pc_plus4,
+                         is_jal_like,
+                         is_csr,
+                         wb_we_reg,
+                         wb_rd_reg,
+                         wb_data_reg,
+                         csr_rdata,
+                         pc,
+                         inst};
     assign mem_pc = pc;
     assign mem_inst = inst;
 

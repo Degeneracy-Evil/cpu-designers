@@ -20,7 +20,7 @@ module cpu_trap_csr(
     input  [31:0] mem_misalign_addr,
     input  [31:0] mem_pc,
 
-    input  [315:0] id_exe_bus_r,
+    input  [319:0] id_exe_bus_r,
 
     input         csr_valid,
     input         trap_enter_valid,

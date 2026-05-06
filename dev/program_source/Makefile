@@ -1,7 +1,7 @@
 AS = riscv64-unknown-elf-as
 LD = riscv64-unknown-elf-ld
 OBJCOPY = riscv64-unknown-elf-objcopy
-ARCH = rv32i_zicsr
+ARCH = rv32im_zicsr
 ABI = ilp32
 
 PROGS = cpu_test led_marquee uart_hello

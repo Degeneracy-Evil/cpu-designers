@@ -244,7 +244,7 @@ module alu_32bit(
     input  [31:0] src2,          // 源操作数2
    input         req_valid,     // 请求有效
    input         flush,         // 冲刷当前顶层状态
-   input         result_ready,  // 结果消费握手
+   input         result_got,  // 结果消费握手
     output [31:0] result,        // 运算结果
    output        alu_busy,      // 多周期执行中
    output        alu_ready,     // 可接收新请求

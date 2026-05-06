@@ -158,15 +158,15 @@ module tb_simple_cpu_top;
         repeat (5) @(posedge clk);
         reset = 1'b0;
 
-        repeat (50000) @(posedge clk);
+        repeat (80000) @(posedge clk);
 
         check_reg(5'd1,  32'h00000008);
         check_reg(5'd2,  32'h00000000);
         check_reg(5'd3,  32'h00000000);
         check_reg(5'd4,  32'h00000000);
-        check_reg(5'd5,  32'h00000000);
-        check_reg(5'd6,  32'h0000aaaa);
-        check_reg(5'd7,  32'h00000000);
+        check_reg(5'd5, 32'hffffffff);
+        check_reg(5'd6, 32'h00000007);
+        check_reg(5'd7, 32'h00000003);
         check_reg(5'd8,  32'h00005555);
         check_reg(5'd9,  32'h00005555);
         check_reg(5'd10, 32'h80004000);
@@ -195,6 +195,15 @@ module tb_simple_cpu_top;
         check_mem_word(32'd0, 32'habcd5678);
         check_mem_word(32'd4, 32'h12345678);
         check_mem_word(32'd8, 32'hff0000ff);
+
+        check_mem_word(32'h10, 32'h000002bc);
+        check_mem_word(32'h14, 32'h00000000);
+        check_mem_word(32'h18, 32'hffffffff);
+        check_mem_word(32'h1C, 32'hfffffffe);
+        check_mem_word(32'h20, 32'h0000000e);
+        check_mem_word(32'h24, 32'h24924924);
+        check_mem_word(32'h28, 32'h00000002);
+        check_mem_word(32'h2C, 32'h00000003);
 
         $display("========================================");
         $display("simpleCPU test summary");

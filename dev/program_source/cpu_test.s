@@ -167,7 +167,49 @@ jalr_target:
 
     .word 0x0000007F
 
-    addi x1, x0, 3
+    addi  x1, x0, 3
+
+    # ---- RV32M extension tests ----
+    # MUL: 100 * 7 = 700
+    li    x5, 100
+    li    x6, 7
+    mul   x7, x5, x6
+    sw    x7, 0x10(x0)
+
+    # MULH: (-1)*(-1) signed, upper 32 = 0
+    li    x5, -1
+    li    x6, -1
+    mulh  x7, x5, x6
+    sw    x7, 0x14(x0)
+
+    # MULHSU: (-1)*0xFFFFFFFF unsigned, upper 32 = 0xFFFFFFFF
+    mulhsu x7, x5, x6
+    sw    x7, 0x18(x0)
+
+    # MULHU: 0xFFFFFFFF*0xFFFFFFFF unsigned, upper 32 = 0xFFFFFFFE
+    mulhu  x7, x5, x6
+    sw    x7, 0x1C(x0)
+
+    # DIV: 100 / 7 = 14
+    li    x5, 100
+    li    x6, 7
+    div   x7, x5, x6
+    sw    x7, 0x20(x0)
+
+    # DIVU: 0xFFFFFFFF / 7 = 0x24924924
+    li    x5, -1
+    divu  x7, x5, x6
+    sw    x7, 0x24(x0)
+
+    # REM: 100 % 7 = 2
+    li    x5, 100
+    rem   x7, x5, x6
+    sw    x7, 0x28(x0)
+
+    # REMU: 0xFFFFFFFF % 7 = 3
+    li    x5, -1
+    remu  x7, x5, x6
+    sw    x7, 0x2C(x0)
 
     li x10, 0x80
     csrw mstatus, x10

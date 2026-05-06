@@ -3,12 +3,13 @@
 module non_restoring_divider(
     input         clk,
     input         reset,
-    input  [31:0] dividend,   // 被除数
-    input  [31:0] divisor,    // 除数
-    input         start,      // 开始信号
-    output [31:0] quotient,   // 商
-    output [31:0] remainder,  // 余数
-    output        done        // 完成标志
+    input  [31:0] dividend,
+    input  [31:0] divisor,
+    input         start,
+    input         is_unsigned,
+    output [31:0] quotient,
+    output [31:0] remainder,
+    output        done
   );
 
   // 状态机状态定义
@@ -22,18 +23,41 @@ module non_restoring_divider(
   reg [31:0] R;               // 余数寄存器
   reg [31:0] Q;               // 商寄存器(绝对值)
   reg [31:0] D;               // 除数绝对值
-  reg sign_dividend;          // 被除数符号
-  reg sign_divisor;           // 除数符号
-  reg div_zero_case;          // 除零标志
-  reg div_overflow_case;      // INT_MIN / -1 溢出标志
-  reg [31:0] dividend_reg;    // 缓存原始被除数
-  reg [31:0] divisor_reg;     // 缓存原始除数
+  reg sign_dividend;
+  reg sign_divisor;
+  reg div_zero_case;
+  reg div_overflow_case;
+  reg [31:0] dividend_reg;
+  reg [31:0] divisor_reg;
+  reg is_unsigned_reg;
 
-  // 计算绝对值 - 使用MUX选择，避免?:运算符
   wire [31:0] abs_dividend_comb;
   wire [31:0] abs_divisor_comb;
   wire [31:0] neg_dividend;
   wire [31:0] neg_divisor;
+
+  wire abs_dividend_sel;
+  wire abs_divisor_sel;
+  assign abs_dividend_sel = is_unsigned ? 1'b0 : dividend[31];
+  assign abs_divisor_sel  = is_unsigned ? 1'b0 : divisor[31];
+
+  wire unsigned_large_div;
+  assign unsigned_large_div = is_unsigned & divisor[31];
+
+  wire unsigned_ge;
+  assign unsigned_ge = dividend[31] & (divisor[31] ? (dividend[30:0] >= divisor[30:0]) : 1'b1);
+
+  wire [31:0] dividend_sub_divisor;
+  wire [31:0] div_sub_op;
+  assign div_sub_op = ~divisor;
+
+  cla_adder_32bit unsigned_sub_adder(
+                    .a(dividend),
+                    .b(div_sub_op),
+                    .cin(1'b1),
+                    .sum(dividend_sub_divisor),
+                    .cout()
+                  );
 
   cla_adder_32bit neg_dividend_adder(
                     .a(~dividend),
@@ -54,14 +78,14 @@ module non_restoring_divider(
   mux_2to1 #(32) mux_abs_dividend(
              .a(dividend),
              .b(neg_dividend),
-             .sel(dividend[31]),
+             .sel(abs_dividend_sel),
              .y(abs_dividend_comb)
            );
 
   mux_2to1 #(32) mux_abs_divisor(
              .a(divisor),
              .b(neg_divisor),
-             .sel(divisor[31]),
+             .sel(abs_divisor_sel),
              .y(abs_divisor_comb)
            );
 
@@ -142,6 +166,7 @@ module non_restoring_divider(
       div_overflow_case <= 1'b0;
       dividend_reg <= 32'b0;
       divisor_reg <= 32'b0;
+      is_unsigned_reg <= 1'b0;
     end
     else
     begin
@@ -152,23 +177,22 @@ module non_restoring_divider(
           begin
             dividend_reg <= dividend;
             divisor_reg <= divisor;
-            sign_dividend <= dividend[31];
-            sign_divisor <= divisor[31];
+            is_unsigned_reg <= is_unsigned;
+            sign_dividend <= is_unsigned ? 1'b0 : dividend[31];
+            sign_divisor <= is_unsigned ? 1'b0 : divisor[31];
 
             if (divisor == 32'b0)
             begin
-              // 除零约定：商=0，余数=被除数
               state <= FINISH;
               count <= 6'b0;
               R <= dividend;
-              Q <= 32'b0;
+              Q <= 32'hFFFF_FFFF;
               D <= 32'b0;
               div_zero_case <= 1'b1;
               div_overflow_case <= 1'b0;
             end
-            else if ((dividend == 32'h8000_0000) && (divisor == 32'hFFFF_FFFF))
+            else if (!is_unsigned && (dividend == 32'h8000_0000) && (divisor == 32'hFFFF_FFFF))
             begin
-              // 显式处理 INT_MIN / -1 溢出，采用二补码截断语义
               state <= FINISH;
               count <= 6'b0;
               R <= 32'b0;
@@ -176,6 +200,24 @@ module non_restoring_divider(
               D <= 32'b0;
               div_zero_case <= 1'b0;
               div_overflow_case <= 1'b1;
+            end
+            else if (unsigned_large_div)
+            begin
+              state <= FINISH;
+              count <= 6'b0;
+              D <= 32'b0;
+              div_zero_case <= 1'b0;
+              div_overflow_case <= 1'b0;
+              if (unsigned_ge)
+              begin
+                Q <= 32'd1;
+                R <= dividend_sub_divisor;
+              end
+              else
+              begin
+                Q <= 32'd0;
+                R <= dividend;
+              end
             end
             else
             begin
@@ -337,7 +379,7 @@ module non_restoring_divider(
 
     if (div_zero_case)
     begin
-      corrected_quotient = 32'b0;
+      corrected_quotient = 32'hFFFF_FFFF;
       corrected_remainder = dividend_reg;
     end
 

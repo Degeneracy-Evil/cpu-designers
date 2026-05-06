@@ -4,7 +4,7 @@ module cpu_csr_interface(
     input         clk,
     input         reset,
 
-    input  [315:0] id_exe_bus_r,
+    input  [319:0] id_exe_bus_r,
     input  [11:0]  dec_csr_addr,
     input          csr_valid,
 
@@ -40,8 +40,8 @@ module cpu_csr_interface(
     assign csr_uimm_bus    = id_exe_bus_r[68:64];
     assign csr_rs1_bus     = id_exe_bus_r[19:15];
     assign csr_rs1_val_bus = id_exe_bus_r[154:123];
-    assign csr_rd_bus      = id_exe_bus_r[275:271];
-    assign csr_pc_plus4_bus= id_exe_bus_r[315:284];
+    assign csr_rd_bus      = id_exe_bus_r[279:275];
+    assign csr_pc_plus4_bus= id_exe_bus_r[319:288];
     assign csr_pc_bus      = id_exe_bus_r[63:32];
     assign csr_inst_bus    = id_exe_bus_r[31:0];
 

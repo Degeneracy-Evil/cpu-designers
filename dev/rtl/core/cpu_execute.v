@@ -4,7 +4,7 @@ module cpu_execute(
     input              clk,
     input              reset,
     input              exe_valid,
-    input      [315:0] id_exe_bus_r,
+    input      [319:0] id_exe_bus_r,
     input      [31:0]  csr_rdata,
     output             exe_done,
     output     [206:0] exe_mem_bus,
@@ -44,6 +44,8 @@ module cpu_execute(
     wire is_ecall;
     wire is_ebreak;
     wire is_mret;
+    wire is_mu;
+    wire [2:0]  mu_funct3;
     wire [11:0] csr_addr;
     wire [2:0]  csr_funct3;
     wire [4:0]  csr_uimm;
@@ -66,6 +68,8 @@ module cpu_execute(
         mem_size,
         mem_unsigned,
         alu_control,
+        is_mu,
+        mu_funct3,
         alu_src1,
         alu_src2,
         rs1_value,
@@ -93,13 +97,6 @@ module cpu_execute(
         .branch_cond_true(branch_cond_true)
     );
 
-    wire is_mul;
-    wire is_div;
-    wire is_mu_op;
-    assign is_mul   = alu_control[15];
-    assign is_div   = alu_control[14];
-    assign is_mu_op = is_mul | is_div;
-
     wire [31:0] alu_result;
 
     alu_32bit u_alu(
@@ -116,21 +113,18 @@ module cpu_execute(
     wire        mu_div_by_zero;
 
     reg mu_req_valid;
-    reg mu_result_ready;
+    reg mu_result_got;
     reg mu_active;
-
-    wire [1:0] mu_control;
-    assign mu_control = {is_div, is_mul};
 
     mu_unit u_mu(
         .clk(clk),
         .reset(reset),
-        .mu_control(mu_control),
+        .mu_funct3(mu_funct3),
         .src1(alu_src1),
         .src2(alu_src2),
         .req_valid(mu_req_valid),
         .flush(1'b0),
-        .result_ready(mu_result_ready),
+        .result_got(mu_result_got),
         .result(mu_result),
         .mu_busy(mu_busy),
         .mu_ready(mu_ready),
@@ -148,7 +142,7 @@ module cpu_execute(
     always @(posedge clk or posedge reset) begin
         if (reset) begin
             mu_req_valid <= 1'b0;
-            mu_result_ready <= 1'b0;
+            mu_result_got <= 1'b0;
             mu_active <= 1'b0;
             exe_seen_valid <= 1'b0;
             result_reg <= 32'b0;
@@ -158,7 +152,7 @@ module cpu_execute(
             branch_taken_reg <= 1'b0;
         end else begin
             done_reg <= 1'b0;
-            mu_result_ready <= 1'b0;
+            mu_result_got <= 1'b0;
 
             if (!exe_valid) begin
                 exe_seen_valid <= 1'b0;
@@ -172,7 +166,7 @@ module cpu_execute(
                     done_reg <= 1'b1;
                     branch_target_reg <= 32'b0;
                     branch_taken_reg <= 1'b0;
-                end else if (is_mu_op) begin
+                end else if (is_mu) begin
                     mu_req_valid <= 1'b1;
                     mu_active <= 1'b1;
                 end else begin
@@ -189,7 +183,7 @@ module cpu_execute(
                     mu_req_valid <= 1'b0;
                 end
                 if (mu_result_valid) begin
-                    mu_result_ready <= 1'b1;
+                    mu_result_got <= 1'b1;
                     result_reg <= mu_result;
                     result_ok <= valid_inst;
                     done_reg <= 1'b1;

@@ -70,12 +70,12 @@ module simple_cpu_top(
     wire exe_is_branch;
 
     wire [95:0]  if_id_bus;
-    wire [315:0] id_exe_bus;
+    wire [319:0] id_exe_bus;
     wire [206:0] exe_mem_bus;
     wire [167:0] mem_wb_bus;
 
     reg [95:0]  if_id_bus_r;
-    reg [315:0] id_exe_bus_r;
+    reg [319:0] id_exe_bus_r;
     reg [206:0] exe_mem_bus_r;
     reg [167:0] mem_wb_bus_r;
 
@@ -99,7 +99,7 @@ module simple_cpu_top(
     wire [31:0] wb_pc_plus4;
 
     assign id_pc_plus4  = if_id_bus_r[95:64];
-    assign exe_pc_plus4 = id_exe_bus_r[315:284];
+    assign exe_pc_plus4 = id_exe_bus_r[319:288];
     assign wb_pc_plus4  = mem_wb_bus_r[167:136];
 
     wire [31:0] actual_rf_wdata;
@@ -123,7 +123,7 @@ module simple_cpu_top(
         if (reset) begin
             pc <= 32'b0;
             if_id_bus_r <= 96'b0;
-            id_exe_bus_r <= 316'b0;
+            id_exe_bus_r <= 320'b0;
             exe_mem_bus_r <= 207'b0;
             mem_wb_bus_r <= 168'b0;
         end else begin

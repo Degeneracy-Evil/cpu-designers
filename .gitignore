@@ -30,3 +30,4 @@ package.json
 project/
 waveform/
 *.vcd
+netlist/

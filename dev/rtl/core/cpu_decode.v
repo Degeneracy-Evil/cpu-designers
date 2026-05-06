@@ -11,7 +11,7 @@ module cpu_decode(
     output             illegal_inst,
     output             dec_is_branch,
     output             dec_need_exe,
-    output     [315:0] id_exe_bus,
+    output     [319:0] id_exe_bus,
 
     output     [31:0]  id_pc,
     output     [31:0]  id_inst,
@@ -107,6 +107,15 @@ module cpu_decode(
   wire inst_or;
   wire inst_and;
 
+  wire inst_mul;
+  wire inst_mulh;
+  wire inst_mulhsu;
+  wire inst_mulhu;
+  wire inst_div;
+  wire inst_divu;
+  wire inst_rem;
+  wire inst_remu;
+
   assign inst_lui   = (opcode == OPCODE_LUI);
   assign inst_auipc = (opcode == OPCODE_AUIPC);
   assign inst_jal   = (opcode == OPCODE_JAL);
@@ -150,6 +159,15 @@ module cpu_decode(
   assign inst_or   = (opcode == OPCODE_OP) && (funct3 == 3'b110) && (funct7 == 7'b0000000);
   assign inst_and  = (opcode == OPCODE_OP) && (funct3 == 3'b111) && (funct7 == 7'b0000000);
 
+  assign inst_mul    = (opcode == OPCODE_OP) && (funct3 == 3'b000) && (funct7 == 7'b0000001);
+  assign inst_mulh   = (opcode == OPCODE_OP) && (funct3 == 3'b001) && (funct7 == 7'b0000001);
+  assign inst_mulhsu = (opcode == OPCODE_OP) && (funct3 == 3'b010) && (funct7 == 7'b0000001);
+  assign inst_mulhu  = (opcode == OPCODE_OP) && (funct3 == 3'b011) && (funct7 == 7'b0000001);
+  assign inst_div    = (opcode == OPCODE_OP) && (funct3 == 3'b100) && (funct7 == 7'b0000001);
+  assign inst_divu   = (opcode == OPCODE_OP) && (funct3 == 3'b101) && (funct7 == 7'b0000001);
+  assign inst_rem    = (opcode == OPCODE_OP) && (funct3 == 3'b110) && (funct7 == 7'b0000001);
+  assign inst_remu   = (opcode == OPCODE_OP) && (funct3 == 3'b111) && (funct7 == 7'b0000001);
+
   wire inst_ecall;
   wire inst_ebreak;
   wire inst_mret;
@@ -180,6 +198,7 @@ module cpu_decode(
   wire is_store;
   wire is_jal_like;
   wire is_alu;
+  wire is_mu;
   wire is_csr;
   wire is_ecall;
   wire is_ebreak;
@@ -194,6 +213,8 @@ module cpu_decode(
   assign is_alu = inst_lui | inst_auipc | is_load | is_store |
          inst_addi | inst_slti | inst_sltiu | inst_xori | inst_ori | inst_andi | inst_slli | inst_srli | inst_srai |
          inst_add | inst_sub | inst_sll | inst_slt | inst_sltu | inst_xor | inst_srl | inst_sra | inst_or | inst_and;
+  assign is_mu = inst_mul | inst_mulh | inst_mulhsu | inst_mulhu |
+         inst_div | inst_divu | inst_rem | inst_remu;
   assign is_csr = inst_csrrw | inst_csrrs | inst_csrrc | inst_csrrwi | inst_csrrsi | inst_csrrci;
   assign is_ecall = inst_ecall;
   assign is_ebreak = inst_ebreak;
@@ -205,7 +226,7 @@ module cpu_decode(
   assign use_fixed_wb = inst_lui;
 
   wire valid_inst;
-  assign valid_inst = is_branch | is_load | is_store | is_jal_like | is_alu |
+  assign valid_inst = is_branch | is_load | is_store | is_jal_like | is_alu | is_mu |
                       is_csr | is_system_trap | is_mret | is_fence;
 
   wire [31:0] alu_src1;
@@ -241,7 +262,7 @@ module cpu_decode(
          16'b0;
 
   wire wb_we;
-   assign wb_we = valid_inst && (is_alu | is_jal_like | is_csr);
+   assign wb_we = valid_inst && (is_alu | is_jal_like | is_csr | is_mu);
 
   wire [2:0] mem_size;
   assign mem_size = (inst_lb | inst_lbu | inst_sb) ? 3'b000 :
@@ -256,6 +277,9 @@ module cpu_decode(
 
   wire [2:0] branch_funct3;
   assign branch_funct3 = is_branch ? funct3 : 3'b0;
+
+  wire [2:0] mu_funct3;
+  assign mu_funct3 = is_mu ? funct3 : 3'b0;
 
   wire [11:0] csr_addr;
   wire [2:0]  csr_funct3;
@@ -312,6 +336,8 @@ module cpu_decode(
            mem_size,
            mem_unsigned,
            alu_control,
+           is_mu,
+           mu_funct3,
            alu_src1,
            alu_src2,
            rs1_value,

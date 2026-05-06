@@ -82,9 +82,13 @@ dev/
   - 目标: 乘法器/除法器作为独立乘除模块（放在MU文件夹下），ALU 变为单周期模块，ALU重构：不使用握手逻辑作为接口，mem不经过握手逻辑直接调用
   - 收益: 流水线时序优化，加减法等单周期运算直接调用单周期ALU，不需要握手，CPI更低。
   
-- [ ] **RV32M 扩展**:
+- [x] **RV32M 扩展**:
   - 现状：硬件乘除法器已就绪，
   - 目标：实现M指令集扩展，需在 decode/execute 中添加 M 扩展指令识别
+  - 完成：8 条 M 指令 (MUL/MULH/MULHSU/MULHU/DIV/DIVU/REM/REMU) 全部实现
+  - 关键变更：`mu_funct3[2:0]` 直接映射 funct3，Booth 乘法器 A/M 扩展至 33 位修复符号溢出，
+    除法器增加 `is_unsigned` 支持 DIVU/REMU，`cpu_decode` 添加 M 指令识别，
+    `id_exe_bus` 扩展至 320 位 (is_mu + mu_funct3)
 
 ### P2 — 远期
 
@@ -105,7 +109,7 @@ dev/
 | FENCE/FENCE.I 为 NOP | 单 hart 无乱序，无需缓存一致性 |
 | mtvec 仅 Direct | Vectored 模式未实现 |
 | Cache 别名 | 4KB direct-mapped, ≥16KB 地址回绕别名 |
-| 无 RV32M | 乘除硬件存在但未接入 ISA 解码 |
+| 无 RV32M | ~~乘除硬件存在但未接入 ISA 解码~~ 已实现 |
 | 无 A/F/D/C 扩展 | 无原子/浮点/双精度/压缩指令 |
 
 ## 地址映射
@@ -139,6 +143,7 @@ dev/
 | 异常/中断机制 | `dev/docs/core/exception-interrupt.md` |
 | ALU 设计 | `dev/docs/alu/ALU_DESIGN.md` |
 | ALU 接口 | `dev/docs/alu/ALU_INTERFACE.md` |
+| MU 接口 | `dev/docs/alu/MU_INTERFACE.md` |
 | AHB-Lite 规范 | `dev/docs/AHB-lite/AMBA_AHB-Lite_Spec_Summary.md` |
 | APB 规范 | `dev/docs/APB/AMBA_APB_Spec_Summary.md` |
 | FPGA 引脚速查 | `dev/fpga/QUICK_REF.md` |

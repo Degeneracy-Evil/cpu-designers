@@ -30,8 +30,8 @@ wait_tx:
     j send_loop
 
 done:
-end_loop:
-    j end_loop
+    mv x21, x20
+    j send_loop
 
 msg:
     .byte 'H', 'e', 'l', 'l', 'o', ' ', 'W', 'o', 'r', 'l', 'd', 0

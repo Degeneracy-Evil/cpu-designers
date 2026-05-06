@@ -28,3 +28,6 @@ package-lock.json
 package.json
 
 project/
+waveform/
+*.vcd
+netlist/

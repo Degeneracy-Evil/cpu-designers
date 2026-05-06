@@ -16,6 +16,7 @@ AHB-Lite + APB 两级总线架构，目标 Xilinx 7 系列 FPGA。
 dev/
 ├── rtl/                  # 所有 RTL 源文件
 │   ├── ALU/              # ALU 模块 (12 文件)
+│   ├── MU/               # 乘除法器 (3 文件)
 │   ├── core/             # CPU 核心 (21 文件)
 │   ├── AHB-lite/         # AHB-Lite 总线 (8 文件 + ip/)
 │   ├── APB/              # APB 总线及外设 (10 文件 + header/ + perips/)

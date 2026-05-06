@@ -38,6 +38,9 @@ set dev_dir         "${base_dir}/dev"
 # ALU RTL 目录
 set alu_rtl_dir     "${dev_dir}/rtl/ALU"
 
+# MU (乘除法器) RTL 目录
+set mu_rtl_dir      "${dev_dir}/rtl/MU"
+
 # CPU RTL 目录
 set cpu_core_dir    "${dev_dir}/rtl/core"
 set ahb_dir         "${dev_dir}/rtl/AHB-lite"
@@ -127,6 +130,9 @@ puts "========== Step 2: 添加 RTL 源文件 =========="
 # ALU 模块 (12 个文件)
 add_files [glob -directory $alu_rtl_dir *.v]
 
+# MU 乘除法器模块 (3 个文件)
+add_files [glob -directory $mu_rtl_dir *.v]
+
 # CPU 核心模块 (Exclude icache.v and dcache.v simulation models)
 set cpu_files [glob -directory $cpu_core_dir *.v]
 set filtered_cpu []
@@ -165,6 +171,7 @@ puts "========== Step 3: 设置 include 目录 =========="
 
 set_property include_dirs [list \
     $alu_rtl_dir \
+    $mu_rtl_dir \
     $cpu_core_dir \
     $ahb_dir \
     $ahb_ip_dir \
@@ -174,7 +181,7 @@ set_property include_dirs [list \
     $tb_dir \
 ] [current_fileset]
 
-puts "Include 目录已设置 (8 个目录)"
+puts "Include 目录已设置 (9 个目录)"
 
 # ---------------------------------------------------------------------------
 # Step 4: 导入 IP 并配置 ICache COE

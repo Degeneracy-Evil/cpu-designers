@@ -67,7 +67,7 @@ set ips_dir         "${base_dir}/Reference/ips"
 #   tb_ahb_bus         — AHB 总线测试 (3 PASS, 无需 hex)
 #   tb_apb_perips      — APB 外设测试 (10 PASS, 无需 hex)
 #   tb_cpu_bus_adapter — CPU 总线适配器测试 (6 PASS, 无需 hex)
-set tb_name         "tb_simple_cpu_top"
+set tb_name         "tb_uart_hello"
 
 # === testbench → COE/HEX 文件映射 ===
 # ICache BRAM IP 的 COE 初始化文件 (设为 "" 则不加载 COE)
@@ -85,7 +85,7 @@ array set tb_coe_map {
 # === testbench → 仿真运行时间映射 (ns) ===
 array set tb_runtime_map {
     tb_simple_cpu_top  "500000ns"
-    tb_uart_hello      "5000000ns"
+    tb_uart_hello      "35000000ns"
     tb_led_marquee     "1000000000ns"
     tb_ahb_bus         "5000ns"
     tb_apb_perips      "2000ns"

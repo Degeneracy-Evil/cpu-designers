@@ -126,9 +126,9 @@ module tb_uart_hello;
     );
 
     initial begin
-        $readmemh("dev/2-simpleCPU/program_source/uart_hello.hex", u_bus.u_ahb_sram_slave.u_bram.mem);
-        $readmemh("dev/2-simpleCPU/program_source/uart_hello.hex", dut.u_icache_wrap.u_icache.mem);
-        $readmemh("dev/2-simpleCPU/program_source/uart_hello.hex", dut.u_dcache_wrap.u_dcache.mem);
+        $readmemh("E:/Xprogram/FPGA/cpu-designers/dev/2-simpleCPU/program_source/uart_hello.hex", u_bus.u_ahb_sram_slave.u_bram.inst.native_mem_module.blk_mem_gen_v8_4_2_inst.memory);
+        $readmemh("E:/Xprogram/FPGA/cpu-designers/dev/2-simpleCPU/program_source/uart_hello.hex", dut.u_icache_wrap.u_icache.inst.native_mem_module.blk_mem_gen_v8_4_2_inst.memory);
+        $readmemh("E:/Xprogram/FPGA/cpu-designers/dev/2-simpleCPU/program_source/uart_hello.hex", dut.u_dcache_wrap.u_dcache.inst.native_mem_module.blk_mem_gen_v8_4_2_inst.memory);
     end
 
     initial begin
@@ -229,7 +229,7 @@ module tb_uart_hello;
     end
 
     initial begin
-        $dumpfile("dev/2-simpleCPU/tb/waveform/uart_hello.vcd");
+        $dumpfile("E:/Xprogram/FPGA/cpu-designers/dev/2-simpleCPU/tb/waveform/uart_hello.vcd");
         $dumpvars(0, u_bus.u_apb_perips.u_uart.uart_tx_inst);
     end
 
@@ -248,15 +248,10 @@ module tb_uart_hello;
         $display("========================================");
         $display("UART Hello World test");
         $display("Decoded %0d characters:", decoded_count);
-        begin
-            string s;
-            s = "";
-            for (i = 0; i < decoded_count; i = i + 1) begin
-                $write("%c", decoded_msg[i]);
-                s = {s, $sformatf("%c", decoded_msg[i])};
-            end
-            $display("");
+        for (i = 0; i < decoded_count; i = i + 1) begin
+            $write("%c", decoded_msg[i]);
         end
+        $display("");
 
         if (decoded_count != MSG_LEN) begin
             fail_count = fail_count + 1;

@@ -27,7 +27,13 @@ node_modules/
 package-lock.json
 package.json
 
+# visi
 project/
 waveform/
 *.vcd
 netlist/
+
+# vivado
+ips/
+vivado*.log
+vivado*.jou

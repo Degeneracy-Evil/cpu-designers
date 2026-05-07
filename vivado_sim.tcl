@@ -91,11 +91,11 @@ array set tb_coe_map {
 
 # === testbench → 仿真运行时间映射 (ns) ===
 array set tb_runtime_map {
-    tb_simple_cpu_top     "500000ns"
-    tb_simple_cpu_compute "500000ns"
-    tb_simple_cpu_trap    "300000ns"
-    tb_uart_hello         "5000000ns"
-    tb_led_marquee        "1000000000ns"
+    tb_simple_cpu_top     "5ms"
+    tb_simple_cpu_compute "5ms"
+    tb_simple_cpu_trap    "3ms"
+    tb_uart_hello         "5ms"
+    tb_led_marquee        "2s"
     tb_ahb_bus            "5000ns"
     tb_apb_perips         "2000ns"
     tb_cpu_bus_adapter    "5000ns"

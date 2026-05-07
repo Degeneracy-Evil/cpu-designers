@@ -31,3 +31,6 @@ project/
 waveform/
 *.vcd
 netlist/
+
+vivado*.jou
+vivado*.log

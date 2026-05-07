@@ -109,6 +109,7 @@ module cpu_trap_manager(
         .exception_pc(exception_pc_r),
         .exception_mtval(exception_mtval_r),
         .mret_req(trap_return_valid),
+        .trap_enter_valid(trap_enter_valid),
         .interrupt_pc(current_pc),
         .csr_mstatus(csr_mstatus),
         .csr_mie(csr_mie),

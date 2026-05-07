@@ -158,19 +158,23 @@ module tb_simple_cpu_trap;
         repeat (5) @(posedge clk);
         reset = 1'b0;
 
-        repeat (20000) @(posedge clk);
+        repeat (30000) @(posedge clk);
 
         check_reg(5'd1,  32'h00000008);
         check_reg(5'd2,  32'h00000000);
         check_reg(5'd3,  32'h00000000);
         check_reg(5'd4,  32'h00000000);
-        check_reg(5'd19, 32'h00000002);
+        check_reg(5'd19, 32'h80000007);
         check_reg(5'd20, 32'h0000003c);
         check_reg(5'd21, 32'h00000003);
+        check_reg(5'd23, 32'h00000001);
+        check_reg(5'd24, 32'h00000001);
 
         check_mem_word(32'h48, 32'h0000000b);
         check_mem_word(32'h4C, 32'h00000003);
         check_mem_word(32'h50, 32'h00000002);
+        check_mem_word(32'h54, 32'h00000001);
+        check_mem_word(32'h58, 32'h80000007);
 
         $display("========================================");
         $display("trap test summary");

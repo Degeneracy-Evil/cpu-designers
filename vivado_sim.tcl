@@ -93,7 +93,7 @@ array set tb_coe_map {
 array set tb_runtime_map {
     tb_simple_cpu_top     "500000ns"
     tb_simple_cpu_compute "500000ns"
-    tb_simple_cpu_trap    "200000ns"
+    tb_simple_cpu_trap    "300000ns"
     tb_uart_hello         "5000000ns"
     tb_led_marquee        "1000000000ns"
     tb_ahb_bus            "5000ns"

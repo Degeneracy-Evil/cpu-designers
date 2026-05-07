@@ -11,6 +11,8 @@ module cpu_clint(
 
     input              mret_req,
 
+    input              trap_enter_valid,
+
     input       [31:0] interrupt_pc,
 
     input       [31:0] csr_mstatus,
@@ -55,7 +57,7 @@ module cpu_clint(
 
     assign trap_pc = mret_req ? csr_mepc : {csr_mtvec[31:2], 2'b00};
 
-    assign hw_csr_wen = trap_enter || trap_return;
+    assign hw_csr_wen = (trap_enter && trap_enter_valid) || trap_return;
 
     assign hw_mepc_wdata = exception_valid ? exception_pc :
                            interrupt_pc;

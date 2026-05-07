@@ -205,9 +205,9 @@ def parse_args() -> argparse.Namespace:
         formatter_class=argparse.RawTextHelpFormatter,
         epilog=(
             "Examples:\n"
-            "  python mk.py --top dev/1-alu/tb/tb_alu_32bit.v\n"
-            "  python mk.py --top dev/1-alu/tb/tb_alu_32bit.v --top-module tb_alu_32bit\n"
-            "  python mk.py --top dev/1-alu/rtl/alu_32bit.v --compile-only\n"
+            "  python mk.py --top dev/tb/ALU/tb_alu_cpu_integration.v\n"
+            "  python mk.py --top dev/tb/ALU/tb_alu_cpu_integration.v --top-module tb_alu_cpu_integration\n"
+            "  python mk.py --top dev/rtl/ALU/alu_32bit.v --compile-only\n"
         ),
     )
 

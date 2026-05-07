@@ -8,7 +8,7 @@
 #   - testbench 中的 $readmemh 使用相对路径，iverilog 可直接解析
 #   - xsim 工作目录为 ${proj_dir}/${proj_name}.sim/sim_1/behav/xsim/
 #     相对路径无法解析，需将 $readmemh 路径改为绝对路径
-#     例如: "<repo_root>/dev/2-simpleCPU/program_source/cpu_test.hex"
+#     例如: "<repo_root>/dev/program_source/cpu_test.hex"
 # =============================================================================
 
 # ---------------------------------------------------------------------------
@@ -36,60 +36,69 @@ set proj_dir        "${base_dir}/project/${proj_name}"
 set dev_dir         "${base_dir}/dev"
 
 # ALU RTL 目录
-set alu_rtl_dir     "${dev_dir}/1-alu/rtl"
+set alu_rtl_dir     "${dev_dir}/rtl/ALU"
+
+# MU (乘除法器) RTL 目录
+set mu_rtl_dir      "${dev_dir}/rtl/MU"
 
 # CPU RTL 目录
-set cpu_core_dir    "${dev_dir}/2-simpleCPU/rtl/core"
-set ahb_dir         "${dev_dir}/2-simpleCPU/rtl/AHB-lite"
-set ahb_ip_dir      "${dev_dir}/2-simpleCPU/rtl/AHB-lite/ip"
-set apb_dir         "${dev_dir}/2-simpleCPU/rtl/APB"
-set apb_header_dir  "${dev_dir}/2-simpleCPU/rtl/APB/header"
-set apb_perips_dir  "${dev_dir}/2-simpleCPU/rtl/APB/perips"
-set sys_rtl_dir     "${dev_dir}/2-simpleCPU/rtl"
+set cpu_core_dir    "${dev_dir}/rtl/core"
+set ahb_dir         "${dev_dir}/rtl/AHB-lite"
+set ahb_ip_dir      "${dev_dir}/rtl/AHB-lite/ip"
+set apb_dir         "${dev_dir}/rtl/APB"
+set apb_header_dir  "${dev_dir}/rtl/APB/header"
+set apb_perips_dir  "${dev_dir}/rtl/APB/perips"
+set sys_rtl_dir     "${dev_dir}/rtl"
 
 # Testbench 目录
-set tb_dir          "${dev_dir}/2-simpleCPU/tb"
+set tb_dir          "${dev_dir}/tb"
 
 # 程序源文件目录 (COE / HEX 文件)
-set prog_dir        "${dev_dir}/2-simpleCPU/program_source"
+set prog_dir        "${dev_dir}/program_source"
 
 # FPGA 目录 (约束文件、DCP)
-set fpga_dir        "${dev_dir}/2-simpleCPU/fpga"
+set fpga_dir        "${dev_dir}/fpga"
 
 # === IP 路径 ===
 set ips_dir         "${base_dir}/Reference/ips"
 
 # === 仿真配置 ===
 # 选择 testbench:
-#   tb_simple_cpu_top  — CPU 全功能测试 (34 PASS, 需要 cpu_test.hex)
-#   tb_uart_hello      — UART 发送测试 (12 PASS, 需要 uart_hello.hex)
-#   tb_led_marquee     — LED 走马灯测试 (16 PASS, 需要 led_marquee.hex)
-#   tb_ahb_bus         — AHB 总线测试 (3 PASS, 无需 hex)
-#   tb_apb_perips      — APB 外设测试 (10 PASS, 无需 hex)
-#   tb_cpu_bus_adapter — CPU 总线适配器测试 (6 PASS, 无需 hex)
-set tb_name         "tb_uart_hello"
+#   tb_simple_cpu_top     — CPU 全功能测试 (34 PASS, 需要 cpu_test.hex)
+#   tb_simple_cpu_compute — CPU 计算/访存测试 (42 PASS, 需要 cpu_test_compute.hex)
+#   tb_simple_cpu_trap    — CPU 异常/陷阱测试 (10 PASS, 需要 cpu_test_trap.hex)
+#   tb_uart_hello         — UART 发送测试 (12 PASS, 需要 uart_hello.hex)
+#   tb_led_marquee        — LED 走马灯测试 (16 PASS, 需要 led_marquee.hex)
+#   tb_ahb_bus            — AHB 总线测试 (3 PASS, 无需 hex)
+#   tb_apb_perips         — APB 外设测试 (10 PASS, 无需 hex)
+#   tb_cpu_bus_adapter    — CPU 总线适配器测试 (6 PASS, 无需 hex)
+set tb_name         "tb_simple_cpu_top"
 
 # === testbench → COE/HEX 文件映射 ===
 # ICache BRAM IP 的 COE 初始化文件 (设为 "" 则不加载 COE)
 # 仅对使用 CPU 全系统的 testbench 有意义 (tb_simple_cpu_top 等)
 # tb_ahb_bus / tb_apb_perips / tb_cpu_bus_adapter 不需要 COE
 array set tb_coe_map {
-    tb_simple_cpu_top  "cpu_test.coe"
-    tb_uart_hello      "uart_hello.coe"
-    tb_led_marquee     "led_marquee.coe"
-    tb_ahb_bus         ""
-    tb_apb_perips      ""
-    tb_cpu_bus_adapter ""
+    tb_simple_cpu_top     "cpu_test.coe"
+    tb_simple_cpu_compute "cpu_test_compute.coe"
+    tb_simple_cpu_trap    "cpu_test_trap.coe"
+    tb_uart_hello         "uart_hello.coe"
+    tb_led_marquee        "led_marquee.coe"
+    tb_ahb_bus            ""
+    tb_apb_perips         ""
+    tb_cpu_bus_adapter    ""
 }
 
 # === testbench → 仿真运行时间映射 (ns) ===
 array set tb_runtime_map {
-    tb_simple_cpu_top  "500000ns"
-    tb_uart_hello      "35000000ns"
-    tb_led_marquee     "1000000000ns"
-    tb_ahb_bus         "5000ns"
-    tb_apb_perips      "2000ns"
-    tb_cpu_bus_adapter "5000ns"
+    tb_simple_cpu_top     "5ms"
+    tb_simple_cpu_compute "5ms"
+    tb_simple_cpu_trap    "3ms"
+    tb_uart_hello         "5ms"
+    tb_led_marquee        "2s"
+    tb_ahb_bus            "5000ns"
+    tb_apb_perips         "2000ns"
+    tb_cpu_bus_adapter    "5000ns"
 }
 
 set icache_coe_file ""
@@ -126,6 +135,9 @@ puts "========== Step 2: 添加 RTL 源文件 =========="
 
 # ALU 模块 (12 个文件)
 add_files [glob -directory $alu_rtl_dir *.v]
+
+# MU 乘除法器模块 (3 个文件)
+add_files [glob -directory $mu_rtl_dir *.v]
 
 # CPU 核心模块 (Exclude icache.v and dcache.v simulation models)
 set cpu_files [glob -directory $cpu_core_dir *.v]
@@ -165,6 +177,7 @@ puts "========== Step 3: 设置 include 目录 =========="
 
 set_property include_dirs [list \
     $alu_rtl_dir \
+    $mu_rtl_dir \
     $cpu_core_dir \
     $ahb_dir \
     $ahb_ip_dir \
@@ -174,7 +187,7 @@ set_property include_dirs [list \
     $tb_dir \
 ] [current_fileset]
 
-puts "Include 目录已设置 (8 个目录)"
+puts "Include 目录已设置 (9 个目录)"
 
 # ---------------------------------------------------------------------------
 # Step 4: 导入 IP 并配置 ICache COE

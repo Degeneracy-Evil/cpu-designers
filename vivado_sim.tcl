@@ -64,12 +64,14 @@ set ips_dir         "${base_dir}/Reference/ips"
 
 # === 仿真配置 ===
 # 选择 testbench:
-#   tb_simple_cpu_top  — CPU 全功能测试 (34 PASS, 需要 cpu_test.hex)
-#   tb_uart_hello      — UART 发送测试 (12 PASS, 需要 uart_hello.hex)
-#   tb_led_marquee     — LED 走马灯测试 (16 PASS, 需要 led_marquee.hex)
-#   tb_ahb_bus         — AHB 总线测试 (3 PASS, 无需 hex)
-#   tb_apb_perips      — APB 外设测试 (10 PASS, 无需 hex)
-#   tb_cpu_bus_adapter — CPU 总线适配器测试 (6 PASS, 无需 hex)
+#   tb_simple_cpu_top     — CPU 全功能测试 (34 PASS, 需要 cpu_test.hex)
+#   tb_simple_cpu_compute — CPU 计算/访存测试 (42 PASS, 需要 cpu_test_compute.hex)
+#   tb_simple_cpu_trap    — CPU 异常/陷阱测试 (10 PASS, 需要 cpu_test_trap.hex)
+#   tb_uart_hello         — UART 发送测试 (12 PASS, 需要 uart_hello.hex)
+#   tb_led_marquee        — LED 走马灯测试 (16 PASS, 需要 led_marquee.hex)
+#   tb_ahb_bus            — AHB 总线测试 (3 PASS, 无需 hex)
+#   tb_apb_perips         — APB 外设测试 (10 PASS, 无需 hex)
+#   tb_cpu_bus_adapter    — CPU 总线适配器测试 (6 PASS, 无需 hex)
 set tb_name         "tb_simple_cpu_top"
 
 # === testbench → COE/HEX 文件映射 ===
@@ -77,22 +79,26 @@ set tb_name         "tb_simple_cpu_top"
 # 仅对使用 CPU 全系统的 testbench 有意义 (tb_simple_cpu_top 等)
 # tb_ahb_bus / tb_apb_perips / tb_cpu_bus_adapter 不需要 COE
 array set tb_coe_map {
-    tb_simple_cpu_top  "cpu_test.coe"
-    tb_uart_hello      "uart_hello.coe"
-    tb_led_marquee     "led_marquee.coe"
-    tb_ahb_bus         ""
-    tb_apb_perips      ""
-    tb_cpu_bus_adapter ""
+    tb_simple_cpu_top     "cpu_test.coe"
+    tb_simple_cpu_compute "cpu_test_compute.coe"
+    tb_simple_cpu_trap    "cpu_test_trap.coe"
+    tb_uart_hello         "uart_hello.coe"
+    tb_led_marquee        "led_marquee.coe"
+    tb_ahb_bus            ""
+    tb_apb_perips         ""
+    tb_cpu_bus_adapter    ""
 }
 
 # === testbench → 仿真运行时间映射 (ns) ===
 array set tb_runtime_map {
-    tb_simple_cpu_top  "500000ns"
-    tb_uart_hello      "5000000ns"
-    tb_led_marquee     "1000000000ns"
-    tb_ahb_bus         "5000ns"
-    tb_apb_perips      "2000ns"
-    tb_cpu_bus_adapter "5000ns"
+    tb_simple_cpu_top     "500000ns"
+    tb_simple_cpu_compute "500000ns"
+    tb_simple_cpu_trap    "200000ns"
+    tb_uart_hello         "5000000ns"
+    tb_led_marquee        "1000000000ns"
+    tb_ahb_bus            "5000ns"
+    tb_apb_perips         "2000ns"
+    tb_cpu_bus_adapter    "5000ns"
 }
 
 set icache_coe_file ""

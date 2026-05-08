@@ -102,10 +102,12 @@ array set tb_runtime_map {
 }
 
 set icache_coe_file ""
+set dcache_coe_file ""
 if { [info exists tb_coe_map($tb_name)] } {
     set coe_name $tb_coe_map($tb_name)
     if { $coe_name ne "" } {
         set icache_coe_file "${prog_dir}/${coe_name}"
+        set dcache_coe_file "${prog_dir}/${coe_name}"
     }
 }
 
@@ -204,12 +206,21 @@ if { $icache_coe_file ne "" } {
         CONFIG.Load_Init_File {true} \
         CONFIG.Coe_File $icache_coe_file \
     ] [get_ips icache]
-    puts "ICache IP 已配置 (COE: $icache_coe_file)"
+    
+    set_property -dict [list \
+        CONFIG.Load_Init_File {true} \
+        CONFIG.Coe_File $dcache_coe_file \
+    ] [get_ips dcache]
+    puts "ICache 和 DCache IP 已配置 (COE: $icache_coe_file)"
 } else {
     set_property -dict [list \
         CONFIG.Load_Init_File {false} \
     ] [get_ips icache]
-    puts "ICache IP 已配置 (无 COE 初始化)"
+
+    set_property -dict [list \
+        CONFIG.Load_Init_File {false} \
+    ] [get_ips dcache]
+    puts "ICache 和 DCache IP 已配置 (无 COE 初始化)"
 }
 
 generate_target all [get_ips icache]

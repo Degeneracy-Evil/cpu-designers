@@ -416,3 +416,83 @@ curl -s -X POST ".../execute" -d '{"command":"reset_simulation; launch_simulatio
 6. **超时设置要宽裕**：IP 核生成（300s）、仿真启动（300s）、仿真运行（120s）都需要足够的超时时间，避免 HTTP 504。
 
 7. **增量编译**：`launch_simulation` 使用 `--incr` 增量编译。修改少量 RTL 后重跑仿真，只需 `reset_simulation; launch_simulation -mode behavioral`，未修改的文件不会重新编译。
+
+8. **`$readmemh` 路径必须使用 Windows 绝对路径**：xsim 的 `$readmemh` 从 xsim 工作目录（`${proj_dir}/${proj_name}.sim/sim_1/behav/xsim/`）解析相对路径，该目录与项目源码目录相距甚远，相对路径必然无法找到文件。必须使用 Windows 绝对路径如 `E:/Xprogram/FPGA/tmp/dev/.../icache_init.hex`。
+
+9. **testbench 必须包含 `$readmemh` 初始化内存**：行为级仿真中，RTL 行为模型（如 `icache.v`、`dcache.v`、`Sram.v`）的 `mem` 数组默认全零。即使 IP 核配置了 COE 初始化文件，行为模型也不会自动加载。testbench 必须通过 `$readmemh` 显式加载程序到 SRAM、ICache 和 DCache 的 `mem` 数组，否则 CPU 取到全零指令，所有寄存器保持 0。
+
+10. **WSL2 工作区与 Windows 共享目录可能不同步**：`/home/wood/cpu-designers/` 和 `/mnt/e/Xprogram/FPGA/tmp/` 可能是不同的目录树，编辑前者不会影响后者。通过 tcl-tunnel 运行 Vivado 时，Vivado 读取的是 Windows 端文件（`E:/Xprogram/FPGA/tmp/...` 即 `/mnt/e/Xprogram/FPGA/tmp/...`）。修改文件时务必确认操作的是 Vivado 实际使用的路径。
+
+11. **`launch_simulation` 默认运行时间可能不够**：`xsim.simulate.runtime` 默认 1000ns，即使通过 `set_property` 设为 100000ns，也可能不足以让 testbench 执行完所有检查（testbench 的 `repeat (N) @(posedge clk)` 需要精确计算所需时间）。仿真启动后可通过 `run <time>` 命令继续运行。
+
+12. **仿真 `$display` 输出在 `run` 命令的返回中**：testbench 的 `$display` 输出不会出现在 `launch_simulation` 的返回中，而是在后续 `run` 命令的 HTTP 响应 `output` 字段中返回。日志文件（`simulate.log`）可能为空，不要依赖它获取仿真结果。
+
+---
+
+## 11. SimpleCPU + AHB-Lite 仿真实战记录
+
+### 11.1 项目结构
+
+本次仿真使用 `vivado_sim.tcl` 脚本，项目结构为：
+
+```
+E:/Xprogram/FPGA/tmp/
+├── dev/
+│   ├── 1-alu/rtl/           — ALU 模块 (12 文件)
+│   └── 2-simpleCPU/
+│       ├── rtl/
+│       │   ├── core/        — CPU 核心模块 (18 文件)
+│       │   ├── AHB-lite/    — AHB-Lite 总线 (7 文件 + ip/)
+│       │   └── APB/         — APB 总线 + 外设
+│       ├── tb/              — testbench
+│       ├── program_source/  — COE/HEX 初始化文件
+│       └── fpga/            — DCP, XDC
+├── Reference/ips/           — 已生成的 IP (icache.xci, dcache.xci)
+└── vivado_sim.tcl           — 仿真自动化脚本
+```
+
+### 11.2 完整操作流程
+
+```bash
+# 1. 创建 tcl-tunnel 会话
+SID=$(curl -s -X POST http://127.0.0.1:8000/sessions | python3 -c "import sys,json;print(json.load(sys.stdin)['session_id'])")
+echo "Session: $SID"
+
+# 2. 执行 vivado_sim.tcl（含创建工程、添加源文件、导入IP、启动仿真）
+curl -s -X POST "http://127.0.0.1:8000/sessions/$SID/execute" \
+  -H "Content-Type: application/json" \
+  -d '{"command":"source E:/Xprogram/FPGA/tmp/vivado_sim.tcl","timeout_seconds":600}'
+
+# 3. 继续运行仿真（testbench 需要超过默认 100000ns）
+curl -s -X POST "http://127.0.0.1:8000/sessions/$SID/execute" \
+  -H "Content-Type: application/json" \
+  -d '{"command":"run 200us","timeout_seconds":120}'
+
+# 4. 查看输出中的 PASS/FAIL 结果
+```
+
+### 11.3 踩坑与解决
+
+| 问题 | 现象 | 根因 | 解决 |
+|---|---|---|---|
+| testbench 缺少 `$readmemh` | 所有寄存器为 0，pass=6 fail=27 | 行为模型 `mem` 数组默认全零，程序未加载 | 在 testbench 中添加 `$readmemh` 初始化 SRAM、ICache、DCache |
+| `$readmemh` 相对路径失效 | 添加 `$readmemh` 后仍全零 | xsim 工作目录为 `.../behav/xsim/`，相对路径无法解析 | 改用 Windows 绝对路径 `E:/Xprogram/FPGA/tmp/dev/.../icache_init.hex` |
+| WSL2/Windows 文件不同步 | 编辑了 testbench 但仿真行为未变 | `/home/wood/cpu-designers/` ≠ `/mnt/e/Xprogram/FPGA/tmp/` | 编辑 `/mnt/e/Xprogram/FPGA/tmp/...` 下的文件 |
+| 仿真时间不足 | pass_count=0，testbench 检查未执行 | `launch_simulation` 默认 runtime 不够 | 用 `run 200us` 继续运行 |
+| RTL 覆盖 IP 定义 | `WARNING: overwriting previous definition of module 'icache'` | RTL `icache.v`/`dcache.v` 后于 IP 添加，覆盖 IP 的同名模块 | 正常行为，行为模型用于仿真，IP 用于综合 |
+
+### 11.4 最终结果
+
+```
+PASS reg x1 = 0x00000005
+PASS reg x2 = 0x0000004d
+...
+PASS reg x31 = 0x000000ac
+PASS mem[0x00000000] = 0x0000000c
+PASS mem[0x00000004] = 0x00070105
+========================================
+simpleCPU test summary
+pass=33 fail=0
+ALL TESTS PASSED
+========================================
+```

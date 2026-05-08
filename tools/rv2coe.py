@@ -71,6 +71,8 @@ _RV32I_ZICSR: FrozenSet[str] = _RV32I_BASE | frozenset({
     "csrrwi",
     "csrrsi",
     "csrrci",
+    "mret",
+    "sret",
 })
 
 _RV32I_ZIFENCEI: FrozenSet[str] = _RV32I_ZICSR | frozenset({"fence.i"})
@@ -180,7 +182,7 @@ ISA_PROFILES: Dict[str, FrozenSet[str]] = {
     "rv32imaf_zicsr_zifencei": _RV32I_ZIFENCEI | _RV32IM_EXT | _RV32IF_EXT,
 }
 
-DEFAULT_MARCH = "rv32i_zicsr_zifencei"
+DEFAULT_MARCH = "rv32im_zicsr_zifencei"
 
 
 def resolve_isa_profile(march: str) -> FrozenSet[str] | None:
@@ -361,6 +363,8 @@ def check_isa_whitelist(args: argparse.Namespace, elf_path: Path) -> None:
             continue
 
         mnemonic = parts[2].strip().split()[0].lower()
+        if re.match(r"^(0x[0-9a-f]+|unknown|<unknown>|\.word|\.byte|\.half|\.short|\.long|\.dword|\.quad)$", mnemonic):
+            continue
         if mnemonic not in allowed:
             addr = parts[0].strip().rstrip(":")
             invalid.append((addr, mnemonic))

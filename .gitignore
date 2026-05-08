@@ -34,6 +34,5 @@ waveform/
 netlist/
 
 # vivado
-ips/
 vivado*.log
 vivado*.jou

@@ -59,7 +59,7 @@ module system_top(
     wire [31:0] wb_inst;
     wire [31:0] display_state;
 
-    simple_cpu_top cpu(
+    core_top cpu(
         .clk          (clk           ),
         .reset        (reset         ),
         .rf_addr      (rf_addr       ),
@@ -90,7 +90,7 @@ module system_top(
         .timer_irq    (timer_irq     )
     );
 
-    ahb_periph_bus #(
+    ahb_lite_bus #(
         .ADDR_WIDTH  (32),
         .DATA_WIDTH  (32),
         .SLAVE_NUM   (2),
@@ -98,7 +98,7 @@ module system_top(
         .WAIT_STATES (0),
         .GPIO_NUM    (16),
         .UART_FREQ   (100)
-    ) u_ahb_periph_bus (
+    ) u_ahb_lite_bus (
         .HCLK       (clk),
         .HRESETn    (resetn),
         .HADDR      (cpu_HADDR),

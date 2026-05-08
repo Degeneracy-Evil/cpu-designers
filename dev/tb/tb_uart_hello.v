@@ -21,7 +21,7 @@ module tb_uart_hello;
 
     wire        uart_tx;
 
-    simple_cpu_top dut(
+    core_top dut(
         .clk(clk),
         .reset(reset),
         .rf_addr(5'b0),
@@ -54,7 +54,7 @@ module tb_uart_hello;
 
     wire [15:0] gpio_io;
 
-    ahb_periph_bus #(
+    ahb_lite_bus #(
         .ADDR_WIDTH  (32),
         .DATA_WIDTH  (32),
         .SLAVE_NUM   (2),

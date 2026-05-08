@@ -28,7 +28,7 @@ module tb_apb_perips;
     integer pass_count;
     integer fail_count;
 
-    ahb_periph_bus #(
+    ahb_lite_bus #(
         .ADDR_WIDTH  (32),
         .DATA_WIDTH  (32),
         .SLAVE_NUM   (2),

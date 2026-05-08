@@ -9,7 +9,7 @@
 
 ## 1. 计划概述
 
-移除 CPU 核心与 AHB-Lite 总线之间的 Bus4LZU 风格桥接模块 `cpu_bus_adapter`，将 CPU 直接连接到 AHB-Lite 总线。合并 `cpu_bus_adapter`（5 状态 FSM）+ `ahb_master`（4 状态 FSM）的功能到 `simple_cpu_top.v` 中，实现一个精简的 3 状态 AHB-Lite 主设备 FSM。
+移除 CPU 核心与 AHB-Lite 总线之间的 Bus4LZU 风格桥接模块 `cpu_bus_adapter`，将 CPU 直接连接到 AHB-Lite 总线。合并 `cpu_bus_adapter`（5 状态 FSM）+ `ahb_master`（4 状态 FSM）的功能到 `core_top.v` 中，实现一个精简的 3 状态 AHB-Lite 主设备 FSM。
 
 ### 1.1 设计目标
 
@@ -25,25 +25,25 @@
 
 **重构前**：
 ```
-simple_cpu_top (Bus4LZU) → cpu_bus_adapter (5-state) → ahb_master (4-state) → ahb_periph_bus
+core_top (Bus4LZU) → cpu_bus_adapter (5-state) → ahb_master (4-state) → ahb_lite_bus
 ```
 
 **重构后**：
 ```
-simple_cpu_top → cpu_bus_bridge (AHB-Lite master FSM, 3-state) → ahb_periph_bus
+core_top → cpu_bus_bridge (AHB-Lite master FSM, 3-state) → ahb_lite_bus
 ```
 
 ### 1.3 模块变更清单
 
 | 文件 | 变更类型 | 说明 |
 |------|----------|------|
-| `core/simple_cpu_top.v` | 重写 | Bus4LZU 端口 → AHB-Lite 端口，实例化 `cpu_bus_bridge` |
-| `core/cpu_bus_bridge.v` | 新建 | 3 状态 AHB-Lite 主 FSM，从 `simple_cpu_top` 提取 |
+| `core/core_top.v` | 重写 | Bus4LZU 端口 → AHB-Lite 端口，实例化 `cpu_bus_bridge` |
+| `core/cpu_bus_bridge.v` | 新建 | 3 状态 AHB-Lite 主 FSM，从 `core_top` 提取 |
 | `core/dcache_ctrl.v` | 重写 | `cpu_req_wen` → `cpu_req_hwrite` + `cpu_req_hsize`，内部计算 BRAM 字节写使能 |
 | `core/cpu_mem.v` | 修改 | `dataWen_4` → `mem_hwrite` + `mem_hsize`，修复 `mem_en_reg` 时序 |
-| `AHB-lite/ahb_periph_bus.v` | 重写 | req/resp 接口 → 直接 AHB-Lite 信号，移除 `ahb_master` 实例化 |
-| `system_top.v` | 重写 | 移除 `cpu_bus_adapter` 实例化，CPU AHB-Lite 信号直连 `ahb_periph_bus` |
-| `core/cpu_bus_adapter.v` | 删除 | 功能已合并到 `simple_cpu_top.v` |
+| `AHB-lite/ahb_lite_bus.v` | 重写 | req/resp 接口 → 直接 AHB-Lite 信号，移除 `ahb_master` 实例化 |
+| `system_top.v` | 重写 | 移除 `cpu_bus_adapter` 实例化，CPU AHB-Lite 信号直连 `ahb_lite_bus` |
+| `core/cpu_bus_adapter.v` | 删除 | 功能已合并到 `core_top.v` |
 | `tb/tb_cpu_bus_adapter.v` | 删除 | 对应模块已删除 |
 
 ---
@@ -64,7 +64,7 @@ simple_cpu_top → cpu_bus_bridge (AHB-Lite master FSM, 3-state) → ahb_periph_
 - [x] MEM_WRITE：字节/半字写数据通道对齐（`{4{data[7:0]}}` 等）
 - [x] **修复 `mem_en_reg` 时序**：在 MEM_READ/MEM_WRITE 的 `data_valid` 完成路径中清除 `mem_en_reg`，防止其在完成后的额外一周期保持高电平导致伪 AHB 传输
 
-### Step 3: simple_cpu_top.v + cpu_bus_bridge.v — AHB-Lite 主 FSM 模块化
+### Step 3: core_top.v + cpu_bus_bridge.v — AHB-Lite 主 FSM 模块化
 
 - [x] 端口替换：Bus4LZU → AHB-Lite（HADDR/HTRANS/HWRITE/HSIZE/HBURST/HPROT/HMASTLOCK/HWDATA/HRDATA/HREADY/HRESP）
 - [x] 3 状态 FSM：AHB_IDLE / AHB_ADDR / AHB_DATA
@@ -74,9 +74,9 @@ simple_cpu_top → cpu_bus_bridge (AHB-Lite master FSM, 3-state) → ahb_periph_
 - [x] AHB_DATA：等待 HREADY，采样 HRDATA，产生 `ahb_inst_valid_r`/`ahb_data_valid_r` 单周期脉冲
 - [x] 复位：HTRANS=IDLE，所有输出默认值
 - [x] FSM 提取到 `cpu_bus_bridge.v`：CPU 侧 req/resp 接口 + AHB-Lite 侧 master 信号
-- [x] `simple_cpu_top.v` 实例化 `cpu_bus_bridge`，移除内联 FSM 和 `` `include "ahb_def.vh" ``
+- [x] `core_top.v` 实例化 `cpu_bus_bridge`，移除内联 FSM 和 `` `include "ahb_def.vh" ``
 
-### Step 4: ahb_periph_bus.v — 直接 AHB-Lite 接口
+### Step 4: ahb_lite_bus.v — 直接 AHB-Lite 接口
 
 - [x] 移除 req/resp 请求-响应接口
 - [x] 移除 `ahb_master` 实例化
@@ -87,12 +87,12 @@ simple_cpu_top → cpu_bus_bridge (AHB-Lite master FSM, 3-state) → ahb_periph_
 ### Step 5: system_top.v — 直连拓扑
 
 - [x] 移除 `cpu_bus_adapter` 实例化
-- [x] CPU AHB-Lite 信号直连 `ahb_periph_bus`
+- [x] CPU AHB-Lite 信号直连 `ahb_lite_bus`
 - [x] `timer_irq` 反馈路径不变
 
 ### Step 6: 测试适配
 
-- [x] `tb_simple_cpu_top.v`：AHB-Lite 端口 + 直连 `ahb_periph_bus`
+- [x] `tb_simple_cpu_top.v`：AHB-Lite 端口 + 直连 `ahb_lite_bus`
 - [x] `tb_led_marquee.v`：同上 + 仿真定时器值调整
 - [x] `tb_uart_hello.v`：同上 + iverilog 兼容性修复
 - [x] `tb_ahb_bus.v`：直接驱动 AHB-Lite 信号 + `#1` 延迟满足协议时序
@@ -190,10 +190,9 @@ iverilog -g2005 \
   dev/rtl/AHB-lite/ip/sram_model.v \
   dev/rtl/ALU/*.v \
   dev/rtl/core/*.v \
-  dev/rtl/AHB-lite/ahb_master.v dev/rtl/AHB-lite/ahb_decoder.v \
-  dev/rtl/AHB-lite/ahb_mux.v dev/rtl/AHB-lite/ahb_periph_bus.v \
-  dev/rtl/AHB-lite/ahb_sram_slave.v dev/rtl/AHB-lite/ahb_default_slave.v \
-  dev/rtl/AHB-lite/ahb_bus.v \
+  dev/rtl/AHB-lite/ahb_decoder.v \
+  dev/rtl/AHB-lite/ahb_mux.v dev/rtl/AHB-lite/ahb_lite_bus.v \
+  dev/rtl/AHB-lite/ahb_sram_slave.v \
   dev/rtl/APB/ahb_lite_to_apb.v dev/rtl/APB/apb_decoder.v \
   dev/rtl/APB/apb_slave.v dev/rtl/APB/apb_bus.v dev/rtl/APB/apb_master.v \
   dev/rtl/APB/perips/*.v \
@@ -210,11 +209,11 @@ iverilog -g2005 \
 
 | 文件 | 行数 | 变更 |
 |------|------|------|
-| `core/simple_cpu_top.v` | 573 | 重写：AHB-Lite 端口 + 实例化 cpu_bus_bridge |
-| `core/cpu_bus_bridge.v` | 143 | 新建：3 状态 AHB-Lite 主 FSM（从 simple_cpu_top 提取） |
+| `core/core_top.v` | 573 | 重写：AHB-Lite 端口 + 实例化 cpu_bus_bridge |
+| `core/cpu_bus_bridge.v` | 143 | 新建：3 状态 AHB-Lite 主 FSM（从 core_top 提取） |
 | `core/dcache_ctrl.v` | 76 | 重写：hwrite/hsize 接口 + 内部字节写使能 |
 | `core/cpu_mem.v` | 228 | 修改：hwrite/hsize 接口 + mem_en_reg 时序修复 |
-| `AHB-lite/ahb_periph_bus.v` | — | 重写：直接 AHB-Lite 信号接口 |
+| `AHB-lite/ahb_lite_bus.v` | — | 重写：直接 AHB-Lite 信号接口 |
 | `system_top.v` | — | 重写：移除 cpu_bus_adapter，直连拓扑 |
 | `core/cpu_bus_adapter.v` | — | 删除 |
 | `tb/tb_cpu_bus_adapter.v` | — | 删除 |
@@ -249,13 +248,13 @@ iverilog -g2005 \
 
 ### 2026-05-05 AHB-Lite 主 FSM 模块化（cpu_bus_bridge 提取）
 
-**动机**：`simple_cpu_top.v` 内联 AHB-Lite 主设备 FSM（~120 行寄存器 + always + assign），使顶层模块过于臃肿。将 FSM 提取为独立模块 `cpu_bus_bridge`，降低 `simple_cpu_top` 复杂度，总线逻辑可独立验证和复用。
+**动机**：`core_top.v` 内联 AHB-Lite 主设备 FSM（~120 行寄存器 + always + assign），使顶层模块过于臃肿。将 FSM 提取为独立模块 `cpu_bus_bridge`，降低 `core_top` 复杂度，总线逻辑可独立验证和复用。
 
 **架构变更**：
 
 ```
-重构前: simple_cpu_top (内联 3-state FSM) → ahb_periph_bus
-重构后: simple_cpu_top → cpu_bus_bridge (3-state FSM) → ahb_periph_bus
+重构前: core_top (内联 3-state FSM) → ahb_lite_bus
+重构后: core_top → cpu_bus_bridge (3-state FSM) → ahb_lite_bus
 ```
 
 **变更文件**：
@@ -263,7 +262,7 @@ iverilog -g2005 \
 | 文件 | 行数 | 变更 |
 |------|------|------|
 | `core/cpu_bus_bridge.v` | 143 | 新建：AHB-Lite 主设备 FSM，CPU 侧 req/resp + AHB-Lite 侧 master 信号 |
-| `core/simple_cpu_top.v` | 669→573 | 移除内联 FSM，实例化 `cpu_bus_bridge`，移除 `` `include "ahb_def.vh" `` |
+| `core/core_top.v` | 669→573 | 移除内联 FSM，实例化 `cpu_bus_bridge`，移除 `` `include "ahb_def.vh" `` |
 
 **`cpu_bus_bridge` 接口**：
 
@@ -289,13 +288,13 @@ iverilog -g2005 \
 
 ### 2026-05-05 CSR 与 异常/Trap 重构（cpu_trap_csr 提取）
 
-**动机**：`simple_cpu_top.v` 内联大量 CSR 和异常/Trap glue 逻辑（~130 行），包括异常检测与注册、CSR 写解码（funct3 分派 + new_val 计算 + no_write 判断）、CSR WB 总线构造、`cpu_csr` 和 `cpu_clint` 实例化。将这些提取为独立模块 `cpu_trap_csr`，降低顶层复杂度。
+**动机**：`core_top.v` 内联大量 CSR 和异常/Trap glue 逻辑（~130 行），包括异常检测与注册、CSR 写解码（funct3 分派 + new_val 计算 + no_write 判断）、CSR WB 总线构造、`cpu_csr` 和 `cpu_clint` 实例化。将这些提取为独立模块 `cpu_trap_csr`，降低顶层复杂度。
 
 **架构变更**：
 
 ```
-重构前: simple_cpu_top (内联异常检测 + CSR 写解码 + cpu_csr + cpu_clint)
-重构后: simple_cpu_top → cpu_trap_csr (异常检测 + CSR 写解码 + cpu_csr + cpu_clint)
+重构前: core_top (内联异常检测 + CSR 写解码 + cpu_csr + cpu_clint)
+重构后: core_top → cpu_trap_csr (异常检测 + CSR 写解码 + cpu_csr + cpu_clint)
 ```
 
 **变更文件**：
@@ -303,7 +302,7 @@ iverilog -g2005 \
 | 文件 | 行数 | 变更 |
 |------|------|------|
 | `core/cpu_trap_csr.v` | 209 | 新建：封装异常检测/注册 + CSR 写解码 + cpu_csr + cpu_clint |
-| `core/simple_cpu_top.v` | 573→439 | 移除 CSR/异常内联逻辑，实例化 `cpu_trap_csr` |
+| `core/core_top.v` | 573→439 | 移除 CSR/异常内联逻辑，实例化 `cpu_trap_csr` |
 
 **`cpu_trap_csr` 接口**：
 

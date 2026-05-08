@@ -62,14 +62,14 @@ dev/
   - 收益: 减少一级适配延迟，简化数据通路，消除冗余 FSM 状态
 
 - [x] **AHB-Lite 主 FSM 模块化**
-  - 从 `simple_cpu_top.v` 提取 AHB-Lite 主设备 FSM 到独立模块 `cpu_bus_bridge.v`
-  - `simple_cpu_top.v` 仅实例化 `cpu_bus_bridge`，不再内联总线协议逻辑
-  - 收益: 降低 `simple_cpu_top` 复杂度，总线逻辑可独立验证和复用
+  - 从 `core_top.v` 提取 AHB-Lite 主设备 FSM 到独立模块 `cpu_bus_bridge.v`
+  - `core_top.v` 仅实例化 `cpu_bus_bridge`，不再内联总线协议逻辑
+  - 收益: 降低 `core_top` 复杂度，总线逻辑可独立验证和复用
 
 - [x] **CSR 与 异常/Trap 重构**
-  - 从 `simple_cpu_top.v` 提取 CSR 写解码 + 异常检测/注册 + `cpu_csr` + `cpu_clint` 到独立模块 `cpu_trap_csr.v`
-  - `simple_cpu_top.v` 仅实例化 `cpu_trap_csr`，移除所有 CSR/异常内联逻辑
-  - 收益: `simple_cpu_top` 从 573 行缩减至 439 行，CSR/异常路径可独立验证
+  - 从 `core_top.v` 提取 CSR 写解码 + 异常检测/注册 + `cpu_csr` + `cpu_clint` 到独立模块 `cpu_trap_csr.v`
+  - `core_top.v` 仅实例化 `cpu_trap_csr`，移除所有 CSR/异常内联逻辑
+  - 收益: `core_top` 从 573 行缩减至 439 行，CSR/异常路径可独立验证
 
 - [x] **CSR 与 异常/Trap 进一步拆分**
   - 将 `cpu_trap_csr.v` 拆分为 `cpu_trap_manager`（异常捕获/注册 + `cpu_clint` + trap 决策）和 `cpu_csr_interface`（CSR 读写解码 + 写回总线 + `cpu_csr`）
@@ -99,7 +99,7 @@ dev/
   - 关键更变：
     - `cpu_controller.v`: 新增 `exe_need_mem` 输入和 `exe_to_wb` 输出；FSM STATE_EXEC 分支增加判断——非分支且非访存指令直接跳转 STATE_WB，访存指令仍走 STATE_MEM
     - `cpu_execute.v`: 新增 `exe_need_mem` 输出（`is_load | is_store`）
-    - `simple_cpu_top.v`: 新增 `exe_wb_bus` 组合逻辑，将 `exe_mem_bus` 映射为 `mem_wb_bus` 格式；`mem_wb_bus_r` 加载条件增加 `exe_to_wb` 分支（优先于 `mem_done` 和 `csr_valid`）
+    - `core_top.v`: 新增 `exe_wb_bus` 组合逻辑，将 `exe_mem_bus` 映射为 `mem_wb_bus` 格式；`mem_wb_bus_r` 加载条件增加 `exe_to_wb` 分支（优先于 `mem_done` 和 `csr_valid`）
   - 收益: ALU/JAL/JALR/LUI/AUIPC/MUL/DIV 等非访存指令减少 1 个 FSM 状态（跳过 MEM），CPI 降低
 
 ### P4 — 远期

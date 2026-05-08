@@ -7,12 +7,10 @@
 ```
 AHB-lite/
 ├── ahb_def.vh            # AHB-Lite 参数与常量定义
-├── ahb_master.v          # AHB-Lite 主设备接口（CPU请求→AHB信号）
+├── ahb_lite_bus.v        # AHB 外设总线顶层（集成decoder+mux+sram_slave+bridge）
 ├── ahb_decoder.v         # 地址译码器（HADDR→HSELx）
 ├── ahb_mux.v             # 读数据/响应多路选择器
-├── ahb_default_slave.v   # 默认从设备（未映射地址→ERROR）
 ├── ahb_sram_slave.v      # SRAM 从设备（存储器）
-├── ahb_bus.v             # 顶层互连（集成所有组件）
 └── AHB-lite.md           # 本文档
 ```
 

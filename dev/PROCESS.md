@@ -24,7 +24,7 @@
   - 否则 → STATE_WB（非访存指令，**新增直接路径**）
 - `exe_to_wb` 定义：`STATE_EXEC && exe_done && !exe_is_branch && !exe_need_mem && !init_sig`
 
-#### 3. simple_cpu_top.v
+#### 3. core_top.v
 
 - 新增 wire `exe_need_mem`、`exe_to_wb`
 - 新增组合逻辑 `exe_wb_bus`（168 bit）：将 `exe_mem_bus`（207 bit）字段映射为 `mem_wb_bus` 格式

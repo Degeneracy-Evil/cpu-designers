@@ -153,7 +153,7 @@ if {[llength $filtered_cpu] > 0} {
     add_files $filtered_cpu
 }
 
-# AHB-Lite 总线 (7 个文件)
+# AHB-Lite 总线 (4 个文件)
 add_files [glob -directory $ahb_dir *.v]
 
 # AHB-Lite IP (sram_model.v is excluded to use real IP core)

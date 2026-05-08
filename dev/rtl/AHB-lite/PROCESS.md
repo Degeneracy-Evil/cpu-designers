@@ -30,12 +30,10 @@
 ```
 AHB-lite/
 ├── ahb_def.vh            # 参数与常量定义（ADDR/DATA宽度、HTRANS/HBURST/HSIZE/HRESP编码）
-├── ahb_master.v          # 主设备接口：CPU请求→AHB-Lite信号，状态机驱动HTRANS/HADDR/HWDATA
+├── ahb_lite_bus.v        # AHB 外设总线顶层：集成decoder+mux+sram_slave+ahb_lite_to_apb+apb
 ├── ahb_decoder.v         # 地址译码器：HADDR高位→HSELx选择信号，支持1/2/4/8从设备
 ├── ahb_mux.v             # 多路选择器：被选从设备的HRDATA/HREADYOUT/HRESP→全局HRDATA/HREADY/HRESP
-├── ahb_default_slave.v   # 默认从设备：NONSEQ/SEQ→ERROR(2周期)，IDLE/BUSY→OKAY(0等待)
-├── ahb_sram_slave.v      # SRAM从设备：支持字节/半字/字写入，可配置等待状态
-└── ahb_bus.v             # 顶层互连：集成master+decoder+mux+slaves+default_slave
+└── ahb_sram_slave.v      # SRAM从设备：支持字节/半字/字写入，可配置等待状态
 ```
 
 ### 1.3 信号映射（参照规范第2节）
@@ -194,7 +192,7 @@ iverilog -g2012 -I rtl/AHB-lite ahb_master.v ahb_decoder.v ahb_mux.v ahb_default
 ## 4. 后续计划
 
 - [ ] 编写 AHB-Lite testbench（基本读写、突发传输、ERROR响应、等待状态）
-- [ ] 集成到 CPU 顶层（simple_cpu_top → ahb_bus → sram_slave + ahb_lite_to_apb → apb_bus）
+- [ ] 集成到 CPU 顶层（core_top → ahb_lite_bus → sram_slave + ahb_lite_to_apb → apb_bus）
 - [ ] 地址映射细化（SRAM/Timer/UART/GPIO/SPI 地址空间分配）
 - [ ] 突发传输完整支持（INCR4/WRAP4 地址生成逻辑）
 - [ ] HMASTLOCK 锁定传输支持（SWP 原子操作）

@@ -43,7 +43,7 @@ SimpleCPU 是一个基于 RISC-V RV32IM 指令集的**多周期处理器**实现
   clk ──────────────────┤──┐                                           │
   resetn ───────────────┤  │                                           │
                         │  │  ┌─────────────────┐                      │
-  sw[7:0] ──────────────┤  │  │ simple_cpu_top   │                      │
+  sw[7:0] ──────────────┤  │  │ core_top   │                      │
   uart_rx/tx ───────────┤  │  │  IF→ID→EXE→MEM→WB│                      │
   spi_miso/mosi/ss/clk ─┤  │  │  CSR + CLINT     │                      │
   gpio_io[15:0] ────────┤  │  │  icache_ctrl     │                      │
@@ -57,17 +57,17 @@ SimpleCPU 是一个基于 RISC-V RV32IM 指令集的**多周期处理器**实现
                         │  │  └────────┬────────┘                      │
                         │  │           │ AHB-Lite                      │
                         │  │  ┌────────┴────────────────────────┐      │
-                        │  │  │       ahb_periph_bus            │      │
-                        │  │  │  ┌──────────┐ ┌──────────────┐ │      │
-                        │  │  │  │ahb_master│ │ahb_decoder   │ │      │
-                        │  │  │  └────┬─────┘ └──────┬───────┘ │      │
-                        │  │  │       │ AHB bus        │ HSELx   │      │
-                        │  │  │  ┌────┴─────┐   ┌─────┴──────┐  │      │
-                        │  │  │  │ahb_sram  │   │ahb_lite_to │  │      │
-                        │  │  │  │_slave    │   │_apb bridge │  │      │
-                        │  │  │  │(SRAM IP) │   │            │  │      │
-                        │  │  │  └──────────┘   └─────┬──────┘  │      │
-                        │  │  └───────────────────────┼─────────┘      │
+                         │  │  │       ahb_lite_bus            │      │
+                         │  │  │  ┌──────────────┐              │      │
+                         │  │  │  │ahb_decoder   │              │      │
+                         │  │  │  └──────┬───────┘              │      │
+                         │  │  │         │ HSELx                │      │
+                         │  │  │  ┌──────┴─────┐ ┌─────────────┐│      │
+                         │  │  │  │ahb_sram  │ │ahb_lite_to  ││      │
+                         │  │  │  │_slave    │ │_apb bridge  ││      │
+                         │  │  │  │(SRAM IP) │ │             ││      │
+                         │  │  │  └──────────┘ └──────┬──────┘│      │
+                         │  │  └──────────────────────┼────────┘      │
                         │  │                          │ APB            │
                         │  │  ┌───────────────────────┴───────────┐    │
                         │  │  │          apb_perips               │    │
@@ -86,7 +86,7 @@ SimpleCPU 是一个基于 RISC-V RV32IM 指令集的**多周期处理器**实现
 
 ```
 system_top
-├── simple_cpu_top              # CPU 核心
+├── core_top              # CPU 核心
 │   ├── cpu_controller          # FSM 状态机控制器
 │   ├── icache_ctrl             # ICache 控制器 (BRAM IP + MMIO 旁路)
 │   │   └── icache              # ICache BRAM IP (Xilinx)
@@ -111,8 +111,7 @@ system_top
 │   │       └── cpu_csr         # CSR 寄存器存储
 │   ├── cpu_bus_bridge          # CPU→AHB-Lite 直接桥接
 │   └── MMU ×2                  # 地址翻译 (当前直通)
-├── ahb_periph_bus              # AHB-Lite 外设总线
-│   ├── ahb_master              # AHB-Lite 主设备
+├── ahb_lite_bus              # AHB-Lite 外设总线
 │   ├── ahb_decoder             # AHB 地址译码 (2从设备)
 │   ├── ahb_mux                 # AHB 读数据多路选择
 │   ├── ahb_sram_slave          # AHB SRAM 从设备 (Sram IP)
@@ -479,10 +478,10 @@ IDLE → FETCH → DECODE → ┬→ EXEC → MEM → WB → FETCH (循环)
 ### 4.1 总线拓扑
 
 ```
-cpu_bus_bridge (AHB Master)
-        │
-   ┌────┴─────────────────────┐
-   │    ahb_periph_bus         │
+cpu_bus_bridge (AHB Master, direct drive)
+         │
+    ┌────┴─────────────────────┐
+    │    ahb_lite_bus         │
    │                           │
    │  ahb_decoder (2 slaves)   │
    │  ┌─────────────────────┐  │
@@ -496,25 +495,19 @@ cpu_bus_bridge (AHB Master)
    └───────────────────────────┘
 ```
 
-### 4.2 ahb_master — AHB-Lite 主设备
-
-**文件**：`rtl/AHB-lite/ahb_master.v`（141行）
-
-4状态 FSM（IDLE→ADDR→DATA→ERROR），将简单的 req/resp 握手协议转换为 AHB-Lite 信号（HTRANS/HWRITE/HSIZE/HBURST/HPROT/HMASTLOCK）。支持 ERROR 响应处理。
-
-### 4.3 ahb_decoder — AHB 地址译码器
+### 4.2 ahb_decoder — AHB 地址译码器
 
 **文件**：`rtl/AHB-lite/ahb_decoder.v`（37行）
 
 参数化 `SLAVE_NUM`，通过 generate 支持 1/2/4/8 从设备配置。当前系统使用 2 从设备模式：`HSELx[0]=~HADDR[31]`（SRAM），`HSELx[1]=HADDR[31]`（APB Bridge）。
 
-### 4.4 ahb_mux — AHB 读数据多路选择器
+### 4.3 ahb_mux — AHB 读数据多路选择器
 
 **文件**：`rtl/AHB-lite/ahb_mux.v`（32行）
 
 根据 `HSELx` 选择对应从设备的 HRDATA/HREADY/HRESP。
 
-### 4.5 ahb_sram_slave — AHB SRAM 从设备
+### 4.4 ahb_sram_slave — AHB SRAM 从设备
 
 **文件**：`rtl/AHB-lite/ahb_sram_slave.v`（121行）
 
@@ -523,16 +516,11 @@ cpu_bus_bridge (AHB Master)
 - 支持字节/半字/字写使能，通过 `byte_we` 转换 HSIZE+HADDR 为 BRAM 字节掩码
 - 等待状态计数器处理 BRAM 读延迟（1周期）
 
-### 4.6 ahb_periph_bus — AHB 外设总线顶层
+### 4.5 ahb_lite_bus — AHB 外设总线顶层
 
-**文件**：`rtl/AHB-lite/ahb_periph_bus.v`（215行）
+**文件**：`rtl/AHB-lite/ahb_lite_bus.v`（215行）
 
-集成 ahb_master + ahb_decoder + ahb_mux + ahb_sram_slave + ahb_lite_to_apb + apb_decoder + apb_perips。对外暴露 req/resp 握手接口及外设 IO（GPIO/UART/SPI/Timer IRQ）。
-
-### 4.7 ahb_bus / ahb_default_slave（已弃用）
-
-- `ahb_bus.v`（151行）：旧版4从设备 AHB 总线，已由 `ahb_periph_bus` 替代
-- `ahb_default_slave.v`（46行）：旧版默认从设备（返回 ERROR），2从设备译码器覆盖全地址空间不再需要
+集成 ahb_decoder + ahb_mux + ahb_sram_slave + ahb_lite_to_apb + apb_decoder + apb_perips。对外暴露 AHB-Lite 主设备接口及外设 IO（GPIO/UART/SPI/Timer IRQ）。
 
 ---
 
@@ -753,12 +741,12 @@ ICache MMIO 时 `mmio_req=cpu_req_valid`，DCache MMIO 时透传 `cpu_req_wen`/`
 
 **文件**：`rtl/system_top.v`（234行）
 
-集成 CPU + ahb_periph_bus + LCD 显示模块：
+集成 CPU + ahb_lite_bus + LCD 显示模块：
 
 ```
 system_top
-├── simple_cpu_top         # CPU 核心
-├── ahb_periph_bus         # AHB-Lite + APB 总线 + 外设
+├── core_top         # CPU 核心
+├── ahb_lite_bus         # AHB-Lite + APB 总线 + 外设
 │   ├── ahb_sram_slave     # SRAM (Sram IP, 1MB)
 │   └── ahb_lite_to_apb    # → APB (GPIO/Timer/UART/SPI)
 └── lcd_module             # LCD 触摸屏显示（.dcp 预编译）
@@ -768,7 +756,7 @@ system_top
 
 **init_sig**：硬连线为 `1'b0`（总线始终就绪，无需初始化等待）。
 
-**AHB 直连**：`simple_cpu_top` 直接输出 AHB-Lite 信号（HADDR/HTRANS/HWRITE 等），连接到 `ahb_periph_bus`。
+**AHB 直连**：`core_top` 直接输出 AHB-Lite 信号（HADDR/HTRANS/HWRITE 等），连接到 `ahb_lite_bus`。
 
 ### 10.2 LCD 显示项
 
@@ -867,7 +855,7 @@ system_top
 dev/
 ├── rtl/                              # RTL 源码
 │   ├── core/                         # CPU 核心模块
-│   │   ├── simple_cpu_top.v          # CPU 顶层 (458行)
+│   │   ├── core_top.v          # CPU 顶层 (458行)
 │   │   ├── cpu_controller.v          # FSM 控制器 (133行)
 │   │   ├── cpu_fetch.v               # 取指阶段 (30行)
 │   │   ├── cpu_decode.v              # 译码阶段 (360行)
@@ -904,13 +892,10 @@ dev/
 │   │   ├── booth_multiplier.v        # Booth 乘法器 (129行)
 │   │   └── non_restoring_divider.v   # 非恢复余数除法器 (397行)
 │   ├── AHB-lite/                     # AHB-Lite 总线
-│   │   ├── ahb_periph_bus.v          # AHB 外设总线顶层 (215行)
-│   │   ├── ahb_master.v              # AHB 主设备 (141行)
+│   │   ├── ahb_lite_bus.v          # AHB 外设总线顶层 (215行)
 │   │   ├── ahb_decoder.v             # AHB 地址译码 (37行)
 │   │   ├── ahb_mux.v                 # AHB 读数据 MUX (32行)
 │   │   ├── ahb_sram_slave.v          # AHB SRAM 从设备 (121行)
-│   │   ├── ahb_bus.v                 # 旧版 AHB 总线 (151行, 已弃用)
-│   │   ├── ahb_default_slave.v       # 默认从设备 (46行, 已弃用)
 │   │   ├── ahb_def.vh                # AHB 宏定义
 │   │   └── ip/sram_model.v           # SRAM 仿真模型 (62行)
 │   ├── APB/                           # APB 总线
@@ -979,12 +964,12 @@ dev/
 | CPU 核心模块 (core/) | 21 | ~2,311 |
 | ALU 模块 (ALU/) | 10 | ~630 |
 | 乘除法单元 (MU/) | 3 | ~723 |
-| AHB-Lite 总线 | 7 | ~789 |
+| AHB-Lite 总线 | 4 | ~451 |
 | APB 总线 | 5 | ~484 |
 | APB 外设 (perips/) | 7 | ~930 |
 | Testbench | 11 | ~2,043 |
 | FPGA (system_top + XDC) | 2 | ~234 |
-| **合计** | **66** | **~8,144** |
+| **合计** | **63** | **~7,806** |
 
 ---
 

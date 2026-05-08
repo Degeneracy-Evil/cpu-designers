@@ -1,7 +1,7 @@
 `include "ahb_def.vh"
 `timescale 1ns / 1ps
 
-module ahb_periph_bus #(
+module ahb_lite_bus #(
     parameter ADDR_WIDTH  = `AHB_ADDR_WIDTH,
     parameter DATA_WIDTH  = `AHB_DATA_WIDTH,
     parameter SLAVE_NUM   = 2,

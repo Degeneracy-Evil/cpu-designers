@@ -1,6 +1,6 @@
 `timescale 1ns / 1ps
 
-module simple_cpu_top(
+module core_top(
     input         clk,
     input         reset,
 

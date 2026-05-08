@@ -32,7 +32,7 @@ input wire [DATA_WIDTH-1:0] slave_HRDATA [0:SLAVE_NUM-1],
 | 端口声明 | `[DATA_WIDTH-1:0] slave_HRDATA [0:SLAVE_NUM-1]` | `[DATA_WIDTH*SLAVE_NUM-1:0] slave_HRDATA` |
 | 内部访问 | `slave_HRDATA[i]` | `slave_HRDATA[i*DATA_WIDTH +: DATA_WIDTH]` |
 
-#### 2. ahb_periph_bus.v
+#### 2. ahb_lite_bus.v
 
 - 新增 `wire [DATA_WIDTH-1:0] sram_HRDATA;` 作为 SRAM slave HRDATA 输出中间线网
 - `slave_HRDATA` 改为 packed vector：`wire [DATA_WIDTH*SLAVE_NUM-1:0] slave_HRDATA;`
@@ -40,7 +40,7 @@ input wire [DATA_WIDTH-1:0] slave_HRDATA [0:SLAVE_NUM-1],
 - SRAM slave 端口连接：`.HRDATA(sram_HRDATA)` 替代 `.HRDATA(slave_HRDATA[0])`
 - 删除 `assign slave_HRDATA[1] = bridge_HRDATA;`
 
-#### 3. ahb_bus.v (deprecated)
+#### 3. ahb_bus.v (deprecated, deleted)
 
 - `slave_HRDATA` 改为 packed vector
 - 新增 generate 块创建中间线网 `gen_hrdata[g].hrdata` 并赋值到对应 slice
@@ -174,7 +174,7 @@ generate 块逻辑改为 `else if` 结构，消除同一时钟沿两个分支同
 
 ### Bug 修复
 
-#### 1. csr_rs1_bus 字段提取错误 (simple_cpu_top.v)
+#### 1. csr_rs1_bus 字段提取错误 (core_top.v)
 
 CSRRS/CSRRC 指令判断是否写入 CSR 时需检查 `rs1==x0`，但原代码从指令的 `rd` 字段（inst[11:7]）提取而非 `rs1` 字段（inst[19:15]），导致所有 CSRRS/CSRRC 指令均执行写入。
 
@@ -200,8 +200,8 @@ csr_mip: csr_rdata = r_mip;
 
 | 文件 | 移除项 | 原因 |
 |------|--------|------|
-| simple_cpu_top.v | `exe_csr_wen/waddr/wdata/old_val` 4 根线网 | 声明并赋值但从未被引用 |
-| simple_cpu_top.v | `instruction_complete` 线网 | 声明并赋值但从未被引用 |
+| core_top.v | `exe_csr_wen/waddr/wdata/old_val` 4 根线网 | 声明并赋值但从未被引用 |
+| core_top.v | `instruction_complete` 线网 | 声明并赋值但从未被引用 |
 | cpu_controller.v | `instruction_complete` 线网 | 同上 |
 | MMU.v | `clk`/`reset` 端口 | 声明但模块内未使用 |
 | alu_32bit.v | `mul_active`/`div_active` 寄存器 | 与 `mul_busy`/`div_busy` 完全相同 |
@@ -229,8 +229,8 @@ csr_mip: csr_rdata = r_mip;
 | cpu_mem.v | `alu_result[0] != 1'b0` → `alu_result[0]` | 语义等价，更简洁 |
 | branch_comparator.v | 6 项 OR 链改为 case 语句 | 更清晰，综合等价 |
 | cpu_bus_adapter.v | 9 路分支合并为 5 路 | 合并相同处理逻辑的 case 项 |
-| simple_cpu_top.v | 合并 trap_enter/trap_return PC 赋值 | 消除重复的 PC 选择逻辑 |
-| simple_cpu_top.v | 简化 `exception_valid_r` 自赋值 | 移除 `else exception_valid_r <= exception_valid_r` |
+| core_top.v | 合并 trap_enter/trap_return PC 赋值 | 消除重复的 PC 选择逻辑 |
+| core_top.v | 简化 `exception_valid_r` 自赋值 | 移除 `else exception_valid_r <= exception_valid_r` |
 | logic_unit.v | `nor_result` 复用 `~or_result` | 消除重复的按位 OR 计算 |
 | non_restoring_divider.v | `operand_same_sign` → `~result_sign` | 语义等价，减少冗余信号 |
 | booth_multiplier.v | 提取 `no_op`/`shift_src` 组合逻辑 | 简化 COMPUTE 状态内的条件嵌套 |
@@ -265,7 +265,7 @@ UART 外设默认时钟频率从 25 MHz 更新为 100 MHz，与 FPGA 系统时�
 | uart_tx.v / uart_rx.v | `CLK_FRE` 默认值 25 → 100 |
 | uart_top.v | `FREQ` 默认值 25 → 100 |
 | apb_perips.v | `UART_FREQ` 默认值 25 → 100 |
-| ahb_periph_bus.v | `UART_FREQ` 默认值 25 → 100 |
+| ahb_lite_bus.v | `UART_FREQ` 默认值 25 → 100 |
 | system_top.v | `.UART_FREQ(25)` → `.UART_FREQ(100)` |
 | tb_*.v (5 个测试台) | `.UART_FREQ(25)` → `.UART_FREQ(100)` |
 | tb_uart_hello.v | `CLK_FRE` 从 25 → 100，UART 解码器改为中心采样 |

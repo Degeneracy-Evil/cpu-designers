@@ -36,7 +36,7 @@ module tb_simple_cpu_trap;
     integer pass_count;
     integer fail_count;
 
-    simple_cpu_top dut(
+    core_top dut(
         .clk(clk),
         .reset(reset),
         .rf_addr(rf_addr),
@@ -69,7 +69,7 @@ module tb_simple_cpu_trap;
 
     wire [15:0] gpio_io;
 
-    ahb_periph_bus #(
+    ahb_lite_bus #(
         .ADDR_WIDTH  (32),
         .DATA_WIDTH  (32),
         .SLAVE_NUM   (2),

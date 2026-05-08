@@ -170,7 +170,7 @@ end
 | 重写 | `dev/rtl/MU/mu_unit.v` | 3-bit `mu_funct3`，8 种 M 操作，CLA 修正逻辑 |
 | 修改 | `dev/rtl/core/cpu_decode.v` | M 指令识别，`is_mu`/`mu_funct3`，`id_exe_bus` 扩展至 320 位 |
 | 修改 | `dev/rtl/core/cpu_execute.v` | 解包 `is_mu`/`mu_funct3`，传递 `mu_funct3` 至 mu_unit |
-| 修改 | `dev/rtl/core/simple_cpu_top.v` | 320 位 `id_exe_bus`，更新位索引 |
+| 修改 | `dev/rtl/core/core_top.v` | 320 位 `id_exe_bus`，更新位索引 |
 | 修改 | `dev/rtl/core/cpu_csr_interface.v` | 320 位总线，更新位索引 |
 | 修改 | `dev/rtl/core/cpu_trap_csr.v` | 320 位总线宽度 |
 | 重写 | `dev/tb/ALU/tb_mu_unit.v` | 3-bit 接口，8 种 M 操作测试，42 项检查 |

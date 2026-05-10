@@ -24,12 +24,12 @@
   v(4em)
   align(center)[#text(size: 18pt)[负责人：]]
   align(center)[#text(size: 18pt)[2024级计算机一班#h(1em)课序3第4组#h(1em)2026年5月9日]]
-  align(center)[#text(size: 14pt)[（分工表见最后）]]
 })
 #pagebreak()
 //普通文本
 #set text(size: 14pt)
 #set page(numbering: "1 / 1")
+#show link: underline
 
 #outline(title: "目录", indent: auto, depth: 2)
 #pagebreak()
@@ -45,26 +45,26 @@
 == 设计目标
 
 #move(dx: 2em)[
-  + `RISCV32-IM_Zicsr_Zifencei`多周期嵌入式CPU
-  + 支持异常与单级中断
-  + AHB-Lite系统总线 + APB外设总线两级架构
-  + MMIO机制访问外设
+  + `RISCV32-IM_Zicsr_Zifencei`多周期嵌入式CPU（使用上次成果）
+  + 具有异常处理机制
+  + 实现（一级）中断机制
+  + 实现接口通信机制（UART或GPIO）
   + 外设：UART、GPIO、Timer（含IRQ）、SPI
 ]
 
 == 已实现的特性
 
 #move(dx: 2em)[
-  + 指令集：RV32I(40条) + M(8条) + Zicsr(6条) + Zifencei(1条) = 55条
+  + 指令集：RV32I(41条) + M(8条) + Zicsr(6条) + Zifencei(1条) = 56条
   + 完整异常处理：非法指令、ECALL、EBREAK、地址未对齐
   + 三级中断响应：MEIP(外部)、MTIP(Timer)、MSIP(软件)，电平触发
   + 8个CSR寄存器：mstatus/mie/mtvec/mscratch/mepc/mcause/mtval/mip
   + AHB-Lite系统总线（2从设备）→ APB外设总线（4从设备）
-  + ICache/DCache控制器 + BRAM IP，MMIO旁路（bit31地址译码）
-  + CPU总线直连：cpu\_bus\_bridge直接驱动AHB-Lite信号
+  + ICache/DCache控制器 + BRAM IP，MMIO旁路（addr[31]==1）
+  + 串口通信：UART+GPIO（连接到LED上）
   + 执行-回写直通快速路径（R/I-type跳过MEM阶段）
   + ALU单周期化 + 独立MU乘除法单元
-  + 外设：GPIO(16bit)、Timer(含IRQ)、UART(RX+TX, 115200baud)、SPI
+  + 四外设：GPIO(16bit)、Timer(含IRQ)、UART(RX+TX, 115200baud)、SPI
 ]
 
 == 参考资料
@@ -87,15 +87,15 @@
 dev/
 ├─rtl/
 │  ├─core/                        CPU核心模块
-│  │    core_top.v                CPU顶层 (458行)
-│  │    cpu_controller.v          FSM控制器 (9状态, 133行)
-│  │    icache_ctrl.v             ICache控制器 (BRAM IP + MMIO旁路)
-│  │    dcache_ctrl.v             DCache控制器 (BRAM IP + MMIO旁路)
+│  │    core_top.v                CPU顶层
+│  │    cpu_controller.v          FSM控制器
+│  │    icache_ctrl.v             ICache控制器
+│  │    dcache_ctrl.v             DCache控制器
 │  │    MMU.v                     内存管理单元 (直通, 预留)
 │  │    cpu_fetch.v               取指阶段
-│  │    cpu_decode.v              译码阶段 (55条指令识别)
-│  │    cpu_execute.v             执行阶段 (ALU + MU + 分支)
-│  │    cpu_mem.v                 访存阶段 (字节掩码写入)
+│  │    cpu_decode.v              译码阶段
+│  │    cpu_execute.v             执行阶段
+│  │    cpu_mem.v                 访存阶段
 │  │    cpu_wb.v                  回写阶段
 │  │    cpu_regfile.v             寄存器堆
 │  │    cpu_trap_csr.v            异常/CSR顶层封装
@@ -107,15 +107,26 @@ dev/
 │  │    op_regroup.v              指令字段拆分
 │  │    branch_comparator.v       分支比较器
 │  │
-│  ├─ALU/                         ALU模块 (单周期)
-│  ├─MU/                          乘除法单元 (多周期)
+│  ├─ALU/                         ALU模块
+│  │    alu_32bit.v               ALU顶层
+│  │    alu_result_selector.v     ALU结果选择器
+│  │    cla_adder_16bit.v         16位超前进位加法器
+│  │    cla_adder_32bit.v         32位超前进位加法器
+│  │    cla_adder_4bit.v          4位超前进位加法器
+│  │    logic_unit.v              逻辑运算单元
+│  │    lui.v                     高位加载
+│  │    mux.v                     选择器
+│  │    shifter.v                 位移器
+│  │    subtractor.v              减法器
+│  │
+│  ├─MU/                          乘除法单元
 │  │    mu_unit.v                 乘除法调度
 │  │    booth_multiplier.v        Booth乘法器
 │  │    non_restoring_divider.v   非恢复余数除法器
 │  │
 │  ├─AHB-lite/                    AHB-Lite系统总线
 │  │    ahb_lite_bus.v            AHB外设总线顶层
-│  │    ahb_decoder.v             AHB地址译码 (2从设备)
+│  │    ahb_decoder.v             AHB地址译码
 │  │    ahb_mux.v                 AHB读数据MUX
 │  │    ahb_sram_slave.v          AHB SRAM从设备
 │  │
@@ -142,7 +153,7 @@ dev/
 
 == 指令集扩展
 
-在上一次实验实现的37条RV32I指令基础上，本次扩展至55条，新增M扩展8条、Zicsr扩展6条、Zifencei扩展1条，以及RV32I中此前未实现的3条（ECALL、EBREAK、FENCE）。
+在上一次实验实现的37条RV32I指令基础上，本次扩展至56条，新增M扩展8条、Zicsr扩展6条、Zifencei扩展1条，以及RV32I中此前未实现的3条（ECALL、EBREAK、FENCE）。
 
 完整指令集如下：
 
@@ -156,21 +167,21 @@ dev/
   text(maroon)[ori], text(maroon)[andi], text(maroon)[slli], text(maroon)[srli], text(maroon)[srai],
   text(fuchsia)[sb], text(fuchsia)[sh], text(fuchsia)[sw], text(olive)[beq], text(olive)[bne],
   text(olive)[blt], text(olive)[bge], text(olive)[bltu], text(olive)[bgeu], text(blue)[lui],
-  text(blue)[auipc], [jal], text(teal)[mul], text(teal)[mulh], text(teal)[mulhsu],
-  text(teal)[mulhu], text(teal)[div], text(teal)[divu], text(teal)[rem], text(teal)[remu],
-  text(purple)[csrrw], text(purple)[csrrs], text(purple)[csrrc], text(purple)[csrrwi], text(purple)[csrrsi],
-  text(purple)[csrrci], [ecall], [ebreak], [mret], [fence],
-  [fence.i],
+  text(blue)[auipc], [jal], [], [], [],
+  text(teal)[mul], text(teal)[mulh], text(teal)[mulhsu], text(teal)[mulhu], text(teal)[div],
+  text(teal)[divu], text(teal)[rem], text(teal)[remu], text(purple)[csrrw], text(purple)[csrrs],
+  text(purple)[csrrc], text(purple)[csrrwi], text(purple)[csrrsi], text(purple)[csrrci], [ecall],
+  [ebreak], [mret], [fence], [fence.i],
 )
 
 其中#text(orange)[`R`] #text(maroon)[`I`] #text(fuchsia)[`S`] #text(olive)[`B`] #text(blue)[`U`] `J`为上一次已实现，#text(teal)[`M`]为本次M扩展，#text(purple)[`Zicsr`]为CSR指令，其余为系统控制指令。
 
 === M指令集扩展
 
-M扩展新增8条乘除法指令，由独立的`mu_unit`模块处理：
+添加M扩展支持。新增8条乘除法指令，由独立的`mu_unit`模块处理：
 
 #table(
-  columns: (1fr, 1fr, 3fr),
+  columns: (1fr, auto, 3fr),
   align: horizon,
   stroke: 0.5pt,
   inset: 6pt,
@@ -185,14 +196,14 @@ M扩展新增8条乘除法指令，由独立的`mu_unit`模块处理：
   [REMU], [rs1 % rs2], [无符号取余],
 )
 
-乘法器采用基2 Booth算法，32周期迭代；除法器采用非恢复余数算法，32周期迭代+修正。两者均通过`mu_req_valid`/`mu_result_valid`握手协议与执行模块交互，支持`flush`中断。
+乘法器、除法器均为原ALU内部模块，此次修改中独立出来为单独的MU模块，详细见#link(<MU>)[CPU核优化:ALU单周期化-MU扩展]。MU模块通过`mu_req_valid`/`mu_result_valid`握手协议与执行模块交互，支持`flush`中断。
 
 === Zicsr和Zifencei扩展
 
 Zicsr扩展新增6条CSR指令，用于读写控制和状态寄存器：
 
 #table(
-  columns: (1fr, 1fr, 3fr),
+  columns: (1fr, 2fr, 2fr),
   align: horizon,
   stroke: 0.5pt,
   inset: 6pt,
@@ -207,99 +218,17 @@ Zicsr扩展新增6条CSR指令，用于读写控制和状态寄存器：
 
 CSR no-write优化：CSRRS/CSRRC且rs1=0时、CSRRSI/CSRRCI且uimm=0时不写CSR，仅读取。
 
-Zifencei扩展仅包含`FENCE.I`指令，用于指令缓存刷新，当前实现为NOP（直接跳过）。
+Zifencei扩展仅包含`FENCE.I`指令，用于指令缓存刷新，当前由于未使用主存，没有内存屏障限制，实现中为NOP（直接跳过）。
 
-此外，`ECALL`、`EBREAK`、`MRET`作为系统控制指令，分别触发异常进入和中断返回。
+此外，添加系统控制指令`ECALL`、`EBREAK`、`MRET`支持，分别触发异常进入和中断返回。
 
 == CPU核优化
 
-为了优化CPU核的结构以及CPI，我们对流水线、ALU结构和Cache进行了重构。
+为了优化CPU核的结构以及CPI，我们对流水线、ALU和访存路径结构进行了重构。
 
-=== 控制器扩展
+=== 执行-回写数据链路
 
-控制器从6状态FSM扩展为9状态4位编码：
-
-#table(
-  columns: (1fr, 1fr, 3fr),
-  align: horizon,
-  stroke: 0.5pt,
-  inset: 6pt,
-  [*编码*], [*状态*], [*说明*],
-  [4'd0], [`STATE_IDLE`], [复位后的初始状态，直接转入FETCH],
-  [4'd1], [`STATE_FETCH`], [取指阶段],
-  [4'd2], [`STATE_DECODE`], [译码阶段，完成后根据指令类型决定下一状态],
-  [4'd3], [`STATE_EXEC`], [执行阶段，R/I-type完成后直接进入WB（快速路径）],
-  [4'd4], [`STATE_MEM`], [访存阶段，仅Load/Store指令进入],
-  [4'd5], [`STATE_WB`], [回写阶段],
-  [4'd6], [`STATE_CSR_ACCESS`], [CSR读写阶段，完成后进入WB],
-  [4'd7], [`STATE_TRAP_ENTER`], [异常/中断进入，保存CSR后跳转mtvec],
-  [4'd8], [`STATE_TRAP_RETURN`], [MRET返回，恢复CSR后跳转mepc],
-)
-
-状态转移逻辑：
-
-#align(center)[#cetz.canvas({
-  import cetz.draw: *
-  let states = (
-    ("s0", "IDLE"),
-    ("s1", "FETCH"),
-    ("s2", "DECODE"),
-    ("s3", "EXEC"),
-    ("s4", "MEM"),
-    ("s5", "WB"),
-    ("s6", "CSR"),
-    ("s7", "TRAP\nENTER"),
-    ("s8", "TRAP\nRET"),
-  )
-  let px = 0
-  let py = 0
-  let w = 1.8
-  let h = 1.5
-  let d = 0.8
-  for (i, s) in states.enumerate() {
-    let (id, label) = s
-    let x_pos = px + i * (w + d)
-    rect((x_pos, py), (x_pos + w, py + h), name: id)
-    content(id, [#text(size: 9pt, label)])
-  }
-  line("s0", "s1", mark: (end: "straight"))
-  line("s1", "s2", mark: (end: "straight"), name: "1t2")
-  content("1t2", anchor: "south", padding: .1, [#text(size: 8pt, "if_done")])
-  line("s2", "s3", mark: (end: "straight"), name: "2t3")
-  content("2t3", anchor: "south", padding: .1, [#text(size: 8pt, "need_exe")])
-  line("s3", "s5", mark: (end: "straight"), name: "3t5")
-  content("3t5", anchor: "south", padding: .1, [#text(size: 8pt, "R/I fast")])
-  line("s3", "s4", mark: (end: "straight"), name: "3t4")
-  content("3t4", anchor: "south", padding: .1, [#text(size: 8pt, "ld/st")])
-  line("s4", "s5", mark: (end: "straight"), name: "4t5")
-  content("4t5", anchor: "south", padding: .1, [#text(size: 8pt, "mem_done")])
-  line("s5", "s1", mark: (end: "straight"), stroke: (dash: "dashed"), name: "5t1")
-  content("5t1", anchor: "north", padding: .1, [#text(size: 8pt, "next")])
-  line("s2", "s6", mark: (end: "straight"), name: "2t6")
-  content("2t6", anchor: "south", padding: .1, [#text(size: 8pt, "csr")])
-  line("s6", "s5", mark: (end: "straight"), name: "6t5")
-  line("s2", "s7", mark: (end: "straight"), name: "2t7")
-  content("2t7", anchor: "south", padding: .1, [#text(size: 8pt, "trap")])
-  line("s7", "s1", mark: (end: "straight"), stroke: (dash: "dashed"))
-  line("s2", "s8", mark: (end: "straight"), name: "2t8")
-  content("2t8", anchor: "south", padding: .1, [#text(size: 8pt, "mret")])
-  line("s8", "s1", mark: (end: "straight"), stroke: (dash: "dashed"))
-  line(
-    "s3",
-    (rel: (0, 1.8), to: "s3"),
-    (rel: (0, 1.8), to: "s1"),
-    "s1",
-    mark: (end: "straight"),
-    name: "3t1",
-  )
-  content("3t1", anchor: "south", padding: .0, [#text(size: 8pt, "branch")])
-})]
-
-`init_sig`门控：当`init_sig=1`时，所有状态转移强制到IDLE，所有`*_valid`输出屏蔽，实现总线初始化期间的CPU冻结。当前系统中`init_sig`硬连线为0（总线始终就绪）。
-
-=== 执行-回写直通数据链路
-
-上一次设计中，所有非分支指令执行后都必须经过MEM阶段（即使不需要访存），MEM阶段对非访存指令仅做2周期直通。本次优化引入*exe\_to\_wb快速路径*：
+在之前实验的设计中，所有非分支指令执行后都必须经过MEM阶段（即使不需要访存），MEM阶段虽然做了直通，但还是占用了大量周期。为了优化CPI，我们优化了流水线路径，添加了exe->wb路径：
 
 #move(dx: 2em)[
   - R/I-type运算指令：EXEC → WB（跳过MEM，减少2周期）
@@ -309,17 +238,17 @@ Zifencei扩展仅包含`FENCE.I`指令，用于指令缓存刷新，当前实现
   - CSR指令：CSR\_ACCESS → WB
 ]
 
-此优化使R/I-type ALU指令的CPI从10降至6，LUI从8降至6。
+此优化使所有非分支非访存指令的执行周期下降2。
 
-=== ALU单周期化，MU扩展
+=== ALU单周期化-MU扩展<MU>
 
-上一次设计中，ALU模块内部集成了Booth乘法器和非恢复余数除法器，通过握手协议（`req_valid`/`result_valid`）与执行模块交互，引入3周期额外开销（请求发射→结果锁存→读取`done_reg`），导致简单算术指令EXEC阶段需要4周期。
+由于从第一次实验继承来的ALU模块内部集成了Booth乘法器和非恢复余数除法器，使得其必须通过握手协议（`req_valid`/`result_valid`）与执行模块交互，但又没有M指令集，导致没有指令实际使用乘除法功能，平白为所有经过ALU计算的指令引入3周期额外开销（请求发射→结果锁存→读取`done_reg`）。
 
-本次优化将乘除法从ALU中分离为独立的`mu_unit`模块：
+本次实验将乘除法从ALU中分离为独立的`mu_unit`模块：
 
 #move(dx: 2em)[
-  - *ALU*：仅保留单周期组合逻辑运算（ADD/SUB/SLT/SLTU/XOR/OR/AND/SLL/SRL/SRA/LUI/NOR/NOT），移除握手协议，EXEC阶段从4周期降至2周期
-  - *MU*：独立乘除法单元，内部实例化`booth_multiplier`和`non_restoring_divider`，通过`mu_req_valid`/`mu_result_valid`握手协议与执行模块交互，M扩展指令在EX阶段多周期等待
+  - *ALU*：仅保留单周期组合逻辑运算（ADD/SUB/SLT/SLTU/XOR/OR/AND/SLL/SRL/SRA/LUI/NOR/NOT），变为纯组合逻辑模块，移除握手协议，消除握手耗时。
+  - *MU*：独立出来的乘除法单元，内部为从ALU中剥离出来的`booth_multiplier`和`non_restoring_divider`，通过`mu_req_valid`/`mu_result_valid`握手协议与执行模块交互，以支持M扩展指令。
 ]
 
 ALU控制编码（one-hot，bit0保留）：
@@ -335,47 +264,124 @@ ALU控制编码（one-hot，bit0保留）：
   [NOR], [OR], [XOR], [SLL], [SRL], [SRA], [LUI], [—],
 )]
 
-注意MUL/DIV位已移除，乘除法由MU单元独立处理。
+注意MUL/DIV位已移除，乘除法由执行模块直接操作MU单元处理。
 
-=== MMU与cache控制模块
+=== cache访存路径重构
 
-此次优化中，CORE部分添加了MMU模块与cache控制模块。
+此次实验中，由于需要支持MMIO进行外设访问，以及为了后续存储实验的进行，我们抛弃了之前的直接访问cache的方式，在访问路径上添加了MMU和cache控制器，即现在访问cache的路径为：fetch/mem->MMU->cache控制器->cache。
 
-*MMU（内存管理单元）*：
+*MMU*：
 
-当前为直通模式`paddr = vaddr`，为后续虚拟内存扩展预留接口。CPU中实例化两个MMU，分别用于取指地址和访存地址翻译。
+占位用，当前地址直通`paddr = vaddr`，为后续虚拟内存扩展预留接口。CPU中两个cache访问路径对应两个MMU，分别用于取指地址和访存地址翻译。
 
-*ICache控制器（icache\_ctrl）*：
-
-#move(dx: 2em)[
-  - 参数化深度`DEPTH=4096`，12位索引 → 4KB直接映射
-  - MMIO旁路：`is_mmio = cpu_req_addr[31]`，地址bit31=1时绕过Cache直连总线
-  - Cache命中：组合逻辑读BRAM IP，下一周期`icache_valid_r=1`返回数据
-  - MMIO访问：透传`mmio_data`/`mmio_valid`信号
-  - 输出MUX：`cpu_req_data = is_mmio ? mmio_data : icache_dout`
-]
-
-*DCache控制器（dcache\_ctrl）*：
-
-与icache\_ctrl结构对称，额外支持写操作：
+*Cache控制器（i/dcache\_ctrl）*：
 
 #move(dx: 2em)[
-  - 字节写使能生成：根据`cpu_req_hsize`（BYTE/HWORD/WORD）和地址低位生成BRAM字节掩码
-  - MMIO旁路时透传`mmio_wdata`/`mmio_hwrite`/`mmio_hsize`
-  - 非MMIO写操作时`mmio_req=0`（不向总线发写请求）
+  - MMIO：`is_mmio = cpu_req_addr[31]`，选择访问外设或者访问cache
+  - MMIO访问：转换信号，向总线发送`mmio_data`/`mmio_valid`信号
+  - 输出选择：`cpu_req_data = is_mmio ? mmio_data : icache_dout`
+  - dcache_ctrl与icache\_ctrl结构对称，额外支持写操作：
 ]
 
-*MMIO地址空间划分*：
+MMIO地址空间：`0x80000000-0xFFFFFFFF`，即地址最高位为1。
+
+同时，我们升级了BRAM IP，现在cache来到了$32 times 4096=16"KB"$，并且支持了字节读写（`wea,web`变为四位，支持多种宽度读写），简化了访存的操作逻辑。
+
+== 控制器扩展
+
+此次添加中断和异常支持，控制器从6状态FSM扩展为9状态：
 
 #table(
-  columns: (2fr, 1fr, 2fr, 3fr),
+  columns: (auto, auto, 1fr),
   align: horizon,
   stroke: 0.5pt,
   inset: 6pt,
-  [*地址范围*], [*is\_mmio*], [*路径*], [*说明*],
-  [0x00000000-0x7FFFFFFF], [0], [BRAM IP], [Cache本地SRAM，零延迟读],
-  [0x80000000-0xFFFFFFFF], [1], [总线MMIO], [透传到AHB-Lite总线],
+  [*编码*], [*状态*], [*说明*],
+  [4'd0], [`STATE_IDLE`], [复位后的初始状态，直接转入FETCH],
+  [4'd1], [`STATE_FETCH`], [取指阶段],
+  [4'd2], [`STATE_DECODE`], [译码阶段],
+  [4'd3], [`STATE_EXEC`], [执行阶段],
+  [4'd4], [`STATE_MEM`], [访存阶段],
+  [4'd5], [`STATE_WB`], [回写阶段],
+  [4'd6], [`STATE_CSR_ACCESS`], [CSR读写阶段，完成后进入WB],
+  [4'd7], [`STATE_TRAP_ENTER`], [异常/中断进入，保存CSR后跳转mtvec],
+  [4'd8], [`STATE_TRAP_RETURN`], [MRET返回，恢复CSR后跳转mepc],
 )
+
+FSM状态转移逻辑图：
+
+#cetz.canvas({
+  import cetz.draw: *
+  set-style(content: (frame: "rect", stroke: none, fill: white, padding: .1))
+  let w = 1.8
+  let h = 1.0
+  let dx = 3.5
+  let y_top = 2.0
+  let y_bot = 0
+
+  rect((0, y_top), (w, y_top + h), name: "s0")
+  content("s0", [#text(size: 11pt, "IDLE")])
+
+  rect((dx, y_top), (dx + w, y_top + h), name: "s1")
+  content("s1", [#text(size: 11pt, "FETCH")])
+
+  rect((2 * dx, y_top), (2 * dx + w, y_top + h), name: "s2")
+  content("s2", [#text(size: 11pt, "DECODE")])
+
+  rect((3 * dx, y_top), (3 * dx + w, y_top + h), name: "s3")
+  content("s3", [#text(size: 11pt, "EXEC")])
+
+  rect((4 * dx, y_top), (4 * dx + w, y_top + h), name: "s4")
+  content("s4", [#text(size: 11pt, "MEM")])
+
+  rect((0, y_bot), (w, y_bot + h), name: "s7")
+  content("s7", [#text(size: 11pt, "TRAP\nENTER")])
+
+  rect((dx, y_bot), (dx + w, y_bot + h), name: "s8")
+  content("s8", [#text(size: 11pt, "TRAP\nRET")])
+
+  rect((2 * dx, y_bot), (2 * dx + w, y_bot + h), name: "s5")
+  content("s5", [#text(size: 11pt, "WB")])
+
+  rect((3 * dx, y_bot), (3 * dx + w, y_bot + h), name: "s6")
+  content("s6", [#text(size: 11pt, "CSR")])
+
+  line("s0", "s1", mark: (end: "straight"))
+  line("s1", "s2", mark: (end: "straight"), name: "1t2")
+  content((name: "1t2", anchor: 40%), anchor: "south", [#text(size: 10pt, "if_done")])
+  line("s2", "s3", mark: (end: "straight"), name: "2t3")
+  content((name: "2t3", anchor: 50%), anchor: "south", [#text(size: 10pt, "need_exe")])
+  line("s3", "s4", mark: (end: "straight"), name: "3t4")
+  content((name: "3t4", anchor: 50%), [#text(size: 10pt, "ld/st")])
+
+  line("s2", "s7", mark: (end: "straight"), name: "2t7")
+  content((name: "2t7", anchor: 75%), angle: ("2t7.start", 0%, "2t7.end"), [#text(size: 10pt, "trap")])
+  line("s2", "s8", mark: (end: "straight"), name: "2t8")
+  content((name: "2t8", anchor: 70%), angle: ("2t8.start", 0%, "2t8.end"), [#text(size: 10pt, "mret")])
+  line("s2", "s6", mark: (end: "straight"), name: "2t6")
+  content((name: "2t6", anchor: 50%), angle: ("2t6.start", 0%, "2t6.end"), [#text(size: 10pt, "csr")])
+
+  line("s3", "s5", mark: (end: "straight"), name: "3t5")
+  content((name: "3t5", anchor: 50%), angle: ("3t5.start", 0%, "3t5.end"), [#text(size: 10pt, "R/I fast")])
+  line("s4", "s5", mark: (end: "straight"), name: "4t5")
+  content((name: "4t5", anchor: 50%), angle: ("4t5.start", 0%, "4t5.end"), [#text(size: 10pt, "mem_done")])
+  line("s6", "s5", mark: (end: "straight"))
+
+  line("s5", "s1", mark: (end: "straight"), stroke: (dash: "dashed"), name: "5t1")
+  content((name: "5t1", anchor: 20%), angle: ("5t1.start", 0%, "5t1.end"), [#text(size: 10pt, "next")])
+  line("s7", "s1", mark: (end: "straight"), stroke: (dash: "dashed"))
+  line("s8", "s1", mark: (end: "straight"), stroke: (dash: "dashed"))
+
+  line(
+    "s3",
+    (rel: (0, 1.0), to: "s3"),
+    (rel: (0, 1.0), to: "s1"),
+    "s1",
+    mark: (end: "straight"),
+    name: "3t1",
+  )
+  content((name: "3t1", anchor: 50%), [#text(size: 10pt, "branch")])
+})
 
 == 异常处理
 
@@ -384,32 +390,32 @@ ALU控制编码（one-hot，bit0保留）：
 CPU支持以下异常，分别在Decode和Mem阶段检测：
 
 #table(
-  columns: (2fr, 1fr, 3fr),
-  align: horizon,
+  columns: (auto, auto, 1fr),
+  align: (horizon, horizon + center, horizon),
   stroke: 0.5pt,
   inset: 6pt,
   [*异常*], [*mcause*], [*触发条件*],
-  [非法指令], [2], [opcode/funct3/funct7未定义，或CSR地址无效],
+  [非法指令], [2], [opcode/funct未定义，或CSR地址无效],
   [EBREAK], [3], [执行EBREAK指令],
   [Load地址未对齐], [4], [LH/LHU bit0≠0，LW bit\[1:0\]≠0],
   [Store地址未对齐], [6], [SH bit0≠0，SW bit\[1:0\]≠0],
   [ECALL (M-mode)], [11], [M模式下执行ECALL],
 )
 
-异常优先级：同步异常优先于中断；同一边界上的同步异常先处理。
+异常优先级：当前设置同步异常优先于中断；同一边界上的同步异常先处理。
 
 === CSR寄存器
 
 实现了8个Machine模式CSR寄存器：
 
 #table(
-  columns: (1fr, 1fr, 1fr, 3fr),
+  columns: (auto, auto, auto, 3fr),
   align: horizon,
   stroke: 0.5pt,
   inset: 6pt,
   [*地址*], [*名称*], [*读写*], [*说明*],
-  [0x300], [mstatus], [MRW], [MIE\[3\], MPIE\[7\], MPP\[12:11\]],
-  [0x304], [mie], [MRW], [MSIE\[3\], MTIE\[7\], MEIE\[11\]],
+  [0x300], [mstatus], [MRW], [目前支持：MIE\[3\], MPIE\[7\], MPP\[12:11\]],
+  [0x304], [mie], [MRW], [目前支持：MSIE\[3\], MTIE\[7\], MEIE\[11\]],
   [0x305], [mtvec], [MRW], [trap向量基址],
   [0x340], [mscratch], [MRW], [暂存寄存器],
   [0x341], [mepc], [MRW], [异常PC],
@@ -480,27 +486,27 @@ CSR模块支持*双写端口*：
   content("bus.north", anchor: "south", [#text(size: 10pt, "ahb_lite_bus")])
 
   rect((5.5, 3.5), (8.5, 4.5), name: "decoder")
-  content("decoder", [#text(size: 9pt, "ahb_decoder")])
+  content("decoder", [#text(size: 10pt, "ahb_decoder")])
 
-  rect((5.5, 1), (7, 2.5), name: "sram")
-  content("sram", [#text(size: 9pt, "ahb_sram")])
+  rect((5.5, 1), (7.2, 2.5), name: "sram")
+  content("sram", [#text(size: 10pt, "ahb_sram")])
 
-  rect((7.5, 1), (8.5, 2.5), name: "apbb")
-  content("apbb", [#text(size: 9pt, "AHB→APB")])
+  rect((7.6, 1), (8.5, 2.5), name: "apbb")
+  content("apbb", [#text(size: 10pt, "AHB→APB")])
 
   line("bridge.east", "bus.west", mark: (end: "straight"), name: "l1")
-  content("l1", anchor: "south", padding: .1, [#text(size: 8pt, "AHB-Lite")])
+  content("l1", anchor: "south", padding: .1, [#text(size: 10pt, "AHB-Lite")])
   line("decoder.south", "sram.north", stroke: (dash: "dashed"), mark: (end: "straight"))
   line("decoder.south", "apbb.north", stroke: (dash: "dashed"), mark: (end: "straight"))
 
-  content((7.25, 3.2), [#text(size: 8pt, "HSEL0")])
-  content((8.0, 3.2), [#text(size: 8pt, "HSEL1")])
+  content((7.25, 3.2), [#text(size: 10pt, "HSEL0")])
+  content((8.0, 3.2), [#text(size: 10pt, "HSEL1")])
 })]
 
 AHB-Lite总线当前挂载2个从设备：
 
 #table(
-  columns: (1fr, 1fr, 2fr, 3fr),
+  columns: (auto, auto, auto, 3fr),
   align: horizon,
   stroke: 0.5pt,
   inset: 6pt,
@@ -555,37 +561,37 @@ AHB信号映射：
   import cetz.draw: *
 
   rect((0, 1), (2.5, 2), name: "bridge")
-  content("bridge", [#text(size: 9pt, "AHB→APB")])
+  content("bridge", [#text(size: 10pt, "AHB→APB")])
 
-  rect((4, 0), (10, 3), name: "apb")
+  rect((4, 0), (10.5, 3), name: "apb")
   content("apb.north", anchor: "south", [#text(size: 10pt, "APB总线")])
 
-  rect((4.3, 0.3), (5.5, 1.5), name: "gpio")
-  content("gpio", [#text(size: 9pt, "GPIO")])
+  rect((4.3, 0.3), (5.7, 1.5), name: "gpio")
+  content("gpio", [#text(size: 10pt, "GPIO")])
 
-  rect((5.8, 0.3), (7, 1.5), name: "timer")
-  content("timer", [#text(size: 9pt, "Timer")])
+  rect((6.0, 0.3), (7.4, 1.5), name: "timer")
+  content("timer", [#text(size: 10pt, "Timer")])
 
-  rect((7.3, 0.3), (8.5, 1.5), name: "uart")
-  content("uart", [#text(size: 9pt, "UART")])
+  rect((7.7, 0.3), (9.1, 1.5), name: "uart")
+  content("uart", [#text(size: 10pt, "UART")])
 
-  rect((8.8, 0.3), (9.8, 1.5), name: "spi")
-  content("spi", [#text(size: 9pt, "SPI")])
+  rect((9.4, 0.3), (10.3, 1.5), name: "spi")
+  content("spi", [#text(size: 10pt, "SPI")])
 
   line("bridge.east", "apb.west", mark: (end: "straight"), name: "l1")
-  content("l1", anchor: "south", padding: .1, [#text(size: 8pt, "APB")])
+  content("l1", anchor: "south", padding: .1, [#text(size: 10pt, "APB")])
 
-  content((4.9, 1.8), [#text(size: 7pt, "00")])
-  content((6.4, 1.8), [#text(size: 7pt, "01")])
-  content((7.9, 1.8), [#text(size: 7pt, "10")])
-  content((9.3, 1.8), [#text(size: 7pt, "11")])
+  content((5.0, 1.8), [#text(size: 10pt, "00")])
+  content((6.7, 1.8), [#text(size: 10pt, "01")])
+  content((8.4, 1.8), [#text(size: 10pt, "10")])
+  content((9.85, 1.8), [#text(size: 10pt, "11")])
 })]
 
 APB总线挂载4个从设备，通过`PADDR[15:14]`译码：
 
 #table(
-  columns: (1fr, 1fr, 2fr),
-  align: horizon,
+  columns: (auto, 1fr, 2fr),
+  align: (horizon, center),
   stroke: 0.5pt,
   inset: 6pt,
   [*从设备*], [*PADDR\[15:14\]*], [*模块*],
@@ -602,15 +608,15 @@ APB总线挂载4个从设备，通过`PADDR[15:14]`译码：
 === 外设
 
 #table(
-  columns: (1fr, 1fr, 4fr),
+  columns: (auto, 1fr),
   align: horizon,
   stroke: 0.5pt,
   inset: 6pt,
-  [*外设*], [*行数*], [*说明*],
-  [GPIO], [104], [16bit双向IO，方向控制+数据寄存器，当前连接LED做走马灯],
-  [Timer], [85], [32位计数器+阈值+使能，匹配时产生IRQ，连接CPU的ext\_mtip中断],
-  [UART], [153], [顶层封装含RX/TX子模块，可配置波特率（默认115200）],
-  [SPI], [194], [SPI主机，支持MOSI/MISO/SS/CLK四线],
+  [*外设*], [*说明*],
+  [GPIO], [16bit双向IO，方向控制+数据寄存器，当前连接LED做走马灯],
+  [Timer], [32位计数器+阈值+使能，匹配时产生IRQ，连接CPU的ext\_mtip中断],
+  [UART], [顶层封装含RX/TX子模块，可配置波特率（默认115200）],
+  [SPI], [SPI主机，支持MOSI/MISO/SS/CLK四线],
 )
 
 == 结构总览
@@ -634,20 +640,20 @@ APB总线挂载4个从设备，通过`PADDR[15:14]`译码：
     let (id, label) = s
     let x_pos = i * (box_w + gap_x)
     rect((x_pos, 0), (x_pos + box_w, box_h), name: id)
-    content(id, [#text(size: 9pt, label)])
+    content(id, [#text(size: 10pt, label)])
   }
 
-  rect((rel: (-1.25 + 1, +1.5), to: "execute"), (rel: (1.25 + 1, +2.5), to: "execute"), fill: gray, name: "regfile")
-  content("regfile", [#text(size: 9pt, "RegFile")])
+  rect((rel: (-1.0, +1.5), to: "decode"), (rel: (1.0, +2.5), to: "decode"), fill: gray, name: "regfile")
+  content("regfile", [#text(size: 10pt, "RegFile")])
 
   rect((rel: (-1.25, -1.5), to: "fetch"), (rel: (1.25, -2.5), to: "fetch"), fill: gray, name: "icache")
-  content("icache", [#text(size: 9pt, "iCache")])
+  content("icache", [#text(size: 10pt, "iCache")])
 
   rect((rel: (-1.25, -1.5), to: "mem"), (rel: (1.25, -2.5), to: "mem"), fill: gray, name: "dcache")
-  content("dcache", [#text(size: 9pt, "dCache")])
+  content("dcache", [#text(size: 10pt, "dCache")])
 
   rect((rel: (-1.25, 1.5), to: "fetch"), (rel: (1.25, 2.5), to: "fetch"), name: "ctrl")
-  content("ctrl", [#text(size: 9pt, "Controller")])
+  content("ctrl", [#text(size: 10pt, "Controller")])
 
   rect(
     (rel: (-4, -1.5), to: "icache"),
@@ -655,22 +661,22 @@ APB总线挂载4个从设备，通过`PADDR[15:14]`译码：
     fill: gray,
     name: "ahb",
   )
-  content("ahb", [#text(size: 8pt, "AHB-Lite")])
+  content("ahb", [#text(size: 10pt, "AHB-Lite")])
 
   rect((rel: (-4, -1.5), to: "ahb"), (rel: (-1.5, -2.5), to: "ahb"), fill: gray, name: "apb")
-  content("apb", [#text(size: 8pt, "APB+Perips")])
+  content("apb", [#text(size: 10pt, "APB+Perips")])
 
-  rect((rel: (-1.25, 1.5), to: "execute"), (rel: (1.25, 2.5), to: "execute"), fill: gray, name: "csr")
-  content("csr", [#text(size: 8pt, "Trap/CSR")])
+  rect((rel: (-1.0, 1.5), to: "mem"), (rel: (1.0, 2.5), to: "mem"), fill: gray, name: "csr")
+  content("csr", [#text(size: 10pt, "Trap/CSR")])
 
   line("fetch", "decode", mark: (end: "straight"), name: "lfd")
-  content("lfd", anchor: "south", padding: .1, text(size: 8pt, "96bit"))
+  content("lfd", anchor: "south", padding: .1, text(size: 10pt, "96bit"))
   line("decode", "execute", mark: (end: "straight"), name: "lde")
-  content("lde", anchor: "south", padding: .1, text(size: 8pt, "320bit"))
+  content("lde", anchor: "south", padding: .1, text(size: 10pt, "320bit"))
   line("execute", "mem", mark: (end: "straight"), name: "lem")
-  content("lem", anchor: "south", padding: .1, text(size: 8pt, "207bit"))
+  content("lem", anchor: "south", padding: .1, text(size: 10pt, "207bit"))
   line("mem", "wb", mark: (end: "straight"), name: "lmw")
-  content("lmw", anchor: "south", padding: .1, text(size: 8pt, "168bit"))
+  content("lmw", anchor: "south", padding: .1, text(size: 10pt, "168bit"))
 
   line("icache", "fetch", mark: (end: "straight"))
   line("dcache", "mem", mark: (symbol: "straight"), bend: -20)
@@ -707,7 +713,7 @@ APB总线挂载4个从设备，通过`PADDR[15:14]`译码：
 == 测试框架
 
 #table(
-  columns: (2fr, 1fr, 3fr),
+  columns: (auto, auto, 1fr),
   align: horizon,
   stroke: 0.5pt,
   inset: 6pt,
@@ -834,7 +840,7 @@ exe\_to\_wb快速路径使R/I-type运算指令跳过MEM阶段，直接进入WB�
 == 各指令类型CPI与平均CPI
 
 #table(
-  columns: (1fr, 1fr, 1fr, 1fr, 1fr, 1fr, 1fr),
+  columns: (auto, 1fr, 1fr, 1fr, 1fr, 1fr, 1fr),
   align: center,
   stroke: 0.5pt,
   inset: 6pt,

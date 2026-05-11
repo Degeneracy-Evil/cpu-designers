@@ -340,56 +340,56 @@ FSM状态转移逻辑图：
   rect((dx, y_bot), (dx + w, y_bot + h), name: "s8")
   content("s8", [#text(size: 11pt, "TRAP\nRET")])
 
-  rect((2 * dx, y_bot), (2 * dx + w, y_bot + h), name: "s5")
-  content("s5", [#text(size: 11pt, "WB")])
-
-  rect((3 * dx, y_bot), (3 * dx + w, y_bot + h), name: "s6")
+  rect((2 * dx, y_bot), (2 * dx + w, y_bot + h), name: "s6")
   content("s6", [#text(size: 11pt, "CSR")])
 
-  line("s0", "s1", mark: (end: "straight"))
-  line("s1", "s2", mark: (end: "straight"), name: "1t2")
+  rect((4 * dx, y_bot), (4 * dx + w, y_bot + h), name: "s5")
+  content("s5", [#text(size: 11pt, "WB")])
+
+  line("s0.east", "s1.west", mark: (end: "straight"))
+  line("s1.east", "s2.west", mark: (end: "straight"), name: "1t2")
   content((name: "1t2", anchor: 40%), anchor: "south", [#text(size: 10pt, "if_done")])
-  line("s2", "s3", mark: (end: "straight"), name: "2t3")
+  line("s2.east", "s3.west", mark: (end: "straight"), name: "2t3")
   content((name: "2t3", anchor: 50%), anchor: "south", [#text(size: 10pt, "need_exe")])
-  line("s3", "s4", mark: (end: "straight"), name: "3t4")
+  line("s3.east", "s4.west", mark: (end: "straight"), name: "3t4")
   content((name: "3t4", anchor: 50%), [#text(size: 10pt, "ld/st")])
 
-  line("s2", "s7", mark: (end: "straight"), name: "2t7")
+  line("s2.south", "s7.north", bend: -25, mark: (end: "straight"), name: "2t7")
   content((name: "2t7", anchor: 75%), angle: ("2t7.start", 0%, "2t7.end"), [#text(size: 10pt, "trap")])
-  line("s2", "s8", mark: (end: "straight"), name: "2t8")
+  line("s2.south", "s8.north", bend: -10, mark: (end: "straight"), name: "2t8")
   content((name: "2t8", anchor: 70%), angle: ("2t8.start", 0%, "2t8.end"), [#text(size: 10pt, "mret")])
-  line("s2", "s6", mark: (end: "straight"), name: "2t6")
-  content((name: "2t6", anchor: 50%), angle: ("2t6.start", 0%, "2t6.end"), [#text(size: 10pt, "csr")])
+  line("s2.south", "s6.north", mark: (end: "straight"), name: "2t6")
+  content((name: "2t6", anchor: 50%), [#text(size: 10pt, "csr")])
 
-  line("s3", "s5", mark: (end: "straight"), name: "3t5")
-  content((name: "3t5", anchor: 50%), angle: ("3t5.start", 0%, "3t5.end"), [#text(size: 10pt, "R/I fast")])
-  line("s4", "s5", mark: (end: "straight"), name: "4t5")
-  content((name: "4t5", anchor: 50%), angle: ("4t5.start", 0%, "4t5.end"), [#text(size: 10pt, "mem_done")])
-  line("s6", "s5", mark: (end: "straight"))
+  line("s3.south", "s5.north", bend: 15, mark: (end: "straight"), name: "3t5")
+  content((name: "3t5", anchor: 50%), angle: ("3t5.start", 100%, "3t5.end"), [#text(size: 10pt, "R/I fast")])
+  line("s4.south", "s5.north", mark: (end: "straight"), name: "4t5")
+  content((name: "4t5", anchor: 50%), [#text(size: 10pt, "mem_done")])
+  line("s6.east", "s5.west", mark: (end: "straight"))
 
-  line("s5", "s1", mark: (end: "straight"), stroke: (dash: "dashed"), name: "5t1")
-  content((name: "5t1", anchor: 20%), angle: ("5t1.start", 0%, "5t1.end"), [#text(size: 10pt, "next")])
-  line("s7", "s1", mark: (end: "straight"), stroke: (dash: "dashed"))
-  line("s8", "s1", mark: (end: "straight"), stroke: (dash: "dashed"))
+  line("s5.north", "s1.south", bend: -15, mark: (end: "straight"), stroke: (dash: "dashed"), name: "5t1")
+  content((name: "5t1", anchor: 30%), angle: ("5t1.start", 0%, "5t1.end"), [#text(size: 10pt, "next")])
+  line("s7.north", "s1.south", mark: (end: "straight"), stroke: (dash: "dashed"))
+  line("s8.north", "s1.south", mark: (end: "straight"), stroke: (dash: "dashed"))
 
   line(
-    "s3",
-    (rel: (0, 1.0), to: "s3"),
-    (rel: (0, 1.0), to: "s1"),
-    "s1",
+    "s3.north",
+    (rel: (0, 0.5), to: "s3.north"),
+    (rel: (0, 0.5), to: "s1.north"),
+    "s1.north",
     mark: (end: "straight"),
     name: "3t1",
   )
   content((name: "3t1", anchor: 50%), [#text(size: 10pt, "branch")])
 
-  line("s3", "s7", mark: (end: "straight"), bend: 35, name: "3t7")
+  line("s3.south", (11.4, -0.5), (0.9, -0.5), "s7.south", mark: (end: "straight"), name: "3t7")
   content((name: "3t7", anchor: 50%), [#text(size: 10pt, "br+trap")])
 
-  line("s5", "s7", mark: (end: "straight"), bend: -30, name: "5t7")
-  content((name: "5t7", anchor: 50%), [#text(size: 10pt, "trap")])
+  line("s5.south", (14.9, -0.3), (0.9, -0.3), "s7.south", mark: (end: "straight"), name: "5t7")
+  content((name: "5t7", anchor: 20%), [#text(size: 10pt, "trap")])
 
-  line("s2", "s1", mark: (end: "straight"), bend: 30, name: "2t1f")
-  content((name: "2t1f", anchor: 50%), [#text(size: 10pt, "fence")])
+  line("s2.north", "s1.north", bend: -30, mark: (end: "straight"), name: "2t1f")
+  content((name: "2t1f", anchor: 50%), anchor: "south", [#text(size: 10pt, "fence")])
 })
 
 == 异常处理<expact_exe>
@@ -491,25 +491,25 @@ CSR模块支持*双写端口*：
   rect((0, 2), (3, 3), name: "bridge")
   content("bridge", [#text(size: 10pt, "cpu_bus_bridge")])
 
-  rect((5, 0), (9, 5), name: "bus")
+  rect((5, 0), (10, 5), name: "bus")
   content("bus.north", anchor: "south", [#text(size: 10pt, "ahb_lite_bus")])
 
-  rect((5.5, 3.5), (8.5, 4.5), name: "decoder")
+  rect((5.5, 3.5), (9.5, 4.5), name: "decoder")
   content("decoder", [#text(size: 10pt, "ahb_decoder")])
 
-  rect((5.5, 1), (7.2, 2.5), name: "sram")
+  rect((5.5, 1), (7.0, 2.5), name: "sram")
   content("sram", [#text(size: 10pt, "ahb_sram")])
 
-  rect((7.6, 1), (8.5, 2.5), name: "apbb")
+  rect((7.5, 1), (9.5, 2.5), name: "apbb")
   content("apbb", [#text(size: 10pt, "AHB→APB")])
 
   line("bridge.east", "bus.west", mark: (end: "straight"), name: "l1")
   content("l1", anchor: "south", padding: .1, [#text(size: 10pt, "AHB-Lite")])
-  line("decoder.south", "sram.north", stroke: (dash: "dashed"), mark: (end: "straight"),name: "bus_sram")
-  line("decoder.south", "apbb.north", stroke: (dash: "dashed"), mark: (end: "straight"),name: "bus_apb")
+  line("decoder.south", "sram.north", stroke: (dash: "dashed"), mark: (end: "straight"), name: "bus_sram")
+  line("decoder.south", "apbb.north", stroke: (dash: "dashed"), mark: (end: "straight"), name: "bus_apb")
 
-  content((name: "bus_sram", anchor: 20%),angle: ("bus_sram.start",0%,"bus_sram.end"), [#text(size: 10pt, "HSEL0")])
-  content((name: "bus_apb", anchor: 20%),angle: ("bus_apb.start",0%,"bus_apb.end"), [#text(size: 10pt, "HSEL1")])
+  content((name: "bus_sram", anchor: 50%), anchor: "east", [#text(size: 10pt, "HSEL0")])
+  content((name: "bus_apb", anchor: 50%), anchor: "west", [#text(size: 10pt, "HSEL1")])
 })]
 
 AHB-Lite总线当前挂载2个从设备：
@@ -569,11 +569,11 @@ AHB信号映射：
 #align(center)[#cetz.canvas({
   import cetz.draw: *
 
-  rect((0, 1), (2.5, 2), name: "bridge")
+  rect((0, 0.55), (2.5, 1.75), name: "bridge")
   content("bridge", [#text(size: 10pt, "AHB→APB")])
 
-  rect((4, 0), (10.5, 3), name: "apb")
-  content("apb.north", anchor: "south", [#text(size: 10pt, "APB总线")])
+  rect((4, 0), (10.5, 2.3), name: "apb")
+  content("apb.north", anchor: "south", padding: .1, [#text(size: 10pt, "APB总线")])
 
   rect((4.3, 0.3), (5.7, 1.5), name: "gpio")
   content("gpio", [#text(size: 10pt, "GPIO")])
@@ -635,7 +635,7 @@ APB总线挂载4个从设备，通过`PADDR[15:14]`译码：
 
   let box_w = 1.8
   let box_h = 1.0
-  let gap_x = 0.6
+  let gap_x = 1.2
   let gap_y = 1.2
 
   let stages = (
@@ -652,7 +652,7 @@ APB总线挂载4个从设备，通过`PADDR[15:14]`译码：
     content(id, [#text(size: 10pt, label)])
   }
 
-  rect((rel: (-1.0, +1.5), to: "decode"), (rel: (1.0, +2.5), to: "decode"), fill: gray, name: "regfile")
+  rect((rel: (-1.0, -1.5), to: "execute"), (rel: (1.0, -2.5), to: "execute"), fill: gray, name: "regfile")
   content("regfile", [#text(size: 10pt, "RegFile")])
 
   rect((rel: (-1.25, -1.5), to: "fetch"), (rel: (1.25, -2.5), to: "fetch"), fill: gray, name: "icache")
@@ -665,33 +665,32 @@ APB总线挂载4个从设备，通过`PADDR[15:14]`译码：
   content("ctrl", [#text(size: 10pt, "Controller")])
 
   rect(
-    (rel: (-4, -1.5), to: "icache"),
-    (rel: (-1.5, -2.5), to: "icache"),
-    fill: gray,
+    (rel: (-4, -1.5), to: "regfile"),
+    (rel: (-1.5, -2.5), to: "regfile"),
     name: "ahb",
   )
   content("ahb", [#text(size: 10pt, "AHB-Lite")])
 
-  rect((rel: (-4, -1.5), to: "ahb"), (rel: (-1.5, -2.5), to: "ahb"), fill: gray, name: "apb")
+  rect((rel: (-1.25, -1.5), to: "ahb"), (rel: (+1.25, -2.5), to: "ahb"), name: "apb")
   content("apb", [#text(size: 10pt, "APB+Perips")])
 
-  rect((rel: (-1.0, 1.5), to: "mem"), (rel: (1.0, 2.5), to: "mem"), fill: gray, name: "csr")
+  rect((rel: (-1.0, 1.5), to: "mem"), (rel: (1.0, 2.5), to: "mem"), name: "csr")
   content("csr", [#text(size: 10pt, "Trap/CSR")])
 
-  line("fetch", "decode", mark: (end: "straight"), name: "lfd")
+  line("fetch.east", "decode.west", mark: (end: "straight"), name: "lfd")
   content("lfd", anchor: "south", padding: .1, text(size: 10pt, "96bit"))
-  line("decode", "execute", mark: (end: "straight"), name: "lde")
+  line("decode.east", "execute.west", mark: (end: "straight"), name: "lde")
   content("lde", anchor: "south", padding: .1, text(size: 10pt, "320bit"))
-  line("execute", "mem", mark: (end: "straight"), name: "lem")
+  line("execute.east", "mem.west", mark: (end: "straight"), name: "lem")
   content("lem", anchor: "south", padding: .1, text(size: 10pt, "207bit"))
-  line("mem", "wb", mark: (end: "straight"), name: "lmw")
+  line("mem.east", "wb.west", mark: (end: "straight"), name: "lmw")
   content("lmw", anchor: "south", padding: .1, text(size: 10pt, "168bit"))
 
-  line("icache", "fetch", mark: (end: "straight"))
-  line("dcache", "mem", mark: (symbol: "straight"), bend: -20)
-  line("ahb", "icache", stroke: (dash: "dashed"), mark: (end: "straight"))
-  line("ahb", "dcache", stroke: (dash: "dashed"), mark: (end: "straight"))
-  line("apb", "ahb", mark: (end: "straight"))
+  line("icache.north", "fetch.south", mark: (end: "straight"))
+  line("dcache.north", "mem.south", mark: (symbol: "straight"), bend: -20)
+  line("ahb", "icache", mark: (symbol: "straight"))
+  line("ahb", "dcache", mark: (symbol: "straight"))
+  line("apb", "ahb", mark: (symbol: "straight"))
 
   line("ctrl.south", "fetch", stroke: (dash: "dashed"), mark: (end: "straight"))
   line("ctrl.south", "decode.north", stroke: (dash: "dashed"), mark: (end: "straight"))
@@ -699,8 +698,11 @@ APB总线挂载4个从设备，通过`PADDR[15:14]`译码：
   line("ctrl.south", "mem.north", stroke: (dash: "dashed"), mark: (end: "straight"))
   line("ctrl.south", "wb.north", stroke: (dash: "dashed"), mark: (end: "straight"))
 
-  line("regfile.west", "decode.north", mark: (end: "straight"))
-  line("wb.north", "regfile.east", mark: (end: "straight"))
+  line("regfile.north", "decode.south", mark: (end: "straight"))
+  line("wb.south", "regfile.north", mark: (end: "straight"))
+
+  line("csr.south", "mem.north", mark: (start: "straight"))
+  line("csr.west", "execute.north", mark: (start: "straight"))
 })]
 
 *模块间数据通路*：

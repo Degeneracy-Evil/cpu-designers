@@ -36,7 +36,7 @@
 
 = 项目简述
 
-== 项目环境与级别
+== 项目环境与语言
 
 设计语言：Verilog
 
@@ -47,7 +47,7 @@
 #move(dx: 2em)[
   + `RISCV32-IM_Zicsr_Zifencei`多周期嵌入式CPU（使用上次成果）
   + 具有异常处理机制
-  + 实现（一级）中断机制
+  + 实现（至少一级）中断机制
   + 实现接口通信机制（UART或GPIO）
   + 外设：UART、GPIO、Timer（含IRQ）、SPI
 ]
@@ -220,7 +220,7 @@ CSR no-write优化：CSRRS/CSRRC且rs1=0时、CSRRSI/CSRRCI且uimm=0时不写CSR
 
 Zifencei扩展仅包含`FENCE.I`指令，用于指令缓存刷新，当前由于未使用主存，没有内存屏障限制，实现中为NOP（直接跳过）。
 
-此外，添加系统控制指令`ECALL`、`EBREAK`、`MRET`支持，分别触发异常进入和中断返回。
+此外，添加系统控制指令`ECALL`、`EBREAK`、`MRET`支持，分别触发异常进入和中断返回。详见"#link(<expact_exe>)[异常处理]"小节。
 
 == CPU核优化
 
@@ -244,7 +244,7 @@ Zifencei扩展仅包含`FENCE.I`指令，用于指令缓存刷新，当前由于
 
 由于从第一次实验继承来的ALU模块内部集成了Booth乘法器和非恢复余数除法器，使得其必须通过握手协议（`req_valid`/`result_valid`）与执行模块交互，但又没有M指令集，导致没有指令实际使用乘除法功能，平白为所有经过ALU计算的指令引入3周期额外开销（请求发射→结果锁存→读取`done_reg`）。
 
-本次实验将乘除法从ALU中分离为独立的`mu_unit`模块：
+本次实验中我们将乘除法从ALU中分离为独立的`mu_unit`模块：
 
 #move(dx: 2em)[
   - *ALU*：仅保留单周期组合逻辑运算（ADD/SUB/SLT/SLTU/XOR/OR/AND/SLL/SRL/SRA/LUI/NOR/NOT），变为纯组合逻辑模块，移除握手协议，消除握手耗时。
@@ -381,9 +381,18 @@ FSM状态转移逻辑图：
     name: "3t1",
   )
   content((name: "3t1", anchor: 50%), [#text(size: 10pt, "branch")])
+
+  line("s3", "s7", mark: (end: "straight"), bend: 35, name: "3t7")
+  content((name: "3t7", anchor: 50%), [#text(size: 10pt, "br+trap")])
+
+  line("s5", "s7", mark: (end: "straight"), bend: -30, name: "5t7")
+  content((name: "5t7", anchor: 50%), [#text(size: 10pt, "trap")])
+
+  line("s2", "s1", mark: (end: "straight"), bend: 30, name: "2t1f")
+  content((name: "2t1f", anchor: 50%), [#text(size: 10pt, "fence")])
 })
 
-== 异常处理
+== 异常处理<expact_exe>
 
 === 异常类型
 
@@ -402,7 +411,7 @@ CPU支持以下异常，分别在Decode和Mem阶段检测：
   [ECALL (M-mode)], [11], [M模式下执行ECALL],
 )
 
-异常优先级：当前设置同步异常优先于中断；同一边界上的同步异常先处理。
+异常优先级：当前设置同步异常优先于中断；同一指令边界上的同步异常先处理。
 
 === CSR寄存器
 
@@ -416,9 +425,9 @@ CPU支持以下异常，分别在Decode和Mem阶段检测：
   [*地址*], [*名称*], [*读写*], [*说明*],
   [0x300], [mstatus], [MRW], [目前支持：MIE\[3\], MPIE\[7\], MPP\[12:11\]],
   [0x304], [mie], [MRW], [目前支持：MSIE\[3\], MTIE\[7\], MEIE\[11\]],
-  [0x305], [mtvec], [MRW], [trap向量基址],
+  [0x305], [mtvec], [MRW], [trap基址（中断服务程序的基地址）],
   [0x340], [mscratch], [MRW], [暂存寄存器],
-  [0x341], [mepc], [MRW], [异常PC],
+  [0x341], [mepc], [MRW], [异常指令PC寄存器],
   [0x342], [mcause], [MRW], [异常原因],
   [0x343], [mtval], [MRW], [异常附加值],
   [0x344], [mip], [MR], [MEIP\[11\], MTIP\[7\], MSIP\[3\]由硬件驱动],
@@ -439,7 +448,7 @@ CSR模块支持*双写端口*：
 
 #move(dx: 2em)[
   - PC ← mtvec.BASE（Direct模式）
-  - mepc ← 异常PC（异常）或当前PC（中断）
+  - mepc ← 异常PC（同步异常，即出错指令的pc）或当前PC（中断，即将要执行指令的pc）
   - mcause ← 异常/中断编码
   - mstatus: MPIE←MIE, MIE←0, MPP←当前模式
 ]
@@ -455,7 +464,7 @@ CSR模块支持*双写端口*：
 
 === 中断响应
 
-支持三级中断，电平触发（持续到软件ack）：
+支持三种中断，电平触发（持续到软件ack）：
 
 #table(
   columns: (2fr, 1fr, 3fr),
@@ -468,11 +477,11 @@ CSR模块支持*双写端口*：
   [外部中断(MEIP)], [0x8000000B], [MEIE=1 && MEIP=1 && MIE=1],
 )
 
-中断源连接：`ext_mtip`连接`timer_irq`（来自APB Timer外设）。中断检测点在EXEC完成（分支指令）和WB完成后。
+中断源连接：`ext_mtip`连接`timer_irq`（来自APB 总线上的 Timer外设）。中断和异常检测点在指令间隔，具体为EXEC完成（分支指令）和WB完成后。
 
 == 系统总线
 
-系统总线我们选择了ARM AMBA的AHB-Lite总线，原因是具有突发机制，性能较好，且规范易于扩展。
+系统总线我们选择了ARM AMBA的AHB-Lite总线，原因是具有突发机制，性能较好，同时较简单，且规范易于扩展。
 
 === 总线拓扑
 
@@ -496,11 +505,11 @@ CSR模块支持*双写端口*：
 
   line("bridge.east", "bus.west", mark: (end: "straight"), name: "l1")
   content("l1", anchor: "south", padding: .1, [#text(size: 10pt, "AHB-Lite")])
-  line("decoder.south", "sram.north", stroke: (dash: "dashed"), mark: (end: "straight"))
-  line("decoder.south", "apbb.north", stroke: (dash: "dashed"), mark: (end: "straight"))
+  line("decoder.south", "sram.north", stroke: (dash: "dashed"), mark: (end: "straight"),name: "bus_sram")
+  line("decoder.south", "apbb.north", stroke: (dash: "dashed"), mark: (end: "straight"),name: "bus_apb")
 
-  content((7.25, 3.2), [#text(size: 10pt, "HSEL0")])
-  content((8.0, 3.2), [#text(size: 10pt, "HSEL1")])
+  content((name: "bus_sram", anchor: 20%),angle: ("bus_sram.start",0%,"bus_sram.end"), [#text(size: 10pt, "HSEL0")])
+  content((name: "bus_apb", anchor: 20%),angle: ("bus_apb.start",0%,"bus_apb.end"), [#text(size: 10pt, "HSEL1")])
 })]
 
 AHB-Lite总线当前挂载2个从设备：
@@ -517,12 +526,12 @@ AHB-Lite总线当前挂载2个从设备：
 
 === cpu_bus_bridge
 
-`cpu_bus_bridge`将CPU的ICache/DCache MMIO请求直接桥接为AHB-Lite主设备信号，CPU核心直接输出AHB-Lite信号（HADDR/HTRANS/HWRITE/HSIZE/HWDATA等），省去旧版`ahb_master`中间层，减少一周期延迟。
+`cpu_bus_bridge`将CPU的ICache/DCache MMIO请求直接桥接为AHB-Lite主设备信号，CPU核心直接输出AHB-Lite信号（HADDR/HTRANS/HWRITE/HSIZE/HWDATA等）。
 
 3状态FSM：
 
 #table(
-  columns: (1fr, 2fr),
+  columns: (auto, 1fr),
   align: horizon,
   stroke: 0.5pt,
   inset: 6pt,

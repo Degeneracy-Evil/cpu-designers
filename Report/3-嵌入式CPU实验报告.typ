@@ -22,7 +22,7 @@
   align(center)[#text(40pt)[设\ 计\ 报\ 告]]
 
   v(4em)
-  align(center)[#text(size: 18pt)[负责人：]]
+  align(center)[#text(size: 18pt)[负责人：王之翼#h(1em)18996388318\    张潘妍    张之恒    陈海攀]]
   align(center)[#text(size: 18pt)[2024级计算机一班#h(1em)课序3第4组#h(1em)2026年5月9日]]
 })
 #pagebreak()
@@ -481,7 +481,91 @@ CSR模块支持*双写端口*：
 
 == 系统总线
 
-系统总线我们选择了ARM AMBA的AHB-Lite总线，原因是具有突发机制，性能较好，同时较简单，且规范易于扩展。
+系统总线我们选择了ARM AMBA的AHB-Lite总线，原因是具有流水线传输机制，性能较好，同时较简单，且规范易于扩展。
+
+=== AHB-Lite总线特性
+
+AHB-Lite是AMBA总线族中的高性能系统总线，主要特性如下：
+
+#move(dx: 2em)[
+  + *流水线传输*：地址相位与数据相位重叠，前一笔传输的数据相位与后一笔传输的地址相位在同一周期进行，提高总线利用率
+  + *单主设备*：AHB-Lite仅支持一个主设备（本系统中为CPU），无需仲裁
+  + *多从设备*：通过地址译码器选择从设备，支持1/2/4/8个从设备
+  + *突发传输*：支持SINGLE/INCR/WRAP4/WRAP8/WRAP16等突发类型（本系统仅使用SINGLE）
+  + *传输宽度*：支持BYTE(8)/HWORD(16)/WORD(32)三种传输宽度
+  + *错误响应*：从设备可通过HRESP返回ERROR/OKAY状态
+]
+
+=== AHB-Lite基本协议
+
+AHB-Lite每次传输分为*地址相位*和*数据相位*两个阶段，各占一个HCLK周期：
+
+#align(center)[#cetz.canvas({
+  import cetz.draw: *
+
+  let w = 3.5
+  let h = 0.8
+  let y1 = 3.0
+  let y2 = 1.8
+  let y3 = 0.6
+
+  for i in range(4) {
+    let x = i * w
+    line((x, 0), (x, 4), stroke: (dash: "dotted", paint: gray))
+  }
+  content((0.5 * w, 4.0), [#text(size: 10pt, "Cycle N")])
+  content((1.5 * w, 4.0), [#text(size: 10pt, "Cycle N+1")])
+  content((2.5 * w, 4.0), [#text(size: 10pt, "Cycle N+2")])
+  content((3.5 * w, 4.0), [#text(size: 10pt, "Cycle N+3")])
+
+  rect((0, y1), (w, y1 + h), fill: rgb("#4a90d9"), stroke: none)
+  content((0.5 * w, y1 + 0.4), [#text(size: 9pt, fill: white, "Addr Phase 1")])
+
+  rect((w, y1), (2 * w, y1 + h), fill: rgb("#d94a4a"), stroke: none)
+  content((1.5 * w, y1 + 0.4), [#text(size: 9pt, fill: white, "Data Phase 1")])
+
+  rect((w, y2), (2 * w, y2 + h), fill: rgb("#4a90d9"), stroke: none)
+  content((1.5 * w, y2 + 0.4), [#text(size: 9pt, fill: white, "Addr Phase 2")])
+
+  rect((2 * w, y2), (3 * w, y2 + h), fill: rgb("#d94a4a"), stroke: none)
+  content((2.5 * w, y2 + 0.4), [#text(size: 9pt, fill: white, "Data Phase 2")])
+
+  content((-0.3, y1 + 0.4), anchor: "east", [#text(size: 9pt, "Transfer 1")])
+  content((-0.3, y2 + 0.4), anchor: "east", [#text(size: 9pt, "Transfer 2")])
+})]
+
+*关键信号*：
+
+#table(
+  columns: (auto, auto, 1fr),
+  align: horizon,
+  stroke: 0.5pt,
+  inset: 6pt,
+  [*信号*], [*方向*], [*说明*],
+  [`HCLK`], [—], [总线时钟，上升沿采样],
+  [`HRESETn`], [—], [异步复位，低有效],
+  [`HADDR[31:0]`], [M→S], [32位地址，地址相位有效],
+  [`HTRANS[1:0]`], [M→S], [传输类型：IDLE(00)/BUSY(01)/NONSEQ(10)/SEQ(11)],
+  [`HWRITE`], [M→S], [写使能：1=写，0=读],
+  [`HSIZE[2:0]`], [M→S], [传输宽度：000=BYTE, 001=HWORD, 010=WORD],
+  [`HBURST[2:0]`], [M→S], [突发类型：000=SINGLE, 其余INCR/WRAP等],
+  [`HWDATA[31:0]`], [M→S], [写数据，数据相位有效],
+  [`HRDATA[31:0]`], [S→M], [读数据，数据相位有效],
+  [`HREADY`], [S→M], [从设备就绪：1=传输完成，0=插入等待状态],
+  [`HRESP`], [S→M], [传输响应：0=OKAY, 1=ERROR],
+  [`HSELx`], [Dec→S], [从设备选择信号，由地址译码器产生],
+)
+
+*传输交互流程*（以单笔读传输为例）：
+
+#move(dx: 2em)[
+  + 沿N（地址相位）：主设备驱动`HADDR`、`HTRANS=NONSEQ`、`HWRITE=0`、`HSIZE`，译码器产生`HSELx`
+  + 沿N+1（数据相位）：从设备在`HSELx && HREADY`时采样地址，输出`HRDATA`，驱动`HREADY`
+  + 若`HREADY=0`，从设备插入等待状态，主设备保持信号不变
+  + `HREADY=1`时传输完成，主设备可发起下一笔传输
+]
+
+本系统中所有传输均为`HTRANS=NONSEQ`、`HBURST=SINGLE`的单笔传输，从设备零等待（`HREADY=1`），简化了协议实现。
 
 === 总线拓扑
 
@@ -560,9 +644,95 @@ AHB信号映射：
 
 `ahb_sram_slave`内部实例化Sram BRAM IP（Xilinx Block Memory Generator），参数化`MEM_DEPTH=262144`（1MB），支持字节/半字/字写使能，通过`byte_we`转换HSIZE+HADDR为BRAM字节掩码。等待状态计数器处理BRAM读延迟（1周期）。
 
+这个设备目前未使用。
+
 == 外设总线
 
-外设总线我们选择了ARM AMBA的APB总线，原因是实现简单，规范易于扩展。
+外设总线我们选择了ARM AMBA的APB总线，原因是实现简单，功耗低，规范易于扩展，适合连接低速外设。
+
+=== APB总线特性
+
+APB是AMBA总线族中的低功耗外设总线，主要特性如下：
+
+#move(dx: 2em)[
+  + *非流水线传输*：每次传输需完整的SETUP+ACCESS两个周期，无地址/数据重叠
+  + *单主设备*：由AHB-to-APB桥充当唯一主设备
+  + *多从设备*：通过`PSELx`选择从设备，当前挂载4个
+  + *无突发*：每次传输独立，不支持突发机制
+  + *字节掩码*：通过`PSTRB[3:0]`支持字节级写使能
+  + *低功耗*：所有信号在时钟上升沿变化，无复杂流水逻辑
+]
+
+=== APB基本协议
+
+APB每次传输经历*IDLE → SETUP → ACCESS*三个状态，SETUP和ACCESS各占一个PCLK周期：
+
+#align(center)[#cetz.canvas({
+  import cetz.draw: *
+
+  let w = 3.0
+  let h = 0.6
+  let y = 0
+
+  for i in range(3) {
+    let x = i * w
+    line((x, -0.5), (x, 3.5), stroke: (dash: "dotted", paint: gray))
+  }
+  content((0.5 * w, 3.2), [#text(size: 10pt, "Cycle N")])
+  content((1.5 * w, 3.2), [#text(size: 10pt, "Cycle N+1")])
+  content((2.5 * w, 3.2), [#text(size: 10pt, "Cycle N+2")])
+
+  rect((0, 2.2), (w, 2.2 + h), fill: rgb("#999999"), stroke: none)
+  content((0.5 * w, 2.2 + 0.3), [#text(size: 9pt, fill: white, "IDLE")])
+
+  rect((w, 2.2), (2 * w, 2.2 + h), fill: rgb("#4a90d9"), stroke: none)
+  content((1.5 * w, 2.2 + 0.3), [#text(size: 9pt, fill: white, "SETUP")])
+
+  rect((2 * w, 2.2), (3 * w, 2.2 + h), fill: rgb("#d94a4a"), stroke: none)
+  content((2.5 * w, 2.2 + 0.3), [#text(size: 9pt, fill: white, "ACCESS")])
+
+  content((-0.3, 2.5), anchor: "east", [#text(size: 9pt, "状态")])
+
+  rect((w, 1.2), (2 * w, 1.2 + h), fill: rgb("#4a90d9"), stroke: none)
+  content((1.5 * w, 1.2 + 0.3), [#text(size: 9pt, "PSEL=1")])
+  content((-0.3, 1.5), anchor: "east", [#text(size: 9pt, "PSELx")])
+
+  rect((2 * w, 0.2), (3 * w, 0.2 + h), fill: rgb("#d94a4a"), stroke: none)
+  content((2.5 * w, 0.2 + 0.3), [#text(size: 9pt, "PENABLE=1")])
+  content((-0.3, 0.5), anchor: "east", [#text(size: 9pt, "PENABLE")])
+})]
+
+*关键信号*：
+
+#table(
+  columns: (1fr, 1fr, 3fr),
+  align: horizon,
+  stroke: 0.5pt,
+  inset: 6pt,
+  [*信号*], [*方向*], [*说明*],
+  [`PCLK`], [—], [总线时钟，上升沿采样],
+  [`PRESETn`], [—], [异步复位，低有效],
+  [`PSELx`], [M→S], [从设备选择，1=选中],
+  [`PENABLE`], [M→S], [访问使能：SETUP阶段为0，ACCESS阶段为1],
+  [`PWRITE`], [M→S], [写使能：1=写，0=读],
+  [`PADDR[31:0]`], [M→S], [地址],
+  [`PWDATA[31:0]`], [M→S], [写数据],
+  [`PRDATA[31:0]`], [S→M], [读数据],
+  [`PREADY`], [S→M], [从设备就绪：1=传输完成（本系统恒为1）],
+  [`PSTRB[3:0]`], [M→S], [字节写掩码：0=不写，1=写],
+  [`PSLVERR`], [S→M], [错误响应（本系统恒为0）],
+)
+
+*传输交互流程*（以写传输为例）：
+
+#move(dx: 2em)[
+  + *IDLE*：`PSELx=0`，`PENABLE=0`，总线空闲
+  + *SETUP*（沿N）：桥驱动`PSELx=1`、`PWRITE=1`、`PADDR`、`PWDATA`、`PSTRB`，`PENABLE=0`
+  + *ACCESS*（沿N+1）：`PENABLE=1`，从设备在`PCLK`上升沿采样写数据，`PREADY=1`时传输完成
+  + 传输完成后回到IDLE或直接进入下一笔SETUP（背靠背传输）
+]
+
+读传输类似，ACCESS阶段从设备输出`PRDATA`，主设备在`PCLK`上升沿采样。本系统中所有从设备`PREADY`恒为1（零等待），`PSLVERR`恒为0（无错误响应）。
 
 === APB总线拓扑
 
@@ -622,7 +792,7 @@ APB总线挂载4个从设备，通过`PADDR[15:14]`译码：
   stroke: 0.5pt,
   inset: 6pt,
   [*外设*], [*说明*],
-  [GPIO], [16bit双向IO，方向控制+数据寄存器，当前连接LED做走马灯],
+  [GPIO], [16bit双向IO，方向控制+数据寄存器，当前连接LED作走马灯],
   [Timer], [32位计数器+阈值+使能，匹配时产生IRQ，连接CPU的ext\_mtip中断],
   [UART], [顶层封装含RX/TX子模块，可配置波特率（默认115200）],
   [SPI], [SPI主机，支持MOSI/MISO/SS/CLK四线],
@@ -686,6 +856,17 @@ APB总线挂载4个从设备，通过`PADDR[15:14]`译码：
   line("mem.east", "wb.west", mark: (end: "straight"), name: "lmw")
   content("lmw", anchor: "south", padding: .1, text(size: 10pt, "168bit"))
 
+  line(
+    "execute.south",
+    (rel: (0, -0.5), to: "execute.south"),
+    (rel: (0, -0.5), to: "wb.south"),
+    "wb.south",
+    mark: (end: "straight"),
+    stroke: (dash: "dashed", paint: blue),
+    name: "exe_wb",
+  )
+  content("exe_wb", anchor: "north", padding: .05, [#text(size: 9pt, fill: blue, "exe→wb")])
+
   line("icache.north", "fetch.south", mark: (end: "straight"))
   line("dcache.north", "mem.south", mark: (symbol: "straight"), bend: -20)
   line("ahb", "icache", mark: (symbol: "straight"))
@@ -704,6 +885,8 @@ APB总线挂载4个从设备，通过`PADDR[15:14]`译码：
   line("csr.south", "mem.north", mark: (start: "straight"))
   line("csr.west", "execute.north", mark: (start: "straight"))
 })]
+
+其中蓝色虚线为*exe→wb快速路径*，R/I-type运算指令执行完成后跳过MEM阶段直接进入WB，减少2周期开销。
 
 *模块间数据通路*：
 
@@ -724,22 +907,24 @@ APB总线挂载4个从设备，通过`PADDR[15:14]`译码：
 == 测试框架
 
 #table(
-  columns: (auto, auto, 1fr),
+  columns: (auto, 1fr),
   align: horizon,
   stroke: 0.5pt,
   inset: 6pt,
-  [*Testbench*], [*行数*], [*测试内容*],
-  [`tb_simple_cpu_top`], [220], [CPU综合测试（ALU/访存/对齐/CSR/异常/中断）],
-  [`tb_simple_cpu_compute`], [220], [CPU运算指令测试（M扩展+算术）],
-  [`tb_simple_cpu_trap`], [191], [CPU异常/中断测试],
-  [`tb_ahb_bus`], [175], [AHB-Lite总线功能测试],
-  [`tb_apb_perips`], [202], [APB外设读写测试],
-  [`tb_uart_hello`], [252], [UART Hello World发送测试],
-  [`tb_led_marquee`], [189], [LED走马灯测试],
-  [`tb_alu_cpu_integration`], [149], [ALU组合逻辑集成测试],
-  [`tb_mu_unit`], [227], [乘除法单元测试],
-  [`tb_non_restoring_divider`], [204], [非恢复余数除法器测试],
+  [*Testbench*], [*测试内容*],
+  [`tb_simple_cpu_top`], [CPU综合测试（ALU/访存/对齐/CSR/异常/中断）],
+  [`tb_simple_cpu_compute`], [CPU运算指令测试（M扩展+算术）],
+  [`tb_simple_cpu_trap`], [CPU异常/中断测试],
+  [`tb_ahb_bus`], [AHB-Lite总线功能测试],
+  [`tb_apb_perips`], [APB外设读写测试],
+  [`tb_uart_hello`], [UART Hello World发送测试],
+  [`tb_led_marquee`], [LED走马灯测试],
+  [`tb_alu_cpu_integration`], [ALU组合逻辑集成测试],
+  [`tb_mu_unit`], [乘除法单元测试],
+  [`tb_non_restoring_divider`], [非恢复余数除法器测试],
 )
+
+均在`dev/tb`目录下。
 
 == 测试程序
 
@@ -756,6 +941,152 @@ APB总线挂载4个从设备，通过`PADDR[15:14]`译码：
   [`uart_hello.s`], [UART Hello World发送程序],
   [`fib10.c`], [C语言Fibonacci数列计算],
 )
+
+均在`dev/program_source`目录下。
+
+=== 综合测试程序
+
+综合测试程序覆盖了CPU大多数功能的测试，以下是关键部分：
+
+#box(height: 17em)[#columns(2, gutter: 8pt)[```asm
+150    la x10, trap_handler
+151    csrw mtvec, x10
+152    li x10, 0x88
+153    csrw mstatus, x10
+154    li x10, 0x800
+155    csrw mie, x10
+157    csrw mscratch, x0
+159    addi x1, x0, 0
+160    ecall
+162    addi x1, x0, 1
+164    ebreak
+166    addi x1, x0, 2
+168    .word 0x0000007F
+170    addi  x1, x0, 3
+245 trap_handler:
+246    csrrs x19, mcause, x0
+247    csrrs x20, mepc, x0
+248    addi x20, x20, 4
+249    csrw mepc, x20
+250    csrrs x21, mscratch, x0
+251    slli x21, x21, 2
+252    addi x22, x21, 72
+253    sw x19, 0(x22)
+254    csrrs x21, mscratch, x0
+255    addi x21, x21, 1
+256    csrw mscratch, x21
+257    li x10, 0x80
+258    csrw mstatus, x10
+259    mret
+```]]
+
+这段代码展示了异常测试和异常服务程序，涵盖了自陷入和指令异常的情况。`cpu_test.s`中还有关于基础指令、M指令集、时钟中断的测试，内容较多，详细请查看源码。
+
+=== LED跑马灯演示程序
+#box(height: 36em)[#columns(2, gutter: 12pt)[
+  ```asm
+  .equ GPIO_BASE, 0x80000000
+  .equ TIMER_BASE, 0x80004000
+  .equ TIMER_PERIOD, 100000000
+  .section .text
+  .globl _start
+  _start:
+      # Setup mtvec
+      la t0, isr
+      csrw mtvec, t0
+      # Enable MTIE in mie (bit 7)
+      li t0, 0x80
+      csrw mie, t0
+      # Enable MIE in mstatus (bit 3)
+      li t0, 0x8
+      csrw mstatus, t0
+      # Initialize GPIO direction (all output)
+      lui x10, 0x80000
+      li x11, 0xFFFF
+      sw x11, 0(x10)
+      # Initialize LED state
+      li x12, 0       # x12 will be our counter (0-15)
+      li x11, 1
+      xori x13, x11, -1
+      sw x13, 4(x10)
+      # Setup Timer
+      lui x15, 0x80004
+      li x16, TIMER_PERIOD
+      sw x16, 0(x15)  # expr_val = TIMER_PERIOD
+      li x16, 3
+      sw x16, 4(x15)  # start = 1, mode = 1 (periodic)
+  loop:
+      j loop
+  .align 4
+  isr:
+      csrrw sp, mscratch, sp
+      addi sp, sp, -16
+      sw x11, 0(sp)
+      sw x13, 4(sp)
+      sw x14, 8(sp)
+      # Clear Timer IRQ
+      lui x15, 0x80004
+      sw x0, 8(x15)
+      # Update LED state
+      addi x12, x12, 1
+      li x11, 16
+      bne x12, x11, skip_reset
+      li x12, 0
+  skip_reset:
+      lui x10, 0x80000
+      li x11, 1
+      sll x13, x11, x12
+      xori x13, x13, -1
+      sw x13, 4(x10)
+      lw x11, 0(sp)
+      lw x13, 4(sp)
+      lw x14, 8(sp)
+      addi sp, sp, 16
+      csrrw sp, mscratch, sp
+      mret
+  ```]]
+
+通过计时器中断服务程序`isr`定时修改GPIO（连接到LED）的输出数据来改变LED的状态，每100M个时钟周期触发一次，每次输出数据都是循环右移一位，即LED亮灯位置一秒循环右移一次。
+
+=== UART测试程序
+
+#box(height: 18em)[
+  #columns(2, gutter: 12pt)[
+    ```asm
+    .equ UART_BASE, 0x80008000
+    .equ UART_CTRL,   0x00
+    .equ UART_STATUS, 0x04
+    .equ UART_TXDATA, 0x08
+    .section .text
+    .globl _start
+    _start:
+        lui x10, 0x80008
+        li x11, 0x01
+        sw x11, UART_CTRL(x10)
+        la x20, msg
+        mv x21, x20
+    send_loop:
+        lb x12, 0(x21)
+        beq x12, x0, done
+    wait_tx:
+        lw x13, UART_STATUS(x10)
+        andi x13, x13, 1
+        bne x13, x0, wait_tx
+
+        sw x12, UART_TXDATA(x10)
+
+        addi x21, x21, 1
+        j send_loop
+    done:
+        mv x21, x20
+        j send_loop
+    msg:
+        .byte 'H', 'e', 'l', 'l', 'o', ' ', 'W', 'o', 'r', 'l', 'd', 0
+    ```
+  ]
+]
+
+此程序通过MMIO调用UART设备，循环发送`Hello World`字符串。
 
 == 测试结果
 
@@ -775,7 +1106,35 @@ APB总线挂载4个从设备，通过`PADDR[15:14]`译码：
   [除法器测试], [8], [ALL PASS],
 )
 
-共116项测试全部通过。
+共116项测试全部通过模拟测试。重要测试结果以及上板结果见下。
+
+=== 综合测试
+
+模拟测试：
+#image("media/cpu1-控制台.png")
+#image("media/cpu1-波形.png")
+上板结果：
+#image("media/嵌入式cpu测试.jpg")
+
+可见运行正常。
+
+=== 走马灯测试
+
+上板结果：
+#image("media/走马灯.jpg")
+
+视频见压缩包中`走马灯.mp4`文件。
+
+=== UART测试
+
+上板结果：
+#image("media/uart.jpg")
+
+通过tools中的`uart_reader.py`作为上位机读取串口数据截图：
+#image("media/上位机读取1.png")
+#image("media/上位机读取2.png")
+
+可见所有测试均通过，上板验证均达到效果。
 
 = 性能计算<PerformanceCalculation>
 
@@ -888,7 +1247,7 @@ CPI改善来源：
 
 #move(dx: 2em)[
   + *ALU单周期化*：EXEC从4周期降至2周期（所有指令受益）
-  + *exe\_to\_wb快速路径*：R/I-type跳过MEM（减少2周期）
+  + *exe\_to\_wb路径*：R/I-type跳过MEM（减少2周期）
   + *字节掩码写入*：Store从读-改-写5周期降至直接写2周期
 ]
 
@@ -919,73 +1278,32 @@ $ "MIPS" = 10^8 / (6.75 times 10^6) approx #text(red)[14.8] $
 
 相比上一次设计的MIPS=9.8，性能提升约#text(green)[51\%]。
 
-= 遇到的问题以及解决
-
-== mip MEIP位映射错误
-
-*问题*：`w_mip_hw`仅27位，零扩展后MEIP落在bit6而非RISC-V规范要求的bit11。
-
-*解决*：扩展为32位，MEIP=bit11, MTIP=bit7, MSIP=bit3。
-
-== interrupt\_cause编码错误
-
-*问题*：`{1'b1, 27'd0, 5'd11}`产生33位值，截断后bit31=0，中断编码失去最高位标识。
-
-*解决*：直接使用32位常量`32'h8000000B`/`32'h80000007`/`32'h80000003`。
-
-== Timer IRQ电平触发
-
-*问题*：原设计Timer中断为单周期脉冲，CPU可能错过中断。
-
-*解决*：改为电平触发，`timer_irq`持续高直到软件通过写Timer寄存器ack。
-
-== Store误写寄存器
-
-*问题*：MEM\_WRITE状态遗漏清除`wb_we_reg`，导致Store指令错误地写回通用寄存器。
-
-*解决*：在MEM\_WRITE状态增加`wb_we_reg<=0; wb_data_reg<=0`。
-
-== MRET误判为非法指令
-
-*问题*：`inst_mret`匹配模式仅20位有效，部分位未参与比较，导致合法MRET被误判为非法指令。
-
-*解决*：扩展为完整25位匹配。
-
-== 从Bus4LZU Mock迁移到AHB-Lite
-
-*问题*：旧设计使用自定义Bus4LZU仿真代理，不可综合，仅能仿真。
-
-*解决*：迁移至AMBA AHB-Lite + APB标准协议，使用Xilinx BRAM IP，实现可综合设计。关键变更：
-
-#table(
-  columns: (1fr, 2fr, 2fr),
-  align: horizon,
-  stroke: 0.5pt,
-  inset: 6pt,
-  [*方面*], [*旧设计*], [*新设计*],
-  [总线协议], [自定义Bus4LZU仿真代理], [AMBA AHB-Lite + APB标准协议],
-  [存储器], [内部BRAM数组 + \$readmemh], [Sram BRAM IP (Xilinx)],
-  [外设], [内部Timer逻辑], [APB总线挂载GPIO/Timer/UART/SPI],
-  [Cache], [行为模型], [BRAM IP + 控制器 + MMIO旁路],
-  [CPU桥接], [直连mock], [cpu\_bus\_bridge (CPU→AHB direct)],
-  [扩展性], [不可综合，仅仿真], [可综合，支持FPGA部署],
-)
-
 = 结论
 
-本项目在基础RV32I多周期CPU之上，成功实现了一个32位RISC-V多周期嵌入式处理器，主要成果如下：
+本项目在基础RV32I多周期CPU核之上，成功扩展和实现了一个32位RISC-V多周期嵌入式处理器，主要成果如下：
 
 #move(dx: 2em)[
-  + *指令集扩展*：从37条扩展至55条，新增M扩展8条乘除法指令、Zicsr扩展6条CSR指令、Zifencei扩展1条，以及ECALL/EBREAK/MRET系统控制指令
-  + *CPI优化*：通过ALU单周期化（EXEC 4→2周期）、exe\_to\_wb快速路径（R/I-type跳过MEM）、字节掩码写入（Store 5→2周期），平均CPI从10.2降至6.75，MIPS从9.8提升至14.8，性能提升约51%
-  + *完整异常处理*：实现非法指令、ECALL、EBREAK、地址未对齐异常，含trap进入/返回机制
-  + *三级中断响应*：MEIP(外部)、MTIP(Timer)、MSIP(软件)，电平触发，8个CSR寄存器完整实现
-  + *AMBA两级总线*：AHB-Lite系统总线（SRAM+APB桥）→ APB外设总线（GPIO/Timer/UART/SPI），标准化外设扩展
-  + *Cache + MMIO旁路*：ICache/DCache BRAM IP + 控制器，bit31地址译码实现MMIO直连总线
-  + *CPU总线直连*：cpu\_bus\_bridge直接驱动AHB-Lite信号，省去中间层，减少延迟
-  + *CSR/Trap模块化*：cpu\_trap\_csr封装trap\_manager + csr\_interface，职责分离
-  + *验证通过*：116项测试全部通过（CPU综合33 + CPU运算33 + CPU异常8 + AHB总线3 + APB外设10 + ALU集成11 + MU单元10 + 除法器8）
-  + *FPGA验证就绪*：system\_top + XDC约束 + LCD调试显示，可综合部署
+  + 指令集扩展：支持M扩展、Zicsr扩展、Zifencei扩展，以及ECALL/EBREAK/MRET系统控制指令
+  + ALU，数据通路的CPI优化，性能大概提升了$51%$
+  + 完整支持异常处理：实现非法指令、ECALL、EBREAK、地址未对齐异常
+  + 支持三种中断响应，以及机器模式8个CSR寄存器完整实现
+  + Cache控制器的MMIO旁路支持
+  + 仿真验证通过
+  + FPGA验证通过
 ]
 
-通过本次实验，我们在上一次基础CPU设计的基础上，深入实践了嵌入式处理器的完整设计流程：从指令集扩展（M/Zicsr）、特权架构实现（异常/中断/CSR）、到系统总线集成（AHB-Lite/APB）和外设接入（GPIO/Timer/UART/SPI）。同时，通过流水线优化（快速路径、ALU单周期化、字节掩码写入）显著提升了处理器性能。该项目从简单的BRAM直连模型演进为AMBA标准两级总线架构，为后续接入更多外设（SPI Flash存储、GPIO扩展、DMA等）奠定了基础。
+本次实验，我们在上一次基础CPU设计的基础上，实现了CPU核的异常处理机制，扩展了外部设备，总的来说完成了实验目标。同时，通过流水线优化和结构优化显著提升了处理器性能。
+
+在本次实验中，我们更加深入地了解了计算机硬件的组成部分以及相互间的交互，学习了riscv的中断、异常处理以及特权级架构，通过优化CPU流水线以及结构明白了一些微小设计对于CPU性能的巨大影响。同时，也学习了如何编写中断处理服务程序，以及如何进行完整的中断处理。
+
+= 组员以及分工
+
+#table(
+  columns: (1fr,2fr,2fr),
+  align: horizon,
+  [*姓名*],[*学号*],[*分工*],
+  [王之翼],[320240944621],[构建],
+  [陈海攀],[320230904051],[测试、DEBUG],
+  [张潘妍],[320240944910],[c程序、riscv汇编交叉编译],
+  [张之恒],[320240944971],[资料查找、文档整理],
+)

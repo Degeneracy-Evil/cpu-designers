@@ -31,7 +31,9 @@ module core_top(
     input         HRESP,
 
     input         init_sig,
-    input         timer_irq
+    input         timer_irq,
+    input         ext_meip_in,
+    input         ext_msip_in
 );
 
     reg [31:0] pc;
@@ -414,6 +416,8 @@ module core_top(
         .trap_enter_valid (trap_enter_valid),
         .trap_return_valid(trap_return_valid),
         .timer_irq        (timer_irq),
+        .ext_meip_in      (ext_meip_in),
+        .ext_msip_in      (ext_msip_in),
         .current_pc       (pc),
         .exe_misalign_valid(exe_misalign_valid),
         .exe_misalign_target(exe_misalign_target),

@@ -31,7 +31,7 @@ module tb_apb_perips;
     ahb_lite_bus #(
         .ADDR_WIDTH  (32),
         .DATA_WIDTH  (32),
-        .SLAVE_NUM   (2),
+        .SLAVE_NUM   (4),
         .MEM_DEPTH   (262144),
         .WAIT_STATES (0),
         .GPIO_NUM    (16),
@@ -52,6 +52,9 @@ module tb_apb_perips;
         .resp_error (resp_error),
         .resp_rdata (resp_rdata),
         .o_timer_irq(o_timer_irq),
+        .o_plic_eip (),
+        .o_clint_mtip(),
+        .o_clint_msip(),
         .io_gpioPin (io_gpioPin),
         .i_uart_rx  (1'b1),
         .o_uart_tx  (o_uart_tx),

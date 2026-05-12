@@ -64,7 +64,9 @@ module tb_simple_cpu_trap;
         .HREADY(cpu_HREADY),
         .HRESP(cpu_HRESP),
         .init_sig(1'b0),
-        .timer_irq(timer_irq)
+        .timer_irq(timer_irq),
+        .ext_meip_in(1'b0),
+        .ext_msip_in(1'b0)
     );
 
     wire [15:0] gpio_io;
@@ -72,7 +74,7 @@ module tb_simple_cpu_trap;
     ahb_lite_bus #(
         .ADDR_WIDTH  (32),
         .DATA_WIDTH  (32),
-        .SLAVE_NUM   (2),
+        .SLAVE_NUM   (4),
         .MEM_DEPTH   (262144),
         .WAIT_STATES (0),
         .GPIO_NUM    (16),
@@ -92,6 +94,9 @@ module tb_simple_cpu_trap;
         .HREADY     (cpu_HREADY),
         .HRESP      (cpu_HRESP),
         .o_timer_irq(timer_irq),
+        .o_plic_eip (),
+        .o_clint_mtip(),
+        .o_clint_msip(),
         .io_gpioPin (gpio_io),
         .i_uart_rx  (1'b1),
         .o_uart_tx  (),

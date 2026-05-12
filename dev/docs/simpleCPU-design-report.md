@@ -1,6 +1,6 @@
 # SimpleCPU 设计与实现报告
 
-> 生成日期：2026-05-08
+> 生成日期：2026-05-12
 > 项目路径：`dev/`
 > 当前分支：`wood-dev`
 
@@ -10,7 +10,7 @@
 
 SimpleCPU 是一个基于 RISC-V RV32IM 指令集的**多周期处理器**实现，采用经典五级流水线结构（取指-译码-执行-访存-回写）但以**多周期串行**方式运行——每个时钟周期仅激活一个流水级，指令在多个周期内依次通过各阶段完成执行。
 
-该项目已完成从内部 BRAM 直连模型到 **AHB-Lite + APB 两级总线架构**的迁移。CPU 通过 `cpu_bus_bridge` 直接驱动 AHB-Lite 总线信号，AHB-Lite 下挂 SRAM 从设备与 AHB-to-APB 桥，APB 总线下挂 GPIO/Timer/UART/SPI 四个外设。ICache/DCache 控制器支持 MMIO 旁路（地址 bit31=1 时直接访问总线），并实现了完整的 CSR 寄存器、异常处理与中断响应机制。M 扩展（乘除法）通过 Booth 乘法器与非恢复余数除法器实现，支持多周期运算。
+该项目已完成从内部 BRAM 直连模型到 **AHB-Lite + APB 两级总线架构**的迁移，并集成了 RISC-V 标准的 CLINT（Core Local Interruptor）与 PLIC（Platform-Level Interrupt Controller）。CPU 通过 `cpu_bus_bridge` 直接驱动 AHB-Lite 总线信号，AHB-Lite 下挂 4 个从设备：SRAM、PLIC、CLINT、AHB-to-APB 桥；APB 总线下挂 GPIO/Timer/UART/SPI 四个外设。CLINT 产生 MTIP 中断直连 CPU 核心，PLIC 统一管理外部中断（当前仅 APB Timer IRQ 接入 src_irq[1]），输出 MEIP 至 CPU。ICache/DCache 控制器支持 MMIO 旁路（地址 bit31=1 时直接访问总线），并实现了完整的 CSR 寄存器、异常处理与中断响应机制。M 扩展（乘除法）通过 Booth 乘法器与非恢复余数除法器实现，支持多周期运算。
 
 ### 1.1 核心特性
 
@@ -19,15 +19,15 @@ SimpleCPU 是一个基于 RISC-V RV32IM 指令集的**多周期处理器**实现
 | 指令集 | RV32I (40条) + M (8条) + Zicsr (6条) + Zifencei (1条) = 55条 |
 | 架构 | 多周期五级流水（IF→ID→EXE→MEM→WB） |
 | 数据宽度 | 32位地址、32位数据 |
-| 总线架构 | AHB-Lite (2从设备) → APB (4从设备) |
+| 总线架构 | AHB-Lite (4从设备: SRAM/PLIC/CLINT/Bridge) → APB (4从设备) |
 | Cache | ICache/DCache 控制器 + BRAM IP，MMIO 旁路 |
 | 乘除法 | Booth 乘法器 + 非恢复余数除法器，多周期握手 |
 | 特权模式 | 仅 Machine 模式 |
 | CSR | mstatus/mie/mtvec/mscratch/mepc/mcause/mtval/mip (8个) |
 | 异常 | 非法指令、ECALL、EBREAK、地址未对齐 |
-| 中断 | MEIP(外部)/MTIP(Timer)/MSIP(软件)，电平触发 |
+| 中断 | MEIP(外部,PLIC)/MTIP(Timer,CLINT直连)/MSIP(软件,未实现)，电平触发 |
 | 系统时钟 | 100 MHz |
-| 外设 | GPIO(16bit)/Timer/UART(RX+TX, 115200 baud)/SPI，APB 总线挂载 |
+| 外设 | GPIO(16bit)/Timer/UART(RX+TX, 115200 baud)/SPI，APB 总线挂载；CLINT(mtime/mtimecmp)/PLIC(8源)，AHB 总线挂载 |
 | FPGA | Xilinx 7系列，含 LCD 调试显示 |
 
 ---
@@ -43,7 +43,7 @@ SimpleCPU 是一个基于 RISC-V RV32IM 指令集的**多周期处理器**实现
   clk ──────────────────┤──┐                                           │
   resetn ───────────────┤  │                                           │
                         │  │  ┌─────────────────┐                      │
-  sw[7:0] ──────────────┤  │  │ core_top   │                      │
+  sw[7:0] ──────────────┤  │  │ core_top        │                      │
   uart_rx/tx ───────────┤  │  │  IF→ID→EXE→MEM→WB│                      │
   spi_miso/mosi/ss/clk ─┤  │  │  CSR + CLINT     │                      │
   gpio_io[15:0] ────────┤  │  │  icache_ctrl     │                      │
@@ -56,25 +56,31 @@ SimpleCPU 是一个基于 RISC-V RV32IM 指令集的**多周期处理器**实现
                         │  │  │ (CPU→AHB direct) │                      │
                         │  │  └────────┬────────┘                      │
                         │  │           │ AHB-Lite                      │
-                        │  │  ┌────────┴────────────────────────┐      │
-                         │  │  │       ahb_lite_bus            │      │
-                         │  │  │  ┌──────────────┐              │      │
-                         │  │  │  │ahb_decoder   │              │      │
-                         │  │  │  └──────┬───────┘              │      │
-                         │  │  │         │ HSELx                │      │
-                         │  │  │  ┌──────┴─────┐ ┌─────────────┐│      │
-                         │  │  │  │ahb_sram  │ │ahb_lite_to  ││      │
-                         │  │  │  │_slave    │ │_apb bridge  ││      │
-                         │  │  │  │(SRAM IP) │ │             ││      │
-                         │  │  │  └──────────┘ └──────┬──────┘│      │
-                         │  │  └──────────────────────┼────────┘      │
-                        │  │                          │ APB            │
-                        │  │  ┌───────────────────────┴───────────┐    │
-                        │  │  │          apb_perips               │    │
-                        │  │  │  ┌────┐┌─────┐┌────┐┌─────┐    │    │
-                        │  │  │  │GPIO││Timer││UART││ SPI  │    │    │
-                        │  │  │  └────┘└─────┘└────┘└─────┘    │    │
-                        │  │  └──────────────────────────────────┘    │
+                        │  │  ┌────────┴────────────────────────────┐  │
+                        │  │  │          ahb_lite_bus               │  │
+                        │  │  │  ┌────────────┐                      │  │
+                        │  │  │  │ahb_sram    │ HADDR[31:24]=0x00   │  │
+                        │  │  │  │_slave      │                      │  │
+                        │  │  │  └────────────┘                      │  │
+                        │  │  │  ┌────────────┐  o_mtip ──→ MTIP    │  │
+                        │  │  │  │ahb_clint   │ HADDR[31:24]=0x02   │  │
+                        │  │  │  └────────────┘  o_msip(=0)         │  │
+                        │  │  │  ┌────────────┐  o_eip ───→ MEIP    │  │
+                        │  │  │  │ahb_plic    │ HADDR[31:24]=0x0C   │  │
+                        │  │  │  └────────────┘                      │  │
+                        │  │  │  ┌────────────┐                      │  │
+                        │  │  │  │ahb_lite_to │ HADDR[31]=1         │  │
+                        │  │  │  │_apb bridge │────┐                │  │
+                        │  │  │  └────────────┘    │ APB            │  │
+                        │  │  └────────────────────┼────────────────┘  │
+                        │  │  ┌────────────────────┴────────────────┐  │
+                        │  │  │          apb_perips                 │  │
+                        │  │  │  ┌────┐┌─────┐┌────┐┌─────┐      │  │
+                        │  │  │  │GPIO││Timer││UART││ SPI  │      │  │
+                        │  │  │  └────┘└──┬──┘└────┘└─────┘      │  │
+                        │  │  │           │irq                      │  │
+                        │  │  │           └──→ plic.src_irq[1]     │  │
+                        │  │  └────────────────────────────────────┘  │
                         │  │                                           │
                         │  │  ┌─────────────────┐                      │
                         │  │  │ lcd_module (DCP) │                      │
@@ -111,16 +117,17 @@ system_top
 │   │       └── cpu_csr         # CSR 寄存器存储
 │   ├── cpu_bus_bridge          # CPU→AHB-Lite 直接桥接
 │   └── MMU ×2                  # 地址翻译 (当前直通)
-├── ahb_lite_bus              # AHB-Lite 外设总线
-│   ├── ahb_decoder             # AHB 地址译码 (2从设备)
+├── ahb_lite_bus              # AHB-Lite 外设总线 (4从设备)
 │   ├── ahb_mux                 # AHB 读数据多路选择
 │   ├── ahb_sram_slave          # AHB SRAM 从设备 (Sram IP)
 │   │   └── Sram                # SRAM BRAM IP (Xilinx)
+│   ├── ahb_plic                # AHB PLIC 从设备 (8源外部中断控制器)
+│   ├── ahb_clint               # AHB CLINT 从设备 (mtime/mtimecmp)
 │   ├── ahb_lite_to_apb         # AHB-to-APB 桥
 │   ├── apb_decoder             # APB 地址译码 (4从设备)
 │   └── apb_perips              # APB 外设容器
 │       ├── gpio                # GPIO (16bit 双向)
-│       ├── timer               # 定时器 (含 IRQ)
+│       ├── timer               # 定时器 (含 IRQ → PLIC src_irq[1])
 │       ├── uart_top            # UART 顶层
 │       │   ├── uart_rx         # UART 接收
 │       │   └── uart_tx         # UART 发送
@@ -306,7 +313,7 @@ IDLE → FETCH → DECODE → ┬→ EXEC → MEM → WB → FETCH (循环)
 
 ### 3.11 cpu_trap_csr — 异常/CSR 顶层封装
 
-**文件**：`rtl/core/cpu_trap_csr.v`（109行）
+**文件**：`rtl/core/cpu_trap_csr.v`（125行）
 
 将异常管理与 CSR 访问逻辑封装为统一模块，内部实例化：
 
@@ -315,7 +322,7 @@ IDLE → FETCH → DECODE → ┬→ EXEC → MEM → WB → FETCH (循环)
 
 ### 3.12 cpu_trap_manager — 异常检测与 trap 管理
 
-**文件**：`rtl/core/cpu_trap_manager.v`（130行）
+**文件**：`rtl/core/cpu_trap_manager.v`（150行）
 
 **功能**：
 
@@ -329,7 +336,7 @@ IDLE → FETCH → DECODE → ┬→ EXEC → MEM → WB → FETCH (循环)
 
 ### 3.13 cpu_csr_interface — CSR 指令接口
 
-**文件**：`rtl/core/cpu_csr_interface.v`（103行）
+**文件**：`rtl/core/cpu_csr_interface.v`（110行）
 
 **功能**：
 
@@ -341,7 +348,7 @@ IDLE → FETCH → DECODE → ┬→ EXEC → MEM → WB → FETCH (循环)
 
 ### 3.14 cpu_csr — CSR 寄存器模块
 
-**文件**：`rtl/core/cpu_csr.v`（119行）
+**文件**：`rtl/core/cpu_csr.v`（179行）
 
 **实现的 CSR 寄存器**：
 
@@ -365,9 +372,11 @@ IDLE → FETCH → DECODE → ┬→ EXEC → MEM → WB → FETCH (循环)
 
 ### 3.15 cpu_clint — 异常/中断控制逻辑
 
-**文件**：`rtl/core/cpu_clint.v`（77行）
+**文件**：`rtl/core/cpu_clint.v`（78行）
 
-**中断判定**：`mstatus.MIE && ((mie.MEIE && mip.MEIP) || (mie.MTIE && mip.MTIP) || (mie.MSIE && mip.MSIP))`
+**中断判定**：`mstatus.MIE && ((mie.MEIE && mip.MEIP) || (mie.MTIE && ext_mtip) || (mie.MSIE && mip.MSIP))`
+
+**注意**：MTIP 直接取自 `ext_mtip` 端口输入（来自 ahb_clint.o_mtip），不经 CSR mip[7]；MEIP 取自 `csr_mip[11]`（经 PLIC → cpu_csr → mip）；MSIP 取自 `csr_mip[3]`（恒为0）。
 
 **中断编码**：
 
@@ -481,34 +490,94 @@ IDLE → FETCH → DECODE → ┬→ EXEC → MEM → WB → FETCH (循环)
 ```
 cpu_bus_bridge (AHB Master, direct drive)
          │
-    ┌────┴─────────────────────┐
-    │    ahb_lite_bus         │
-   │                           │
-   │  ahb_decoder (2 slaves)   │
-   │  ┌─────────────────────┐  │
-   │  │ Slave 0: SRAM       │  │  HADDR[31]=0
-   │  │ (ahb_sram_slave)    │  │
-   │  └─────────────────────┘  │
-   │  ┌─────────────────────┐  │
-   │  │ Slave 1: APB Bridge │  │  HADDR[31]=1
-   │  │ (ahb_lite_to_apb)   │  │
-   │  └─────────────────────┘  │
-   └───────────────────────────┘
+    ┌────┴──────────────────────────────────┐
+    │         ahb_lite_bus (4 slaves)        │
+    │                                        │
+    │  ┌─────────────────┐                   │
+    │  │ Slave 0: SRAM   │  HADDR[31:24]=0x00  0x0000_0000  │
+    │  │ (ahb_sram_slave)│                   │
+    │  └─────────────────┘                   │
+    │  ┌─────────────────┐                   │
+    │  │ Slave 1: PLIC   │  HADDR[31:24]=0x0C  0x0C00_0000  │
+    │  │ (ahb_plic)      │──o_eip──→ MEIP    │
+    │  └─────────────────┘                   │
+    │  ┌─────────────────┐                   │
+    │  │ Slave 2: CLINT  │  HADDR[31:24]=0x02  0x0200_0000  │
+    │  │ (ahb_clint)     │──o_mtip──→ MTIP   │
+    │  └─────────────────┘                   │
+    │  ┌─────────────────┐                   │
+    │  │ Slave 3: APB   │  HADDR[31]=1       0x8000_0000  │
+    │  │ (ahb_lite_to_apb)│                  │
+    │  └─────────────────┘                   │
+    └────────────────────────────────────────┘
 ```
 
-### 4.2 ahb_decoder — AHB 地址译码器
+**地址译码**（内联实现，未使用独立 `ahb_decoder` 模块）：
+
+| 从设备 | 选择条件 | 地址范围 | 大小 |
+|--------|----------|----------|------|
+| SRAM | `HADDR[31:24] == 8'h00` | `0x0000_0000 - 0x00FF_FFFF` | 16 MB |
+| PLIC | `HADDR[31:24] == 8'h0C` | `0x0C00_0000 - 0x0CFF_FFFF` | 16 MB |
+| CLINT | `HADDR[31:24] == 8'h02` | `0x0200_0000 - 0x02FF_FFFF` | 16 MB |
+| APB Bridge | `HADDR[31] == 1'b1` | `0x8000_0000 - 0xFFFF_FFFF` | 2 GB |
+
+**CLINT 内部寄存器偏移**（基址 `0x0200_0000`）：
+
+| 偏移 | 名称 | 读写 | 说明 |
+|------|------|------|------|
+| +0x00 | mtimecmp_lo | R/W | 比较寄存器低32位 |
+| +0x04 | mtimecmp_hi | R/W | 比较寄存器高32位 |
+| +0x08 | mtime_lo | R/W | 机器时间低32位 |
+| +0x0C | mtime_hi | R/W | 机器时间高32位 |
+
+**PLIC 内部寄存器偏移**（基址 `0x0C00_0000`）：
+
+| 偏移 | 名称 | 读写 | 说明 |
+|------|------|------|------|
+| 0x000-0x01F | Priority[0:7] | R/W | 8个中断源优先级（4B对齐） |
+| 0x400 | Pending | R | 中断挂起位 |
+| 0x800 | Enable | R/W | 中断使能位 |
+| 0x200000 | Threshold | R/W | 优先级阈值 |
+| 0x200010 | Claim/Complete | R/W | 中断声明/完成 |
+
+### 4.2 ahb_clint — AHB CLINT 从设备
+
+**文件**：`rtl/AHB-lite/ahb_clint.v`（81行）
+
+RISC-V CLINT（Core Local Interruptor）的总线接口层，挂载在 AHB-Lite 总线上：
+
+- 64位 `mtime` 计数器：每个时钟周期自增1
+- 64位 `mtimecmp` 比较寄存器：通过总线写入
+- MTIP 输出：`o_mtip = (mtime >= mtimecmp) && (mtimecmp != 0)`，直连 CPU 核心 `timer_irq`
+- MSIP 输出：`o_msip = 1'b0`（当前未实现软件中断）
+- 零等待周期（HREADYOUT=1），无错误响应（HRESP=0）
+
+### 4.3 ahb_plic — AHB PLIC 从设备
+
+**文件**：`rtl/AHB-lite/ahb_plic.v`（156行）
+
+RISC-V PLIC（Platform-Level Interrupt Controller）的总线接口层，参数化 `NUM_SRC=8`：
+
+- **中断源**：8个 `src_irq` 输入，当前仅 `src_irq[1]` 接入 APB Timer IRQ，其余接地
+- **网关（Gateway）**：边沿检测，`src_irq[i]` 上升沿时置 `r_pending[i]=1`
+- **优先级仲裁**：遍历所有 enabled && pending 源，找优先级最高且大于阈值者
+- **声明/完成**：读 Claim 寄存器返回 `highest_id` 并清除 pending；写 Complete 寄存器重新使能网关
+- **EIP 输出**：`o_eip = (highest_id != 0)`，连接 CPU 核心 `ext_meip_in`
+- 零等待周期，无错误响应
+
+### 4.4 ahb_decoder — AHB 地址译码器
 
 **文件**：`rtl/AHB-lite/ahb_decoder.v`（37行）
 
-参数化 `SLAVE_NUM`，通过 generate 支持 1/2/4/8 从设备配置。当前系统使用 2 从设备模式：`HSELx[0]=~HADDR[31]`（SRAM），`HSELx[1]=HADDR[31]`（APB Bridge）。
+参数化 `SLAVE_NUM` 的独立地址译码模块。**注意**：当前 `ahb_lite_bus` 未实例化此模块，地址译码通过内联 `assign` 语句实现。该模块使用 `HADDR[31:20]` 译码，与系统实际映射不同，保留供其他配置使用。
 
-### 4.3 ahb_mux — AHB 读数据多路选择器
+### 4.5 ahb_mux — AHB 读数据多路选择器
 
 **文件**：`rtl/AHB-lite/ahb_mux.v`（32行）
 
 根据 `HSELx` 选择对应从设备的 HRDATA/HREADY/HRESP。
 
-### 4.4 ahb_sram_slave — AHB SRAM 从设备
+### 4.7 ahb_sram_slave — AHB SRAM 从设备
 
 **文件**：`rtl/AHB-lite/ahb_sram_slave.v`（121行）
 
@@ -517,11 +586,20 @@ cpu_bus_bridge (AHB Master, direct drive)
 - 支持字节/半字/字写使能，通过 `byte_we` 转换 HSIZE+HADDR 为 BRAM 字节掩码
 - 等待状态计数器处理 BRAM 读延迟（1周期）
 
-### 4.5 ahb_lite_bus — AHB 外设总线顶层
+### 4.6 ahb_lite_bus — AHB 外设总线顶层
 
-**文件**：`rtl/AHB-lite/ahb_lite_bus.v`（215行）
+**文件**：`rtl/AHB-lite/ahb_lite_bus.v`（262行）
 
-集成 ahb_decoder + ahb_mux + ahb_sram_slave + ahb_lite_to_apb + apb_decoder + apb_perips。对外暴露 AHB-Lite 主设备接口及外设 IO（GPIO/UART/SPI/Timer IRQ）。
+集成 ahb_mux + ahb_sram_slave + ahb_plic + ahb_clint + ahb_lite_to_apb + apb_decoder + apb_perips。地址译码内联实现（4从设备）。对外暴露 AHB-Lite 主设备接口、中断输出（o_clint_mtip/o_clint_msip/o_plic_eip）及外设 IO（GPIO/UART/SPI/Timer IRQ）。
+
+**中断输出连接**：
+
+| 输出 | 来源 | 连接目标 |
+|------|------|----------|
+| `o_clint_mtip` | ahb_clint.o_mtip | core_top.timer_irq (MTIP) |
+| `o_clint_msip` | ahb_clint.o_msip (=0) | core_top.ext_msip_in (MSIP) |
+| `o_plic_eip` | ahb_plic.o_eip | core_top.ext_meip_in (MEIP) |
+| `o_timer_irq` | apb_perips.o_timer_irq | ahb_plic.src_irq[1] (PLIC源1) |
 
 ---
 
@@ -648,7 +726,9 @@ mu_unit
 | Cache→CPU | `data_valid` | 1 | 读数据有效 |
 | CPU→Bus | `data_req` | 1 | 数据请求使能 |
 | Bus→CPU | `init_sig` | 1 | 初始化暂停信号 |
-| Bus→CPU | `timer_irq` | 1 | Timer 中断信号 |
+| Bus→CPU | `timer_irq` | 1 | CLINT MTIP 中断信号（直连） |
+| Bus→CPU | `ext_meip_in` | 1 | PLIC MEIP 外部中断信号 |
+| Bus→CPU | `ext_msip_in` | 1 | CLINT MSIP 软件中断信号（恒0） |
 
 ### 7.2 Cache MMIO 旁路机制
 
@@ -677,15 +757,45 @@ ICache MMIO 时 `mmio_req=cpu_req_valid`，DCache MMIO 时透传 `cpu_req_wen`/`
 
 ### 8.2 中断类型
 
-| 中断 | mcause Code | 触发条件 |
-|------|-------------|----------|
-| Machine 软件中断 | 0x80000003 | mip.MSIP=1 && mie.MSIE=1 && mstatus.MIE=1 |
-| Machine Timer 中断 | 0x80000007 | mip.MTIP=1 && mie.MTIE=1 && mstatus.MIE=1 |
-| Machine 外部中断 | 0x8000000B | mip.MEIP=1 && mie.MEIE=1 && mstatus.MIE=1 |
+| 中断 | mcause Code | 触发条件 | 中断源路径 |
+|------|-------------|----------|-----------|
+| Machine 软件中断 | 0x80000003 | mip.MSIP=1 && mie.MSIE=1 && mstatus.MIE=1 | ahb_clint.o_msip (=0，未实现) |
+| Machine Timer 中断 | 0x80000007 | ext_mtip=1 && mie.MTIE=1 && mstatus.MIE=1 | ahb_clint.o_mtip → 直连 cpu_clint.ext_mtip |
+| Machine 外部中断 | 0x8000000B | mip.MEIP=1 && mie.MEIE=1 && mstatus.MIE=1 | APB Timer → PLIC src_irq[1] → ahb_plic.o_eip → cpu_clint.meip_bit |
 
-**中断源**：`ext_mtip` 连接 `timer_irq`（来自 APB Timer 外设），电平触发（持续到软件 ack）。
+**中断架构说明**：
 
-### 8.3 异常检测点
+- **MTIP 直连**：`cpu_clint.v` 中 `mtip_bit` 直接取自 `ext_mtip` 端口（不经 CSR mip），这是 RISC-V 特权架构规范——CLINT 产生的本地定时器中断直连 hart，无需 PLIC 仲裁
+- **MEIP 经 PLIC**：外部中断（包括 APB Timer IRQ）经 PLIC 统一仲裁后输出 EIP，符合 RISC-V 规范
+- **双定时器路径**：CLINT mtime 产生 MTIP（Cause 7，直连），APB Timer 产生 MEIP（Cause 11，经 PLIC），两者独立
+- **PLIC 当前仅 1 个有效源**：`src_irq[1]` = APB Timer IRQ，`src_irq[0,2-7]` 接地
+- **MSIP 未实现**：`ahb_clint.o_msip` 硬连线为 0
+
+**中断流向图**：
+
+```
+                    ┌──────────┐
+  ahb_clint ────────│ o_mtip   │──────────────────────→ cpu_clint.ext_mtip (MTIP, 直连)
+                    │ o_msip=0 │──→ ext_msip_in (MSIP, 恒0)
+                    └──────────┘
+
+  APB Timer ──→ plic.src_irq[1] ──→ PLIC仲裁 ──→ ahb_plic.o_eip ──→ cpu_clint.meip_bit (MEIP, 经PLIC)
+```
+
+### 8.3 中断优先级与仲裁
+
+`cpu_clint.v` 中中断优先级编码（外部 > 软件 > 定时器）：
+
+```verilog
+interrupt_cause = (meie_bit && meip_bit) ? 32'h8000000B :   // 外部中断优先
+                  (msie_bit && msip_bit) ? 32'h80000003 :   // 软件中断次之
+                  (mtie_bit && mtip_bit) ? 32'h80000007 :   // 定时器中断最后
+                  32'h8000000B;                              // 默认：外部
+```
+
+PLIC 内部优先级仲裁：遍历所有 enabled && pending 源，找优先级最高且大于阈值者，输出 `highest_id`。
+
+### 8.4 异常检测点
 
 - **Decode 阶段**：非法指令、ECALL、EBREAK
 - **Mem 阶段**：Load/Store 地址未对齐
@@ -741,17 +851,22 @@ ICache MMIO 时 `mmio_req=cpu_req_valid`，DCache MMIO 时透传 `cpu_req_wen`/`
 
 ### 10.1 system_top — FPGA 顶层
 
-**文件**：`rtl/system_top.v`（234行）
+**文件**：`rtl/system_top.v`（242行）
 
 集成 CPU + ahb_lite_bus + LCD 显示模块：
 
 ```
 system_top
-├── core_top         # CPU 核心
-├── ahb_lite_bus         # AHB-Lite + APB 总线 + 外设
-│   ├── ahb_sram_slave     # SRAM (Sram IP, 1MB)
-│   └── ahb_lite_to_apb    # → APB (GPIO/Timer/UART/SPI)
-└── lcd_module             # LCD 触摸屏显示（.dcp 预编译）
+├── core_top             # CPU 核心
+│     ├── timer_irq  ←── clint_mtip  (CLINT MTIP 直连)
+│     ├── ext_meip_in ←── plic_eip   (PLIC EIP)
+│     └── ext_msip_in ←── clint_msip (CLINT MSIP, 恒0)
+├── ahb_lite_bus         # AHB-Lite + APB 总线 + CLINT + PLIC + 外设
+│   ├── ahb_sram_slave   # SRAM (Sram IP, 1MB)        0x0000_0000
+│   ├── ahb_plic         # PLIC (8源外部中断控制器)    0x0C00_0000
+│   ├── ahb_clint        # CLINT (mtime/mtimecmp)      0x0200_0000
+│   └── ahb_lite_to_apb  # → APB (GPIO/Timer/UART/SPI) 0x8000_0000
+└── lcd_module           # LCD 触摸屏显示（.dcp 预编译）
 ```
 
 **复位极性**：CPU 内部 `reset` 高有效，FPGA 板 `resetn` 低有效，顶层 `reset = ~resetn`。
@@ -801,7 +916,20 @@ system_top
 | init_sig | 100周期高电平冻结 | 硬连线 1'b0（总线始终就绪） |
 | 扩展性 | 不可综合，仅仿真 | 可综合，支持 FPGA 部署 |
 
-### 11.2 从 cpu_bus_adapter 到 cpu_bus_bridge
+### 11.2 CLINT/PLIC 集成
+
+| 方面 | 说明 |
+|------|------|
+| CLINT | `ahb_clint` 挂载 AHB-Lite 总线（地址 0x0200_0000），实现 mtime/mtimecmp 寄存器，MTIP 直连 CPU |
+| PLIC | `ahb_plic` 挂载 AHB-Lite 总线（地址 0x0C00_0000），8源参数化，优先级仲裁+阈值+声明/完成 |
+| MTIP 直连 | RISC-V 规范要求 CLINT 本地中断直连 hart，不经 PLIC 仲裁，减少延迟 |
+| MEIP 经 PLIC | 外部中断经 PLIC 统一管理，APB Timer IRQ 接入 PLIC src_irq[1] |
+| 双定时器 | CLINT mtime（MTIP，Cause 7）与 APB Timer（MEIP，Cause 11）独立工作 |
+| MSIP | 未实现（o_msip=0），为多核 IPI 预留 |
+| 总线从设备 | 从 2 个扩展到 4 个：SRAM + PLIC + CLINT + APB Bridge |
+| 地址译码 | 从 HADDR[31] 2从设备译码改为 HADDR[31:24] 4从设备译码（内联实现） |
+
+### 11.3 从 cpu_bus_adapter 到 cpu_bus_bridge
 
 | 方面 | 旧设计（cpu_bus_adapter） | 新设计（cpu_bus_bridge） |
 |------|--------------------------|------------------------|
@@ -811,7 +939,7 @@ system_top
 | 行数 | 173行 | 157行 |
 | 延迟 | 多一层握手 | 减少一周期延迟 |
 
-### 11.3 CSR/Trap 逻辑重构
+### 11.4 CSR/Trap 逻辑重构
 
 | 方面 | 旧设计 | 新设计 |
 |------|--------|--------|
@@ -820,7 +948,7 @@ system_top
 | 模块结构 | cpu_clint 混合异常检测+CSR更新 | cpu_trap_csr 封装 → trap_manager + csr_interface |
 | 优势 | - | 职责分离，便于维护与扩展 |
 
-### 11.4 M 扩展集成
+### 11.5 M 扩展集成
 
 | 方面 | 说明 |
 |------|------|
@@ -830,7 +958,7 @@ system_top
 | EX 阶段集成 | 多周期等待，mu_unit busy 时 EX 阶段保持 |
 | 指令集扩展 | RV32I → RV32IM，新增8条乘除法指令 |
 
-### 11.5 Cache 控制器演进
+### 11.6 Cache 控制器演进
 
 | 方面 | 旧设计 | 新设计 |
 |------|--------|--------|
@@ -839,7 +967,7 @@ system_top
 | MMIO | 无，所有访问走内部 | bit31 旁路，MMIO 直连总线 |
 | MMU | 无 | 直通 MMU 预留，paddr=vaddr |
 
-### 11.6 已修复的关键 Bug
+### 11.7 已修复的关键 Bug
 
 | Bug | 根因 | 修复 |
 |-----|------|------|
@@ -857,7 +985,7 @@ system_top
 dev/
 ├── rtl/                              # RTL 源码
 │   ├── core/                         # CPU 核心模块
-│   │   ├── core_top.v          # CPU 顶层 (458行)
+│   │   ├── core_top.v          # CPU 顶层 (477行)
 │   │   ├── cpu_controller.v          # FSM 控制器 (133行)
 │   │   ├── cpu_fetch.v               # 取指阶段 (30行)
 │   │   ├── cpu_decode.v              # 译码阶段 (360行)
@@ -865,11 +993,11 @@ dev/
 │   │   ├── cpu_mem.v                 # 访存阶段 (242行)
 │   │   ├── cpu_wb.v                  # 回写阶段 (41行)
 │   │   ├── cpu_regfile.v             # 寄存器堆 (34行)
-│   │   ├── cpu_csr.v                 # CSR 寄存器 (119行)
-│   │   ├── cpu_csr_interface.v       # CSR 指令接口 (103行)
-│   │   ├── cpu_trap_csr.v            # 异常/CSR 封装 (109行)
-│   │   ├── cpu_trap_manager.v        # 异常检测与trap管理 (130行)
-│   │   ├── cpu_clint.v               # 中断控制逻辑 (77行)
+│   │   ├── cpu_csr.v                 # CSR 寄存器 (179行)
+│   │   ├── cpu_csr_interface.v       # CSR 指令接口 (110行)
+│   │   ├── cpu_trap_csr.v            # 异常/CSR 封装 (125行)
+│   │   ├── cpu_trap_manager.v        # 异常检测与trap管理 (150行)
+│   │   ├── cpu_clint.v               # 中断控制逻辑 (78行)
 │   │   ├── cpu_bus_bridge.v          # CPU→AHB 总线桥接 (157行)
 │   │   ├── icache_ctrl.v             # ICache 控制器 (60行)
 │   │   ├── dcache_ctrl.v             # DCache 控制器 (76行)
@@ -894,8 +1022,10 @@ dev/
 │   │   ├── booth_multiplier.v        # Booth 乘法器 (129行)
 │   │   └── non_restoring_divider.v   # 非恢复余数除法器 (397行)
 │   ├── AHB-lite/                     # AHB-Lite 总线
-│   │   ├── ahb_lite_bus.v          # AHB 外设总线顶层 (215行)
-│   │   ├── ahb_decoder.v             # AHB 地址译码 (37行)
+│   │   ├── ahb_lite_bus.v          # AHB 外设总线顶层 (262行)
+│   │   ├── ahb_clint.v              # AHB CLINT 从设备 (81行)
+│   │   ├── ahb_plic.v               # AHB PLIC 从设备 (156行)
+│   │   ├── ahb_decoder.v             # AHB 地址译码 (37行, 未实例化)
 │   │   ├── ahb_mux.v                 # AHB 读数据 MUX (32行)
 │   │   ├── ahb_sram_slave.v          # AHB SRAM 从设备 (121行)
 │   │   ├── ahb_def.vh                # AHB 宏定义
@@ -918,7 +1048,7 @@ dev/
 │   │       ├── uart_rx.v             # UART 接收 (142行)
 │   │       ├── uart_tx.v             # UART 发送 (133行)
 │   │       └── spi.v                 # SPI 主机 (194行)
-│   └── system_top.v                  # FPGA 系统顶层 (234行)
+│   └── system_top.v                  # FPGA 系统顶层 (242行)
 ├── tb/                               # 测试台
 │   ├── tb_simple_cpu_top.v           # CPU 综合测试 (220行)
 │   ├── tb_simple_cpu_compute.v       # CPU 运算测试 (220行)
@@ -963,15 +1093,15 @@ dev/
 
 | 类别 | 文件数 | 总行数 |
 |------|--------|--------|
-| CPU 核心模块 (core/) | 21 | ~2,311 |
+| CPU 核心模块 (core/) | 21 | ~2,759 |
 | ALU 模块 (ALU/) | 10 | ~630 |
 | 乘除法单元 (MU/) | 3 | ~723 |
-| AHB-Lite 总线 | 4 | ~451 |
+| AHB-Lite 总线 (含 CLINT/PLIC) | 6 | ~689 |
 | APB 总线 | 5 | ~484 |
 | APB 外设 (perips/) | 7 | ~930 |
 | Testbench | 11 | ~2,043 |
-| FPGA (system_top + XDC) | 2 | ~234 |
-| **合计** | **63** | **~7,806** |
+| FPGA (system_top + XDC) | 2 | ~242 |
+| **合计** | **65** | **~8,500** |
 
 ---
 
@@ -1022,12 +1152,13 @@ SimpleCPU 是一个功能完整的 RV32IM 多周期处理器，已实现：
 1. **55条指令**：RV32I 基础40条 + M扩展8条 + Zicsr 6条 + Zifencei 1条
 2. **M 扩展乘除法**：Booth 乘法器 + 非恢复余数除法器，多周期握手，完整边界处理
 3. **完整异常处理**：非法指令、ECALL、EBREAK、地址未对齐，含 trap 进入/返回
-4. **三级中断响应**：MEIP(外部) + MTIP(Timer) + MSIP(软件)，电平触发
-5. **AMBA 两级总线**：AHB-Lite (SRAM+Bridge) → APB (GPIO/Timer/UART/SPI)
-6. **Cache + MMIO 旁路**：ICache/DCache BRAM IP，bit31 地址译码直连总线
-7. **CPU 总线直连**：cpu_bus_bridge 直接驱动 AHB-Lite 信号，减少延迟
-8. **CSR/Trap 模块化**：cpu_trap_csr 封装 trap_manager + csr_interface，职责分离
-9. **116项测试全部通过**：CPU综合33 + CPU运算33 + CPU异常8 + AHB总线3 + APB外设10 + ALU集成11 + MU单元10 + 除法器8
-10. **FPGA 验证就绪**：system_top + XDC 约束 + LCD 调试显示，可综合部署
+4. **三级中断响应**：MEIP(外部,PLIC仲裁) + MTIP(Timer,CLINT直连) + MSIP(软件,预留)，电平触发
+5. **CLINT/PLIC 中断控制器**：CLINT 实现 mtime/mtimecmp（MTIP 直连 hart），PLIC 实现 8 源优先级仲裁+阈值+声明/完成（MEIP 经 PLIC）
+6. **AMBA 两级总线**：AHB-Lite (4从设备: SRAM/PLIC/CLINT/Bridge) → APB (GPIO/Timer/UART/SPI)
+7. **Cache + MMIO 旁路**：ICache/DCache BRAM IP，bit31 地址译码直连总线
+8. **CPU 总线直连**：cpu_bus_bridge 直接驱动 AHB-Lite 信号，减少延迟
+9. **CSR/Trap 模块化**：cpu_trap_csr 封装 trap_manager + csr_interface，职责分离
+10. **116项测试全部通过**：CPU综合33 + CPU运算33 + CPU异常8 + AHB总线3 + APB外设10 + ALU集成11 + MU单元10 + 除法器8
+11. **FPGA 验证就绪**：system_top + XDC 约束 + LCD 调试显示，可综合部署
 
-该项目从简单的 BRAM 直连模型演进为 AMBA 标准两级总线架构，并集成了 M 扩展乘除法单元，在保持功能正确性的同时获得了标准化的外设扩展能力与 FPGA 可综合性，为后续接入更多外设（SPI Flash 存储、GPIO 扩展、DMA 等）奠定了基础。
+该项目从简单的 BRAM 直连模型演进为 AMBA 标准两级总线架构，集成了 RISC-V 标准的 CLINT 与 PLIC 中断控制器，并集成了 M 扩展乘除法单元，在保持功能正确性的同时获得了标准化的外设扩展能力与完整的中断管理能力，为后续接入更多外设（SPI Flash 存储、GPIO 扩展、DMA 等）和多源中断扩展奠定了基础。

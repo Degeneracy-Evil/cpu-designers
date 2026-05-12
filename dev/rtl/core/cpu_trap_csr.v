@@ -26,7 +26,9 @@ module cpu_trap_csr(
     input         trap_enter_valid,
     input         trap_return_valid,
 
+    input         ext_meip_in,
     input         timer_irq,
+    input         ext_msip_in,
     input  [31:0] current_pc,
 
     input         exe_misalign_valid,
@@ -106,6 +108,8 @@ module cpu_trap_csr(
         .hw_mtval_wdata   (hw_mtval_wdata),
         .hw_mstatus_wdata (hw_mstatus_wdata),
         .timer_irq        (timer_irq),
+        .ext_meip_in      (ext_meip_in),
+        .ext_msip_in      (ext_msip_in),
         .cycle_en         (cycle_en),
         .inst_retire      (inst_retire),
         .csr_read_data    (csr_read_data),

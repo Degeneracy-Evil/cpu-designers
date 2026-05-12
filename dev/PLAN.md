@@ -5,10 +5,11 @@
 RISC-V RV32I + Zicsr 多周期处理器，5 级流水线 (IF→ID→EXE→MEM→WB)，
 AHB-Lite + APB 两级总线架构，目标 Xilinx 7 系列 FPGA。
 
-- ISA: 47 条指令 (RV32I 40 + Zicsr 6 + Zifencei 1)
+- ISA: 55 条指令 (RV32I 40 + M 8 + Zicsr 6 + Zifencei 1)
+- 乘除法: Booth 乘法器 + 非恢复余数除法器，多周期握手
 - 8 个 Machine 模式 CSR，异常/中断完整支持
 - 外设: GPIO × 16, Timer + IRQ, UART (RX+TX), SPI
-- 仿真: 52 项检查全部 PASS
+- 仿真: 116 项检查全部 PASS (CPU 综合/运算/异常, ALU/MU 专项, 总线/外设测试)
 
 ## 目录结构
 
@@ -46,63 +47,34 @@ dev/
 
 ## 优化目标
 
-### P0 — 已完成
+### P1 — PLIC (平台级中断控制器) 与 mtime 体系集成，及外设中断接入
 
-- [x] **文件夹重构**: 从 `dev/1-alu/` + `dev/2-simpleCPU/` 扁平化为 `dev/rtl/`, `dev/tb/`, `dev/fpga/`, `dev/program_source/`, `dev/docs/`
-- [x] **AHB-Lite + APB 总线架构**: 替换 Bus4LZU mock，实现完整 AMBA 两级总线
-- [x] **外设集成**: GPIO, Timer, UART, SPI 通过 APB 总线接入
-- [x] **异常/中断处理**: Illegal inst, ECALL, EBREAK, 地址不对齐, MEIP/MTIP/MSIP
-- [x] **FPGA 集成**: system_top, XDC 约束, LCD 调试显示, BRAM IP
+**目标**: 实现符合 RISC-V 标准的 PLIC 模块（作为 AHB-Lite 从设备）及标准的 `mtime` 定时器体系。明确中断信号连线与总线 MMIO 访问的分离，将所有外设中断接入 PLIC。
 
-### P1 — 已完成
+**详细计划**:
 
-- [x] **完全去除 Bus4LZU 风格接口**
-  - 删除 `cpu_bus_adapter`，CPU 核心直接输出 AHB-Lite master 信号
-  - 3 状态主 FSM（AHB_IDLE→AHB_ADDR→AHB_DATA）替代原 9 状态两级桥接
-  - 收益: 减少一级适配延迟，简化数据通路，消除冗余 FSM 状态
+1. **PLIC 核心逻辑设计与实现**
+   - **中断网关 (Interrupt Gateway)**: 处理各个中断源的触发信号（电平/边沿），生成单一的挂起请求 (IP)。
+   - **寄存器与内存映射**: 实现 32 位宽原子访问的寄存器，包括：优先级、挂起位、使能位、优先级阈值、Claim / Complete。
 
-- [x] **AHB-Lite 主 FSM 模块化**
-  - 从 `core_top.v` 提取 AHB-Lite 主设备 FSM 到独立模块 `cpu_bus_bridge.v`
-  - `core_top.v` 仅实例化 `cpu_bus_bridge`，不再内联总线协议逻辑
-  - 收益: 降低 `core_top` 复杂度，总线逻辑可独立验证和复用
+2. **总线接口与独立中断信号线**
+   - **AHB-Lite 从设备封装**: 将 PLIC 封装为 **AHB-Lite 从设备**。PLIC 需要较大的地址空间，直接挂载在 AHB 总线上更为合理。总线仅用于 **MMIO 寄存器读写**。
+   - **独立中断通知线**: PLIC 产生的全局外部中断通知 (`eip`) 通过**专用硬件信号线**直接连接到 CPU 核心的 `ext_meip` 引脚，不经过总线。
 
-- [x] **CSR 与 异常/Trap 重构**
-  - 从 `core_top.v` 提取 CSR 写解码 + 异常检测/注册 + `cpu_csr` + `cpu_clint` 到独立模块 `cpu_trap_csr.v`
-  - `core_top.v` 仅实例化 `cpu_trap_csr`，移除所有 CSR/异常内联逻辑
-  - 收益: `core_top` 从 573 行缩减至 439 行，CSR/异常路径可独立验证
+3. **外设中断接入与 MTIP 剥离**
+   - **专用中断信号线**: 将外设 (UART, SPI, GPIO 等) 的中断请求信号通过**专用硬件连线**汇总到 PLIC 的全局中断输入端。
+   - **Timer 中断分离**: 现有的外设 Timer 不再直接连接 CPU 的 MTIP。它的中断将作为普通的外部中断接入 PLIC。
+   - **建立 mtime 体系 (CLINT)**: 根据 RISC-V 规范，实现专用的内存映射定时器 (`mtime` 和 `mtimecmp` 寄存器) 来生成真正的 `MTIP` (Machine Timer Interrupt) 和 `MSIP` (Machine Software Interrupt)，通常由 CLINT (Core Local Interruptor) 模块负责，并作为 AHB-Lite 从设备或映射在特定地址。
 
-- [x] **CSR 与 异常/Trap 进一步拆分**
-  - 将 `cpu_trap_csr.v` 拆分为 `cpu_trap_manager`（异常捕获/注册 + `cpu_clint` + trap 决策）和 `cpu_csr_interface`（CSR 读写解码 + 写回总线 + `cpu_csr`）
-  - `cpu_trap_csr` 退化为薄包装层，仅做信号连线
-  - 收益: CSR 写逻辑与 trap 决策可独立测试，为 vectored mtvec、可编程中断优先级等扩展留出清晰边界
+4. **CPU 核心侧修改**
+   - **中断引脚对接**: 对接 PLIC 输出的 `eip` 到 `ext_meip`。对接 CLINT 输出的 `timer_irq` 到 `ext_mtip`，`soft_irq` 到 `ext_msip`。
+   - **中断优先级与仲裁验证**: 确保 `cpu_clint` 中严格遵循规范 (`MEI > MSI > MTI`) 的降序优先级逻辑。
 
-### P2 — 优化与扩展
+5. **仿真验证与系统测试**
+   - 编写 PLIC 与 CLINT (mtime) 模块级 Testbench。
+   - 更新系统级集成测试：验证 MMIO 读写配置 PLIC/CLINT，验证外设通过硬件线触发 PLIC 到 CPU 的外部中断，验证 mtime 到 MTIP 的中断触发，以及 MRET 退出流程。
 
-- [x] **ALU 乘除法器独立与ALU重构**
-  - 现状: `booth_multiplier` 和 `non_restoring_divider` 嵌入在 `alu_32bit` 内部
-  - 目标: 乘法器/除法器作为独立乘除模块（放在MU文件夹下），ALU 变为单周期模块，ALU重构：不使用握手逻辑作为接口，mem不经过握手逻辑直接调用
-  - 收益: 流水线时序优化，加减法等单周期运算直接调用单周期ALU，不需要握手，CPI更低。
-  
-- [x] **RV32M 扩展**:
-  - 现状：硬件乘除法器已就绪，
-  - 目标：实现M指令集扩展，需在 decode/execute 中添加 M 扩展指令识别
-  - 完成：8 条 M 指令 (MUL/MULH/MULHSU/MULHU/DIV/DIVU/REM/REMU) 全部实现
-  - 关键变更：`mu_funct3[2:0]` 直接映射 funct3，Booth 乘法器 A/M 扩展至 33 位修复符号溢出，
-    除法器增加 `is_unsigned` 支持 DIVU/REMU，`cpu_decode` 添加 M 指令识别，
-    `id_exe_bus` 扩展至 320 位 (is_mu + mu_funct3)
-
-### P3 - 优化数据通路 (已完成)
-
-- [x] **回写数据链路优化**
-  - 现状：回写只能在访存单元之后执行，不需要访存的指令也需要经过MEM，CPU空转。
-  - 目标：在执行单元和访存单元之间直接建立数据通路，不需要访存的指令直接进入回写阶段。
-  - 关键更变：
-    - `cpu_controller.v`: 新增 `exe_need_mem` 输入和 `exe_to_wb` 输出；FSM STATE_EXEC 分支增加判断——非分支且非访存指令直接跳转 STATE_WB，访存指令仍走 STATE_MEM
-    - `cpu_execute.v`: 新增 `exe_need_mem` 输出（`is_load | is_store`）
-    - `core_top.v`: 新增 `exe_wb_bus` 组合逻辑，将 `exe_mem_bus` 映射为 `mem_wb_bus` 格式；`mem_wb_bus_r` 加载条件增加 `exe_to_wb` 分支（优先于 `mem_done` 和 `csr_valid`）
-  - 收益: ALU/JAL/JALR/LUI/AUIPC/MUL/DIV 等非访存指令减少 1 个 FSM 状态（跳过 MEM），CPI 降低
-
-### P4 — 远期
+### P2 — 远期
 
 - [ ] **MMU 实现**: 当前 paddr=vaddr 直通，接口已预留，可扩展为简单 SV32 页表
 - [ ] **中断优先级完善**: 当前 MEIP > MSIP，需补充完整优先级 MSIP > MTIP > MEIP
@@ -120,7 +92,6 @@ dev/
 | FENCE/FENCE.I 为 NOP | 单 hart 无乱序，无需缓存一致性 |
 | mtvec 仅 Direct | Vectored 模式未实现 |
 | Cache 别名 | 4KB direct-mapped, ≥16KB 地址回绕别名 |
-| 无 RV32M | ~~乘除硬件存在但未接入 ISA 解码~~ 已实现 |
 | 无 A/F/D/C 扩展 | 无原子/浮点/双精度/压缩指令 |
 
 ## 地址映射
@@ -134,6 +105,24 @@ dev/
 | 0x8000C000 - 0x8000FFFF | APB | SPI |
 
 > bit31=0 访问本地 BRAM Cache，bit31=1 绕过 Cache 直接到 AHB-Lite 总线 (MMIO)
+
+## 参考资料
+
+| 资料名称           | 内容简介                       | 路径                                      |
+|--------------------|-------------------------------|-------------------------------------------|
+| AHB-Lite 规范      | AMBA AHB-Lite 总线协议         | dev/docs/AHB-lite/AMBA_AHB-Lite_Spec_Summary.md |
+| APB 规范           | AMBA APB 总线协议              | dev/docs/APB/AMBA_APB_Spec_Summary.md     |
+| RISC-V 特权架构(M)    | RISC-V M特权级架构说明          | dev/docs/core/riscv-m-privilege-spec.typ  |
+| RISC-V PLIC        | RISC-V 平台级中断控制器        | dev/docs/core/riscv-plic.md               |
+| RISC-V 高级中断     | RISC-V 高级异常/中断机制       | dev/docs/core/exception-interrupt.md      |
+| RISC-V 指令集      | 指令集定义/支持情况            | dev/docs/core/instruction-set.md          |
+| RISC-V IOMMU       | RISC-V IOMMU 相关说明          | dev/docs/core/riscv-iommu.md              |
+| RISC-V PLIC 参考   | PLIC 参考实现/寄存器           | dev/docs/core/riscv-plic-ref.md           |
+| RISC-V M 扩展      | 乘除法扩展说明                 | dev/docs/core/rv32-m.md                   |
+| ALU 接口           | ALU 接口定义                   | dev/docs/alu/ALU_INTERFACE.md             |
+| MU 接口            | 乘除法单元接口                 | dev/docs/alu/MU_INTERFACE.md              |
+| 设计报告           | 系统设计报告                    | dev/docs/simpleCPU-design-report.md        |
+| 其它文档           | 其它相关设计/实现文档            | dev/docs/                                  |
 
 ## 工具链
 

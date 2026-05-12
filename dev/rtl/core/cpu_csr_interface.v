@@ -15,6 +15,8 @@ module cpu_csr_interface(
     input  [31:0] hw_mstatus_wdata,
 
     input         timer_irq,
+    input         ext_meip_in,
+    input         ext_msip_in,
 
     input         cycle_en,
     input         inst_retire,
@@ -90,9 +92,9 @@ module cpu_csr_interface(
         .hw_mcause_wdata(hw_mcause_wdata),
         .hw_mtval_wdata(hw_mtval_wdata),
         .hw_mstatus_wdata(hw_mstatus_wdata),
-        .ext_meip(1'b0),
+        .ext_meip(ext_meip_in),
         .ext_mtip(timer_irq),
-        .ext_msip(1'b0),
+        .ext_msip(ext_msip_in),
         .cycle_en(cycle_en),
         .inst_retire(inst_retire),
         .csr_mstatus(csr_mstatus),

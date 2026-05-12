@@ -4,7 +4,7 @@
 module ahb_lite_bus #(
     parameter ADDR_WIDTH  = `AHB_ADDR_WIDTH,
     parameter DATA_WIDTH  = `AHB_DATA_WIDTH,
-    parameter SLAVE_NUM   = 2,
+    parameter SLAVE_NUM   = 4,
     parameter MEM_DEPTH   = 262144,
     parameter WAIT_STATES = 0,
     parameter GPIO_NUM    = 16,
@@ -25,6 +25,10 @@ module ahb_lite_bus #(
     output wire                    HREADY,
     output wire                    HRESP,
 
+    output wire                    o_plic_eip,
+    output wire                    o_clint_mtip,
+    output wire                    o_clint_msip,
+
     output wire                    o_timer_irq,
     inout  wire [GPIO_NUM-1:0]     io_gpioPin,
     input  wire                    i_uart_rx,
@@ -38,18 +42,17 @@ module ahb_lite_bus #(
     wire [SLAVE_NUM-1:0]   slave_HSELx;
 
     wire [DATA_WIDTH-1:0]  sram_HRDATA;
+    wire [DATA_WIDTH-1:0]  plic_HRDATA;
+    wire [DATA_WIDTH-1:0]  clint_HRDATA;
+    wire [DATA_WIDTH-1:0]  bridge_HRDATA;
     wire [DATA_WIDTH*SLAVE_NUM-1:0] slave_HRDATA;
     wire [SLAVE_NUM-1:0]   slave_HREADYOUT;
     wire [SLAVE_NUM-1:0]   slave_HRESP;
 
-    ahb_decoder #(
-        .ADDR_WIDTH (ADDR_WIDTH),
-        .SLAVE_NUM  (SLAVE_NUM)
-    ) u_ahb_decoder (
-        .HADDR  (HADDR),
-        .HREADY (HREADY),
-        .HSELx  (slave_HSELx)
-    );
+    assign slave_HSELx[0] = (HADDR[31:24] == 8'h00);
+    assign slave_HSELx[1] = (HADDR[31:24] == 8'h0C);
+    assign slave_HSELx[2] = (HADDR[31:24] == 8'h02);
+    assign slave_HSELx[3] = HADDR[31];
 
     ahb_mux #(
         .DATA_WIDTH (DATA_WIDTH),
@@ -86,6 +89,52 @@ module ahb_lite_bus #(
         .HRDATA    (sram_HRDATA)
     );
 
+    wire [7:0] plic_src_irq;
+    assign plic_src_irq[0] = 1'b0;
+    assign plic_src_irq[1] = o_timer_irq;
+    assign plic_src_irq[2] = 1'b0;
+    assign plic_src_irq[3] = 1'b0;
+    assign plic_src_irq[4] = 1'b0;
+    assign plic_src_irq[5] = 1'b0;
+    assign plic_src_irq[6] = 1'b0;
+    assign plic_src_irq[7] = 1'b0;
+
+    ahb_plic #(
+        .NUM_SRC (8)
+    ) u_ahb_plic (
+        .HCLK      (HCLK),
+        .HRESETn   (HRESETn),
+        .HSEL      (slave_HSELx[1]),
+        .HADDR     (HADDR),
+        .HTRANS    (HTRANS),
+        .HWRITE    (HWRITE),
+        .HSIZE     (HSIZE),
+        .HWDATA    (HWDATA),
+        .HREADY    (HREADY),
+        .HREADYOUT (slave_HREADYOUT[1]),
+        .HRESP     (slave_HRESP[1]),
+        .HRDATA    (plic_HRDATA),
+        .src_irq   (plic_src_irq),
+        .o_eip     (o_plic_eip)
+    );
+
+    ahb_clint u_ahb_clint (
+        .HCLK      (HCLK),
+        .HRESETn   (HRESETn),
+        .HSEL      (slave_HSELx[2]),
+        .HADDR     (HADDR),
+        .HTRANS    (HTRANS),
+        .HWRITE    (HWRITE),
+        .HSIZE     (HSIZE),
+        .HWDATA    (HWDATA),
+        .HREADY    (HREADY),
+        .HREADYOUT (slave_HREADYOUT[2]),
+        .HRESP     (slave_HRESP[2]),
+        .HRDATA    (clint_HRDATA),
+        .o_mtip    (o_clint_mtip),
+        .o_msip    (o_clint_msip)
+    );
+
     wire [ADDR_WIDTH-1:0]  bridge_PADDR;
     wire [2:0]             bridge_PPROT;
     wire                   bridge_PSEL;
@@ -106,8 +155,6 @@ module ahb_lite_bus #(
     wire [DATA_WIDTH-1:0]  apb_slave3_PRDATA;
     wire [3:0]             apb_slave_PSLVERR;
 
-    wire [DATA_WIDTH-1:0]  bridge_HRDATA;
-
     ahb_lite_to_apb #(
         .ADDR_WIDTH (ADDR_WIDTH),
         .DATA_WIDTH (DATA_WIDTH)
@@ -121,10 +168,10 @@ module ahb_lite_bus #(
         .HBURST    (HBURST),
         .HPROT     (HPROT),
         .HWDATA    (HWDATA),
-        .HSEL      (slave_HSELx[1]),
+        .HSEL      (slave_HSELx[3]),
         .HREADY    (HREADY),
-        .HREADYOUT (slave_HREADYOUT[1]),
-        .HRESP     (slave_HRESP[1]),
+        .HREADYOUT (slave_HREADYOUT[3]),
+        .HRESP     (slave_HRESP[3]),
         .HRDATA    (bridge_HRDATA),
         .PADDR     (bridge_PADDR),
         .PPROT     (bridge_PPROT),
@@ -210,6 +257,6 @@ module ahb_lite_bus #(
         end
     end
 
-    assign slave_HRDATA = {bridge_HRDATA, sram_HRDATA};
+    assign slave_HRDATA = {bridge_HRDATA, clint_HRDATA, plic_HRDATA, sram_HRDATA};
 
 endmodule

@@ -263,18 +263,19 @@ IDLE → FETCH → DECODE → ┬→ EXEC → MEM → WB → FETCH (循环)
 | MEM_READ | 等待读数据返回（1周期延迟） |
 | MEM_WRITE | 写操作完成 |
 
-**字节掩码写入逻辑**（`dataWen_4[3:0]`，0=写，1=不写）：
+**AHB 总线访存写入逻辑**：
 
-| 指令 | byte_offset | 掩码 | 说明 |
-|------|-------------|------|------|
-| SB | 00 | 1110 | 写byte0 |
-| SB | 01 | 1101 | 写byte1 |
-| SB | 10 | 1011 | 写byte2 |
-| SB | 11 | 0111 | 写byte3 |
-| SH | 00 | 1100 | 写半字低16位 |
-| SH | 10 | 0011 | 写半字高16位 |
-| SW | xx | 0000 | 写全部32位 |
-| LOAD | xx | 1111 | 读操作标识 |
+根据 `mem_size` 生成 AHB 总线的 `hsize` 和数据对齐：
+
+| 指令 | alu_result[1:0] | hsize | writeData_32 | 说明 |
+|------|-----------------|-------|--------------|------|
+| SB | xx | 000 (BYTE) | `{4{data[7:0]}}` | 字节复写至全32位 |
+| SH | 00 | 001 (HWORD) | `{16'b0, data[15:0]}` | 写半字低16位 |
+| SH | 10 | 001 (HWORD) | `{data[15:0], 16'b0}` | 写半字高16位 |
+| SW | 00 | 010 (WORD) | `data[31:0]` | 写全部32位 |
+| LOAD | xx | 010 (WORD) | `32'b0` | 读操作(hwrite=0) |
+
+*注：实际的字节掩码（BRAM WEA，高有效）在 `dcache_ctrl.v` 或 AHB 从设备中根据 `hsize` 和地址低位解码生成。*
 
 **读数据提取**：
 
@@ -639,7 +640,8 @@ mu_unit
 | CPU→Cache | `instAddr_32` | 32 | 取指地址（字节地址=PC） |
 | Cache→CPU | `instData_32` | 32 | 指令数据 |
 | Cache→CPU | `inst_valid` | 1 | 指令数据有效 |
-| CPU→Cache | `dataWen_4` | 4 | 字节写掩码（0=写，1=不写，1111=读） |
+| CPU→Cache | `mem_hwrite` | 1 | 访存写使能（1=写，0=读） |
+| CPU→Cache | `mem_hsize` | 3 | AHB 传输大小（0=Byte, 1=Half, 2=Word） |
 | CPU→Cache | `dataAddr_32` | 32 | 访存地址 |
 | CPU→Cache | `writeData_32` | 32 | 写入数据 |
 | Cache→CPU | `readData_32` | 32 | 读取数据 |

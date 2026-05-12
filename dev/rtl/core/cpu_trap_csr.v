@@ -29,6 +29,13 @@ module cpu_trap_csr(
     input         timer_irq,
     input  [31:0] current_pc,
 
+    input         exe_misalign_valid,
+    input  [31:0] exe_misalign_target,
+    input  [31:0] exe_pc,
+
+    input         cycle_en,
+    input         inst_retire,
+
     output        exception_at_decode,
     output        trap_pending,
     output [31:0] csr_read_data,
@@ -74,6 +81,9 @@ module cpu_trap_csr(
         .csr_mip          (csr_mip),
         .timer_irq        (timer_irq),
         .current_pc       (current_pc),
+        .exe_misalign_valid(exe_misalign_valid),
+        .exe_misalign_target(exe_misalign_target),
+        .exe_pc           (exe_pc),
         .exception_at_decode(exception_at_decode),
         .trap_pending     (trap_pending),
         .trap_pc          (trap_pc),
@@ -96,6 +106,8 @@ module cpu_trap_csr(
         .hw_mtval_wdata   (hw_mtval_wdata),
         .hw_mstatus_wdata (hw_mstatus_wdata),
         .timer_irq        (timer_irq),
+        .cycle_en         (cycle_en),
+        .inst_retire      (inst_retire),
         .csr_read_data    (csr_read_data),
         .csr_wb_bus       (csr_wb_bus),
         .csr_pc_plus4     (csr_pc_plus4),

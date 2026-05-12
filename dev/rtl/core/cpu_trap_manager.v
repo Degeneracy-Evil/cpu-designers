@@ -31,6 +31,10 @@ module cpu_trap_manager(
     input         timer_irq,
     input  [31:0] current_pc,
 
+    input         exe_misalign_valid,
+    input  [31:0] exe_misalign_target,
+    input  [31:0] exe_pc,
+
     output        exception_at_decode,
     output        trap_pending,
     output [31:0] trap_pc,
@@ -67,15 +71,31 @@ module cpu_trap_manager(
     assign misalign_exception_pc    = mem_pc;
     assign misalign_exception_mtval = mem_misalign_addr;
 
+    wire exe_exception_valid;
+    wire [31:0] exe_exception_cause;
+    wire [31:0] exe_exception_pc;
+    wire [31:0] exe_exception_mtval;
+
+    assign exe_exception_valid = exe_misalign_valid;
+    assign exe_exception_cause = 32'd0;
+    assign exe_exception_pc    = exe_pc;
+    assign exe_exception_mtval = exe_misalign_target;
+
     wire exception_valid;
     wire [31:0] exception_cause;
     wire [31:0] exception_pc;
     wire [31:0] exception_mtval;
 
-    assign exception_valid = exception_at_decode || misalign_exception_valid;
-    assign exception_cause = exception_at_decode ? decode_exception_cause : misalign_exception_cause;
-    assign exception_pc   = exception_at_decode ? id_pc : misalign_exception_pc;
-    assign exception_mtval= exception_at_decode ? decode_exception_mtval : misalign_exception_mtval;
+    assign exception_valid = exception_at_decode || misalign_exception_valid || exe_exception_valid;
+    assign exception_cause = exception_at_decode ? decode_exception_cause :
+                             misalign_exception_valid ? misalign_exception_cause :
+                             exe_exception_cause;
+    assign exception_pc   = exception_at_decode ? id_pc :
+                             misalign_exception_valid ? misalign_exception_pc :
+                             exe_exception_pc;
+    assign exception_mtval= exception_at_decode ? decode_exception_mtval :
+                             misalign_exception_valid ? misalign_exception_mtval :
+                             exe_exception_mtval;
 
     always @(posedge clk or posedge reset) begin
         if (reset) begin

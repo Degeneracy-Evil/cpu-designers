@@ -18,10 +18,18 @@ description: |
 ## 仿真
 
 ```bash
-iverilog -o cpu_tb rtl/*.v tb/tb_cpu_top.v && vvp cpu_tb
+python tools/mk.py --top <顶层Verilog文件路径>
 ```
 
-## 详细规格
+## 编译产生coe文件
 
-- 完整命名规范与模板代码见 `docs/09-coding-standards.md`
-- 验证策略与 Makefile 目标见 `docs/10-verification.md`
+```bash
+python3 tools/rv2coe.py \
+  -i tools/examples/phase1_prog.S \
+  -o dev/2-embedded_cpu/program_source/icache_init.coe
+```
+
+## 项目工作流与文档说明
+
+- 项目脚本与工具位于 `tools/` 文件夹下。
+- **所有修改都需要记录到 `dev/PROCESS.md` 中（如果没有该文件则创建）。**

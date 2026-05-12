@@ -161,7 +161,7 @@ module tb_simple_cpu_top;
         repeat (80000) @(posedge clk);
 
         check_reg(5'd1,  32'h00000008);
-        check_reg(5'd2,  32'h00000000);
+        check_reg(5'd2,  32'h00001800);
         check_reg(5'd3,  32'h00000000);
         check_reg(5'd4,  32'h00000000);
         check_reg(5'd5, 32'hffffffff);

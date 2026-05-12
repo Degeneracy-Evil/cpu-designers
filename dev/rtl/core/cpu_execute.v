@@ -17,6 +17,9 @@ module cpu_execute(
     output     [31:0]  exe_pc,
     output     [31:0]  exe_inst,
 
+    output             exe_misalign_valid,
+    output     [31:0]  exe_misalign_target,
+
     output             exe_csr_wen,
     output     [11:0]  exe_csr_waddr,
     output     [31:0]  exe_csr_wdata,
@@ -174,7 +177,7 @@ module cpu_execute(
                     result_reg <= alu_result;
                     result_ok <= valid_inst;
                     done_reg <= 1'b1;
-                    branch_target_reg <= is_jalr ? (alu_result & 32'hffff_fffc) : alu_result;
+                    branch_target_reg <= is_jalr ? (alu_result & 32'hffff_fffe) : alu_result;
                     branch_taken_reg <= is_branch ? branch_cond_true : is_jal_like;
                 end
             end
@@ -190,7 +193,7 @@ module cpu_execute(
                     done_reg <= 1'b1;
                     mu_active <= 1'b0;
                     mu_req_valid <= 1'b0;
-                    branch_target_reg <= is_jalr ? (mu_result & 32'hffff_fffc) : mu_result;
+                    branch_target_reg <= is_jalr ? (mu_result & 32'hffff_fffe) : mu_result;
                     branch_taken_reg <= is_branch ? branch_cond_true : is_jal_like;
                 end
             end
@@ -224,6 +227,9 @@ module cpu_execute(
     assign exe_csr_waddr  = csr_addr;
     assign exe_csr_wdata  = csr_new_val;
     assign exe_csr_old_val = csr_rdata;
+
+    assign exe_misalign_valid = done_reg && exe_is_ctrl_flow && branch_taken_reg && (branch_target_reg[1:0] != 2'b00);
+    assign exe_misalign_target = branch_target_reg;
 
     assign exe_mem_bus = {
         pc_plus4,

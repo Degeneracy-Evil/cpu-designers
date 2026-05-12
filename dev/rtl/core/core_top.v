@@ -71,6 +71,9 @@ module core_top(
     wire exe_is_branch;
     wire exe_need_mem;
 
+    wire exe_misalign_valid;
+    wire [31:0] exe_misalign_target;
+
     wire [95:0]  if_id_bus;
     wire [319:0] id_exe_bus;
     wire [206:0] exe_mem_bus;
@@ -133,6 +136,11 @@ module core_top(
     wire [167:0] csr_wb_bus;
     wire [31:0] trap_csr_pc;
     wire [31:0] csr_pc_plus4_out;
+
+    wire cycle_en;
+    assign cycle_en = ~init_sig;
+    wire inst_retire;
+    assign inst_retire = wb_done;
 
     always @(posedge clk or posedge reset) begin
         if (reset) begin
@@ -288,6 +296,8 @@ module core_top(
         .exe_need_mem(exe_need_mem),
         .exe_pc(exe_pc),
         .exe_inst(exe_inst),
+        .exe_misalign_valid(exe_misalign_valid),
+        .exe_misalign_target(exe_misalign_target),
         .exe_csr_wen(),
         .exe_csr_waddr(),
         .exe_csr_wdata(),
@@ -405,6 +415,11 @@ module core_top(
         .trap_return_valid(trap_return_valid),
         .timer_irq        (timer_irq),
         .current_pc       (pc),
+        .exe_misalign_valid(exe_misalign_valid),
+        .exe_misalign_target(exe_misalign_target),
+        .exe_pc           (exe_pc),
+        .cycle_en         (cycle_en),
+        .inst_retire      (inst_retire),
         .exception_at_decode(exception_at_decode),
         .trap_pending     (trap_pending),
         .csr_read_data    (csr_read_data),

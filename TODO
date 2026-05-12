@@ -1,0 +1,7 @@
+# TODO
+
+- [*] skill升级到适应当前进度
+- [*] 中断BUG修复（报告见dev/docs/riscv-conformance-report.typ）
+- [ ] 中断优化：PLIC增加与外设中断规范化
+- [ ] AHB总线突发事项支持
+- [ ] 开始构建MMU

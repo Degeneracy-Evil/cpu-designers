@@ -48,7 +48,8 @@ module cpu_clint(
                                          (meie_bit && meip_bit));
 
     wire [31:0] interrupt_cause;
-    assign interrupt_cause = (msie_bit && msip_bit) ? 32'h80000003 :
+    assign interrupt_cause = (meie_bit && meip_bit) ? 32'h8000000B :
+                             (msie_bit && msip_bit) ? 32'h80000003 :
                              (mtie_bit && mtip_bit) ? 32'h80000007 :
                              32'h8000000B;
 
@@ -71,7 +72,7 @@ module cpu_clint(
     localparam [1:0] cur_mpp = 2'b11;
 
     assign hw_mstatus_wdata = trap_enter ?
-                              {csr_mstatus[31:13], cur_mpp, csr_mstatus[10:8], mie_bit, csr_mstatus[6:4], 1'b0, csr_mstatus[2:0]} :
-                              {csr_mstatus[31:13], 2'b00, csr_mstatus[10:8], mpie_bit, csr_mstatus[6:4], 1'b1, csr_mstatus[2:0]};
+                               {csr_mstatus[31:13], cur_mpp, csr_mstatus[10:8], mie_bit, csr_mstatus[6:4], 1'b0, csr_mstatus[2:0]} :
+                               {csr_mstatus[31:13], cur_mpp, csr_mstatus[10:8], 1'b1, csr_mstatus[6:4], mpie_bit, csr_mstatus[2:0]};
 
 endmodule

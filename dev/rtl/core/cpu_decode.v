@@ -170,6 +170,7 @@ module cpu_decode(
 
   wire inst_ecall;
   wire inst_ebreak;
+  wire inst_wfi;
   wire inst_mret;
   wire inst_fence;
   wire inst_fencei;
@@ -182,6 +183,7 @@ module cpu_decode(
 
   assign inst_ecall  = (opcode == OPCODE_SYSTEM) && (funct3 == 3'b000) && (inst[31:20] == 12'h000);
   assign inst_ebreak = (opcode == OPCODE_SYSTEM) && (funct3 == 3'b000) && (inst[31:20] == 12'h001);
+  assign inst_wfi    = (opcode == OPCODE_SYSTEM) && (funct3 == 3'b000) && (inst[31:20] == 12'h105);
   assign inst_mret   = (opcode == OPCODE_SYSTEM) && (funct3 == 3'b000) && (inst[31:7] == 25'b0011000_00010_00000_000_00000);
   assign inst_fence  = (opcode == OPCODE_FENCE)  && (funct3 == 3'b000);
   assign inst_fencei = (opcode == OPCODE_FENCE)  && (funct3 == 3'b001);
@@ -219,7 +221,7 @@ module cpu_decode(
   assign is_ecall = inst_ecall;
   assign is_ebreak = inst_ebreak;
   assign is_mret = inst_mret;
-  assign is_fence = inst_fence | inst_fencei;
+  assign is_fence = inst_fence | inst_fencei | inst_wfi;
   assign is_system_trap = is_ecall | is_ebreak;
 
   wire use_fixed_wb;
@@ -289,7 +291,18 @@ module cpu_decode(
   assign csr_uimm   = inst[19:15];
 
   assign id_done = id_valid;
-  assign illegal_inst = id_valid && !valid_inst;
+
+  wire csr_addr_invalid = is_csr && !dec_csr_addr_valid;
+  wire csr_read_only = (csr_addr[11:10] == 2'b11);
+  wire csr_is_write   = (csr_funct3 == 3'b001) ||
+                        (csr_funct3 == 3'b010 && rs1 != 5'd0) ||
+                        (csr_funct3 == 3'b011 && rs1 != 5'd0) ||
+                        (csr_funct3 == 3'b101) ||
+                        (csr_funct3 == 3'b110 && inst[19:15] != 5'd0) ||
+                        (csr_funct3 == 3'b111 && inst[19:15] != 5'd0);
+  wire write_ro_csr   = is_csr && csr_read_only && csr_is_write;
+
+  assign illegal_inst = id_valid && (!valid_inst || csr_addr_invalid || write_ro_csr);
   assign rs1_addr = rs1;
   assign rs2_addr = rs2;
   assign dec_is_branch = id_valid && valid_inst && is_branch;
@@ -303,23 +316,45 @@ module cpu_decode(
   assign dec_csr_addr  = csr_addr;
   assign dec_csr_funct3 = csr_funct3;
 
-  localparam CSR_MSTATUS  = 12'h300;
-  localparam CSR_MIE      = 12'h304;
-  localparam CSR_MTVEC    = 12'h305;
-  localparam CSR_MSCRATCH = 12'h340;
-  localparam CSR_MEPC     = 12'h341;
-  localparam CSR_MCAUSE   = 12'h342;
-  localparam CSR_MTVAL    = 12'h343;
-  localparam CSR_MIP      = 12'h344;
+  localparam CSR_MSTATUS    = 12'h300;
+  localparam CSR_MISA       = 12'h301;
+  localparam CSR_MIE        = 12'h304;
+  localparam CSR_MTVEC      = 12'h305;
+  localparam CSR_MSTATUSH   = 12'h310;
+  localparam CSR_MSCRATCH   = 12'h340;
+  localparam CSR_MEPC       = 12'h341;
+  localparam CSR_MCAUSE     = 12'h342;
+  localparam CSR_MTVAL      = 12'h343;
+  localparam CSR_MIP        = 12'h344;
+  localparam CSR_MCYCLE     = 12'hB00;
+  localparam CSR_MINSTRET   = 12'hB02;
+  localparam CSR_MCYCLEH    = 12'hB80;
+  localparam CSR_MINSTRETH  = 12'hB82;
+  localparam CSR_MVENDORID  = 12'hF11;
+  localparam CSR_MARCHID    = 12'hF12;
+  localparam CSR_MIMPID     = 12'hF13;
+  localparam CSR_MHARTID    = 12'hF14;
+  localparam CSR_MCONFIGPTR = 12'hF15;
 
-  assign dec_csr_addr_valid = (csr_addr == CSR_MSTATUS)  ||
-                              (csr_addr == CSR_MIE)      ||
-                              (csr_addr == CSR_MTVEC)    ||
-                              (csr_addr == CSR_MSCRATCH) ||
-                              (csr_addr == CSR_MEPC)     ||
-                              (csr_addr == CSR_MCAUSE)   ||
-                              (csr_addr == CSR_MTVAL)    ||
-                              (csr_addr == CSR_MIP);
+  assign dec_csr_addr_valid = (csr_addr == CSR_MSTATUS)    ||
+                              (csr_addr == CSR_MISA)       ||
+                              (csr_addr == CSR_MIE)        ||
+                              (csr_addr == CSR_MTVEC)      ||
+                              (csr_addr == CSR_MSTATUSH)   ||
+                              (csr_addr == CSR_MSCRATCH)   ||
+                              (csr_addr == CSR_MEPC)       ||
+                              (csr_addr == CSR_MCAUSE)     ||
+                              (csr_addr == CSR_MTVAL)      ||
+                              (csr_addr == CSR_MIP)        ||
+                              (csr_addr == CSR_MCYCLE)     ||
+                              (csr_addr == CSR_MINSTRET)   ||
+                              (csr_addr == CSR_MCYCLEH)    ||
+                              (csr_addr == CSR_MINSTRETH)  ||
+                              (csr_addr == CSR_MVENDORID)  ||
+                              (csr_addr == CSR_MARCHID)    ||
+                              (csr_addr == CSR_MIMPID)     ||
+                              (csr_addr == CSR_MHARTID)    ||
+                              (csr_addr == CSR_MCONFIGPTR);
 
   assign id_exe_bus = {
            pc_plus4,

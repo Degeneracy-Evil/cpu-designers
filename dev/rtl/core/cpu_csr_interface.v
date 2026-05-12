@@ -16,6 +16,9 @@ module cpu_csr_interface(
 
     input         timer_irq,
 
+    input         cycle_en,
+    input         inst_retire,
+
     output [31:0] csr_read_data,
     output [167:0] csr_wb_bus,
     output [31:0] csr_pc_plus4,
@@ -90,6 +93,8 @@ module cpu_csr_interface(
         .ext_meip(1'b0),
         .ext_mtip(timer_irq),
         .ext_msip(1'b0),
+        .cycle_en(cycle_en),
+        .inst_retire(inst_retire),
         .csr_mstatus(csr_mstatus),
         .csr_mie(csr_mie),
         .csr_mtvec(csr_mtvec),

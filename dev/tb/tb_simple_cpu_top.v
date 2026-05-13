@@ -135,18 +135,18 @@ module tb_simple_cpu_top;
         end
     endtask
 
-    task check_mem_word;
-        input [31:0] addr;
-        input [31:0] expected;
-        begin
-`ifndef XILINX_SIMULATOR
-            if (dut.u_dcache_wrap.u_dcache.mem[addr[13:2]] === expected) begin
-                pass_count = pass_count + 1;
-                $display("PASS mem[0x%08h] = 0x%08h", addr, dut.u_dcache_wrap.u_dcache.mem[addr[13:2]]);
-            end else begin
-                fail_count = fail_count + 1;
-                $display("FAIL mem[0x%08h] expected=0x%08h got=0x%08h", addr, expected, dut.u_dcache_wrap.u_dcache.mem[addr[13:2]]);
-            end
+     task check_mem_word;
+         input [31:0] addr;
+         input [31:0] expected;
+         begin
+ `ifndef XILINX_SIMULATOR
+             if (u_bus.u_ahb_sram_slave.u_bram.mem[addr[19:2]] === expected) begin
+                 pass_count = pass_count + 1;
+                 $display("PASS mem[0x%08h] = 0x%08h", addr, u_bus.u_ahb_sram_slave.u_bram.mem[addr[19:2]]);
+             end else begin
+                 fail_count = fail_count + 1;
+                 $display("FAIL mem[0x%08h] expected=0x%08h got=0x%08h", addr, expected, u_bus.u_ahb_sram_slave.u_bram.mem[addr[19:2]]);
+             end
 `else
             $display("SKIP mem check in Vivado");
             pass_count = pass_count + 1;
@@ -174,7 +174,7 @@ module tb_simple_cpu_top;
         check_reg(5'd7, 32'h00000003);
         check_reg(5'd8,  32'h00005555);
         check_reg(5'd9,  32'h00005555);
-        check_reg(5'd10, 32'h80004000);
+        check_reg(5'd10, 32'h10004000);
         check_reg(5'd11, 32'h00000001);
         check_reg(5'd12, 32'h00005554);
         check_reg(5'd13, 32'h00005454);
@@ -195,7 +195,7 @@ module tb_simple_cpu_top;
         check_reg(5'd28, 32'h00000000);
         check_reg(5'd29, 32'h00000000);
         check_reg(5'd30, 32'h00000000);
-        check_reg(5'd31, 32'h000000ac);
+        check_reg(5'd31, 32'h800000ac);
 
         check_mem_word(32'd0, 32'habcd5678);
         check_mem_word(32'd4, 32'h12345678);

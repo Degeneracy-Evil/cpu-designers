@@ -1,4 +1,4 @@
-.equ TIMER_BASE, 0x80004000
+.equ TIMER_BASE, 0x10004000
 
 .section .text
 .globl _start

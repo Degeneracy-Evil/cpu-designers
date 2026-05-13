@@ -1,4 +1,4 @@
-.equ UART_BASE, 0x80008000
+.equ UART_BASE, 0x10008000
 .equ UART_CTRL,   0x00
 .equ UART_STATUS, 0x04
 .equ UART_TXDATA, 0x08
@@ -7,7 +7,7 @@
 .globl _start
 
 _start:
-    lui x10, 0x80008
+    lui x10, 0x10008
 
     li x11, 0x01
     sw x11, UART_CTRL(x10)

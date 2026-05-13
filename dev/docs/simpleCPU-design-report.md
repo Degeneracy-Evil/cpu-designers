@@ -1,8 +1,8 @@
 # SimpleCPU 设计与实现报告
 
-> 生成日期：2026-05-12
+> 生成日期：2026-05-13
 > 项目路径：`dev/`
-> 当前分支：`wood-dev`
+> 当前分支：`nightly`
 
 ---
 
@@ -10,7 +10,7 @@
 
 SimpleCPU 是一个基于 RISC-V RV32IM 指令集的**多周期处理器**实现，采用经典五级流水线结构（取指-译码-执行-访存-回写）但以**多周期串行**方式运行——每个时钟周期仅激活一个流水级，指令在多个周期内依次通过各阶段完成执行。
 
-该项目已完成从内部 BRAM 直连模型到 **AHB-Lite + APB 两级总线架构**的迁移，并集成了 RISC-V 标准的 CLINT（Core Local Interruptor）与 PLIC（Platform-Level Interrupt Controller）。CPU 通过 `cpu_bus_bridge` 直接驱动 AHB-Lite 总线信号，AHB-Lite 下挂 4 个从设备：SRAM、PLIC、CLINT、AHB-to-APB 桥；APB 总线下挂 GPIO/Timer/UART/SPI 四个外设。CLINT 产生 MTIP 中断直连 CPU 核心，PLIC 统一管理外部中断（当前仅 APB Timer IRQ 接入 src_irq[1]），输出 MEIP 至 CPU。ICache/DCache 控制器支持 MMIO 旁路（地址 bit31=1 时直接访问总线），并实现了完整的 CSR 寄存器、异常处理与中断响应机制。M 扩展（乘除法）通过 Booth 乘法器与非恢复余数除法器实现，支持多周期运算。
+该项目已完成从内部 BRAM 直连模型到 **AHB-Lite + APB 两级总线架构**的迁移，并集成了 RISC-V 标准的 CLINT（Core Local Interruptor）与 PLIC（Platform-Level Interrupt Controller）。CPU 通过 `cpu_bus_bridge` 直接驱动 AHB-Lite 总线信号，AHB-Lite 下挂 4 个从设备：SRAM、PLIC、CLINT、AHB-to-APB 桥；APB 总线下挂 GPIO/Timer/UART/SPI 四个外设。CLINT 产生 MTIP 中断直连 CPU 核心，PLIC 统一管理外部中断（当前仅 APB Timer IRQ 接入 src_irq[1]），输出 MEIP 至 CPU。ICache/DCache 控制器支持 MMIO 旁路（地址 bit31=0 时直接访问总线外设，bit31=1 时访问 Cache），并实现了包含计数器与只读标识寄存器在内的 CSR 寄存器、异常处理与中断响应机制。M 扩展（乘除法）通过 Booth 乘法器与非恢复余数除法器实现，支持多周期运算。
 
 ### 1.1 核心特性
 
@@ -23,7 +23,7 @@ SimpleCPU 是一个基于 RISC-V RV32IM 指令集的**多周期处理器**实现
 | Cache | ICache/DCache 控制器 + BRAM IP，MMIO 旁路 |
 | 乘除法 | Booth 乘法器 + 非恢复余数除法器，多周期握手 |
 | 特权模式 | 仅 Machine 模式 |
-| CSR | mstatus/mie/mtvec/mscratch/mepc/mcause/mtval/mip (8个) |
+| CSR | mstatus/mie/mtvec/mscratch/mepc/mcause/mtval/mip + mcycle/minstret 及只读标识寄存器（18个有效地址） |
 | 异常 | 非法指令、ECALL、EBREAK、地址未对齐 |
 | 中断 | MEIP(外部,PLIC)/MTIP(Timer,CLINT直连)/MSIP(软件,未实现)，电平触发 |
 | 系统时钟 | 100 MHz |
@@ -76,14 +76,14 @@ SimpleCPU 是一个基于 RISC-V RV32IM 指令集的**多周期处理器**实现
                         │  │  ┌────────────────────┴────────────────┐  │
                         │  │  │          apb_perips                 │  │
                         │  │  │  ┌────┐┌─────┐┌────┐┌─────┐      │  │
-                        │  │  │  │GPIO││Timer││UART││ SPI  │      │  │
+                        │  │  │  │GPIO││Timer││UART││ SPI │      │  │
                         │  │  │  └────┘└──┬──┘└────┘└─────┘      │  │
                         │  │  │           │irq                      │  │
                         │  │  │           └──→ plic.src_irq[1]     │  │
                         │  │  └────────────────────────────────────┘  │
                         │  │                                           │
                         │  │  ┌─────────────────┐                      │
-                        │  │  │ lcd_module (DCP) │                      │
+                        │  │  │ lcd_module (DCP)│                      │
                         │  │  └─────────────────┘                      │
                         │  └───────────────────────────────────────────┘
 ```
@@ -192,7 +192,7 @@ IDLE → FETCH → DECODE → ┬→ EXEC → MEM → WB → FETCH (循环)
 **设计要点**：
 
 - 参数化深度 `DEPTH=4096`，12位索引 → 4KB 直接映射
-- MMIO 旁路：`is_mmio = cpu_req_addr[31]`，地址 bit31=1 时绕过 Cache 直连总线
+- MMIO 旁路：`is_mmio = ~cpu_req_addr[31]`，地址 bit31=0 时绕过 Cache 直连总线（访问外设区）
 - Cache 命中：组合逻辑读 BRAM IP，下一周期 `icache_valid_r=1` 返回数据
 - MMIO 访问：透传 `mmio_data`/`mmio_valid` 信号
 - 输出 MUX：`cpu_req_data = is_mmio ? mmio_data : icache_dout`
@@ -238,7 +238,7 @@ IDLE → FETCH → DECODE → ┬→ EXEC → MEM → WB → FETCH (循环)
 - ALU 控制码生成（16位，区分 ADD/SUB/SLT/SLTU/XOR/OR/AND/SLL/SRL/SRA/LUI）
 - M 扩展操作识别（MUL/MULH/MULHSU/MULHU/DIV/DIVU/REM/REMU）
 - 分支类型与访存大小识别
-- CSR 地址有效性检查（8个实现的CSR）
+- CSR 地址有效性检查（18个有效地址：含计数器高低位与只读标识寄存器）
 
 **非法指令判定**：`id_valid && !valid_inst`，其中 `valid_inst` 覆盖所有已实现指令。
 
@@ -355,20 +355,31 @@ IDLE → FETCH → DECODE → ┬→ EXEC → MEM → WB → FETCH (循环)
 | 地址 | 名称 | 读写 | 说明 |
 |------|------|------|------|
 | 0x300 | mstatus | MRW | MIE[3], MPIE[7], MPP[12:11] |
+| 0x301 | misa | R | 固定为 0x40001100 |
 | 0x304 | mie | MRW | MSIE[3], MTIE[7], MEIE[11] |
 | 0x305 | mtvec | MRW | trap 向量基址 |
+| 0x310 | mstatush | R | 固定为 0 |
 | 0x340 | mscratch | MRW | 暂存寄存器 |
 | 0x341 | mepc | MRW | 异常 PC |
 | 0x342 | mcause | MRW | 异常原因 |
 | 0x343 | mtval | MRW | 异常附加值 |
 | 0x344 | mip | MR | MEIP[11], MTIP[7], MSIP[3] 由硬件驱动 |
+| 0xB00 | mcycle | MRW | 64 位周期计数器低 32 位 |
+| 0xB02 | minstret | MRW | 64 位提交计数器低 32 位 |
+| 0xB80 | mcycleh | MRW | 64 位周期计数器高 32 位 |
+| 0xB82 | minstreth | MRW | 64 位提交计数器高 32 位 |
+| 0xF11 | mvendorid | R | 固定为 0 |
+| 0xF12 | marchid | R | 固定为 0 |
+| 0xF13 | mimpid | R | 固定为 0 |
+| 0xF14 | mhartid | R | 固定为 0 |
+| 0xF15 | mconfigptr | R | 固定为 0 |
 
 **双写端口**：
 
 - 软件写（`sw_csr_wen`）：CSR 指令触发
 - 硬件写（`hw_csr_wen`）：trap 进入/返回时自动更新 mepc/mcause/mtval/mstatus
 
-**mip 硬件驱动**：`w_mip_hw = {20'b0, ext_meip, 3'b0, ext_mtip, 3'b0, ext_msip, 3'b0}`，MEIP=bit11, MTIP=bit7, MSIP=bit3。
+**计数器与硬件驱动**：`mcycle` 在 `cycle_en` 有效时自增，`minstret` 在 `inst_retire` 有效时自增，均支持低/高 32 位读写；`mip` 由 `w_mip_hw = {20'b0, ext_meip, 3'b0, ext_mtip, 3'b0, ext_msip, 3'b0}` 直接驱动，MEIP=bit11, MTIP=bit7, MSIP=bit3。
 
 ### 3.15 cpu_clint — 异常/中断控制逻辑
 
@@ -506,8 +517,8 @@ cpu_bus_bridge (AHB Master, direct drive)
     │  │ (ahb_clint)     │──o_mtip──→ MTIP   │
     │  └─────────────────┘                   │
     │  ┌─────────────────┐                   │
-    │  │ Slave 3: APB   │  HADDR[31]=1       0x8000_0000  │
-    │  │ (ahb_lite_to_apb)│                  │
+    │  │ Slave 3: APB    │  HADDR[31:24]=0x10  0x1000_0000  │
+    │  │(ahb_lite_to_apb)│                   │
     │  └─────────────────┘                   │
     └────────────────────────────────────────┘
 ```
@@ -519,7 +530,7 @@ cpu_bus_bridge (AHB Master, direct drive)
 | SRAM | `HADDR[31:24] == 8'h00` | `0x0000_0000 - 0x00FF_FFFF` | 16 MB |
 | PLIC | `HADDR[31:24] == 8'h0C` | `0x0C00_0000 - 0x0CFF_FFFF` | 16 MB |
 | CLINT | `HADDR[31:24] == 8'h02` | `0x0200_0000 - 0x02FF_FFFF` | 16 MB |
-| APB Bridge | `HADDR[31] == 1'b1` | `0x8000_0000 - 0xFFFF_FFFF` | 2 GB |
+| APB Bridge | `HADDR[31:24] == 8'h10` | `0x1000_0000 - 0x10FF_FFFF` | 16 MB |
 
 **CLINT 内部寄存器偏移**（基址 `0x0200_0000`）：
 
@@ -736,8 +747,8 @@ ICache/DCache 控制器通过地址最高位判断访问类型：
 
 | 地址范围 | is_mmio | 路径 | 说明 |
 |----------|---------|------|------|
-| 0x00000000-0x7FFFFFFF | 0 | BRAM IP | Cache 本地 SRAM，零延迟读 |
-| 0x80000000-0xFFFFFFFF | 1 | 总线 MMIO | 透传到 AHB-Lite 总线 |
+| 0x00000000-0x7FFFFFFF | 1 | 总线 MMIO | 透传到 AHB-Lite 总线（访问外设/CLINT/PLIC等） |
+| 0x80000000-0xFFFFFFFF | 0 | BRAM IP | Cache 本地 SRAM (DRAM映射区)，零延迟读 |
 
 ICache MMIO 时 `mmio_req=cpu_req_valid`，DCache MMIO 时透传 `cpu_req_wen`/`cpu_req_wdata`/`cpu_req_hwrite`/`cpu_req_hsize`。
 
@@ -865,7 +876,7 @@ system_top
 │   ├── ahb_sram_slave   # SRAM (Sram IP, 1MB)        0x0000_0000
 │   ├── ahb_plic         # PLIC (8源外部中断控制器)    0x0C00_0000
 │   ├── ahb_clint        # CLINT (mtime/mtimecmp)      0x0200_0000
-│   └── ahb_lite_to_apb  # → APB (GPIO/Timer/UART/SPI) 0x8000_0000
+│   └── ahb_lite_to_apb  # → APB (GPIO/Timer/UART/SPI) 0x1000_0000
 └── lcd_module           # LCD 触摸屏显示（.dcp 预编译）
 ```
 
@@ -911,7 +922,7 @@ system_top
 | 存储器 | 内部 BRAM 数组 + $readmemh | Sram BRAM IP (Xilinx) |
 | 外设 | 内部 Timer 逻辑 | APB 总线挂载 GPIO/Timer/UART/SPI |
 | Cache | 行为模型 (icache.v/dcache.v) | BRAM IP + 控制器 (icache_ctrl/dcache_ctrl) |
-| 地址空间 | 0x1001xxxx 手动过滤 | bit31 译码：0=SRAM, 1=MMIO |
+| 地址空间 | 0x1001xxxx 手动过滤 | bit31 译码：1=MMIO, 0=Cache (DRAM区) |
 | CPU 桥接 | 直连 mock | cpu_bus_bridge (CPU→AHB direct) |
 | init_sig | 100周期高电平冻结 | 硬连线 1'b0（总线始终就绪） |
 | 扩展性 | 不可综合，仅仿真 | 可综合，支持 FPGA 部署 |
@@ -976,6 +987,18 @@ system_top
 | Timer IRQ 电平触发 | 原为单周期脉冲 | 改为持续高直到软件 ack |
 | Store 误写寄存器 | MEM_WRITE 状态遗漏清除 wb_we_reg | 增加 wb_we_reg<=0; wb_data_reg<=0 |
 | MRET 误判为非法指令 | inst_mret 匹配模式仅20位有效 | 扩展为完整25位匹配 |
+
+### 11.8 QEMU virt 内存映射迁移
+
+为了更好地兼容标准软件生态（如 QEMU virt 机器模型），对全局地址映射进行了重构：
+
+| 方面 | 说明 |
+|------|------|
+| **地址映射** | DRAM (2GB) 位于 `0x80000000 - 0xFFFFFFFF`，外设（UART/Timer/GPIO/SPI 等）位于 `0x10000000 - 0x10FFFFFF`，CLINT 位于 `0x02000000`，PLIC 位于 `0x0C000000` |
+| **PC 复位向量** | 由 `0x00000000` 修改为 `0x80000000`（DRAM 基址） |
+| **MMIO 旁路逻辑** | `is_mmio` 判断条件由 `addr[31]` 取反变为 `~addr[31]`。即 `bit31=1` 时访问 Cache (DRAM)，`bit31=0` 时绕过 Cache 访问总线外设 |
+| **AHB 译码调整** | APB Bridge 从设备选择信号从 `HADDR[31]` 变更为 `HADDR[31:24]==8'h10` |
+| **链接脚本** | `link.ld` 的 Base address 从 `0x0` 修改为 `0x80000000` |
 
 ---
 

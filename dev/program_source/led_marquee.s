@@ -1,5 +1,5 @@
-.equ GPIO_BASE, 0x80000000
-.equ TIMER_BASE, 0x80004000
+.equ GPIO_BASE, 0x10000000
+.equ TIMER_BASE, 0x10004000
 .equ TIMER_PERIOD, 100000000
 
 .section .text
@@ -19,7 +19,7 @@ _start:
     csrw mstatus, t0
 
     # Initialize GPIO direction (all output)
-    lui x10, 0x80000
+    lui x10, 0x10000
     li x11, 0xFFFF
     sw x11, 0(x10)
 
@@ -30,7 +30,7 @@ _start:
     sw x13, 4(x10)
 
     # Setup Timer
-    lui x15, 0x80004
+    lui x15, 0x10004
     li x16, TIMER_PERIOD
     sw x16, 0(x15)  # expr_val = TIMER_PERIOD
     li x16, 3
@@ -49,7 +49,7 @@ isr:
     sw x14, 8(sp)
 
     # Clear Timer IRQ
-    lui x15, 0x80004
+    lui x15, 0x10004
     sw x0, 8(x15)
 
     # Update LED state
@@ -58,7 +58,7 @@ isr:
     bne x12, x11, skip_reset
     li x12, 0
 skip_reset:
-    lui x10, 0x80000
+    lui x10, 0x10000
     li x11, 1
     sll x13, x11, x12
     xori x13, x13, -1

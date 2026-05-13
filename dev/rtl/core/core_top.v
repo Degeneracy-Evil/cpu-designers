@@ -146,7 +146,7 @@ module core_top(
 
     always @(posedge clk or posedge reset) begin
         if (reset) begin
-            pc <= 32'b0;
+            pc <= 32'h80000000;
             if_id_bus_r <= 96'b0;
             id_exe_bus_r <= 320'b0;
             exe_mem_bus_r <= 207'b0;

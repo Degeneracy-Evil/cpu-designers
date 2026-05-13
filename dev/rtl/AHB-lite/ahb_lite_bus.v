@@ -52,7 +52,7 @@ module ahb_lite_bus #(
     assign slave_HSELx[0] = (HADDR[31:24] == 8'h00);
     assign slave_HSELx[1] = (HADDR[31:24] == 8'h0C);
     assign slave_HSELx[2] = (HADDR[31:24] == 8'h02);
-    assign slave_HSELx[3] = HADDR[31];
+    assign slave_HSELx[3] = (HADDR[31:24] == 8'h10);
 
     ahb_mux #(
         .DATA_WIDTH (DATA_WIDTH),

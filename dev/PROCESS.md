@@ -38,3 +38,42 @@
 - `tb_simple_cpu_trap.v`: 14/14 PASS
 - `system_top.v`: Compile OK
 - All other testbenches: Compile OK
+
+## 2026-05-13 — P2: QEMU virt Memory Map Migration
+
+### Address Map Change
+
+| Range (QEMU virt) | Device | Implementation |
+|-------------------|--------|----------------|
+| `0x00001000 - 0x00001FFF` | Boot ROM | Reserved (not implemented) |
+| `0x02000000 - 0x02FFFFFF` | CLINT | `ahb_clint` AHB slave |
+| `0x0C000000 - 0x0CFFFFFF` | PLIC | `ahb_plic` AHB slave |
+| `0x10000000 - 0x10FFFFFF` | UART+Peripherals (APB) | AHB-to-APB bridge |
+| `0x80000000 - 0xFFFFFFFF` | DRAM (2GB) | Cache (ICache/DCache BRAMs) |
+
+### Key Design Decisions
+
+- **Cache/MMIO bypass inversion**: `is_mmio = ~addr[31]`. DRAM (bit31=1) uses Cache; peripherals (bit31=0) use AHB bus. This is the inverse of the previous mapping.
+- **CPU reset vector**: Changed from `0x00000000` to `0x80000000` (DRAM base). Programs are linked at `0x80000000` but loaded into BRAM at offset 0 — the Cache BRAM uses low-order address bits for indexing, so absolute address is transparent.
+- **AHB address decode**: Updated from `HSELx[3]=HADDR[31]` (APB at 0x80000000+) to `HSELx[3]=HADDR[31:24]==8'h10` (APB at 0x10000000+), matching QEMU virt UART0/MMIO window.
+- **Peripheral addresses**: GPIO at 0x10000000, Timer at 0x10004000, UART at 0x10008000, SPI at 0x1000C000 (APB decoder uses PADDR[15:14] for peripheral selection within the 0x10000000 range).
+- **Test data I/O**: Stores to addresses < 0x80000000 go to AHB SRAM (MMIO path). Testbench `check_mem_word` reads from AHB SRAM instead of DCache BRAM, matching the MMIO write path.
+
+### Modules Modified
+
+| Module | Changes |
+|--------|---------|
+| `icache_ctrl.v` | `is_mmio = cpu_req_addr[31]` → `is_mmio = ~cpu_req_addr[31]` |
+| `dcache_ctrl.v` | Same inversion as above |
+| `ahb_lite_bus.v` | APB slave select: `HSELx[3]=HADDR[31]` → `HSELx[3]=HADDR[31:24]==8'h10` |
+| `core_top.v` | PC reset: `32'b0` → `32'h80000000` |
+| `link.ld` | Base address: `. = 0x0` → `. = 0x80000000` |
+| Test programs (5 files) | TIMER_BASE/GPIO_BASE/UART_BASE updated to 0x1000XXXX range; hardcoded `lui` constants updated |
+| Testbenches (3 files) | `check_mem_word` reads from AHB SRAM; x10/x20/x31 expected values updated |
+
+### Verification
+
+- `tb_simple_cpu_top.v`: 42/42 PASS
+- `tb_simple_cpu_compute.v`: 42/42 PASS
+- `tb_simple_cpu_trap.v`: 14/14 PASS
+- `system_top.v`: Compile OK

@@ -140,12 +140,12 @@ module tb_simple_cpu_trap;
         input [31:0] expected;
         begin
 `ifndef XILINX_SIMULATOR
-            if (dut.u_dcache_wrap.u_dcache.mem[addr[13:2]] === expected) begin
+            if (u_bus.u_ahb_sram_slave.u_bram.mem[addr[19:2]] === expected) begin
                 pass_count = pass_count + 1;
-                $display("PASS mem[0x%08h] = 0x%08h", addr, dut.u_dcache_wrap.u_dcache.mem[addr[13:2]]);
+                $display("PASS mem[0x%08h] = 0x%08h", addr, u_bus.u_ahb_sram_slave.u_bram.mem[addr[19:2]]);
             end else begin
                 fail_count = fail_count + 1;
-                $display("FAIL mem[0x%08h] expected=0x%08h got=0x%08h", addr, expected, dut.u_dcache_wrap.u_dcache.mem[addr[13:2]]);
+                $display("FAIL mem[0x%08h] expected=0x%08h got=0x%08h", addr, expected, u_bus.u_ahb_sram_slave.u_bram.mem[addr[19:2]]);
             end
 `else
             $display("SKIP mem check in Vivado");
@@ -170,7 +170,7 @@ module tb_simple_cpu_trap;
         check_reg(5'd3,  32'h00000000);
         check_reg(5'd4,  32'h00000000);
         check_reg(5'd19, 32'h80000007);
-        check_reg(5'd20, 32'h0000003c);
+        check_reg(5'd20, 32'h8000003c);
         check_reg(5'd21, 32'h00000003);
         check_reg(5'd23, 32'h00000001);
         check_reg(5'd24, 32'h00000001);

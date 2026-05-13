@@ -74,7 +74,33 @@ dev/
    - 编写 PLIC 与 CLINT (mtime) 模块级 Testbench。
    - 更新系统级集成测试：验证 MMIO 读写配置 PLIC/CLINT，验证外设通过硬件线触发 PLIC 到 CPU 的外部中断，验证 mtime 到 MTIP 的中断触发，以及 MRET 退出流程。
 
-### P2 — 远期
+### P2 — QEMU virt 内存映射迁移
+
+**目标**: 将系统物理内存映射、启动加载假设和测试程序组织方式切换到 QEMU RISC-V virt 机器的布局，统一文档、程序生成脚本和仿真入口的地址基准。
+
+**详细计划**:
+
+1. **更新目标内存映射**
+   - 以 QEMU virt 物理内存映射为准，重写系统地址表、MMIO 约定和启动位置说明。
+   - 对当前尚未支持的功能保留地址栏为空，避免在计划与实现之间制造虚假的地址绑定。
+
+2. **同步文档与设计说明**
+   - 更新 `dev/docs/simpleCPU-design-report.md`，统一描述新的 ROM/CLINT/PLIC/UART/DRAM 布局。
+   - 必要时补充 `dev/docs/core/` 与 `dev/docs/` 下与地址、启动流程、异常入口相关的说明。
+
+3. **同步测试程序与镜像生成**
+   - 更新 `dev/program_source/` 下的启动代码、链接脚本和测试样例，使其匹配 virt 机器的装载地址。
+   - 使用工具重新生成所有程序的 `.coe` / `.hex` 文件。
+
+4. **评估工具链影响**
+   - 如地址映射变化影响镜像格式或起始偏移，更新 `tools/rv2coe.py`。
+   - 同步更新 `tools/README-rv2coe.md` 与 `tools/program_source_usage.md` 中的使用说明。
+
+5. **补齐联调验证**
+   - 调整仿真与集成测试的内存起点、异常向量和外设访问地址。
+   - 确认新映射下的启动程序、外设访问和中断入口仍可回归验证。
+
+### P3 — 远期
 
 - [ ] **MMU 实现**: 当前 paddr=vaddr 直通，接口已预留，可扩展为简单 SV32 页表
 - [ ] **中断优先级完善**: 当前 MEIP > MSIP，需补充完整优先级 MSIP > MTIP > MEIP
@@ -96,33 +122,38 @@ dev/
 
 ## 地址映射
 
-| 地址范围 | 总线 | 从设备 |
-|----------|------|--------|
-| 0x00000000 - 0x7FFFFFFF | AHB-Lite | SRAM (1MB BRAM) |
-| 0x80000000 - 0x8000FFFF | APB | GPIO (16-bit) |
-| 0x80004000 - 0x80007FFF | APB | Timer (+IRQ) |
-| 0x80008000 - 0x8000BFFF | APB | UART (RX+TX) |
-| 0x8000C000 - 0x8000FFFF | APB | SPI |
+### 目标：QEMU RISC-V virt 物理内存映射
 
-> bit31=0 访问本地 BRAM Cache，bit31=1 绕过 Cache 直接到 AHB-Lite 总线 (MMIO)
+| 地址范围 | 大小 | 设备/区域 | 说明 |
+|----------|------|----------|------|
+| 0x0000_1000 - 0x0000_1FFF | 4 KB | Boot ROM | QEMU 提供的启动 ROM，上电后从 0x1000 开始执行 |
+| 0x0200_0000 - 0x0200_FFFF | 64 KB | CLINT | Core-Local Interruptor，提供 Timer 和 Software 中断 |
+| 0x0C00_0000 - 0x0C2F_FFFF | ~3 MB | PLIC | Platform-Level Interrupt Controller，管理外部全局中断 |
+| 0x1000_0000 - 0x1000_00FF | 256 B | UART0 | 串口 0 寄存器（NS16550 兼容） |
+| 0x1000_1000 - 0x1000_1FFF | 4 KB | VIRTIO0 | VirtIO-MMIO 磁盘/网络等 |
+| 0x3000_0000 - 0x3FFF_FFFF | 256 MB | PCIe ECAM/IO | PCI Express 配置空间（如启用） |
+| 0x4000_0000 - 0x7FFF_FFFF | 1 GB | 保留/PCI MEM | PCI 内存映射区域 |
+| 0x8000_0000 - 0xFFFF_FFFF | 2 GB | DRAM (RAM) | 主内存，内核通常加载在 0x8000_0000 |
+
+> 当前未支持的功能在实现清单中保留地址栏为空，避免把临时占位地址固化为架构约束。
 
 ## 参考资料
 
-| 资料名称           | 内容简介                       | 路径                                      |
-|--------------------|-------------------------------|-------------------------------------------|
-| AHB-Lite 规范      | AMBA AHB-Lite 总线协议         | dev/docs/AHB-lite/AMBA_AHB-Lite_Spec_Summary.md |
-| APB 规范           | AMBA APB 总线协议              | dev/docs/APB/AMBA_APB_Spec_Summary.md     |
-| RISC-V 特权架构(M)    | RISC-V M特权级架构说明          | dev/docs/core/riscv-m-privilege-spec.typ  |
-| RISC-V PLIC        | RISC-V 平台级中断控制器        | dev/docs/core/riscv-plic.md               |
-| RISC-V 高级中断     | RISC-V 高级异常/中断机制       | dev/docs/core/exception-interrupt.md      |
-| RISC-V 指令集      | 指令集定义/支持情况            | dev/docs/core/instruction-set.md          |
-| RISC-V IOMMU       | RISC-V IOMMU 相关说明          | dev/docs/core/riscv-iommu.md              |
-| RISC-V PLIC 参考   | PLIC 参考实现/寄存器           | dev/docs/core/riscv-plic-ref.md           |
-| RISC-V M 扩展      | 乘除法扩展说明                 | dev/docs/core/rv32-m.md                   |
-| ALU 接口           | ALU 接口定义                   | dev/docs/alu/ALU_INTERFACE.md             |
-| MU 接口            | 乘除法单元接口                 | dev/docs/alu/MU_INTERFACE.md              |
-| 设计报告           | 系统设计报告                    | dev/docs/simpleCPU-design-report.md        |
-| 其它文档           | 其它相关设计/实现文档            | dev/docs/                                  |
+| 资料名称           | 内容简介                       | 文件大小 | 路径                                      |
+|--------------------|-------------------------------|--------|-------------------------------------------|
+| AHB-Lite 规范      | AMBA AHB-Lite 总线协议         | 13,844 B | dev/docs/AHB-lite/AMBA_AHB-Lite_Spec_Summary.md |
+| APB 规范           | AMBA APB 总线协议              | 11,522 B | dev/docs/APB/AMBA_APB_Spec_Summary.md     |
+| RISC-V 特权架构(M)    | RISC-V M特权级架构说明          | 18,143 B | dev/docs/core/riscv-m-privilege-spec.typ  |
+| RISC-V PLIC        | RISC-V 平台级中断控制器        | 27,271 B | dev/docs/core/riscv-plic.md               |
+| RISC-V 高级中断     | RISC-V 高级异常/中断机制       | 3,103 B | dev/docs/core/exception-interrupt.md      |
+| RISC-V 指令集      | 指令集定义/支持情况            | 17,811 B | dev/docs/core/instruction-set.md          |
+| RISC-V IOMMU       | RISC-V IOMMU 相关说明          | 263,356 B | dev/docs/core/riscv-iommu.md              |
+| RISC-V PLIC 参考   | PLIC 参考实现/寄存器           | 9,255 B | dev/docs/core/riscv-plic-ref.md           |
+| RISC-V M 扩展      | 乘除法扩展说明                 | 4,126 B | dev/docs/core/rv32-m.md                   |
+| ALU 接口           | ALU 接口定义                   | 1,372 B | dev/docs/alu/ALU_INTERFACE.md             |
+| MU 接口            | 乘除法单元接口                 | 7,040 B | dev/docs/alu/MU_INTERFACE.md              |
+| 设计报告           | 系统设计报告                    | 56,904 B | dev/docs/simpleCPU-design-report.md        |
+| 其它文档           | 其它相关设计/实现文档            | 目录 | dev/docs/                                  |
 
 ## 工具链
 

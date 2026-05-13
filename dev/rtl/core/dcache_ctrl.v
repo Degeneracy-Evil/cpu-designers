@@ -24,7 +24,7 @@ module dcache_ctrl #(
     input  wire        mmio_valid
 );
 
-    wire is_mmio = cpu_req_addr[31];
+    wire is_mmio = ~cpu_req_addr[31];
 
     wire [31:0] dcache_dout;
     reg dcache_valid_r;

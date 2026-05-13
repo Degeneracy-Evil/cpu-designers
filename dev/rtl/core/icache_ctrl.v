@@ -19,7 +19,7 @@ module icache_ctrl #(
     input  wire        mmio_valid
 );
 
-    wire is_mmio = cpu_req_addr[31];
+    wire is_mmio = ~cpu_req_addr[31];
     
     // Cache internal logic
     wire [31:0] icache_dout;

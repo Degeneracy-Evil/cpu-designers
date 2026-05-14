@@ -184,7 +184,7 @@ module tb_simple_cpu_top;
         check_reg(5'd17, 32'h00000007);
         check_reg(5'd18, 32'h00000006);
         check_reg(5'd19, 32'h00000002);
-        check_reg(5'd20, 32'h00000220);
+        check_reg(5'd20, 32'h80000220);
         check_reg(5'd21, 32'h00000003);
         check_reg(5'd22, 32'h00000050);
         check_reg(5'd23, 32'h00000000);

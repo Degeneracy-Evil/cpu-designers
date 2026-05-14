@@ -56,7 +56,7 @@ bgeu_skip:
     jal   x31, jal_skip
     addi  x1, x0, 99
 jal_skip:
-    addi  x5, x0, 0xC8
+    addi  x5, x22, 116
     jalr  x4, x5, 0
     addi  x2, x0, 88
     addi  x2, x0, 99

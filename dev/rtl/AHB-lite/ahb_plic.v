@@ -43,6 +43,39 @@ module ahb_plic #(
 
     integer ii;
 
+    // 修复：将 r_prio 作为参数传入 function，避免组合逻辑直接读取时序寄存器
+    function [7:0] find_highest;
+        input [31:0] pend, enbl, thresh;
+        input [31:0] prio_arr [0:NUM_SRC-1]; // 新增参数
+        reg   [31:0] pmat [1:NUM_SRC-1];
+        reg   [31:0] best;
+        reg   [7:0]  id;
+        integer      j;
+        begin
+            best = 32'd0;
+            id   = 8'd0;
+            for (j = 1; j < NUM_SRC; j = j + 1) begin
+                pmat[j] = 32'd0;
+                if (pend[j] && enbl[j])
+                    pmat[j] = prio_arr[j]; // 使用传入的参数
+            end
+            for (j = NUM_SRC-1; j >= 1; j = j - 1) begin
+                if (pmat[j] > thresh && pmat[j] > best) begin
+                    best = pmat[j];
+                    id   = j;
+                end
+            end
+            find_highest = id;
+        end
+    endfunction
+
+    // 调用 function 时传入 r_prio
+    wire [7:0] highest_id = find_highest(r_pending, r_enable, r_threshold, r_prio);
+    wire       any_pending = (highest_id != 8'd0);
+    
+    assign o_eip = any_pending;
+
+    // 修复：合并两个 always 块，彻底解决 multi-driven 报错
     always @(posedge HCLK or negedge HRESETn) begin
         if (!HRESETn) begin
             r_pending    <= 32'd0;
@@ -55,11 +88,18 @@ module ahb_plic #(
             for (ii = 0; ii < NUM_SRC; ii = ii + 1)
                 r_prio[ii] <= 32'd0;
         end else begin
+            // 1. 处理 pending 和 gateway enable 逻辑
             for (ii = 1; ii < NUM_SRC; ii = ii + 1) begin
                 if (r_gw_en[ii] && src_irq[ii])
                     r_pending[ii] <= 1'b1;
             end
 
+            for (ii = 1; ii < NUM_SRC; ii = ii + 1) begin
+                if (!src_irq[ii])
+                    r_gw_en[ii] <= 1'b1;
+            end
+
+            // 2. 处理 AHB 写操作
             if (wr_valid && addr_is_prio && (HADDR[7:2] < NUM_SRC))
                 r_prio[HADDR[7:2]] <= HWDATA;
 
@@ -75,55 +115,14 @@ module ahb_plic #(
                     r_gw_en[HWDATA] <= 1'b1;
             end
 
+            // 3. 处理 AHB 读 Claim 时的清除逻辑
             if (rd_valid && addr_is_claim && r_claim_valid) begin
                 r_pending[r_claim_id] <= 1'b0;
                 r_gw_en[r_claim_id] <= 1'b0;
                 r_claim_valid <= 1'b0;
             end
 
-            for (ii = 1; ii < NUM_SRC; ii = ii + 1) begin
-                if (!src_irq[ii])
-                    r_gw_en[ii] <= 1'b1;
-            end
-        end
-    end
-
-    wire [7:0] highest_id;
-    wire       any_pending;
-
-    function [7:0] find_highest;
-        input [31:0] pend, enbl, thresh;
-        reg   [31:0] pmat [1:NUM_SRC-1];
-        reg   [31:0] best;
-        reg   [7:0]  id;
-        integer      j;
-        begin
-            best = 32'd0;
-            id   = 8'd0;
-            for (j = 1; j < NUM_SRC; j = j + 1) begin
-                pmat[j] = 32'd0;
-                if (pend[j] && enbl[j])
-                    pmat[j] = r_prio[j];
-            end
-            for (j = NUM_SRC-1; j >= 1; j = j - 1) begin
-                if (pmat[j] > thresh && pmat[j] > best) begin
-                    best = pmat[j];
-                    id   = j;
-                end
-            end
-            find_highest = id;
-        end
-    endfunction
-
-    assign any_pending = (find_highest(r_pending, r_enable, r_threshold) != 8'd0);
-    assign highest_id  = find_highest(r_pending, r_enable, r_threshold);
-    assign o_eip = any_pending;
-
-    always @(posedge HCLK or negedge HRESETn) begin
-        if (!HRESETn) begin
-            r_claim_valid <= 1'b0;
-            r_claim_id    <= 8'd0;
-        end else begin
+            // 4. 处理 Claim 寄存器的赋值逻辑（原第二个 always 块的内容）
             if (rd_valid && addr_is_claim && !r_claim_valid) begin
                 r_claim_id    <= highest_id;
                 r_claim_valid <= any_pending;

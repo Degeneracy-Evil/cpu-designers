@@ -92,9 +92,11 @@ module tb_uart_hello;
     );
 
     initial begin
+`ifndef XILINX_SIMULATOR
         $readmemh("dev/program_source/uart_hello.hex", u_bus.u_ahb_sram_slave.u_bram.mem);
         $readmemh("dev/program_source/uart_hello.hex", dut.u_icache_wrap.u_icache.mem);
         $readmemh("dev/program_source/uart_hello.hex", dut.u_dcache_wrap.u_dcache.mem);
+`endif
     end
 
     initial begin

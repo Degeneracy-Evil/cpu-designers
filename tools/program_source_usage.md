@@ -139,7 +139,7 @@ python3 tools/rv2coe.py \
 
 ### COE 与 testbench 的对应关系
 
-`vivado_sim.tcl` 中 `tb_coe_map` 字典定义了每个 testbench 使用的 COE 文件：
+`vivado_do.tcl` 中 `tb_coe_map` 字典定义了每个 testbench 使用的 COE 文件：
 
 ```tcl
 set tb_coe_map {

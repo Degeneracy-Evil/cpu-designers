@@ -159,7 +159,7 @@ dev/
 |------|------|------|
 | mk.py | `tools/mk.py` | iverilog 编译 + vvp 仿真，自动依赖解析 |
 | rv2coe.py | `tools/rv2coe.py` | RISC-V 源码编译为 COE/HEX/BIN |
-| vivado_sim.tcl | `vivado_sim.tcl` | Vivado 仿真自动化 (创建工程/添加源/配置IP/启动仿真) |
+| vivado_do.tcl | `vivado_do.tcl` | Vivado 仿真自动化 (创建工程/添加源/配置IP/启动仿真) |
 | tcl-tunnel | `tools/tcl-tunnel/` | 远程 Vivado TCL 执行 (HTTP 服务) |
 | Makefile | `dev/program_source/Makefile` | 测试程序编译 (.s → .hex) |
 

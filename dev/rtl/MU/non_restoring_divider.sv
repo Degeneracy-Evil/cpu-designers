@@ -29,8 +29,6 @@ module non_restoring_divider(
   reg div_overflow_case;
   reg [31:0] dividend_reg;
   reg [31:0] divisor_reg;
-  reg is_unsigned_reg;
-
   wire [31:0] abs_dividend_comb;
   wire [31:0] abs_divisor_comb;
   wire [31:0] neg_dividend;
@@ -157,7 +155,6 @@ module non_restoring_divider(
       div_overflow_case <= 1'b0;
       dividend_reg <= 32'b0;
       divisor_reg <= 32'b0;
-      is_unsigned_reg <= 1'b0;
     end
     else
     begin
@@ -168,7 +165,6 @@ module non_restoring_divider(
           begin
             dividend_reg <= dividend;
             divisor_reg <= divisor;
-            is_unsigned_reg <= is_unsigned;
             sign_dividend <= is_unsigned ? 1'b0 : dividend[31];
             sign_divisor <= is_unsigned ? 1'b0 : divisor[31];
 
@@ -250,9 +246,6 @@ module non_restoring_divider(
         begin
           state <= IDLE;
         end
-
-        default:
-          state <= IDLE;
       endcase
     end
   end

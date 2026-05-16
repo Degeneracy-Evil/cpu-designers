@@ -4,11 +4,11 @@
 >
 > ```tcl
 > vivado.bat -mode tcl
-> source vivado_sim.tcl
-> vivado_sim -tb <testbench_name>
+> source vivado_do.tcl -notrace
+> vivado_do -tb <testbench_name>
 > ```
 >
-> 详见 `vivado_sim.tcl` 头部注释。
+> 详见 `vivado_do.tcl` 头部注释。
 
 ---
 

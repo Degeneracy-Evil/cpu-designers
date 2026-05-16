@@ -37,6 +37,8 @@ module dcache_ctrl #(
         end
     end
 
+    wire bram_ena_comb = cpu_req_valid && !is_mmio;
+
     wire [3:0] bram_wea;
     assign bram_wea = (!cpu_req_hwrite) ? 4'b0000 :
                       (cpu_req_hsize == `AHB_SIZE_BYTE) ?
@@ -48,12 +50,24 @@ module dcache_ctrl #(
                           (cpu_req_addr[1]) ? 4'b1100 : 4'b0011 :
                       4'b1111;
 
+    reg        bram_ena_r;
+    reg [3:0]  bram_wea_r;
+    reg [11:0] bram_addra_r;
+    reg [31:0] bram_dina_r;
+
+    always @(posedge clk) begin
+        bram_ena_r    <= bram_ena_comb;
+        bram_wea_r    <= bram_ena_comb ? bram_wea : 4'b0;
+        bram_addra_r  <= cpu_req_addr[13:2];
+        bram_dina_r   <= cpu_req_wdata;
+    end
+
     dcache u_dcache (
         .clka(clk),
-        .ena(cpu_req_valid && !is_mmio),
-        .wea(bram_wea),
-        .addra(cpu_req_addr[13:2]),
-        .dina(cpu_req_wdata),
+        .ena(bram_ena_r),
+        .wea(bram_wea_r),
+        .addra(bram_addra_r),
+        .dina(bram_dina_r),
         .douta(dcache_dout),
 
         .clkb(1'b0),

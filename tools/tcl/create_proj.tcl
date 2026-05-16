@@ -1,7 +1,7 @@
 # =============================================================================
 # create_proj.tcl — Step 1-3: 创建工程、添加 RTL 源文件、设置 include 目录
 #
-# 前置变量 (由 vivado_sim.tcl 设置):
+# 前置变量 (由 vivado_do.tcl 设置):
 #   proj_name, device_part, proj_dir, dev_dir,
 #   alu_rtl_dir, mu_rtl_dir, cpu_core_dir, ahb_dir, ahb_ip_dir,
 #   apb_dir, apb_header_dir, apb_perips_dir, sys_rtl_dir

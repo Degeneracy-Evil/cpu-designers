@@ -1134,7 +1134,7 @@ dev/
 |------|------|------|
 | mk.py | 编译与仿真执行 | `tools/mk.py` |
 | rv2coe.py | 汇编/C → HEX/COE/BIN | `tools/rv2coe.py` |
-| vivado_sim.tcl | Vivado 仿真自动化 | `vivado_sim.tcl` |
+| vivado_do.tcl | Vivado 仿真自动化 | `vivado_do.tcl` |
 | Vivado | FPGA 综合/实现/Bitstream | 需独立安装 |
 
 **仿真命令示例**：
@@ -1153,7 +1153,7 @@ python3 tools/rv2coe.py -i dev/program_source/test.S \
 **Vivado 仿真命令示例**：
 
 ```tcl
-source vivado_sim.tcl
+source vivado_do.tcl -notrace
 ```
 
 ---

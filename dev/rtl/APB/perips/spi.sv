@@ -129,6 +129,7 @@ module spi(
                         17: begin
                             o_spiClk <= spi_ctrl[1];
                         end
+                        default: ;
                     endcase
                 end
             end else begin

@@ -40,16 +40,16 @@ git push origin main        # 向main分支进行推送，这会自动的发送�
 vivado.bat -mode tcl
 
 # 加载脚本
-source vivado_sim.tcl
+source vivado_do.tcl -notrace
 
 # 运行仿真 (全流程)
-vivado_sim -tb tb_simple_cpu_top -step all
+vivado_do -tb tb_simple_cpu_top -step all
 
 # 单步执行
-vivado_sim -tb tb_ahb_bus -step create
-vivado_sim -tb tb_ahb_bus -step sim
+vivado_do -tb tb_ahb_bus -step create
+vivado_do -tb tb_ahb_bus -step sim
 
 # 可用参数: -tb <testbench> -step <create|ip|constrs|tb|sim|all> -runtime <time> -clean
 ```
 
-详见 `vivado_sim.tcl` 头部注释。
+详见 `vivado_do.tcl` 头部注释。

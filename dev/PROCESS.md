@@ -55,7 +55,7 @@
 - [x] 拆分 add_constrs.tcl (Step 5: DCP + XDC)
 - [x] 拆分 add_tb.tcl (Step 6: testbench)
 - [x] 拆分 run_sim.tcl (Step 7-8: 仿真 + 日志)
-- [x] 重写 vivado_sim.tcl 为参数化入口
+- [x] 重写 vivado_do.tcl 为参数化入口
 - [x] 支持 -tb / -step / -runtime / -clean 参数
 - [x] 适配 .sv 扩展名 (glob *.sv, system_top.sv, tb_name.sv)
 - [x] target_language/simulator_language 改为 SystemVerilog
@@ -119,3 +119,4 @@
 | 2026-05-16 | Phase 6: RTL 优化 | 15项优化 (含 LUI 功能BUG修复, ALU循环依赖, MU面积优化) |
 | 2026-05-16 | rv2coe.py 编译 | phase1_prog.S → icache_init.coe (4096 words) |
 | 2026-05-16 | Vivado 仿真 tb_simple_cpu_top | 编译通过, pass=20 fail=22 |
+| 2026-05-16 | Vivado log 警告修复 | 7项: 未用寄存器×3, default分支×2, BRAM异步控制, XDC属性, OOC时钟 |

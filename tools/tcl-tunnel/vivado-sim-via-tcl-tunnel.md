@@ -433,7 +433,7 @@ curl -s -X POST ".../execute" -d '{"command":"reset_simulation; launch_simulatio
 
 ### 11.1 项目结构
 
-本次仿真使用 `vivado_sim.tcl` 脚本，项目结构为：
+本次仿真使用 `vivado_do.tcl` 脚本，项目结构为：
 
 ```
 E:/Xprogram/FPGA/tmp/
@@ -448,7 +448,7 @@ E:/Xprogram/FPGA/tmp/
 │       ├── program_source/  — COE/HEX 初始化文件
 │       └── fpga/            — DCP, XDC
 ├── Reference/ips/           — 已生成的 IP (icache.xci, dcache.xci)
-└── vivado_sim.tcl           — 仿真自动化脚本
+└── vivado_do.tcl           — 仿真自动化脚本
 ```
 
 ### 11.2 完整操作流程
@@ -458,10 +458,10 @@ E:/Xprogram/FPGA/tmp/
 SID=$(curl -s -X POST http://127.0.0.1:8000/sessions | python3 -c "import sys,json;print(json.load(sys.stdin)['session_id'])")
 echo "Session: $SID"
 
-# 2. 执行 vivado_sim.tcl（含创建工程、添加源文件、导入IP、启动仿真）
+# 2. 执行 vivado_do.tcl（含创建工程、添加源文件、导入IP、启动仿真）
 curl -s -X POST "http://127.0.0.1:8000/sessions/$SID/execute" \
   -H "Content-Type: application/json" \
-  -d '{"command":"source E:/Xprogram/FPGA/tmp/vivado_sim.tcl","timeout_seconds":600}'
+  -d '{"command":"source E:/Xprogram/FPGA/tmp/vivado_do.tcl","timeout_seconds":600}'
 
 # 3. 继续运行仿真（testbench 需要超过默认 100000ns）
 curl -s -X POST "http://127.0.0.1:8000/sessions/$SID/execute" \

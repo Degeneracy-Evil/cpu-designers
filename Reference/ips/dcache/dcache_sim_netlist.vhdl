@@ -1,11 +1,11 @@
 -- Copyright 1986-2018 Xilinx, Inc. All Rights Reserved.
 -- --------------------------------------------------------------------------------
 -- Tool Version: Vivado v.2018.3 (win64) Build 2405991 Thu Dec  6 23:38:27 MST 2018
--- Date        : Sat May  2 23:02:07 2026
+-- Date        : Sat May 16 19:01:21 2026
 -- Host        : LAPTOP-6T6LFEVF running 64-bit major release  (build 9200)
--- Command     : write_vhdl -force -mode funcsim
---               E:/Xprogram/FPGA/tmpp/tmpp.srcs/sources_1/ip/dcache/dcache_sim_netlist.vhdl
--- Design      : dcache
+-- Command     : write_vhdl -force -mode funcsim -rename_top dcache -prefix
+--               dcache_ icache_sim_netlist.vhdl
+-- Design      : icache
 -- Purpose     : This VHDL netlist is a functional simulation representation of the design and should not be modified or
 --               synthesized. This netlist cannot be used for SDF annotated simulation.
 -- Device      : xc7a200tfbg676-2
@@ -14,7 +14,7 @@ library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
 library UNISIM;
 use UNISIM.VCOMPONENTS.ALL;
-entity dcache_blk_mem_gen_prim_wrapper is
+entity dcache_blk_mem_gen_prim_wrapper_init is
   port (
     douta : out STD_LOGIC_VECTOR ( 7 downto 0 );
     doutb : out STD_LOGIC_VECTOR ( 7 downto 0 );
@@ -29,11 +29,9 @@ entity dcache_blk_mem_gen_prim_wrapper is
     wea : in STD_LOGIC_VECTOR ( 0 to 0 );
     web : in STD_LOGIC_VECTOR ( 0 to 0 )
   );
-  attribute ORIG_REF_NAME : string;
-  attribute ORIG_REF_NAME of dcache_blk_mem_gen_prim_wrapper : entity is "blk_mem_gen_prim_wrapper";
-end dcache_blk_mem_gen_prim_wrapper;
+end dcache_blk_mem_gen_prim_wrapper_init;
 
-architecture STRUCTURE of dcache_blk_mem_gen_prim_wrapper is
+architecture STRUCTURE of dcache_blk_mem_gen_prim_wrapper_init is
   signal \DEVICE_7SERIES.NO_BMM_INFO.TRUE_DP.SIMPLE_PRIM36.ram_n_71\ : STD_LOGIC;
   signal \DEVICE_7SERIES.NO_BMM_INFO.TRUE_DP.SIMPLE_PRIM36.ram_n_75\ : STD_LOGIC;
   signal \NLW_DEVICE_7SERIES.NO_BMM_INFO.TRUE_DP.SIMPLE_PRIM36.ram_CASCADEOUTA_UNCONNECTED\ : STD_LOGIC;
@@ -71,13 +69,13 @@ begin
       INITP_0D => X"0000000000000000000000000000000000000000000000000000000000000000",
       INITP_0E => X"0000000000000000000000000000000000000000000000000000000000000000",
       INITP_0F => X"0000000000000000000000000000000000000000000000000000000000000000",
-      INIT_00 => X"0000000000000000000000000000000000000000000000000000000000000000",
-      INIT_01 => X"0000000000000000000000000000000000000000000000000000000000000000",
-      INIT_02 => X"0000000000000000000000000000000000000000000000000000000000000000",
-      INIT_03 => X"0000000000000000000000000000000000000000000000000000000000000000",
-      INIT_04 => X"0000000000000000000000000000000000000000000000000000000000000000",
-      INIT_05 => X"0000000000000000000000000000000000000000000000000000000000000000",
-      INIT_06 => X"0000000000000000000000000000000000000000000000000000000000000000",
+      INIT_00 => X"1363830383038323232317B7139313931393139333B333B333B333B333B31393",
+      INIT_01 => X"13830323138303A313830323131313131313679393EF13631363936393631363",
+      INIT_02 => X"13830323133783032313830383038323133703830323133783032313378303A3",
+      INIT_03 => X"1337731373131773F373F373F37313F313F3137313F3133773F313377313F373",
+      INIT_04 => X"9323B39323B39323B3139323B323B323B3139323B31393937F93739373937373",
+      INIT_05 => X"93F3731373F36F93939393932393372393B737731373137313177313731323B3",
+      INIT_06 => X"00000000000000000000000000000000737313233713F3737373137393F32313",
       INIT_07 => X"0000000000000000000000000000000000000000000000000000000000000000",
       INIT_08 => X"0000000000000000000000000000000000000000000000000000000000000000",
       INIT_09 => X"0000000000000000000000000000000000000000000000000000000000000000",
@@ -283,7 +281,7 @@ library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
 library UNISIM;
 use UNISIM.VCOMPONENTS.ALL;
-entity \dcache_blk_mem_gen_prim_wrapper__parameterized0\ is
+entity \dcache_blk_mem_gen_prim_wrapper_init__parameterized0\ is
   port (
     douta : out STD_LOGIC_VECTOR ( 7 downto 0 );
     doutb : out STD_LOGIC_VECTOR ( 7 downto 0 );
@@ -299,10 +297,10 @@ entity \dcache_blk_mem_gen_prim_wrapper__parameterized0\ is
     web : in STD_LOGIC_VECTOR ( 0 to 0 )
   );
   attribute ORIG_REF_NAME : string;
-  attribute ORIG_REF_NAME of \dcache_blk_mem_gen_prim_wrapper__parameterized0\ : entity is "blk_mem_gen_prim_wrapper";
-end \dcache_blk_mem_gen_prim_wrapper__parameterized0\;
+  attribute ORIG_REF_NAME of \dcache_blk_mem_gen_prim_wrapper_init__parameterized0\ : entity is "blk_mem_gen_prim_wrapper_init";
+end \dcache_blk_mem_gen_prim_wrapper_init__parameterized0\;
 
-architecture STRUCTURE of \dcache_blk_mem_gen_prim_wrapper__parameterized0\ is
+architecture STRUCTURE of \dcache_blk_mem_gen_prim_wrapper_init__parameterized0\ is
   signal \DEVICE_7SERIES.NO_BMM_INFO.TRUE_DP.SIMPLE_PRIM36.ram_n_71\ : STD_LOGIC;
   signal \DEVICE_7SERIES.NO_BMM_INFO.TRUE_DP.SIMPLE_PRIM36.ram_n_75\ : STD_LOGIC;
   signal \NLW_DEVICE_7SERIES.NO_BMM_INFO.TRUE_DP.SIMPLE_PRIM36.ram_CASCADEOUTA_UNCONNECTED\ : STD_LOGIC;
@@ -340,13 +338,13 @@ begin
       INITP_0D => X"0000000000000000000000000000000000000000000000000000000000000000",
       INITP_0E => X"0000000000000000000000000000000000000000000000000000000000000000",
       INITP_0F => X"0000000000000000000000000000000000000000000000000000000000000000",
-      INIT_00 => X"0000000000000000000000000000000000000000000000000000000000000000",
-      INIT_01 => X"0000000000000000000000000000000000000000000000000000000000000000",
-      INIT_02 => X"0000000000000000000000000000000000000000000000000000000000000000",
-      INIT_03 => X"0000000000000000000000000000000000000000000000000000000000000000",
-      INIT_04 => X"0000000000000000000000000000000000000000000000000000000000000000",
-      INIT_05 => X"0000000000000000000000000000000000000000000000000000000000000000",
-      INIT_06 => X"0000000000000000000000000000000000000000000000000000000000000000",
+      INIT_00 => X"0E845D1D4C0C2B1302200B5A5A599978E8C7B7A6F6E55554C433A39282810100",
+      INIT_01 => X"0543030105420200054101000501010101018202000F0F740FE40E540EC40E94",
+      INIT_02 => X"050C0C1505050B0B140509090808272205552756161105B5551A100555440401",
+      INIT_03 => X"0515100510050579F86867D7563605350524052405130555131205B512051111",
+      INIT_04 => X"0224E30222D30220C303022EB32CA32A93030228830302000000000000001010",
+      INIT_05 => X"9A2A100A2A2900808080808022054520858545100510051005051005100526F3",
+      INIT_06 => X"000000000000000000000000000000000010052445022121001005908A2A208B",
       INIT_07 => X"0000000000000000000000000000000000000000000000000000000000000000",
       INIT_08 => X"0000000000000000000000000000000000000000000000000000000000000000",
       INIT_09 => X"0000000000000000000000000000000000000000000000000000000000000000",
@@ -552,7 +550,7 @@ library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
 library UNISIM;
 use UNISIM.VCOMPONENTS.ALL;
-entity \dcache_blk_mem_gen_prim_wrapper__parameterized1\ is
+entity \dcache_blk_mem_gen_prim_wrapper_init__parameterized1\ is
   port (
     douta : out STD_LOGIC_VECTOR ( 7 downto 0 );
     doutb : out STD_LOGIC_VECTOR ( 7 downto 0 );
@@ -568,10 +566,10 @@ entity \dcache_blk_mem_gen_prim_wrapper__parameterized1\ is
     web : in STD_LOGIC_VECTOR ( 0 to 0 )
   );
   attribute ORIG_REF_NAME : string;
-  attribute ORIG_REF_NAME of \dcache_blk_mem_gen_prim_wrapper__parameterized1\ : entity is "blk_mem_gen_prim_wrapper";
-end \dcache_blk_mem_gen_prim_wrapper__parameterized1\;
+  attribute ORIG_REF_NAME of \dcache_blk_mem_gen_prim_wrapper_init__parameterized1\ : entity is "blk_mem_gen_prim_wrapper_init";
+end \dcache_blk_mem_gen_prim_wrapper_init__parameterized1\;
 
-architecture STRUCTURE of \dcache_blk_mem_gen_prim_wrapper__parameterized1\ is
+architecture STRUCTURE of \dcache_blk_mem_gen_prim_wrapper_init__parameterized1\ is
   signal \DEVICE_7SERIES.NO_BMM_INFO.TRUE_DP.SIMPLE_PRIM36.ram_n_71\ : STD_LOGIC;
   signal \DEVICE_7SERIES.NO_BMM_INFO.TRUE_DP.SIMPLE_PRIM36.ram_n_75\ : STD_LOGIC;
   signal \NLW_DEVICE_7SERIES.NO_BMM_INFO.TRUE_DP.SIMPLE_PRIM36.ram_CASCADEOUTA_UNCONNECTED\ : STD_LOGIC;
@@ -609,13 +607,13 @@ begin
       INITP_0D => X"0000000000000000000000000000000000000000000000000000000000000000",
       INITP_0E => X"0000000000000000000000000000000000000000000000000000000000000000",
       INITP_0F => X"0000000000000000000000000000000000000000000000000000000000000000",
-      INIT_00 => X"0000000000000000000000000000000000000000000000000000000000000000",
-      INIT_01 => X"0000000000000000000000000000000000000000000000000000000000000000",
-      INIT_02 => X"0000000000000000000000000000000000000000000000000000000000000000",
-      INIT_03 => X"0000000000000000000000000000000000000000000000000000000000000000",
-      INIT_04 => X"0000000000000000000000000000000000000000000000000000000000000000",
-      INIT_05 => X"0000000000000000000000000000000000000000000000000000000000000000",
-      INIT_06 => X"0000000000000000000000000000000000000000000000000000000000000000",
+      INIT_00 => X"F03B60604040002010300034291930988030F060202014142011201011207050",
+      INIT_01 => X"402020A0301010A0200000A010D0A0F03080024B30804011302020111020E01B",
+      INIT_02 => X"00B0A0A005019080A0F07060504040A08534002020A0D5000000A085003030A0",
+      INIT_03 => X"0500058055450000000001020005000510050005100555000005A50055004505",
+      INIT_04 => X"F07062407062F070627040706270627062F0F070627040300020101000000045",
+      INIT_05 => X"2A001A4A1020001010101010B51000B505010045000580558500450005007062",
+      INIT_06 => X"0000000000000000000000000000000020050005001010202005000A1A003B8A",
       INIT_07 => X"0000000000000000000000000000000000000000000000000000000000000000",
       INIT_08 => X"0000000000000000000000000000000000000000000000000000000000000000",
       INIT_09 => X"0000000000000000000000000000000000000000000000000000000000000000",
@@ -821,7 +819,7 @@ library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
 library UNISIM;
 use UNISIM.VCOMPONENTS.ALL;
-entity \dcache_blk_mem_gen_prim_wrapper__parameterized2\ is
+entity \dcache_blk_mem_gen_prim_wrapper_init__parameterized2\ is
   port (
     douta : out STD_LOGIC_VECTOR ( 7 downto 0 );
     doutb : out STD_LOGIC_VECTOR ( 7 downto 0 );
@@ -837,10 +835,10 @@ entity \dcache_blk_mem_gen_prim_wrapper__parameterized2\ is
     web : in STD_LOGIC_VECTOR ( 0 to 0 )
   );
   attribute ORIG_REF_NAME : string;
-  attribute ORIG_REF_NAME of \dcache_blk_mem_gen_prim_wrapper__parameterized2\ : entity is "blk_mem_gen_prim_wrapper";
-end \dcache_blk_mem_gen_prim_wrapper__parameterized2\;
+  attribute ORIG_REF_NAME of \dcache_blk_mem_gen_prim_wrapper_init__parameterized2\ : entity is "blk_mem_gen_prim_wrapper_init";
+end \dcache_blk_mem_gen_prim_wrapper_init__parameterized2\;
 
-architecture STRUCTURE of \dcache_blk_mem_gen_prim_wrapper__parameterized2\ is
+architecture STRUCTURE of \dcache_blk_mem_gen_prim_wrapper_init__parameterized2\ is
   signal \DEVICE_7SERIES.NO_BMM_INFO.TRUE_DP.SIMPLE_PRIM36.ram_n_71\ : STD_LOGIC;
   signal \DEVICE_7SERIES.NO_BMM_INFO.TRUE_DP.SIMPLE_PRIM36.ram_n_75\ : STD_LOGIC;
   signal \NLW_DEVICE_7SERIES.NO_BMM_INFO.TRUE_DP.SIMPLE_PRIM36.ram_CASCADEOUTA_UNCONNECTED\ : STD_LOGIC;
@@ -878,13 +876,13 @@ begin
       INITP_0D => X"0000000000000000000000000000000000000000000000000000000000000000",
       INITP_0E => X"0000000000000000000000000000000000000000000000000000000000000000",
       INITP_0F => X"0000000000000000000000000000000000000000000000000000000000000000",
-      INIT_00 => X"0000000000000000000000000000000000000000000000000000000000000000",
-      INIT_01 => X"0000000000000000000000000000000000000000000000000000000000000000",
-      INIT_02 => X"0000000000000000000000000000000000000000000000000000000000000000",
-      INIT_03 => X"0000000000000000000000000000000000000000000000000000000000000000",
-      INIT_04 => X"0000000000000000000000000000000000000000000000000000000000000000",
-      INIT_05 => X"0000000000000000000000000000000000000000000000000000000000000000",
-      INIT_06 => X"0000000000000000000000000000000000000000000000000000000000000000",
+      INIT_00 => X"060000000000000000000012400000000000FF00000040000000000040000000",
+      INIT_01 => X"0C0000000C0000000C0000000C04070606050007060000000000000000000D00",
+      INIT_02 => X"08000000F0000000000F000000000000671200000000BC000000006700000000",
+      INIT_03 => X"8000300830100034343434343434103400341034003455003434AA0030103030",
+      INIT_04 => X"FF0202060202FF02020006000200020002FFFF00020006000000000000003430",
+      INIT_05 => X"003434003434000000000000000010006A001030083008300800300030080202",
+      INIT_06 => X"0000000000000000000000000000000030300800100034343030083400340104",
       INIT_07 => X"0000000000000000000000000000000000000000000000000000000000000000",
       INIT_08 => X"0000000000000000000000000000000000000000000000000000000000000000",
       INIT_09 => X"0000000000000000000000000000000000000000000000000000000000000000",
@@ -1105,13 +1103,11 @@ entity dcache_blk_mem_gen_prim_width is
     wea : in STD_LOGIC_VECTOR ( 0 to 0 );
     web : in STD_LOGIC_VECTOR ( 0 to 0 )
   );
-  attribute ORIG_REF_NAME : string;
-  attribute ORIG_REF_NAME of dcache_blk_mem_gen_prim_width : entity is "blk_mem_gen_prim_width";
 end dcache_blk_mem_gen_prim_width;
 
 architecture STRUCTURE of dcache_blk_mem_gen_prim_width is
 begin
-\prim_noinit.ram\: entity work.dcache_blk_mem_gen_prim_wrapper
+\prim_init.ram\: entity work.dcache_blk_mem_gen_prim_wrapper_init
      port map (
       addra(11 downto 0) => addra(11 downto 0),
       addrb(11 downto 0) => addrb(11 downto 0),
@@ -1152,7 +1148,7 @@ end \dcache_blk_mem_gen_prim_width__parameterized0\;
 
 architecture STRUCTURE of \dcache_blk_mem_gen_prim_width__parameterized0\ is
 begin
-\prim_noinit.ram\: entity work.\dcache_blk_mem_gen_prim_wrapper__parameterized0\
+\prim_init.ram\: entity work.\dcache_blk_mem_gen_prim_wrapper_init__parameterized0\
      port map (
       addra(11 downto 0) => addra(11 downto 0),
       addrb(11 downto 0) => addrb(11 downto 0),
@@ -1193,7 +1189,7 @@ end \dcache_blk_mem_gen_prim_width__parameterized1\;
 
 architecture STRUCTURE of \dcache_blk_mem_gen_prim_width__parameterized1\ is
 begin
-\prim_noinit.ram\: entity work.\dcache_blk_mem_gen_prim_wrapper__parameterized1\
+\prim_init.ram\: entity work.\dcache_blk_mem_gen_prim_wrapper_init__parameterized1\
      port map (
       addra(11 downto 0) => addra(11 downto 0),
       addrb(11 downto 0) => addrb(11 downto 0),
@@ -1234,7 +1230,7 @@ end \dcache_blk_mem_gen_prim_width__parameterized2\;
 
 architecture STRUCTURE of \dcache_blk_mem_gen_prim_width__parameterized2\ is
 begin
-\prim_noinit.ram\: entity work.\dcache_blk_mem_gen_prim_wrapper__parameterized2\
+\prim_init.ram\: entity work.\dcache_blk_mem_gen_prim_wrapper_init__parameterized2\
      port map (
       addra(11 downto 0) => addra(11 downto 0),
       addrb(11 downto 0) => addrb(11 downto 0),
@@ -1269,8 +1265,6 @@ entity dcache_blk_mem_gen_generic_cstr is
     wea : in STD_LOGIC_VECTOR ( 3 downto 0 );
     web : in STD_LOGIC_VECTOR ( 3 downto 0 )
   );
-  attribute ORIG_REF_NAME : string;
-  attribute ORIG_REF_NAME of dcache_blk_mem_gen_generic_cstr : entity is "blk_mem_gen_generic_cstr";
 end dcache_blk_mem_gen_generic_cstr;
 
 architecture STRUCTURE of dcache_blk_mem_gen_generic_cstr is
@@ -1355,8 +1349,6 @@ entity dcache_blk_mem_gen_top is
     wea : in STD_LOGIC_VECTOR ( 3 downto 0 );
     web : in STD_LOGIC_VECTOR ( 3 downto 0 )
   );
-  attribute ORIG_REF_NAME : string;
-  attribute ORIG_REF_NAME of dcache_blk_mem_gen_top : entity is "blk_mem_gen_top";
 end dcache_blk_mem_gen_top;
 
 architecture STRUCTURE of dcache_blk_mem_gen_top is
@@ -1396,8 +1388,6 @@ entity dcache_blk_mem_gen_v8_4_2_synth is
     wea : in STD_LOGIC_VECTOR ( 3 downto 0 );
     web : in STD_LOGIC_VECTOR ( 3 downto 0 )
   );
-  attribute ORIG_REF_NAME : string;
-  attribute ORIG_REF_NAME of dcache_blk_mem_gen_v8_4_2_synth : entity is "blk_mem_gen_v8_4_2_synth";
 end dcache_blk_mem_gen_v8_4_2_synth;
 
 architecture STRUCTURE of dcache_blk_mem_gen_v8_4_2_synth is
@@ -1571,13 +1561,13 @@ entity dcache_blk_mem_gen_v8_4_2 is
   attribute C_INITB_VAL : string;
   attribute C_INITB_VAL of dcache_blk_mem_gen_v8_4_2 : entity is "0";
   attribute C_INIT_FILE : string;
-  attribute C_INIT_FILE of dcache_blk_mem_gen_v8_4_2 : entity is "dcache.mem";
+  attribute C_INIT_FILE of dcache_blk_mem_gen_v8_4_2 : entity is "icache.mem";
   attribute C_INIT_FILE_NAME : string;
-  attribute C_INIT_FILE_NAME of dcache_blk_mem_gen_v8_4_2 : entity is "no_coe_file_loaded";
+  attribute C_INIT_FILE_NAME of dcache_blk_mem_gen_v8_4_2 : entity is "icache.mif";
   attribute C_INTERFACE_TYPE : integer;
   attribute C_INTERFACE_TYPE of dcache_blk_mem_gen_v8_4_2 : entity is 0;
   attribute C_LOAD_INIT_FILE : integer;
-  attribute C_LOAD_INIT_FILE of dcache_blk_mem_gen_v8_4_2 : entity is 0;
+  attribute C_LOAD_INIT_FILE of dcache_blk_mem_gen_v8_4_2 : entity is 1;
   attribute C_MEM_TYPE : integer;
   attribute C_MEM_TYPE of dcache_blk_mem_gen_v8_4_2 : entity is 2;
   attribute C_MUX_PIPELINE_STAGES : integer;
@@ -1638,8 +1628,6 @@ entity dcache_blk_mem_gen_v8_4_2 is
   attribute C_WRITE_WIDTH_B of dcache_blk_mem_gen_v8_4_2 : entity is 32;
   attribute C_XDEVICEFAMILY : string;
   attribute C_XDEVICEFAMILY of dcache_blk_mem_gen_v8_4_2 : entity is "artix7";
-  attribute ORIG_REF_NAME : string;
-  attribute ORIG_REF_NAME of dcache_blk_mem_gen_v8_4_2 : entity is "blk_mem_gen_v8_4_2";
   attribute downgradeipidentifiedwarnings : string;
   attribute downgradeipidentifiedwarnings of dcache_blk_mem_gen_v8_4_2 : entity is "yes";
 end dcache_blk_mem_gen_v8_4_2;
@@ -1769,7 +1757,7 @@ entity dcache is
   attribute NotValidForBitStream : boolean;
   attribute NotValidForBitStream of dcache : entity is true;
   attribute CHECK_LICENSE_TYPE : string;
-  attribute CHECK_LICENSE_TYPE of dcache : entity is "dcache,blk_mem_gen_v8_4_2,{}";
+  attribute CHECK_LICENSE_TYPE of dcache : entity is "icache,blk_mem_gen_v8_4_2,{}";
   attribute downgradeipidentifiedwarnings : string;
   attribute downgradeipidentifiedwarnings of dcache : entity is "yes";
   attribute x_core_info : string;
@@ -1879,13 +1867,13 @@ architecture STRUCTURE of dcache is
   attribute C_INITB_VAL : string;
   attribute C_INITB_VAL of U0 : label is "0";
   attribute C_INIT_FILE : string;
-  attribute C_INIT_FILE of U0 : label is "dcache.mem";
+  attribute C_INIT_FILE of U0 : label is "icache.mem";
   attribute C_INIT_FILE_NAME : string;
-  attribute C_INIT_FILE_NAME of U0 : label is "no_coe_file_loaded";
+  attribute C_INIT_FILE_NAME of U0 : label is "icache.mif";
   attribute C_INTERFACE_TYPE : integer;
   attribute C_INTERFACE_TYPE of U0 : label is 0;
   attribute C_LOAD_INIT_FILE : integer;
-  attribute C_LOAD_INIT_FILE of U0 : label is 0;
+  attribute C_LOAD_INIT_FILE of U0 : label is 1;
   attribute C_MEM_TYPE : integer;
   attribute C_MEM_TYPE of U0 : label is 2;
   attribute C_MUX_PIPELINE_STAGES : integer;

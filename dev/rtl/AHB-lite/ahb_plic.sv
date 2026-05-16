@@ -39,7 +39,6 @@ module ahb_plic #(
 
     reg  [7:0]  r_claim_id;
     reg         r_claim_valid;
-    reg  [31:0] r_complete;
 
     integer ii;
 
@@ -83,7 +82,6 @@ module ahb_plic #(
             r_threshold  <= 32'd0;
             r_claim_id   <= 8'd0;
             r_claim_valid<= 1'b0;
-            r_complete   <= 32'd0;
             r_gw_en      <= {(NUM_SRC){1'b1}};
             for (ii = 0; ii < NUM_SRC; ii = ii + 1)
                 r_prio[ii] <= 32'd0;
@@ -110,7 +108,6 @@ module ahb_plic #(
                 r_threshold <= HWDATA;
 
             if (wr_valid && addr_is_claim) begin
-                r_complete <= HWDATA;
                 if ((HWDATA >= 1) && (HWDATA < NUM_SRC))
                     r_gw_en[HWDATA] <= 1'b1;
             end

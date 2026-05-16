@@ -22,14 +22,14 @@ description: |
 vivado.bat -mode tcl
 
 # 加载脚本
-source vivado_sim.tcl
+source vivado_do.tcl
 
 # 运行仿真 (全流程)
-vivado_sim -tb <testbench_name> -step all
+vivado_do -tb <testbench_name> -step all
 
 # 单步执行
-vivado_sim -tb <testbench_name> -step create
-vivado_sim -tb <testbench_name> -step sim
+vivado_do -tb <testbench_name> -step create
+vivado_do -tb <testbench_name> -step sim
 
 # 可用参数: -tb <testbench> -step <create|ip|constrs|tb|sim|all> -runtime <time> -clean
 ```

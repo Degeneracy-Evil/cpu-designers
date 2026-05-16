@@ -46,15 +46,15 @@
 | 项目 | 旧 | 新 |
 |------|----|----|
 | 编译仿真 | `python tools/mk.py --top <file>` | `vivado.bat -mode tcl` + TCL 脚本 |
-| 仿真脚本 | `vivado_sim.tcl`（单文件固定流程） | 拆分为多个 TCL 脚本 + 参数化入口 |
+| 仿真脚本 | `vivado_do.tcl`（单文件固定流程） | 拆分为多个 TCL 脚本 + 参数化入口 |
 | mk.py | 活跃使用 | **弃用**（保留文件，标记 deprecated） |
 
 ### 2.4 TCL 脚本重构
 
-将现有 `vivado_sim.tcl` 拆分为：
+将现有 `vivado_do.tcl` 拆分为：
 
 ```
-vivado_sim.tcl          ← 主入口，解析参数，调用子脚本
+vivado_do.tcl          ← 主入口，解析参数，调用子脚本
 tools/tcl/
   ├── create_proj.tcl   ← Step 1-3: 创建工程、添加源文件、设置 include
   ├── setup_ip.tcl      ← Step 4: 导入 IP、配置 COE
@@ -66,7 +66,7 @@ tools/tcl/
 **参数化设计：**
 
 ```tcl
-# vivado_sim.tcl 定义 proc vivado_sim，支持以下参数:
+# vivado_do.tcl 定义 proc vivado_do，支持以下参数:
 #   -tb <testbench_name>   指定 testbench（默认 tb_simple_cpu_top）
 #   -step <step>           执行到哪一步: create|ip|constrs|tb|sim|all（默认 all）
 #   -runtime <time>        仿真运行时间（默认按 tb_runtime_map 映射）
@@ -78,12 +78,12 @@ tools/tcl/
 ```tcl
 # 方式1: Vivado TCL Shell 交互
 vivado.bat -mode tcl
-source vivado_sim.tcl
-vivado_sim -tb tb_simple_cpu_top -step all
+source vivado_do.tcl -notrace
+vivado_do -tb tb_simple_cpu_top -step all
 
 # 方式2: 单步执行
-vivado_sim -tb tb_ahb_bus -step create
-vivado_sim -tb tb_ahb_bus -step ip
+vivado_do -tb tb_ahb_bus -step create
+vivado_do -tb tb_ahb_bus -step ip
 # ...
 
 # 方式3: 通过 tcl-tunnel 远程执行（见 tools/tcl-tunnel/）
@@ -105,7 +105,7 @@ vivado_sim -tb tb_ahb_bus -step ip
 
 1. **Phase 1 — 文件重命名**：批量 `.v` → `.sv`，`.vh` → `.svh`
 2. **Phase 2 — 引用更新**：修改所有 `` `include ``、`add_files` glob、文档中的文件引用
-3. **Phase 3 — TCL 重构**：拆分 vivado_sim.tcl，添加参数解析，适配 .sv 扩展名
+3. **Phase 3 — TCL 重构**：拆分 vivado_do.tcl，添加参数解析，适配 .sv 扩展名
 4. **Phase 4 — mk.py 弃用**：标记 deprecated，更新文档
 5. **Phase 5 — 验证**：逐个 testbench 跑通 Vivado 仿真
 

@@ -49,15 +49,12 @@ module uart_top #(
     wire rx_recv_over = uart_ctrl[1] & rx_data_valid;
 
     reg r_tx_start;
-    reg r_tx_data_ready;
 
     always @(posedge PCLK or negedge PRESETn) begin
         if (!PRESETn) begin
             r_tx_start       <= 1'b0;
-            r_tx_data_ready  <= 1'b0;
         end else begin
             r_tx_start      <= tx_start;
-            r_tx_data_ready <= tx_data_ready;
         end
     end
 

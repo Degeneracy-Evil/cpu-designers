@@ -3,8 +3,8 @@
 
 **此脚本已弃用。** 项目已迁移至 SystemVerilog，仿真请使用 Vivado TCL:
     vivado.bat -mode tcl
-    source vivado_sim.tcl
-    vivado_sim -tb <testbench_name>
+    source vivado_do.tcl
+    vivado_do -tb <testbench_name>
 
 Features:
 - Use command line arguments to choose top Verilog file.

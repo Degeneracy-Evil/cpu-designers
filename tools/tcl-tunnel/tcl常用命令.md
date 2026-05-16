@@ -16,7 +16,7 @@
 # 二、添加文件
 
  1 # 添加 单个Verilog 源文件
- 2 add_files -fileset sources_1 [list ./src/module.v]
+ 2 add_files -fileset sources_1 [list ./src/module.sv]
  3
  4 # 递归地将 ./src 目录下的所有文件添加到项目中
  5 add_files -fileset sources_1 -recursive ./src
@@ -25,7 +25,7 @@
  8 set_property top top_module [current_fileset]
  9
 10 # 设置文件类型
-11 set_property file_type {Verilog} [get_files ./src/module.v]
+11 set_property file_type {SystemVerilog} [get_files ./src/module.sv]
 12
 13 # 添加约束文件
 14 add_files -fileset constrs_1 ./constraints/top.xdc
@@ -75,11 +75,11 @@ file mkdir $outputDir
 ## 2. 创建新工程
 
 create_project $projectName $outputDir/$projectName -part $devicePart -force
-set_property target_language Verilog [current_project]
+set_property target_language SystemVerilog [current_project]
 
 ## 3. 添加设计文件
 
-add_files [glob ./src/*.v]
+add_files [glob ./src/*.sv]
 set_property top led [current_fileset]
 update_compile_order -fileset sources_1
 

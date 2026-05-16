@@ -28,8 +28,8 @@ WSL2 (Ubuntu 24.04)                    Windows
 | WSL2 路径 | Windows 路径 | 说明 |
 |---|---|---|
 | `/mnt/e/Xprogram/FPGA/tmp/` | `E:/Xprogram/FPGA/tmp/` | 工作区根目录 |
-| `/mnt/e/Xprogram/FPGA/tmp/rtl/*.v` | `E:/Xprogram/FPGA/tmp/rtl/*.v` | RTL 源文件 |
-| `/mnt/e/Xprogram/FPGA/tmp/tb/*.v` | `E:/Xprogram/FPGA/tmp/tb/*.v` | testbench |
+| `/mnt/e/Xprogram/FPGA/tmp/rtl/*.sv` | `E:/Xprogram/FPGA/tmp/rtl/*.sv` | RTL 源文件 |
+| `/mnt/e/Xprogram/FPGA/tmp/tb/*.sv` | `E:/Xprogram/FPGA/tmp/tb/*.sv` | testbench |
 
 **关键规则：TCL 命令中必须使用 Windows 路径格式（`E:/...`），不能用 WSL2 的 `/mnt/e/...`。**
 
@@ -55,7 +55,7 @@ curl -s -X POST "http://127.0.0.1:8000/sessions/$SID/execute" \
 ```bash
 curl -s -X POST "http://127.0.0.1:8000/sessions/$SID/execute" \
   -H "Content-Type: application/json" \
-  -d '{"command":"add_files E:/path/to/file.v; update_compile_order -fileset sources_1; puts done","timeout_seconds":30}'
+  -d '{"command":"add_files E:/path/to/file.sv; update_compile_order -fileset sources_1; puts done","timeout_seconds":30}'
 ```
 
 ### 3.3 长耗时操作
@@ -93,10 +93,10 @@ CMD='create_project simplecpu_ip_sim E:/Xprogram/FPGA/tmp/simplecpu_ip_sim -part
 
 ```bash
 # 添加单个文件
-CMD='add_files E:/Xprogram/FPGA/tmp/rtl/cpu_controller.v'
+CMD='add_files E:/Xprogram/FPGA/tmp/rtl/cpu_controller.sv'
 
 # 批量添加（用 TCL glob）
-CMD='add_files [glob -directory E:/Xprogram/FPGA/tmp/rtl *.v]'
+CMD='add_files [glob -directory E:/Xprogram/FPGA/tmp/rtl *.sv]'
 
 # 更新编译顺序
 CMD='update_compile_order -fileset sources_1'
@@ -108,17 +108,17 @@ CMD='update_compile_order -fileset sources_1'
 
 ```bash
 # IP 核的 Verilog 源文件
-CMD='add_files [glob -directory E:/Xprogram/FPGA/tmp/ip/Asyncsys_bus_bus4LZU_1.0/sources_1/new *.v]'
+CMD='add_files [glob -directory E:/Xprogram/FPGA/tmp/ip/Asyncsys_bus_bus4LZU_1.0/sources_1/new *.sv]'
 
 # IP 核的子目录源文件
-CMD='add_files [glob -directory E:/Xprogram/FPGA/tmp/ip/Asyncsys_bus_bus4LZU_1.0/sources_1/new/slot *.v]'
-CMD='add_files [glob -directory E:/Xprogram/FPGA/tmp/ip/Asyncsys_bus_bus4LZU_1.0/sources_1/new/perips *.v]'
+CMD='add_files [glob -directory E:/Xprogram/FPGA/tmp/ip/Asyncsys_bus_bus4LZU_1.0/sources_1/new/slot *.sv]'
+CMD='add_files [glob -directory E:/Xprogram/FPGA/tmp/ip/Asyncsys_bus_bus4LZU_1.0/sources_1/new/perips *.sv]'
 
 # 头文件（VH）必须用 include_dirs 而非 add_files
 CMD='set_property include_dirs [list E:/Xprogram/FPGA/tmp/ip/Asyncsys_bus_bus4LZU_1.0/sources_1/new] [current_fileset]'
 ```
 
-**关键：`.vh` 头文件不能通过 `add_files` 添加，必须通过 `include_dirs` 属性设置搜索路径。否则 Vivado 报 `file not found` 错误。**
+**关键：`.svh` 头文件不能通过 `add_files` 添加，必须通过 `include_dirs` 属性设置搜索路径。否则 Vivado 报 `file not found` 错误。**
 
 ### Step 4: 创建 BRAM IP 核（blk_mem_gen）
 
@@ -153,7 +153,7 @@ CMD='generate_target all [get_ips Sram_icache]'
 ### Step 5: 添加 testbench
 
 ```bash
-CMD='add_files -fileset sim_1 E:/Xprogram/FPGA/tmp/tb/tb_simplecpu_ip_sim.v'
+CMD='add_files -fileset sim_1 E:/Xprogram/FPGA/tmp/tb/tb_simplecpu_ip_sim.sv'
 CMD='set_property top tb_simplecpu_ip_sim [get_filesets sim_1]'
 CMD='update_compile_order -fileset sim_1'
 ```
@@ -183,7 +183,7 @@ CMD='run 50000ns'
 
 **原因：** 被实例化的模块源文件未添加到工程中。
 
-**解决：** 找到对应 `.v` 文件，用 `add_files` 添加，然后 `update_compile_order -fileset sources_1`。
+**解决：** 找到对应 `.sv` 文件，用 `add_files` 添加，然后 `update_compile_order -fileset sources_1`。
 
 **排查方法：** 在 WSL2 端用 `grep` 搜索模块定义：
 ```bash
@@ -192,9 +192,9 @@ grep -rn "module alu_32bit" /home/wood/cpu-designers/
 
 ### 5.2 头文件找不到
 
-**现象：** 编译报错找不到 `.vh` 文件。
+**现象：** 编译报错找不到 `.svh` 文件。
 
-**原因：** `.vh` 文件不能通过 `add_files` 添加到工程。
+**原因：** `.svh` 文件不能通过 `add_files` 添加到工程。
 
 **解决：** 使用 `include_dirs` 设置搜索路径：
 ```bash
@@ -221,10 +221,10 @@ CMD='set_property include_dirs [list E:/path/to/header/dir] [current_fileset]'
 
 **诊断方法：**
 1. 检查 BRAM XCI 配置中 `READ_LATENCY_A` 的值
-2. 对比 `cpu_fetch.v`（已处理延迟）和 `cpu_mem.v`（未处理延迟）的实现差异
+2. 对比 `cpu_fetch.sv`（已处理延迟）和 `cpu_mem.sv`（未处理延迟）的实现差异
 3. 分析失败寄存器的值是否为"前一次访问地址的数据"
 
-**解决方案：** 在 `cpu_mem.v` 中增加 `MEM_READ2` 等待状态：
+**解决方案：** 在 `cpu_mem.sv` 中增加 `MEM_READ2` 等待状态：
 
 ```verilog
 // 修改前（2周期：IDLE→READ）
@@ -254,7 +254,7 @@ MEM_READ2: begin
 end
 ```
 
-**参照：** `cpu_fetch.v` 已用 `r_wait` 标志正确处理了 ICache BRAM 的 1 周期读延迟（取指需要 2 个周期：发地址 + 等待数据）。
+**参照：** `cpu_fetch.sv` 已用 `r_wait` 标志正确处理了 ICache BRAM 的 1 周期读延迟（取指需要 2 个周期：发地址 + 等待数据）。
 
 ### 5.6 init_sig 与 UART 加载协议
 
@@ -296,7 +296,7 @@ force u_bus.init_sig = 1'b0; // 跳过 UART 加载，BRAM 已通过 COE 初始�
 
 原始 Bus4LZU 设计中 ICache 和 DCache 使用同一个 `Sram` 模块。如果 ICache 配置了 COE 初始化，DCache 也会被初始化为同样的指令数据，导致数据区被错误预填充。
 
-**解决方案：** 创建两个独立的 blk_mem_gen IP（`Sram_icache` 和 `Sram_dcache`），修改 `memory_slot.v` 分别实例化。
+**解决方案：** 创建两个独立的 blk_mem_gen IP（`Sram_icache` 和 `Sram_dcache`），修改 `memory_slot.sv` 分别实例化。
 
 ---
 
@@ -378,16 +378,16 @@ BASE="E:/Xprogram/FPGA/tmp"
 curl -s -X POST ".../execute" -d '{"command":"create_project sim $BASE/sim -part xc7a200tfbg676-2 -force"}'
 
 # 2. 添加 RTL
-curl -s -X POST ".../execute" -d '{"command":"add_files [glob -directory $BASE/rtl *.v]; update_compile_order -fileset sources_1"}'
+curl -s -X POST ".../execute" -d '{"command":"add_files [glob -directory $BASE/rtl *.sv]; update_compile_order -fileset sources_1"}'
 
 # 3. 添加 IP 源文件 + 头文件路径
-curl -s -X POST ".../execute" -d '{"command":"add_files [glob -directory $BASE/ip/.../new *.v]; add_files [glob -directory $BASE/ip/.../new/slot *.v]; add_files [glob -directory $BASE/ip/.../new/perips *.v]; set_property include_dirs [list $BASE/ip/.../sources_1/new] [current_fileset]"}'
+curl -s -X POST ".../execute" -d '{"command":"add_files [glob -directory $BASE/ip/.../new *.sv]; add_files [glob -directory $BASE/ip/.../new/slot *.sv]; add_files [glob -directory $BASE/ip/.../new/perips *.sv]; set_property include_dirs [list $BASE/ip/.../sources_1/new] [current_fileset]"}'
 
 # 4. 创建 BRAM IP（ICache + DCache）
 curl -s -X POST ".../execute" -d '{"command":"create_ip -name blk_mem_gen -vendor xilinx.com -library ip -module_name Sram_icache -dir ...; set_property -dict [list CONFIG.Memory_Type {Single_Port_RAM} ...] [get_ips Sram_icache]; generate_target all [get_ips Sram_icache]","timeout_seconds":300}'
 
 # 5. 添加 testbench
-curl -s -X POST ".../execute" -d '{"command":"add_files -fileset sim_1 $BASE/tb/tb.v; set_property top tb [get_filesets sim_1]; update_compile_order -fileset sim_1"}'
+curl -s -X POST ".../execute" -d '{"command":"add_files -fileset sim_1 $BASE/tb/tb.sv; set_property top tb [get_filesets sim_1]; update_compile_order -fileset sim_1"}'
 
 # 6. 启动仿真
 curl -s -X POST ".../execute" -d '{"command":"launch_simulation -mode behavioral","timeout_seconds":300}'
@@ -419,7 +419,7 @@ curl -s -X POST ".../execute" -d '{"command":"reset_simulation; launch_simulatio
 
 8. **`$readmemh` 路径必须使用 Windows 绝对路径**：xsim 的 `$readmemh` 从 xsim 工作目录（`${proj_dir}/${proj_name}.sim/sim_1/behav/xsim/`）解析相对路径，该目录与项目源码目录相距甚远，相对路径必然无法找到文件。必须使用 Windows 绝对路径如 `E:/Xprogram/FPGA/tmp/dev/.../icache_init.hex`。
 
-9. **testbench 必须包含 `$readmemh` 初始化内存**：行为级仿真中，RTL 行为模型（如 `icache.v`、`dcache.v`、`Sram.v`）的 `mem` 数组默认全零。即使 IP 核配置了 COE 初始化文件，行为模型也不会自动加载。testbench 必须通过 `$readmemh` 显式加载程序到 SRAM、ICache 和 DCache 的 `mem` 数组，否则 CPU 取到全零指令，所有寄存器保持 0。
+9. **testbench 必须包含 `$readmemh` 初始化内存**：行为级仿真中，RTL 行为模型（如 `icache.sv`、`dcache.sv`、`Sram.sv`）的 `mem` 数组默认全零。即使 IP 核配置了 COE 初始化文件，行为模型也不会自动加载。testbench 必须通过 `$readmemh` 显式加载程序到 SRAM、ICache 和 DCache 的 `mem` 数组，否则 CPU 取到全零指令，所有寄存器保持 0。
 
 10. **WSL2 工作区与 Windows 共享目录可能不同步**：`/home/wood/cpu-designers/` 和 `/mnt/e/Xprogram/FPGA/tmp/` 可能是不同的目录树，编辑前者不会影响后者。通过 tcl-tunnel 运行 Vivado 时，Vivado 读取的是 Windows 端文件（`E:/Xprogram/FPGA/tmp/...` 即 `/mnt/e/Xprogram/FPGA/tmp/...`）。修改文件时务必确认操作的是 Vivado 实际使用的路径。
 
@@ -479,7 +479,7 @@ curl -s -X POST "http://127.0.0.1:8000/sessions/$SID/execute" \
 | `$readmemh` 相对路径失效 | 添加 `$readmemh` 后仍全零 | xsim 工作目录为 `.../behav/xsim/`，相对路径无法解析 | 改用 Windows 绝对路径 `E:/Xprogram/FPGA/tmp/dev/.../icache_init.hex` |
 | WSL2/Windows 文件不同步 | 编辑了 testbench 但仿真行为未变 | `/home/wood/cpu-designers/` ≠ `/mnt/e/Xprogram/FPGA/tmp/` | 编辑 `/mnt/e/Xprogram/FPGA/tmp/...` 下的文件 |
 | 仿真时间不足 | pass_count=0，testbench 检查未执行 | `launch_simulation` 默认 runtime 不够 | 用 `run 200us` 继续运行 |
-| RTL 覆盖 IP 定义 | `WARNING: overwriting previous definition of module 'icache'` | RTL `icache.v`/`dcache.v` 后于 IP 添加，覆盖 IP 的同名模块 | 正常行为，行为模型用于仿真，IP 用于综合 |
+| RTL 覆盖 IP 定义 | `WARNING: overwriting previous definition of module 'icache'` | RTL `icache.sv`/`dcache.sv` 后于 IP 添加，覆盖 IP 的同名模块 | 正常行为，行为模型用于仿真，IP 用于综合 |
 
 ### 11.4 最终结果
 

@@ -152,7 +152,7 @@ system_top
 
 ### 3.1 cpu_controller — FSM 状态机控制器
 
-**文件**：`rtl/core/cpu_controller.v`（133行）
+**文件**：`rtl/core/cpu_controller.sv`（133行）
 
 **状态机设计**：9状态4位编码
 
@@ -187,7 +187,7 @@ IDLE → FETCH → DECODE → ┬→ EXEC → MEM → WB → FETCH (循环)
 
 ### 3.2 icache_ctrl — ICache 控制器
 
-**文件**：`rtl/core/icache_ctrl.v`（60行）
+**文件**：`rtl/core/icache_ctrl.sv`（60行）
 
 **设计要点**：
 
@@ -199,7 +199,7 @@ IDLE → FETCH → DECODE → ┬→ EXEC → MEM → WB → FETCH (循环)
 
 ### 3.3 dcache_ctrl — DCache 控制器
 
-**文件**：`rtl/core/dcache_ctrl.v`（76行）
+**文件**：`rtl/core/dcache_ctrl.sv`（76行）
 
 **设计要点**：
 
@@ -210,13 +210,13 @@ IDLE → FETCH → DECODE → ┬→ EXEC → MEM → WB → FETCH (循环)
 
 ### 3.4 MMU — 内存管理单元
 
-**文件**：`rtl/core/MMU.v`（10行）
+**文件**：`rtl/core/MMU.sv`（10行）
 
 当前为直通模式 `paddr = vaddr`，为后续虚拟内存扩展预留接口。CPU 中实例化两个 MMU，分别用于取指地址和访存地址翻译。
 
 ### 3.5 cpu_fetch — 取指阶段
 
-**文件**：`rtl/core/cpu_fetch.v`（30行）
+**文件**：`rtl/core/cpu_fetch.sv`（30行）
 
 **设计要点**：
 
@@ -227,7 +227,7 @@ IDLE → FETCH → DECODE → ┬→ EXEC → MEM → WB → FETCH (循环)
 
 ### 3.6 cpu_decode — 译码阶段
 
-**文件**：`rtl/core/cpu_decode.v`（360行）
+**文件**：`rtl/core/cpu_decode.sv`（360行）
 
 **功能**：
 
@@ -244,7 +244,7 @@ IDLE → FETCH → DECODE → ┬→ EXEC → MEM → WB → FETCH (循环)
 
 ### 3.7 cpu_execute — 执行阶段
 
-**文件**：`rtl/core/cpu_execute.v`（249行）
+**文件**：`rtl/core/cpu_execute.sv`（249行）
 
 **功能**：
 
@@ -260,7 +260,7 @@ IDLE → FETCH → DECODE → ┬→ EXEC → MEM → WB → FETCH (循环)
 
 ### 3.8 cpu_mem — 访存阶段
 
-**文件**：`rtl/core/cpu_mem.v`（242行）
+**文件**：`rtl/core/cpu_mem.sv`（242行）
 
 **状态机**：3状态
 
@@ -282,7 +282,7 @@ IDLE → FETCH → DECODE → ┬→ EXEC → MEM → WB → FETCH (循环)
 | SW | 00 | 010 (WORD) | `data[31:0]` | 写全部32位 |
 | LOAD | xx | 010 (WORD) | `32'b0` | 读操作(hwrite=0) |
 
-*注：实际的字节掩码（BRAM WEA，高有效）在 `dcache_ctrl.v` 或 AHB 从设备中根据 `hsize` 和地址低位解码生成。*
+*注：实际的字节掩码（BRAM WEA，高有效）在 `dcache_ctrl.sv` 或 AHB 从设备中根据 `hsize` 和地址低位解码生成。*
 
 **读数据提取**：
 
@@ -294,7 +294,7 @@ IDLE → FETCH → DECODE → ┬→ EXEC → MEM → WB → FETCH (循环)
 
 ### 3.9 cpu_wb — 回写阶段
 
-**文件**：`rtl/core/cpu_wb.v`（41行）
+**文件**：`rtl/core/cpu_wb.sv`（41行）
 
 **功能**：
 
@@ -304,7 +304,7 @@ IDLE → FETCH → DECODE → ┬→ EXEC → MEM → WB → FETCH (循环)
 
 ### 3.10 cpu_regfile — 寄存器堆
 
-**文件**：`rtl/core/cpu_regfile.v`（34行）
+**文件**：`rtl/core/cpu_regfile.sv`（34行）
 
 - 32个32位寄存器 `rf[0:31]`
 - x0 硬连线为0（读取返回0，写入忽略）
@@ -313,7 +313,7 @@ IDLE → FETCH → DECODE → ┬→ EXEC → MEM → WB → FETCH (循环)
 
 ### 3.11 cpu_trap_csr — 异常/CSR 顶层封装
 
-**文件**：`rtl/core/cpu_trap_csr.v`（125行）
+**文件**：`rtl/core/cpu_trap_csr.sv`（125行）
 
 将异常管理与 CSR 访问逻辑封装为统一模块，内部实例化：
 
@@ -322,7 +322,7 @@ IDLE → FETCH → DECODE → ┬→ EXEC → MEM → WB → FETCH (循环)
 
 ### 3.12 cpu_trap_manager — 异常检测与 trap 管理
 
-**文件**：`rtl/core/cpu_trap_manager.v`（150行）
+**文件**：`rtl/core/cpu_trap_manager.sv`（150行）
 
 **功能**：
 
@@ -336,7 +336,7 @@ IDLE → FETCH → DECODE → ┬→ EXEC → MEM → WB → FETCH (循环)
 
 ### 3.13 cpu_csr_interface — CSR 指令接口
 
-**文件**：`rtl/core/cpu_csr_interface.v`（110行）
+**文件**：`rtl/core/cpu_csr_interface.sv`（110行）
 
 **功能**：
 
@@ -348,7 +348,7 @@ IDLE → FETCH → DECODE → ┬→ EXEC → MEM → WB → FETCH (循环)
 
 ### 3.14 cpu_csr — CSR 寄存器模块
 
-**文件**：`rtl/core/cpu_csr.v`（179行）
+**文件**：`rtl/core/cpu_csr.sv`（179行）
 
 **实现的 CSR 寄存器**：
 
@@ -383,7 +383,7 @@ IDLE → FETCH → DECODE → ┬→ EXEC → MEM → WB → FETCH (循环)
 
 ### 3.15 cpu_clint — 异常/中断控制逻辑
 
-**文件**：`rtl/core/cpu_clint.v`（78行）
+**文件**：`rtl/core/cpu_clint.sv`（78行）
 
 **中断判定**：`mstatus.MIE && ((mie.MEIE && mip.MEIP) || (mie.MTIE && ext_mtip) || (mie.MSIE && mip.MSIP))`
 
@@ -411,7 +411,7 @@ IDLE → FETCH → DECODE → ┬→ EXEC → MEM → WB → FETCH (循环)
 
 ### 3.16 cpu_bus_bridge — CPU 总线桥接器
 
-**文件**：`rtl/core/cpu_bus_bridge.v`（157行）
+**文件**：`rtl/core/cpu_bus_bridge.sv`（157行）
 
 将 CPU 的 ICache/DCache MMIO 请求直接桥接为 AHB-Lite 主设备信号（HADDR/HTRANS/HWRITE/HSIZE/HWDATA 等），CPU 核心直接输出 AHB-Lite 信号。
 
@@ -437,7 +437,7 @@ IDLE → FETCH → DECODE → ┬→ EXEC → MEM → WB → FETCH (循环)
 
 ### 3.17 mu_unit — 乘除法单元
 
-**文件**：`rtl/MU/mu_unit.v`（197行）
+**文件**：`rtl/MU/mu_unit.sv`（197行）
 
 **M 扩展指令支持**：
 
@@ -461,7 +461,7 @@ IDLE → FETCH → DECODE → ┬→ EXEC → MEM → WB → FETCH (循环)
 
 ### 3.18 booth_multiplier — Booth 乘法器
 
-**文件**：`rtl/MU/booth_multiplier.v`（129行）
+**文件**：`rtl/MU/booth_multiplier.sv`（129行）
 
 - 基2 Booth 算法，32周期迭代
 - 3状态 FSM（IDLE/COMPUTE/FINISH）
@@ -471,7 +471,7 @@ IDLE → FETCH → DECODE → ┬→ EXEC → MEM → WB → FETCH (循环)
 
 ### 3.19 non_restoring_divider — 非恢复余数除法器
 
-**文件**：`rtl/MU/non_restoring_divider.v`（397行）
+**文件**：`rtl/MU/non_restoring_divider.sv`（397行）
 
 - 非恢复余数除法算法，32周期迭代
 - 4状态 FSM（IDLE/COMPUTE/FIX/FINISH）
@@ -482,12 +482,12 @@ IDLE → FETCH → DECODE → ┬→ EXEC → MEM → WB → FETCH (循环)
 
 ### 3.20 辅助模块
 
-#### op_regroup — 指令重组电路（`rtl/core/op_regroup.v`，50行）
+#### op_regroup — 指令重组电路（`rtl/core/op_regroup.sv`，50行）
 
 - 拆分32位指令为 opcode/funct3/funct7/rs1/rs2/rd
 - 生成五种立即数（I/S/B/U/J），均符号扩展
 
-#### branch_comparator — 分支比较器（`rtl/core/branch_comparator.v`，33行）
+#### branch_comparator — 分支比较器（`rtl/core/branch_comparator.sv`，33行）
 
 - 支持 BEQ/BNE/BLT/BGE/BLTU/BGEU
 - 有符号比较使用 `$signed`，无符号比较使用自然比较
@@ -553,7 +553,7 @@ cpu_bus_bridge (AHB Master, direct drive)
 
 ### 4.2 ahb_clint — AHB CLINT 从设备
 
-**文件**：`rtl/AHB-lite/ahb_clint.v`（81行）
+**文件**：`rtl/AHB-lite/ahb_clint.sv`（81行）
 
 RISC-V CLINT（Core Local Interruptor）的总线接口层，挂载在 AHB-Lite 总线上：
 
@@ -565,7 +565,7 @@ RISC-V CLINT（Core Local Interruptor）的总线接口层，挂载在 AHB-Lite 
 
 ### 4.3 ahb_plic — AHB PLIC 从设备
 
-**文件**：`rtl/AHB-lite/ahb_plic.v`（156行）
+**文件**：`rtl/AHB-lite/ahb_plic.sv`（156行）
 
 RISC-V PLIC（Platform-Level Interrupt Controller）的总线接口层，参数化 `NUM_SRC=8`：
 
@@ -578,19 +578,19 @@ RISC-V PLIC（Platform-Level Interrupt Controller）的总线接口层，参数�
 
 ### 4.4 ahb_decoder — AHB 地址译码器
 
-**文件**：`rtl/AHB-lite/ahb_decoder.v`（37行）
+**文件**：`rtl/AHB-lite/ahb_decoder.sv`（37行）
 
 参数化 `SLAVE_NUM` 的独立地址译码模块。**注意**：当前 `ahb_lite_bus` 未实例化此模块，地址译码通过内联 `assign` 语句实现。该模块使用 `HADDR[31:20]` 译码，与系统实际映射不同，保留供其他配置使用。
 
 ### 4.5 ahb_mux — AHB 读数据多路选择器
 
-**文件**：`rtl/AHB-lite/ahb_mux.v`（32行）
+**文件**：`rtl/AHB-lite/ahb_mux.sv`（32行）
 
 根据 `HSELx` 选择对应从设备的 HRDATA/HREADY/HRESP。
 
 ### 4.7 ahb_sram_slave — AHB SRAM 从设备
 
-**文件**：`rtl/AHB-lite/ahb_sram_slave.v`（121行）
+**文件**：`rtl/AHB-lite/ahb_sram_slave.sv`（121行）
 
 - 参数化 `MEM_DEPTH=262144`（1MB），`WAIT_STATES=0`
 - 内部实例化 Sram BRAM IP（Xilinx Block Memory Generator）
@@ -599,7 +599,7 @@ RISC-V PLIC（Platform-Level Interrupt Controller）的总线接口层，参数�
 
 ### 4.6 ahb_lite_bus — AHB 外设总线顶层
 
-**文件**：`rtl/AHB-lite/ahb_lite_bus.v`（262行）
+**文件**：`rtl/AHB-lite/ahb_lite_bus.sv`（262行）
 
 集成 ahb_mux + ahb_sram_slave + ahb_plic + ahb_clint + ahb_lite_to_apb + apb_decoder + apb_perips。地址译码内联实现（4从设备）。对外暴露 AHB-Lite 主设备接口、中断输出（o_clint_mtip/o_clint_msip/o_plic_eip）及外设 IO（GPIO/UART/SPI/Timer IRQ）。
 
@@ -637,25 +637,25 @@ ahb_lite_to_apb (Bridge)
 
 ### 5.2 ahb_lite_to_apb — AHB-to-APB 桥
 
-**文件**：`rtl/APB/ahb_lite_to_apb.v`（150行）
+**文件**：`rtl/APB/ahb_lite_to_apb.sv`（150行）
 
 3状态 FSM（IDLE→SETUP→ACCESS），将 AHB-Lite 传输转换为 APB 协议（PSEL/PENABLE/PWRITE/PADDR/PWDATA/PSTRB）。支持 PSLVERR 错误响应回传、背靠背传输（ACCESS 阶段检测新 AHB 请求直接进入 SETUP）。
 
 ### 5.3 apb_master — APB 主设备
 
-**文件**：`rtl/APB/apb_master.v`（101行）
+**文件**：`rtl/APB/apb_master.sv`（101行）
 
 3状态 FSM（IDLE→SETUP→ACCESS），将 req/resp 握手转换为 APB 协议信号。
 
 ### 5.4 apb_slave — APB 通用从设备
 
-**文件**：`rtl/APB/apb_slave.v`（66行）
+**文件**：`rtl/APB/apb_slave.sv`（66行）
 
 参数化 `REG_NUM=4`，内部维护 `regs[0:REG_NUM-1]` 寄存器数组。支持 PSTRB 字节掩码写入，零等待周期（PREADY=1），无错误响应（PSLVERR=0）。
 
 ### 5.5 apb_perips — APB 外设容器
 
-**文件**：`rtl/APB/perips/apb_perips.v`（119行）
+**文件**：`rtl/APB/perips/apb_perips.sv`（119行）
 
 实例化 GPIO/Timer/UART/SPI 四个外设，根据 `PSELx[3:0]` 选择对应从设备。输出各从设备的 PREADY/PRDATA/PSLVERR 供桥接逻辑使用。
 
@@ -663,12 +663,12 @@ ahb_lite_to_apb (Bridge)
 
 | 外设 | 文件 | 行数 | 说明 |
 |------|------|------|------|
-| GPIO | `perips/gpio.v` | 104 | 16bit 双向 IO，方向控制+数据寄存器 |
-| Timer | `perips/timer.v` | 85 | 32位计数器+阈值+使能，匹配时产生 IRQ |
-| UART | `perips/uart_top.v` | 153 | 顶层封装，含 RX/TX 子模块 |
-| UART RX | `perips/uart_rx.v` | 142 | 接收状态机，可配置波特率 |
-| UART TX | `perips/uart_tx.v` | 133 | 发送状态机，可配置波特率 |
-| SPI | `perips/spi.v` | 194 | SPI 主机，支持 MOSI/MISO/SS/CLK |
+| GPIO | `perips/gpio.sv` | 104 | 16bit 双向 IO，方向控制+数据寄存器 |
+| Timer | `perips/timer.sv` | 85 | 32位计数器+阈值+使能，匹配时产生 IRQ |
+| UART | `perips/uart_top.sv` | 153 | 顶层封装，含 RX/TX 子模块 |
+| UART RX | `perips/uart_rx.sv` | 142 | 接收状态机，可配置波特率 |
+| UART TX | `perips/uart_tx.sv` | 133 | 发送状态机，可配置波特率 |
+| SPI | `perips/spi.sv` | 194 | SPI 主机，支持 MOSI/MISO/SS/CLK |
 
 ---
 
@@ -693,16 +693,16 @@ alu_32bit
 
 | 模块 | 文件 | 行数 | 说明 |
 |------|------|------|------|
-| alu_32bit | `rtl/ALU/alu_32bit.v` | 104 | 顶层 ALU，路由控制码到各子模块 |
-| alu_result_selector | `rtl/ALU/alu_result_selector.v` | 51 | 13路 one-hot 结果选择 |
-| cla_adder_32bit | `rtl/ALU/cla_adder_32bit.v` | 27 | 32位超前进位加法器 |
-| cla_adder_16bit | `rtl/ALU/cla_adder_16bit.v` | 51 | 16位超前进位加法器 |
-| cla_adder_4bit | `rtl/ALU/cla_adder_4bit.v` | 32 | 4位超前进位加法器（叶节点） |
-| logic_unit | `rtl/ALU/logic_unit.v` | 27 | AND/OR/XOR/NOR/NOT/SLT/SLTU |
-| shifter | `rtl/ALU/shifter.v` | 138 | 桶形移位器，5级对数移位 |
-| lui | `rtl/ALU/lui.v` | 8 | LUI 单元 |
-| subtractor | `rtl/ALU/subtractor.v` | 14 | 减法器（取补+加法） |
-| mux | `rtl/ALU/mux.v` | 178 | 参数化多路选择器库（2/4/8/16:1） |
+| alu_32bit | `rtl/ALU/alu_32bit.sv` | 104 | 顶层 ALU，路由控制码到各子模块 |
+| alu_result_selector | `rtl/ALU/alu_result_selector.sv` | 51 | 13路 one-hot 结果选择 |
+| cla_adder_32bit | `rtl/ALU/cla_adder_32bit.sv` | 27 | 32位超前进位加法器 |
+| cla_adder_16bit | `rtl/ALU/cla_adder_16bit.sv` | 51 | 16位超前进位加法器 |
+| cla_adder_4bit | `rtl/ALU/cla_adder_4bit.sv` | 32 | 4位超前进位加法器（叶节点） |
+| logic_unit | `rtl/ALU/logic_unit.sv` | 27 | AND/OR/XOR/NOR/NOT/SLT/SLTU |
+| shifter | `rtl/ALU/shifter.sv` | 138 | 桶形移位器，5级对数移位 |
+| lui | `rtl/ALU/lui.sv` | 8 | LUI 单元 |
+| subtractor | `rtl/ALU/subtractor.sv` | 14 | 减法器（取补+加法） |
+| mux | `rtl/ALU/mux.sv` | 178 | 参数化多路选择器库（2/4/8/16:1） |
 
 ### 6.3 乘除法单元层次
 
@@ -714,9 +714,9 @@ mu_unit
 
 | 模块 | 文件 | 行数 | 说明 |
 |------|------|------|------|
-| mu_unit | `rtl/MU/mu_unit.v` | 197 | 乘除法调度，MULHSU/MULHU 修正 |
-| booth_multiplier | `rtl/MU/booth_multiplier.v` | 129 | 基2 Booth 乘法，32周期 |
-| non_restoring_divider | `rtl/MU/non_restoring_divider.v` | 397 | 非恢复余数除法，32周期+修正 |
+| mu_unit | `rtl/MU/mu_unit.sv` | 197 | 乘除法调度，MULHSU/MULHU 修正 |
+| booth_multiplier | `rtl/MU/booth_multiplier.sv` | 129 | 基2 Booth 乘法，32周期 |
+| non_restoring_divider | `rtl/MU/non_restoring_divider.sv` | 397 | 非恢复余数除法，32周期+修正 |
 
 ---
 
@@ -776,7 +776,7 @@ ICache MMIO 时 `mmio_req=cpu_req_valid`，DCache MMIO 时透传 `cpu_req_wen`/`
 
 **中断架构说明**：
 
-- **MTIP 直连**：`cpu_clint.v` 中 `mtip_bit` 直接取自 `ext_mtip` 端口（不经 CSR mip），这是 RISC-V 特权架构规范——CLINT 产生的本地定时器中断直连 hart，无需 PLIC 仲裁
+- **MTIP 直连**：`cpu_clint.sv` 中 `mtip_bit` 直接取自 `ext_mtip` 端口（不经 CSR mip），这是 RISC-V 特权架构规范——CLINT 产生的本地定时器中断直连 hart，无需 PLIC 仲裁
 - **MEIP 经 PLIC**：外部中断（包括 APB Timer IRQ）经 PLIC 统一仲裁后输出 EIP，符合 RISC-V 规范
 - **双定时器路径**：CLINT mtime 产生 MTIP（Cause 7，直连），APB Timer 产生 MEIP（Cause 11，经 PLIC），两者独立
 - **PLIC 当前仅 1 个有效源**：`src_irq[1]` = APB Timer IRQ，`src_irq[0,2-7]` 接地
@@ -795,7 +795,7 @@ ICache MMIO 时 `mmio_req=cpu_req_valid`，DCache MMIO 时透传 `cpu_req_wen`/`
 
 ### 8.3 中断优先级与仲裁
 
-`cpu_clint.v` 中中断优先级编码（外部 > 软件 > 定时器）：
+`cpu_clint.sv` 中中断优先级编码（外部 > 软件 > 定时器）：
 
 ```verilog
 interrupt_cause = (meie_bit && meip_bit) ? 32'h8000000B :   // 外部中断优先
@@ -820,17 +820,17 @@ PLIC 内部优先级仲裁：遍历所有 enabled && pending 源，找优先级�
 
 | Testbench | 文件 | 行数 | 测试内容 |
 |-----------|------|------|----------|
-| tb_simple_cpu_top | `tb/tb_simple_cpu_top.v` | 220 | CPU 综合测试（ALU/访存/对齐/CSR/异常/中断） |
-| tb_simple_cpu_compute | `tb/tb_simple_cpu_compute.v` | 220 | CPU 运算指令测试（M扩展+算术） |
-| tb_simple_cpu_trap | `tb/tb_simple_cpu_trap.v` | 191 | CPU 异常/中断测试 |
-| tb_uart_hello | `tb/tb_uart_hello.v` | 252 | UART Hello World 发送测试 |
-| tb_ahb_bus | `tb/tb_ahb_bus.v` | 175 | AHB-Lite 总线功能测试 |
-| tb_apb_perips | `tb/tb_apb_perips.v` | 202 | APB 外设读写测试 |
-| tb_led_marquee | `tb/tb_led_marquee.v` | 189 | LED 走马灯测试 |
-| lcd_module_stub | `tb/lcd_module_stub.v` | 34 | LCD 模块仿真桩 |
-| tb_alu_cpu_integration | `tb/ALU/tb_alu_cpu_integration.v` | 149 | ALU 组合逻辑集成测试 |
-| tb_mu_unit | `tb/ALU/tb_mu_unit.v` | 227 | 乘除法单元测试 |
-| tb_non_restoring_divider | `tb/ALU/tb_non_restoring_divider.v` | 204 | 非恢复余数除法器测试 |
+| tb_simple_cpu_top | `tb/tb_simple_cpu_top.sv` | 220 | CPU 综合测试（ALU/访存/对齐/CSR/异常/中断） |
+| tb_simple_cpu_compute | `tb/tb_simple_cpu_compute.sv` | 220 | CPU 运算指令测试（M扩展+算术） |
+| tb_simple_cpu_trap | `tb/tb_simple_cpu_trap.sv` | 191 | CPU 异常/中断测试 |
+| tb_uart_hello | `tb/tb_uart_hello.sv` | 252 | UART Hello World 发送测试 |
+| tb_ahb_bus | `tb/tb_ahb_bus.sv` | 175 | AHB-Lite 总线功能测试 |
+| tb_apb_perips | `tb/tb_apb_perips.sv` | 202 | APB 外设读写测试 |
+| tb_led_marquee | `tb/tb_led_marquee.sv` | 189 | LED 走马灯测试 |
+| lcd_module_stub | `tb/lcd_module_stub.sv` | 34 | LCD 模块仿真桩 |
+| tb_alu_cpu_integration | `tb/ALU/tb_alu_cpu_integration.sv` | 149 | ALU 组合逻辑集成测试 |
+| tb_mu_unit | `tb/ALU/tb_mu_unit.sv` | 227 | 乘除法单元测试 |
+| tb_non_restoring_divider | `tb/ALU/tb_non_restoring_divider.sv` | 204 | 非恢复余数除法器测试 |
 
 ### 9.2 测试程序
 
@@ -862,7 +862,7 @@ PLIC 内部优先级仲裁：遍历所有 enabled && pending 源，找优先级�
 
 ### 10.1 system_top — FPGA 顶层
 
-**文件**：`rtl/system_top.v`（242行）
+**文件**：`rtl/system_top.sv`（242行）
 
 集成 CPU + ahb_lite_bus + LCD 显示模块：
 
@@ -921,7 +921,7 @@ system_top
 | 总线协议 | 自定义 Bus4LZU 仿真代理 | AMBA AHB-Lite + APB 标准协议 |
 | 存储器 | 内部 BRAM 数组 + $readmemh | Sram BRAM IP (Xilinx) |
 | 外设 | 内部 Timer 逻辑 | APB 总线挂载 GPIO/Timer/UART/SPI |
-| Cache | 行为模型 (icache.v/dcache.v) | BRAM IP + 控制器 (icache_ctrl/dcache_ctrl) |
+| Cache | 行为模型 (icache.sv/dcache.sv) | BRAM IP + 控制器 (icache_ctrl/dcache_ctrl) |
 | 地址空间 | 0x1001xxxx 手动过滤 | bit31 译码：1=MMIO, 0=Cache (DRAM区) |
 | CPU 桥接 | 直连 mock | cpu_bus_bridge (CPU→AHB direct) |
 | init_sig | 100周期高电平冻结 | 硬连线 1'b0（总线始终就绪） |
@@ -1008,83 +1008,83 @@ system_top
 dev/
 ├── rtl/                              # RTL 源码
 │   ├── core/                         # CPU 核心模块
-│   │   ├── core_top.v          # CPU 顶层 (477行)
-│   │   ├── cpu_controller.v          # FSM 控制器 (133行)
-│   │   ├── cpu_fetch.v               # 取指阶段 (30行)
-│   │   ├── cpu_decode.v              # 译码阶段 (360行)
-│   │   ├── cpu_execute.v             # 执行阶段 (249行)
-│   │   ├── cpu_mem.v                 # 访存阶段 (242行)
-│   │   ├── cpu_wb.v                  # 回写阶段 (41行)
-│   │   ├── cpu_regfile.v             # 寄存器堆 (34行)
-│   │   ├── cpu_csr.v                 # CSR 寄存器 (179行)
-│   │   ├── cpu_csr_interface.v       # CSR 指令接口 (110行)
-│   │   ├── cpu_trap_csr.v            # 异常/CSR 封装 (125行)
-│   │   ├── cpu_trap_manager.v        # 异常检测与trap管理 (150行)
-│   │   ├── cpu_clint.v               # 中断控制逻辑 (78行)
-│   │   ├── cpu_bus_bridge.v          # CPU→AHB 总线桥接 (157行)
-│   │   ├── icache_ctrl.v             # ICache 控制器 (60行)
-│   │   ├── dcache_ctrl.v             # DCache 控制器 (76行)
-│   │   ├── icache.v                  # ICache BRAM IP 包装 (62行)
-│   │   ├── dcache.v                  # DCache BRAM IP 包装 (62行)
-│   │   ├── MMU.v                     # 内存管理单元 (10行)
-│   │   ├── op_regroup.v              # 指令重组 (50行)
-│   │   └── branch_comparator.v       # 分支比较器 (33行)
+│   │   ├── core_top.sv          # CPU 顶层 (477行)
+│   │   ├── cpu_controller.sv          # FSM 控制器 (133行)
+│   │   ├── cpu_fetch.sv               # 取指阶段 (30行)
+│   │   ├── cpu_decode.sv              # 译码阶段 (360行)
+│   │   ├── cpu_execute.sv             # 执行阶段 (249行)
+│   │   ├── cpu_mem.sv                 # 访存阶段 (242行)
+│   │   ├── cpu_wb.sv                  # 回写阶段 (41行)
+│   │   ├── cpu_regfile.sv             # 寄存器堆 (34行)
+│   │   ├── cpu_csr.sv                 # CSR 寄存器 (179行)
+│   │   ├── cpu_csr_interface.sv       # CSR 指令接口 (110行)
+│   │   ├── cpu_trap_csr.sv            # 异常/CSR 封装 (125行)
+│   │   ├── cpu_trap_manager.sv        # 异常检测与trap管理 (150行)
+│   │   ├── cpu_clint.sv               # 中断控制逻辑 (78行)
+│   │   ├── cpu_bus_bridge.sv          # CPU→AHB 总线桥接 (157行)
+│   │   ├── icache_ctrl.sv             # ICache 控制器 (60行)
+│   │   ├── dcache_ctrl.sv             # DCache 控制器 (76行)
+│   │   ├── icache.sv                  # ICache BRAM IP 包装 (62行)
+│   │   ├── dcache.sv                  # DCache BRAM IP 包装 (62行)
+│   │   ├── MMU.sv                     # 内存管理单元 (10行)
+│   │   ├── op_regroup.sv              # 指令重组 (50行)
+│   │   └── branch_comparator.sv       # 分支比较器 (33行)
 │   ├── ALU/                           # ALU 模块
-│   │   ├── alu_32bit.v               # 顶层 ALU (104行)
-│   │   ├── alu_result_selector.v     # 结果选择器 (51行)
-│   │   ├── cla_adder_32bit.v         # 32位 CLA 加法器 (27行)
-│   │   ├── cla_adder_16bit.v         # 16位 CLA 加法器 (51行)
-│   │   ├── cla_adder_4bit.v          # 4位 CLA 加法器 (32行)
-│   │   ├── logic_unit.v              # 逻辑运算单元 (27行)
-│   │   ├── shifter.v                 # 桶形移位器 (138行)
-│   │   ├── lui.v                     # LUI 单元 (8行)
-│   │   ├── subtractor.v              # 减法器 (14行)
-│   │   └── mux.v                     # 多路选择器库 (178行)
+│   │   ├── alu_32bit.sv               # 顶层 ALU (104行)
+│   │   ├── alu_result_selector.sv     # 结果选择器 (51行)
+│   │   ├── cla_adder_32bit.sv         # 32位 CLA 加法器 (27行)
+│   │   ├── cla_adder_16bit.sv         # 16位 CLA 加法器 (51行)
+│   │   ├── cla_adder_4bit.sv          # 4位 CLA 加法器 (32行)
+│   │   ├── logic_unit.sv              # 逻辑运算单元 (27行)
+│   │   ├── shifter.sv                 # 桶形移位器 (138行)
+│   │   ├── lui.sv                     # LUI 单元 (8行)
+│   │   ├── subtractor.sv              # 减法器 (14行)
+│   │   └── mux.sv                     # 多路选择器库 (178行)
 │   ├── MU/                            # 乘除法单元
-│   │   ├── mu_unit.v                 # 乘除法调度 (197行)
-│   │   ├── booth_multiplier.v        # Booth 乘法器 (129行)
-│   │   └── non_restoring_divider.v   # 非恢复余数除法器 (397行)
+│   │   ├── mu_unit.sv                 # 乘除法调度 (197行)
+│   │   ├── booth_multiplier.sv        # Booth 乘法器 (129行)
+│   │   └── non_restoring_divider.sv   # 非恢复余数除法器 (397行)
 │   ├── AHB-lite/                     # AHB-Lite 总线
-│   │   ├── ahb_lite_bus.v          # AHB 外设总线顶层 (262行)
-│   │   ├── ahb_clint.v              # AHB CLINT 从设备 (81行)
-│   │   ├── ahb_plic.v               # AHB PLIC 从设备 (156行)
-│   │   ├── ahb_decoder.v             # AHB 地址译码 (37行, 未实例化)
-│   │   ├── ahb_mux.v                 # AHB 读数据 MUX (32行)
-│   │   ├── ahb_sram_slave.v          # AHB SRAM 从设备 (121行)
-│   │   ├── ahb_def.vh                # AHB 宏定义
-│   │   └── ip/sram_model.v           # SRAM 仿真模型 (62行)
+│   │   ├── ahb_lite_bus.sv          # AHB 外设总线顶层 (262行)
+│   │   ├── ahb_clint.sv              # AHB CLINT 从设备 (81行)
+│   │   ├── ahb_plic.sv               # AHB PLIC 从设备 (156行)
+│   │   ├── ahb_decoder.sv             # AHB 地址译码 (37行, 未实例化)
+│   │   ├── ahb_mux.sv                 # AHB 读数据 MUX (32行)
+│   │   ├── ahb_sram_slave.sv          # AHB SRAM 从设备 (121行)
+│   │   ├── ahb_def.svh                # AHB 宏定义
+│   │   └── ip/sram_model.sv           # SRAM 仿真模型 (62行)
 │   ├── APB/                           # APB 总线
-│   │   ├── ahb_lite_to_apb.v         # AHB→APB 桥 (150行)
-│   │   ├── apb_master.v              # APB 主设备 (101行)
-│   │   ├── apb_slave.v               # APB 通用从设备 (66行)
-│   │   ├── apb_decoder.v             # APB 地址译码 (35行)
-│   │   ├── apb_bus.v                 # APB 独立总线 (132行)
-│   │   ├── apb_def.vh                # APB 宏定义
+│   │   ├── ahb_lite_to_apb.sv         # AHB→APB 桥 (150行)
+│   │   ├── apb_master.sv              # APB 主设备 (101行)
+│   │   ├── apb_slave.sv               # APB 通用从设备 (66行)
+│   │   ├── apb_decoder.sv             # APB 地址译码 (35行)
+│   │   ├── apb_bus.sv                 # APB 独立总线 (132行)
+│   │   ├── apb_def.svh                # APB 宏定义
 │   │   ├── header/
-│   │   │   ├── bus_define.vh         # 总线公共定义
-│   │   │   └── timer_define.vh       # Timer 寄存器定义
+│   │   │   ├── bus_define.svh         # 总线公共定义
+│   │   │   └── timer_define.svh       # Timer 寄存器定义
 │   │   └── perips/                    # APB 外设
-│   │       ├── apb_perips.v          # 外设容器 (119行)
-│   │       ├── gpio.v                # GPIO (104行)
-│   │       ├── timer.v               # Timer (85行)
-│   │       ├── uart_top.v            # UART 顶层 (153行)
-│   │       ├── uart_rx.v             # UART 接收 (142行)
-│   │       ├── uart_tx.v             # UART 发送 (133行)
-│   │       └── spi.v                 # SPI 主机 (194行)
-│   └── system_top.v                  # FPGA 系统顶层 (242行)
+│   │       ├── apb_perips.sv          # 外设容器 (119行)
+│   │       ├── gpio.sv                # GPIO (104行)
+│   │       ├── timer.sv               # Timer (85行)
+│   │       ├── uart_top.sv            # UART 顶层 (153行)
+│   │       ├── uart_rx.sv             # UART 接收 (142行)
+│   │       ├── uart_tx.sv             # UART 发送 (133行)
+│   │       └── spi.sv                 # SPI 主机 (194行)
+│   └── system_top.sv                  # FPGA 系统顶层 (242行)
 ├── tb/                               # 测试台
-│   ├── tb_simple_cpu_top.v           # CPU 综合测试 (220行)
-│   ├── tb_simple_cpu_compute.v       # CPU 运算测试 (220行)
-│   ├── tb_simple_cpu_trap.v          # CPU 异常测试 (191行)
-│   ├── tb_uart_hello.v               # UART Hello 测试 (252行)
-│   ├── tb_ahb_bus.v                  # AHB 总线测试 (175行)
-│   ├── tb_apb_perips.v               # APB 外设测试 (202行)
-│   ├── tb_led_marquee.v              # LED 跑马灯测试 (189行)
-│   ├── lcd_module_stub.v             # LCD 仿真桩 (34行)
+│   ├── tb_simple_cpu_top.sv           # CPU 综合测试 (220行)
+│   ├── tb_simple_cpu_compute.sv       # CPU 运算测试 (220行)
+│   ├── tb_simple_cpu_trap.sv          # CPU 异常测试 (191行)
+│   ├── tb_uart_hello.sv               # UART Hello 测试 (252行)
+│   ├── tb_ahb_bus.sv                  # AHB 总线测试 (175行)
+│   ├── tb_apb_perips.sv               # APB 外设测试 (202行)
+│   ├── tb_led_marquee.sv              # LED 跑马灯测试 (189行)
+│   ├── lcd_module_stub.sv             # LCD 仿真桩 (34行)
 │   └── ALU/                           # ALU/MU 测试
-│       ├── tb_alu_cpu_integration.v  # ALU 集成测试 (149行)
-│       ├── tb_mu_unit.v              # MU 单元测试 (227行)
-│       └── tb_non_restoring_divider.v # 除法器测试 (204行)
+│       ├── tb_alu_cpu_integration.sv  # ALU 集成测试 (149行)
+│       ├── tb_mu_unit.sv              # MU 单元测试 (227行)
+│       └── tb_non_restoring_divider.sv # 除法器测试 (204行)
 ├── program_source/                   # 测试程序
 │   ├── cpu_test.s / .hex / .coe      # CPU 综合测试程序
 │   ├── cpu_test_compute.s / .hex / .coe  # CPU 运算测试程序
@@ -1140,7 +1140,7 @@ dev/
 **仿真命令示例**：
 
 ```bash
-python tools/mk.py --top dev/tb/tb_simple_cpu_top.v
+python tools/mk.py --top dev/tb/tb_simple_cpu_top.sv
 ```
 
 **程序编译命令示例**：

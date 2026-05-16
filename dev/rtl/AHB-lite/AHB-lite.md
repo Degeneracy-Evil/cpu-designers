@@ -6,11 +6,11 @@
 
 ```
 AHB-lite/
-├── ahb_def.vh            # AHB-Lite 参数与常量定义
-├── ahb_lite_bus.v        # AHB 外设总线顶层（集成decoder+mux+sram_slave+bridge）
-├── ahb_decoder.v         # 地址译码器（HADDR→HSELx）
-├── ahb_mux.v             # 读数据/响应多路选择器
-├── ahb_sram_slave.v      # SRAM 从设备（存储器）
+├── ahb_def.svh            # AHB-Lite 参数与常量定义
+├── ahb_lite_bus.sv        # AHB 外设总线顶层（集成decoder+mux+sram_slave+bridge）
+├── ahb_decoder.sv         # 地址译码器（HADDR→HSELx）
+├── ahb_mux.sv             # 读数据/响应多路选择器
+├── ahb_sram_slave.sv      # SRAM 从设备（存储器）
 └── AHB-lite.md           # 本文档
 ```
 
@@ -25,4 +25,4 @@ AHB-lite/
 
 ## 与APB的连接
 
-通过 `rtl/ABP/ahb_lite_to_apb.v` 桥接模块实现 AHB-Lite→APB 转换，连接低速外设。
+通过 `rtl/ABP/ahb_lite_to_apb.sv` 桥接模块实现 AHB-Lite→APB 转换，连接低速外设。

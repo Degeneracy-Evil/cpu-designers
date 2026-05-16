@@ -1,8 +1,35 @@
 # =============================================================================
-# vivado_sim.tcl — Vivado 仿真自动化脚本
+# vivado_sim.tcl — Vivado 仿真自动化脚本 (SystemVerilog)
+#
 # 用法:
-#   1. Vivado TCL Shell 直接运行:  source vivado_sim.tcl
-#   2. 通过 tcl-tunnel 远程执行:   source <repo_root>/vivado_sim.tcl
+#   vivado.bat -mode tcl
+#   source vivado_sim.tcl
+#   vivado_sim ?-tb <name>? ?-step <step>? ?-runtime <t>? ?-clean? ?-reuse?
+#
+# 参数:
+#   -tb <testbench_name>   指定 testbench (默认 tb_simple_cpu_top)
+#   -step <step>           执行到哪一步: create|ip|constrs|tb|sim|all (默认 all)
+#   -runtime <time>        仿真运行时间 (默认按 tb_runtime_map 映射)
+#   -clean                 删除已有工程目录后重建
+#   -reuse                 复用已打开的工程，仅切换 tb 并仿真 (等价 -step tb)
+#
+# 典型用法:
+#   # 首次: 全流程
+#   vivado_sim -tb tb_simple_cpu_top -step all
+#   # 切换 tb: 复用已有工程，无需重建
+#   vivado_sim -tb tb_ahb_bus -reuse
+#
+# 可选 testbench:
+#   tb_simple_cpu_top     — CPU 全功能测试 (34 PASS, 需要 cpu_test.hex)
+#   tb_simple_cpu_compute — CPU 计算/访存测试 (42 PASS, 需要 cpu_test_compute.hex)
+#   tb_simple_cpu_trap    — CPU 异常/陷阱测试 (10 PASS, 需要 cpu_test_trap.hex)
+#   tb_uart_hello         — UART 发送测试 (12 PASS, 需要 uart_hello.hex)
+#   tb_led_marquee        — LED 走马灯测试 (16 PASS, 需要 led_marquee.hex)
+#   tb_ahb_bus            — AHB 总线测试 (3 PASS, 无需 hex)
+#   tb_apb_perips         — APB 外设测试 (10 PASS, 无需 hex)
+#   tb_alu_cpu_integration — ALU 集成测试
+#   tb_mu_unit            — 乘除法器测试
+#   tb_non_restoring_divider — 除法器测试
 #
 # 注意:
 #   - testbench 中的 $readmemh 使用相对路径，iverilog 可直接解析
@@ -12,36 +39,20 @@
 # =============================================================================
 
 # ---------------------------------------------------------------------------
-# 用户可配置变量 (根据实际环境修改)
+# 路径与配置 (脚本加载时初始化)
 # ---------------------------------------------------------------------------
-
-# 项目名称
-set proj_name       "simplecpu_bus"
-
-# FPGA 器件型号
-set device_part     "xc7a200tfbg676-2"
-
-# === 路径设置 ===
-# base_dir 自动取脚本所在目录, 无需手动修改
-# 若需覆盖, 可取消注释并修改下行:
-# set base_dir        "E:/Xprogram/FPGA/tmp"
 if { ![info exists base_dir] } {
     set base_dir    [file dirname [file normalize [info script]]]
 }
 
-# 项目输出目录 (Vivado 工程文件统一存放于 project/ 子目录)
-set proj_dir        "${base_dir}/project/${proj_name}"
+set proj_name       "simplecpu_bus"
+set device_part     "xc7a200tfbg676-2"
 
-# RTL 源文件根目录 (指向本仓库 dev/ 目录)
+set proj_dir        "${base_dir}/project/${proj_name}"
 set dev_dir         "${base_dir}/dev"
 
-# ALU RTL 目录
 set alu_rtl_dir     "${dev_dir}/rtl/ALU"
-
-# MU (乘除法器) RTL 目录
 set mu_rtl_dir      "${dev_dir}/rtl/MU"
-
-# CPU RTL 目录
 set cpu_core_dir    "${dev_dir}/rtl/core"
 set ahb_dir         "${dev_dir}/rtl/AHB-lite"
 set ahb_ip_dir      "${dev_dir}/rtl/AHB-lite/ip"
@@ -50,34 +61,13 @@ set apb_header_dir  "${dev_dir}/rtl/APB/header"
 set apb_perips_dir  "${dev_dir}/rtl/APB/perips"
 set sys_rtl_dir     "${dev_dir}/rtl"
 
-# Testbench 目录
 set tb_dir          "${dev_dir}/tb"
-
-# 程序源文件目录 (COE / HEX 文件)
 set prog_dir        "${dev_dir}/program_source"
-
-# FPGA 目录 (约束文件、DCP)
 set fpga_dir        "${dev_dir}/fpga"
-
-# === IP 路径 ===
 set ips_dir         "${base_dir}/Reference/ips"
 
-# === 仿真配置 ===
-# 选择 testbench:
-#   tb_simple_cpu_top     — CPU 全功能测试 (34 PASS, 需要 cpu_test.hex)
-#   tb_simple_cpu_compute — CPU 计算/访存测试 (42 PASS, 需要 cpu_test_compute.hex)
-#   tb_simple_cpu_trap    — CPU 异常/陷阱测试 (10 PASS, 需要 cpu_test_trap.hex)
-#   tb_uart_hello         — UART 发送测试 (12 PASS, 需要 uart_hello.hex)
-#   tb_led_marquee        — LED 走马灯测试 (16 PASS, 需要 led_marquee.hex)
-#   tb_ahb_bus            — AHB 总线测试 (3 PASS, 无需 hex)
-#   tb_apb_perips         — APB 外设测试 (10 PASS, 无需 hex)
-#   tb_cpu_bus_adapter    — CPU 总线适配器测试 (6 PASS, 无需 hex)
-set tb_name         "tb_simple_cpu_top"
+set tcl_dir         "${base_dir}/tools/tcl"
 
-# === testbench → COE/HEX 文件映射 ===
-# ICache BRAM IP 的 COE 初始化文件 (设为 "" 则不加载 COE)
-# 仅对使用 CPU 全系统的 testbench 有意义 (tb_simple_cpu_top 等)
-# tb_ahb_bus / tb_apb_perips / tb_cpu_bus_adapter 不需要 COE
 array set tb_coe_map {
     tb_simple_cpu_top     "cpu_test.coe"
     tb_simple_cpu_compute "cpu_test_compute.coe"
@@ -86,10 +76,11 @@ array set tb_coe_map {
     tb_led_marquee        "led_marquee.coe"
     tb_ahb_bus            ""
     tb_apb_perips         ""
-    tb_cpu_bus_adapter    ""
+    tb_alu_cpu_integration ""
+    tb_mu_unit            ""
+    tb_non_restoring_divider ""
 }
 
-# === testbench → 仿真运行时间映射 (ns) ===
 array set tb_runtime_map {
     tb_simple_cpu_top     "5ms"
     tb_simple_cpu_compute "5ms"
@@ -98,205 +89,108 @@ array set tb_runtime_map {
     tb_led_marquee        "2s"
     tb_ahb_bus            "5000ns"
     tb_apb_perips         "2000ns"
-    tb_cpu_bus_adapter    "5000ns"
+    tb_alu_cpu_integration "5000ns"
+    tb_mu_unit            "5000ns"
+    tb_non_restoring_divider "5000ns"
 }
 
-set icache_coe_file ""
-set dcache_coe_file ""
-if { [info exists tb_coe_map($tb_name)] } {
-    set coe_name $tb_coe_map($tb_name)
-    if { $coe_name ne "" } {
-        set icache_coe_file "${prog_dir}/${coe_name}"
-        set dcache_coe_file "${prog_dir}/${coe_name}"
+# ---------------------------------------------------------------------------
+# 主 proc: vivado_sim
+# ---------------------------------------------------------------------------
+proc vivado_sim {args} {
+    global base_dir proj_name device_part proj_dir dev_dir
+    global alu_rtl_dir mu_rtl_dir cpu_core_dir ahb_dir ahb_ip_dir
+    global apb_dir apb_header_dir apb_perips_dir sys_rtl_dir
+    global tb_dir prog_dir fpga_dir ips_dir tcl_dir
+    global tb_coe_map tb_runtime_map
+
+    set opt_tb       "tb_simple_cpu_top"
+    set opt_step     "all"
+    set opt_runtime  ""
+    set opt_clean    0
+    set opt_reuse    0
+
+    set i 0
+    while { $i < [llength $args] } {
+        set arg [lindex $args $i]
+        switch -exact -- $arg {
+            -tb       { incr i; set opt_tb      [lindex $args $i] }
+            -step     { incr i; set opt_step    [lindex $args $i] }
+            -runtime  { incr i; set opt_runtime [lindex $args $i] }
+            -clean    { set opt_clean 1 }
+            -reuse    { set opt_reuse 1 }
+            default   { puts "WARNING: 未知参数: $arg" }
+        }
+        incr i
     }
-}
 
-set sim_run_time "100000ns"
-if { [info exists tb_runtime_map($tb_name)] } {
-    set sim_run_time $tb_runtime_map($tb_name)
-}
-
-# IP 输出目录
-set ip_output_dir   "${proj_dir}/${proj_name}.srcs/sources_1/ip"
-
-# ---------------------------------------------------------------------------
-# Step 1: 创建 Vivado 工程
-# ---------------------------------------------------------------------------
-puts "========== Step 1: 创建工程 =========="
-
-create_project $proj_name $proj_dir -part $device_part -force
-set_property target_language Verilog [current_project]
-set_property simulator_language Verilog [current_project]
-
-puts "工程已创建: $proj_dir"
-
-# ---------------------------------------------------------------------------
-# Step 2: 添加 RTL 源文件
-# ---------------------------------------------------------------------------
-puts "========== Step 2: 添加 RTL 源文件 =========="
-
-# ALU 模块 (12 个文件)
-add_files [glob -directory $alu_rtl_dir *.v]
-
-# MU 乘除法器模块 (3 个文件)
-add_files [glob -directory $mu_rtl_dir *.v]
-
-# CPU 核心模块 (Exclude icache.v and dcache.v simulation models)
-set cpu_files [glob -directory $cpu_core_dir *.v]
-set filtered_cpu []
-foreach f $cpu_files {
-    if {![string match "*icache.v" $f] && ![string match "*dcache.v" $f]} {
-        lappend filtered_cpu $f
+    if { $opt_reuse } {
+        set opt_step "tb"
     }
-}
-if {[llength $filtered_cpu] > 0} {
-    add_files $filtered_cpu
-}
 
-# AHB-Lite 总线 (4 个文件)
-add_files [glob -directory $ahb_dir *.v]
+    puts "参数: -tb $opt_tb -step $opt_step -runtime $opt_runtime -clean $opt_clean -reuse $opt_reuse"
 
-# AHB-Lite IP (sram_model.v is excluded to use real IP core)
-# add_files [glob -directory $ahb_ip_dir *.v]
+    set tb_name $opt_tb
 
-# APB 总线 (5 个文件, 不含 perips 子目录)
-add_files [glob -directory $apb_dir *.v]
+    set icache_coe_file ""
+    set dcache_coe_file ""
+    if { [info exists tb_coe_map($tb_name)] } {
+        set coe_name $tb_coe_map($tb_name)
+        if { $coe_name ne "" } {
+            set icache_coe_file "${prog_dir}/${coe_name}"
+            set dcache_coe_file "${prog_dir}/${coe_name}"
+        }
+    }
 
-# APB 外设 (7 个文件)
-add_files [glob -directory $apb_perips_dir *.v]
+    if { $opt_runtime ne "" } {
+        set sim_run_time $opt_runtime
+    } elseif { [info exists tb_runtime_map($tb_name)] } {
+        set sim_run_time $tb_runtime_map($tb_name)
+    } else {
+        set sim_run_time "100000ns"
+    }
 
-# 系统顶层
-add_files "${sys_rtl_dir}/system_top.v"
+    set ip_output_dir "${proj_dir}/${proj_name}.srcs/sources_1/ip"
 
-update_compile_order -fileset sources_1
+    if { $opt_clean && [file exists $proj_dir] } {
+        puts "删除已有工程目录: $proj_dir"
+        file delete -force $proj_dir
+    }
 
-puts "RTL 源文件添加完成"
+    set steps [list create ip constrs tb sim]
 
-# ---------------------------------------------------------------------------
-# Step 3: 设置头文件搜索路径 (.vh 文件不能通过 add_files 添加)
-# ---------------------------------------------------------------------------
-puts "========== Step 3: 设置 include 目录 =========="
+    if { $opt_step eq "all" } {
+        set run_steps $steps
+    } else {
+        set run_steps [list]
+        set found 0
+        foreach s $steps {
+            if { $s eq $opt_step } { set found 1 }
+            if { $found } { lappend run_steps $s }
+        }
+        if { ![llength $run_steps] } {
+            puts "ERROR: 未知 step '$opt_step', 可选: [join $steps {, }], all"
+            return
+        }
+    }
 
-set_property include_dirs [list \
-    $alu_rtl_dir \
-    $mu_rtl_dir \
-    $cpu_core_dir \
-    $ahb_dir \
-    $ahb_ip_dir \
-    $apb_dir \
-    $apb_header_dir \
-    $apb_perips_dir \
-    $tb_dir \
-] [current_fileset]
+    puts "将执行步骤: [join $run_steps { -> }]"
 
-puts "Include 目录已设置 (9 个目录)"
+    foreach s $run_steps {
+        switch -exact -- $s {
+            create  { source "${tcl_dir}/create_proj.tcl" }
+            ip      { source "${tcl_dir}/setup_ip.tcl" }
+            constrs { source "${tcl_dir}/add_constrs.tcl" }
+            tb      { source "${tcl_dir}/add_tb.tcl" }
+            sim     { source "${tcl_dir}/run_sim.tcl" }
+        }
+    }
 
-# ---------------------------------------------------------------------------
-# Step 4: 导入 IP 并配置 ICache COE
-# ---------------------------------------------------------------------------
-puts "========== Step 4: 导入 IP 并配置 ICache COE =========="
-
-# 导入/读取已生成的 IP
-read_ip "${ips_dir}/icache/icache.xci"
-read_ip "${ips_dir}/dcache/dcache.xci"
-read_ip "${ips_dir}/Sram/Sram.xci"
-
-if { $icache_coe_file ne "" } {
-    set_property -dict [list \
-        CONFIG.Load_Init_File {true} \
-        CONFIG.Coe_File $icache_coe_file \
-    ] [get_ips icache]
-    
-    set_property -dict [list \
-        CONFIG.Load_Init_File {true} \
-        CONFIG.Coe_File $dcache_coe_file \
-    ] [get_ips dcache]
-    puts "ICache 和 DCache IP 已配置 (COE: $icache_coe_file)"
-} else {
-    set_property -dict [list \
-        CONFIG.Load_Init_File {false} \
-    ] [get_ips icache]
-
-    set_property -dict [list \
-        CONFIG.Load_Init_File {false} \
-    ] [get_ips dcache]
-    puts "ICache 和 DCache IP 已配置 (无 COE 初始化)"
+    puts "========================================"
+    puts "vivado_sim 执行完成"
+    puts "Testbench: $tb_name"
+    puts "Steps: [join $run_steps {, }]"
+    puts "========================================"
 }
 
-generate_target all [get_ips icache]
-generate_target all [get_ips dcache]
-generate_target all [get_ips Sram]
-
-puts "IP 导入与配置完成"
-
-# ---------------------------------------------------------------------------
-# Step 5: 添加其他源文件 (DCP, XDC)
-# ---------------------------------------------------------------------------
-puts "========== Step 5: 添加 DCP 与 constraints =========="
-
-# 添加 LCD DCP 作为源文件
-add_files "${fpga_dir}/lcd_module.dcp"
-
-# 添加 XDC 作为约束文件
-add_files -fileset constrs_1 "${fpga_dir}/cpu.xdc"
-
-puts "DCP 和约束文件添加完成"
-
-# ---------------------------------------------------------------------------
-# Step 6: 添加 testbench
-# ---------------------------------------------------------------------------
-puts "========== Step 6: 添加 testbench =========="
-
-# 添加 testbench 主文件
-add_files -fileset sim_1 "${tb_dir}/${tb_name}.v"
-
-# 添加 LCD 模块 stub (仿真用, 替代 lcd_module.dcp)
-if { [file exists "${tb_dir}/lcd_module_stub.v"] } {
-    add_files -fileset sim_1 "${tb_dir}/lcd_module_stub.v"
-}
-
-# 设置仿真顶层模块
-set_property top $tb_name [get_filesets sim_1]
-
-update_compile_order -fileset sim_1
-
-puts "Testbench 已添加: $tb_name"
-
-# ---------------------------------------------------------------------------
-# Step 7: 设置仿真运行时间并启动行为级仿真
-# ---------------------------------------------------------------------------
-puts "========== Step 7: 启动仿真 =========="
-
-# 设置 xsim 仿真运行时间
-set_property xsim.simulate.runtime $sim_run_time [get_filesets sim_1]
-
-# 启用 xsim 日志记录, 将 testbench 的 $display 输出写入日志文件
-set_property xsim.simulate.log_all_objects true [get_filesets sim_1]
-
-puts "仿真配置: tb=$tb_name, runtime=$sim_run_time, coe=$icache_coe_file"
-
-launch_simulation -mode behavioral
-
-# ---------------------------------------------------------------------------
-# Step 8: 读取仿真日志, 输出 PASS/FAIL 结果
-# ---------------------------------------------------------------------------
-puts "========== Step 8: 读取仿真日志 =========="
-
-# XSIM 日志文件路径
-set sim_log_dir  "${proj_dir}/${proj_name}.sim/sim_1/behav/xsim"
-set sim_log_file "${sim_log_dir}/xsim.log"
-
-if { [file exists $sim_log_file] } {
-    set fp   [open $sim_log_file r]
-    set data [read $fp]
-    close $fp
-    puts $data
-} else {
-    puts "WARNING: 未找到仿真日志文件: $sim_log_file"
-    puts "可尝试手动查看: $sim_log_dir/"
-}
-
-puts "========================================"
-puts "仿真运行完成: $sim_run_time"
-puts "Testbench: $tb_name"
-puts "========================================"
+puts "vivado_sim.tcl 已加载。用法: vivado_sim ?-tb <name>? ?-step <step>? ?-runtime <t>? ?-clean? ?-reuse?"

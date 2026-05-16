@@ -1,6 +1,6 @@
 .equ GPIO_BASE, 0x10000000
 .equ TIMER_BASE, 0x10004000
-.equ TIMER_PERIOD, 100000000
+.equ TIMER_PERIOD, 1000
 
 .section .text
 .globl _start

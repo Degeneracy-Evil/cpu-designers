@@ -29,4 +29,27 @@ git push origin main        # 向main分支进行推送，这会自动的发送�
 
 ## 工具
 
-`tools/`目录下提供了一些工具，例如编译仿真工具`mk.py`、c语言/汇编到coe文件编译程序`rv2coe.py`。详细用法见`tools`目录下README。
+`tools/`目录下提供了一些工具，例如c语言/汇编到coe文件编译程序`rv2coe.py`。详细用法见`tools`目录下README。
+
+## 仿真
+
+项目使用 Vivado TCL 进行仿真，RTL 为 SystemVerilog (`*.sv` / `*.svh`)。
+
+```tcl
+# 启动 Vivado TCL Shell
+vivado.bat -mode tcl
+
+# 加载脚本
+source vivado_sim.tcl
+
+# 运行仿真 (全流程)
+vivado_sim -tb tb_simple_cpu_top -step all
+
+# 单步执行
+vivado_sim -tb tb_ahb_bus -step create
+vivado_sim -tb tb_ahb_bus -step sim
+
+# 可用参数: -tb <testbench> -step <create|ip|constrs|tb|sim|all> -runtime <time> -clean
+```
+
+详见 `vivado_sim.tcl` 头部注释。

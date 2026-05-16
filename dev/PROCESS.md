@@ -120,3 +120,4 @@
 | 2026-05-16 | rv2coe.py 编译 | phase1_prog.S → icache_init.coe (4096 words) |
 | 2026-05-16 | Vivado 仿真 tb_simple_cpu_top | 编译通过, pass=20 fail=22 |
 | 2026-05-16 | Vivado log 警告修复 | 7项: 未用寄存器×3, default分支×2, BRAM异步控制, XDC属性, OOC时钟 |
+| 2026-05-16 | BRAM异步控制修复(正确方案) | dcache/icache: 寄存器级+valid对齐; sram: 同步复位; sim 42/42+16/16 PASS |

@@ -33,7 +33,7 @@ module dcache_ctrl #(
         if (reset) begin
             dcache_valid_r <= 1'b0;
         end else begin
-            dcache_valid_r <= cpu_req_valid && !is_mmio;
+            dcache_valid_r <= bram_ena_r;
         end
     end
 

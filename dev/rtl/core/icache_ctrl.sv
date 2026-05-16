@@ -29,15 +29,25 @@ module icache_ctrl #(
         if (reset) begin
             icache_valid_r <= 1'b0;
         end else begin
-            icache_valid_r <= cpu_req_valid && !is_mmio;
+            icache_valid_r <= bram_ena_r;
         end
     end
     
+    wire bram_ena_comb = cpu_req_valid && !is_mmio;
+
+    reg        bram_ena_r;
+    reg [11:0] bram_addra_r;
+
+    always @(posedge clk) begin
+        bram_ena_r   <= bram_ena_comb;
+        bram_addra_r <= cpu_req_addr[13:2];
+    end
+
     icache u_icache (
         .clka(clk),
-        .ena(cpu_req_valid && !is_mmio),
+        .ena(bram_ena_r),
         .wea(4'b0),
-        .addra(cpu_req_addr[13:2]), // WARNING: 12-bit index → 4KB direct-mapped; addresses >=16KB wrap and alias
+        .addra(bram_addra_r),
         .dina(32'b0),
         .douta(icache_dout),
         

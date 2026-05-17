@@ -1,4 +1,4 @@
-.equ TIMER_BASE, 0x10004000
+.equ CLINT_BASE, 0x02000000
 
 .section .text
 .globl _start
@@ -8,7 +8,7 @@ _start:
     csrw mtvec, x10
     li x10, 0x88
     csrw mstatus, x10
-    li x10, 0x880
+    li x10, 0x080
     csrw mie, x10
 
     csrw mscratch, x0
@@ -36,12 +36,11 @@ _start:
     li x10, 0x88
     csrw mstatus, x10
 
-    li x10, TIMER_BASE
-    li x11, 200
+    lui x10, 0x02000
+    lw x11, 8(x10)
+    addi x11, x11, 200
     sw x11, 0(x10)
-    sw x0, 12(x10)
-    li x11, 1
-    sw x11, 4(x10)
+    sw x0, 4(x10)
 
     li x25, 80
 1:
@@ -77,8 +76,9 @@ trap_handler:
 
 timer_int_handler:
     addi x23, x23, 1
-    li x10, TIMER_BASE
-    sw x0, 8(x10)
+    lui x10, 0x02000
+    sw x0, 0(x10)
+    sw x0, 4(x10)
     li x10, 0x88
     csrw mstatus, x10
     mret

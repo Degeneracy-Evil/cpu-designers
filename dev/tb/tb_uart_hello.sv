@@ -18,6 +18,9 @@ module tb_uart_hello;
     wire        cpu_HRESP;
 
     wire        timer_irq;
+    wire        plic_eip;
+    wire        clint_mtip;
+    wire        clint_msip;
 
     wire        uart_tx;
 
@@ -49,9 +52,9 @@ module tb_uart_hello;
         .HREADY(cpu_HREADY),
         .HRESP(cpu_HRESP),
         .init_sig(1'b0),
-        .timer_irq(timer_irq),
-        .ext_meip_in(1'b0),
-        .ext_msip_in(1'b0)
+        .timer_irq(clint_mtip),
+        .ext_meip_in(plic_eip),
+        .ext_msip_in(clint_msip)
     );
 
     wire [15:0] gpio_io;
@@ -79,9 +82,9 @@ module tb_uart_hello;
         .HREADY     (cpu_HREADY),
         .HRESP      (cpu_HRESP),
         .o_timer_irq(timer_irq),
-        .o_plic_eip (),
-        .o_clint_mtip(),
-        .o_clint_msip(),
+        .o_plic_eip (plic_eip),
+        .o_clint_mtip(clint_mtip),
+        .o_clint_msip(clint_msip),
         .io_gpioPin (gpio_io),
         .i_uart_rx  (1'b1),
         .o_uart_tx  (uart_tx),

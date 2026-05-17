@@ -1,6 +1,6 @@
 .equ GPIO_BASE, 0x10000000
-.equ TIMER_BASE, 0x10004000
-.equ TIMER_PERIOD, 1000
+.equ CLINT_BASE, 0x02000000
+.equ TIMER_PERIOD, 10000000
 
 .section .text
 .globl _start
@@ -24,33 +24,38 @@ _start:
     sw x11, 0(x10)
 
     # Initialize LED state
-    li x12, 0       # x12 will be our counter (0-15)
+    li x12, 0
     li x11, 1
     xori x13, x11, -1
     sw x13, 4(x10)
 
-    # Setup Timer
-    lui x15, 0x10004
-    li x16, TIMER_PERIOD
-    sw x16, 0(x15)  # expr_val = TIMER_PERIOD
-    li x16, 3
-    sw x16, 4(x15)  # start = 1, mode = 1 (periodic)
+    # Setup CLINT Timer: mtimecmp = mtime + TIMER_PERIOD
+    lui x15, 0x02000
+    lw x16, 8(x15)
+    li x14, TIMER_PERIOD
+    add x16, x16, x14
+    sw x16, 0(x15)
+    sw x0, 4(x15)
 
 loop:
     j loop
 
 .align 4
 isr:
-    # We should preserve registers we use, but this is simple CPU, just save to mscratch
     csrrw sp, mscratch, sp
-    addi sp, sp, -16
+    addi sp, sp, -24
     sw x11, 0(sp)
     sw x13, 4(sp)
     sw x14, 8(sp)
+    sw x15, 12(sp)
+    sw x16, 16(sp)
 
-    # Clear Timer IRQ
-    lui x15, 0x10004
-    sw x0, 8(x15)
+    # Update mtimecmp for next interrupt
+    lui x15, 0x02000
+    lw x16, 8(x15)
+    li x14, TIMER_PERIOD
+    add x16, x16, x14
+    sw x16, 0(x15)
 
     # Update LED state
     addi x12, x12, 1
@@ -67,7 +72,9 @@ skip_reset:
     lw x11, 0(sp)
     lw x13, 4(sp)
     lw x14, 8(sp)
-    addi sp, sp, 16
+    lw x15, 12(sp)
+    lw x16, 16(sp)
+    addi sp, sp, 24
     csrrw sp, mscratch, sp
 
     mret

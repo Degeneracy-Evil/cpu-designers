@@ -121,3 +121,5 @@
 | 2026-05-16 | Vivado 仿真 tb_simple_cpu_top | 编译通过, pass=20 fail=22 |
 | 2026-05-16 | Vivado log 警告修复 | 7项: 未用寄存器×3, default分支×2, BRAM异步控制, XDC属性, OOC时钟 |
 | 2026-05-16 | BRAM异步控制修复(正确方案) | dcache/icache: 寄存器级+valid对齐; sram: 同步复位; sim 42/42+16/16 PASS |
+| 2026-05-17 | LED上板中断路由修复 | led_marquee.s改用CLINT mtimecmp替代APB Timer; tb接线与system_top一致 |
+| 2026-05-17 | 全局中断路由审计修复 | cpu_test_trap.s/cpu_test.s改用CLINT; 4个tb接线统一与system_top一致 |

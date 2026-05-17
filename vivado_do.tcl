@@ -237,9 +237,8 @@ proc vivado_do {args} {
         puts "========================================"
         puts "开始连接硬件 (hw_server)..."
         puts "========================================"
-        open_hw_manager
-        connect_hw_server -allow_non_jtag
-        current_hw_target [get_hw_targets *]
+        catch { open_hw }
+        connect_hw_server
         open_hw_target
         current_hw_device [lindex [get_hw_devices] 0]
         refresh_hw_device -update_hw_probes false [lindex [get_hw_devices] 0]
@@ -253,9 +252,20 @@ proc vivado_do {args} {
         puts "========================================"
         set bit_file "${base_dir}/system_top.bit"
         if { [file exists $bit_file] } {
-            set_property PROGRAM.FILE $bit_file [current_hw_device]
-            program_hw_devices [current_hw_device]
-            refresh_hw_device [current_hw_device]
+            catch { open_hw }
+            catch { connect_hw_server }
+            catch { open_hw_target }
+            set hw_device [lindex [get_hw_devices] 0]
+            current_hw_device $hw_device
+            refresh_hw_device -update_hw_probes false $hw_device
+            
+            set_property PROBES.FILE {} $hw_device
+            set_property FULL_PROBES.FILE {} $hw_device
+            set_property PROGRAM.FILE $bit_file $hw_device
+            
+            program_hw_devices $hw_device
+            refresh_hw_device $hw_device
+            close_hw
             puts "--> 下载成功"
         } else {
             puts "--> [ERROR] 找不到 bitstream 文件: $bit_file"

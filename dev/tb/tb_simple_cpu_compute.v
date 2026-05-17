@@ -32,6 +32,9 @@ module tb_simple_cpu_compute;
     wire        cpu_HRESP;
 
     wire        timer_irq;
+    wire        plic_eip;
+    wire        clint_mtip;
+    wire        clint_msip;
 
     integer pass_count;
     integer fail_count;
@@ -64,7 +67,9 @@ module tb_simple_cpu_compute;
         .HREADY(cpu_HREADY),
         .HRESP(cpu_HRESP),
         .init_sig(1'b0),
-        .timer_irq(timer_irq)
+        .timer_irq(clint_mtip),
+        .ext_meip_in(plic_eip),
+        .ext_msip_in(clint_msip)
     );
 
     wire [15:0] gpio_io;
@@ -72,7 +77,7 @@ module tb_simple_cpu_compute;
     ahb_lite_bus #(
         .ADDR_WIDTH  (32),
         .DATA_WIDTH  (32),
-        .SLAVE_NUM   (2),
+        .SLAVE_NUM   (4),
         .MEM_DEPTH   (262144),
         .WAIT_STATES (0),
         .GPIO_NUM    (16),
@@ -92,6 +97,9 @@ module tb_simple_cpu_compute;
         .HREADY     (cpu_HREADY),
         .HRESP      (cpu_HRESP),
         .o_timer_irq(timer_irq),
+        .o_plic_eip (plic_eip),
+        .o_clint_mtip(clint_mtip),
+        .o_clint_msip(clint_msip),
         .io_gpioPin (gpio_io),
         .i_uart_rx  (1'b1),
         .o_uart_tx  (),
@@ -135,12 +143,12 @@ module tb_simple_cpu_compute;
         input [31:0] expected;
         begin
 `ifndef XILINX_SIMULATOR
-            if (dut.u_dcache_wrap.u_dcache.mem[addr[13:2]] === expected) begin
+            if (u_bus.u_ahb_sram_slave.u_bram.mem[addr[19:2]] === expected) begin
                 pass_count = pass_count + 1;
-                $display("PASS mem[0x%08h] = 0x%08h", addr, dut.u_dcache_wrap.u_dcache.mem[addr[13:2]]);
+                $display("PASS mem[0x%08h] = 0x%08h", addr, u_bus.u_ahb_sram_slave.u_bram.mem[addr[19:2]]);
             end else begin
                 fail_count = fail_count + 1;
-                $display("FAIL mem[0x%08h] expected=0x%08h got=0x%08h", addr, expected, dut.u_dcache_wrap.u_dcache.mem[addr[13:2]]);
+                $display("FAIL mem[0x%08h] expected=0x%08h got=0x%08h", addr, expected, u_bus.u_ahb_sram_slave.u_bram.mem[addr[19:2]]);
             end
 `else
             $display("SKIP mem check in Vivado");
@@ -161,7 +169,7 @@ module tb_simple_cpu_compute;
         repeat (50000) @(posedge clk);
 
         check_reg(5'd1,  32'h000000ac);
-        check_reg(5'd2,  32'h00000000);
+        check_reg(5'd2,  32'h00001800);
         check_reg(5'd3,  32'h00000000);
         check_reg(5'd4,  32'h00000000);
         check_reg(5'd5,  32'hffffffff);
@@ -190,7 +198,7 @@ module tb_simple_cpu_compute;
         check_reg(5'd28, 32'h00000000);
         check_reg(5'd29, 32'h00000000);
         check_reg(5'd30, 32'h00000000);
-        check_reg(5'd31, 32'h000000ac);
+        check_reg(5'd31, 32'h800000ac);
 
         check_mem_word(32'd0, 32'habcd5678);
         check_mem_word(32'd4, 32'h12345678);

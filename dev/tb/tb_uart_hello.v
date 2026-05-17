@@ -18,6 +18,9 @@ module tb_uart_hello;
     wire        cpu_HRESP;
 
     wire        timer_irq;
+    wire        plic_eip;
+    wire        clint_mtip;
+    wire        clint_msip;
 
     wire        uart_tx;
 
@@ -49,7 +52,9 @@ module tb_uart_hello;
         .HREADY(cpu_HREADY),
         .HRESP(cpu_HRESP),
         .init_sig(1'b0),
-        .timer_irq(timer_irq)
+        .timer_irq(clint_mtip),
+        .ext_meip_in(plic_eip),
+        .ext_msip_in(clint_msip)
     );
 
     wire [15:0] gpio_io;
@@ -57,7 +62,7 @@ module tb_uart_hello;
     ahb_lite_bus #(
         .ADDR_WIDTH  (32),
         .DATA_WIDTH  (32),
-        .SLAVE_NUM   (2),
+        .SLAVE_NUM   (4),
         .MEM_DEPTH   (262144),
         .WAIT_STATES (0),
         .GPIO_NUM    (16),
@@ -77,6 +82,9 @@ module tb_uart_hello;
         .HREADY     (cpu_HREADY),
         .HRESP      (cpu_HRESP),
         .o_timer_irq(timer_irq),
+        .o_plic_eip (plic_eip),
+        .o_clint_mtip(clint_mtip),
+        .o_clint_msip(clint_msip),
         .io_gpioPin (gpio_io),
         .i_uart_rx  (1'b1),
         .o_uart_tx  (uart_tx),
@@ -87,9 +95,11 @@ module tb_uart_hello;
     );
 
     initial begin
+`ifndef XILINX_SIMULATOR
         $readmemh("dev/program_source/uart_hello.hex", u_bus.u_ahb_sram_slave.u_bram.mem);
         $readmemh("dev/program_source/uart_hello.hex", dut.u_icache_wrap.u_icache.mem);
         $readmemh("dev/program_source/uart_hello.hex", dut.u_dcache_wrap.u_dcache.mem);
+`endif
     end
 
     initial begin
@@ -190,8 +200,10 @@ module tb_uart_hello;
     end
 
     initial begin
+`ifndef XILINX_SIMULATOR
         $dumpfile("dev/tb/waveform/uart_hello.vcd");
         $dumpvars(0, u_bus.u_apb_perips.u_uart.uart_tx_inst);
+`endif
     end
 
     integer i;

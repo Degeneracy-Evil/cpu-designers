@@ -227,14 +227,10 @@ jalr_target:
 
     lui x10, 0x02000
     lw x11, 8(x10)
-    lw x13, 12(x10)
     li x12, 100000
-    mv x14, x11
     add x11, x11, x12
-    sltu x14, x11, x14
-    add x13, x13, x14
     sw x11, 0(x10)
-    sw x13, 4(x10)
+    sw x0, 4(x10)
 
     addi x1, x1, 1
     addi x1, x1, 1

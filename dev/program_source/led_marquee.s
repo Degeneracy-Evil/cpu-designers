@@ -1,6 +1,6 @@
-.equ GPIO_BASE, 0x80000000
-.equ TIMER_BASE, 0x80004000
-.equ TIMER_PERIOD, 100000000
+.equ GPIO_BASE, 0x10000000
+.equ CLINT_BASE, 0x02000000
+.equ TIMER_PERIOD, 10000000
 
 .section .text
 .globl _start
@@ -19,38 +19,52 @@ _start:
     csrw mstatus, t0
 
     # Initialize GPIO direction (all output)
-    lui x10, 0x80000
+    lui x10, 0x10000
     li x11, 0xFFFF
     sw x11, 0(x10)
 
     # Initialize LED state
-    li x12, 0       # x12 will be our counter (0-15)
+    li x12, 0
     li x11, 1
     xori x13, x11, -1
     sw x13, 4(x10)
 
-    # Setup Timer
-    lui x15, 0x80004
-    li x16, TIMER_PERIOD
-    sw x16, 0(x15)  # expr_val = TIMER_PERIOD
-    li x16, 3
-    sw x16, 4(x15)  # start = 1, mode = 1 (periodic)
+    # Setup CLINT Timer: mtimecmp = mtime + TIMER_PERIOD (64-bit safe)
+    lui x15, 0x02000
+    lw x16, 8(x15)
+    lw x14, 12(x15)
+    li x11, TIMER_PERIOD
+    mv x13, x16
+    add x16, x16, x11
+    sltu x11, x16, x13
+    add x14, x14, x11
+    sw x16, 0(x15)
+    sw x14, 4(x15)
 
 loop:
     j loop
 
 .align 4
 isr:
-    # We should preserve registers we use, but this is simple CPU, just save to mscratch
     csrrw sp, mscratch, sp
-    addi sp, sp, -16
+    addi sp, sp, -24
     sw x11, 0(sp)
     sw x13, 4(sp)
     sw x14, 8(sp)
+    sw x15, 12(sp)
+    sw x16, 16(sp)
 
-    # Clear Timer IRQ
-    lui x15, 0x80004
-    sw x0, 8(x15)
+    # Update mtimecmp for next interrupt (64-bit safe)
+    lui x15, 0x02000
+    lw x16, 8(x15)
+    lw x14, 12(x15)
+    li x11, TIMER_PERIOD
+    mv x13, x16
+    add x16, x16, x11
+    sltu x11, x16, x13
+    add x14, x14, x11
+    sw x16, 0(x15)
+    sw x14, 4(x15)
 
     # Update LED state
     addi x12, x12, 1
@@ -58,7 +72,7 @@ isr:
     bne x12, x11, skip_reset
     li x12, 0
 skip_reset:
-    lui x10, 0x80000
+    lui x10, 0x10000
     li x11, 1
     sll x13, x11, x12
     xori x13, x13, -1
@@ -67,7 +81,9 @@ skip_reset:
     lw x11, 0(sp)
     lw x13, 4(sp)
     lw x14, 8(sp)
-    addi sp, sp, 16
+    lw x15, 12(sp)
+    lw x16, 16(sp)
+    addi sp, sp, 24
     csrrw sp, mscratch, sp
 
     mret

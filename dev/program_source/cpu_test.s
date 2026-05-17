@@ -1,4 +1,4 @@
-.equ TIMER_BASE, 0x80004000
+.equ CLINT_BASE, 0x02000000
 
 .section .text
 .globl _start
@@ -56,7 +56,7 @@ bgeu_skip:
     jal   x31, jal_skip
     addi  x1, x0, 99
 jal_skip:
-    addi  x5, x0, 0xC8
+    addi  x5, x22, 116
     jalr  x4, x5, 0
     addi  x2, x0, 88
     addi  x2, x0, 99
@@ -225,13 +225,16 @@ jalr_target:
     li x10, 0x080
     csrw mie, x10
 
-    lui x10, 0x80004
-    li x11, 100000
+    lui x10, 0x02000
+    lw x11, 8(x10)
+    lw x13, 12(x10)
+    li x12, 100000
+    mv x14, x11
+    add x11, x11, x12
+    sltu x14, x11, x14
+    add x13, x13, x14
     sw x11, 0(x10)
-
-    lui x10, 0x80004
-    li x11, 1
-    sw x11, 4(x10)
+    sw x13, 4(x10)
 
     addi x1, x1, 1
     addi x1, x1, 1
@@ -263,8 +266,9 @@ timer_handler:
     csrrs x3, mepc, x0
     addi x4, x0, 1
 
-    lui x10, 0x80004
-    sw x0, 8(x10)
+    lui x10, 0x02000
+    sw x0, 0(x10)
+    sw x0, 4(x10)
 
     li x10, 0x80
     csrw mstatus, x10

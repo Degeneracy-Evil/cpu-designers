@@ -1290,6 +1290,34 @@ $ "MIPS" = 10^8 / (6.75 times 10^6) approx #text(red)[14.8] $
 
 在本次实验中，我们更加深入地了解了计算机硬件的组成部分以及相互间的交互，学习了riscv的中断、异常处理以及特权级架构，通过优化CPU流水线以及结构明白了一些微小设计对于CPU性能的巨大影响。同时，也学习了如何编写中断处理服务程序，以及如何进行完整的中断处理。
 
+
+
+= 工具使用
+
+== vivado_do.tcl
+vivado_do.tcl — Vivado 仿真自动化脚本
+
+用法:
+#move(dx: 2em)[```cmd
+$ vivado.bat -mode tcl
+Vivado% source vivado_do.tcl -notrace -encoding utf-8
+Vivado% vivado_do [-create] [-sim <tb>] [-runtime <t>] [-clear] [-bitstream] [-hw_connect] [-program]
+```]
+
+集合了项目创建、仿真、生成bit流等功能，详细命令见文件头部描述。
+
+== tools/rv2coe.py
+
+将riscv程序（汇编/c）编译为coe文件。
+
+需要在本地或者wsl中有（Windows时会自动尝试查找本地以及wsl）：
+
+#move(dx: 2em)[- `riscv64-unknown-elf-gcc`
+- `riscv64-unknown-elf-objcopy`
+- `riscv64-unknown-elf-objdump`（仅 `--check-isa` 时需要）]
+
+详细用法见`tools\README-rv2coe.md`。
+
 = 组员以及分工
 
 #table(

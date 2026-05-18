@@ -4,7 +4,7 @@
 
 ## 要求
 
-在本地或者wsl中有（Windows时回自动尝试查找本地以及wsl）：
+在本地或者wsl中有（Windows时会自动尝试查找本地以及wsl）：
 
 - `riscv64-unknown-elf-gcc`
 - `riscv64-unknown-elf-objcopy`

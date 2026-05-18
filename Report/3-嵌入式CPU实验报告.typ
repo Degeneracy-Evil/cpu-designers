@@ -63,8 +63,6 @@
   + ICache/DCache控制器 + BRAM IP，MMIO旁路（bit31=0时访问总线外设，bit31=1时访问Cache）
   + CLINT（mtime/mtimecmp）产生MTIP直连CPU；PLIC（8源）管理外部中断输出MEIP
   + 串口通信：UART+GPIO（连接到LED上）
-  + 执行-回写直通快速路径（R/I-type跳过MEM阶段）
-  + ALU单周期化 + 独立MU乘除法单元
   + 四外设：GPIO(16bit)、Timer(含IRQ)、UART(RX+TX, 115200baud)、SPI
 ]
 
@@ -80,6 +78,8 @@
   + #link(
       "https://documentation-service.arm.com/static/63fe2c1356ea36189d4e79f3?token=",
     )[IHI0024E_amba_apb_architecture_spec.pdf]
+  + 特权架构规范：#link("https://docs.riscv.org/reference/isa/_attachments/riscv-privileged.pdf")[riscv-privileged.pdf]
+  + 平台级中断控制器：#link("https://docs.riscv.org/reference/plic/_attachments/riscv-plic.pdf")[riscv-plic.pdf]
 ]
 
 == 项目文件夹结构
@@ -153,9 +153,15 @@ dev/
 
 = 实现细节
 
+== 语言迁移
+
+我们此次从Verilog语言迁移到了SystemVerilog语言，但是请不要担心，SystemVerilog是Verilog的超集，且我们当前几乎所有文件都按照Verilog语言语法构建，容易阅读，且使用我们的tcl脚本很容易完成项目构建以及仿真。
+
+我们切换到SystemVerilog的原因是PLIC器件中一个接口如果不使用SV的数组语法则构建相当困难，为了构建方便且更加易读，切换到了SV，又为了文件统一，我们将所有文件的后缀都改为了`.sv`。
+
 == 指令集扩展
 
-在上一次实验实现的37条RV32I指令基础上，本次扩展至55条，新增M扩展8条、Zicsr扩展6条、Zifencei扩展1条，以及RV32I中此前未实现的3条（ECALL、EBREAK、FENCE），并修正了上一次多计的1条。
+在上一次实验实现的37条RV32I指令基础上，本次扩展至55条，新增M扩展8条、Zicsr扩展6条、Zifencei扩展1条，以及RV32I中此前未实现的3条（ECALL、EBREAK、FENCE）。
 
 完整指令集如下：
 
@@ -220,7 +226,7 @@ Zicsr扩展新增6条CSR指令，用于读写控制和状态寄存器：
 
 CSR no-write优化：CSRRS/CSRRC且rs1=0时、CSRRSI/CSRRCI且uimm=0时不写CSR，仅读取。
 
-Zifencei扩展仅包含`FENCE.I`指令，用于指令缓存刷新，当前由于未使用主存，没有内存屏障限制，实现中为NOP（直接跳过）。
+Zifencei扩展仅包含`FENCE.I`指令，用于指令缓存刷新，当前由于未使用主存，没有内存屏障限制，实现中为直接跳过。
 
 此外，添加系统控制指令`ECALL`、`EBREAK`、`MRET`支持，分别触发异常进入和中断返回。详见"#link(<expact_exe>)[异常处理]"小节。
 
@@ -232,15 +238,7 @@ Zifencei扩展仅包含`FENCE.I`指令，用于指令缓存刷新，当前由于
 
 在之前实验的设计中，所有非分支指令执行后都必须经过MEM阶段（即使不需要访存），MEM阶段虽然做了直通，但还是占用了大量周期。为了优化CPI，我们优化了流水线路径，添加了exe->wb路径：
 
-#move(dx: 2em)[
-  - R/I-type运算指令：EXEC → WB（跳过MEM，减少2周期）
-  - JAL/JALR指令：EXEC → WB（跳过MEM，减少2周期）
-  - Load/Store指令：EXEC → MEM → WB（仍需访存）
-  - Branch指令：EXEC → FETCH（跳过MEM和WB，与之前相同）
-  - CSR指令：CSR\_ACCESS → WB
-]
-
-此优化使所有非分支非访存指令的执行周期下降2。
+此优化使所有非分支非访存指令的执行周期下降2。完整状态机见#link(<c-ex>)[控制器扩展]小节。
 
 === ALU单周期化-MU扩展<MU>
 
@@ -250,10 +248,12 @@ Zifencei扩展仅包含`FENCE.I`指令，用于指令缓存刷新，当前由于
 
 #move(dx: 2em)[
   - *ALU*：仅保留单周期组合逻辑运算（ADD/SUB/SLT/SLTU/XOR/OR/AND/SLL/SRL/SRA/LUI/NOR/NOT），变为纯组合逻辑模块，移除握手协议，消除握手耗时。
+]
+#move(dx: 2em)[
   - *MU*：独立出来的乘除法单元，内部为从ALU中剥离出来的`booth_multiplier`和`non_restoring_divider`，通过`mu_req_valid`/`mu_result_valid`握手协议与执行模块交互，以支持M扩展指令。
 ]
 
-ALU控制编码（one-hot，bit0保留）：
+ALU控制编码变化（one-hot，bit0保留）：
 
 #move(dx: 2em)[#table(
   columns: (auto, auto, auto, auto, auto, auto, auto, auto),
@@ -278,19 +278,15 @@ ALU控制编码（one-hot，bit0保留）：
 
 *Cache控制器（i/dcache\_ctrl）*：
 
-#move(dx: 2em)[
-  - MMIO旁路：`is_mmio = ~cpu_req_addr[31]`，地址bit31=0时绕过Cache直连总线（访问外设区），bit31=1时访问Cache（DRAM区）
-  - 寄存器级打拍：`bram_ena_r`/`bram_addra_r`打一拍后驱动BRAM，`icache_valid_r`/`dcache_valid_r`下一周期有效，保证时序稳定
-  - MMIO访问：转换信号，向总线发送`mmio_data`/`mmio_valid`信号
-  - 输出选择：`cpu_req_data = is_mmio ? mmio_data : icache_dout`
-  - dcache_ctrl与icache\_ctrl结构对称，额外支持写操作：
-]
+Cache控制器目前主要用于进行MMIO区分：当`is_mmio = ~cpu_req_addr[31]`，地址bit31=0时进行MMIO（访问外设区），bit31=1时访问Cache（DRAM区）。
 
-MMIO地址空间：`0x00000000-0x7FFFFFFF`（bit31=0，访问总线外设），Cache地址空间：`0x80000000-0xFFFFFFFF`（bit31=1，访问DRAM）。
+控制器输出经过MUX选择：`cpu_req_data = is_mmio ? mmio_data : icache_dout`
+
+MMIO地址空间：`0x00000000-0x7FFFFFFF`（bit31=0，访问总线外设），Cache地址空间：`0x80000000-0xFFFFFFFF`（bit31=1，访问DRAM），详细见#link(<mmap>)[内存映射模型]。
 
 同时，我们升级了BRAM IP，现在cache来到了$32 times 4096=16"KB"$，并且支持了字节读写（`wea,web`变为四位，支持多种宽度读写），简化了访存的操作逻辑。
 
-== 控制器扩展
+== 控制器扩展<c-ex>
 
 此次添加中断和异常支持，控制器从6状态FSM扩展为9状态：
 
@@ -407,6 +403,7 @@ CPU支持以下异常，分别在Decode和Mem阶段检测：
   stroke: 0.5pt,
   inset: 6pt,
   [*异常*], [*mcause*], [*触发条件*],
+  [指令未对齐], [0], [pc未4字节对齐],
   [非法指令], [2], [opcode/funct未定义，或CSR地址无效],
   [EBREAK], [3], [执行EBREAK指令],
   [Load地址未对齐], [4], [LH/LHU bit0≠0，LW bit\[1:0\]≠0],
@@ -414,7 +411,7 @@ CPU支持以下异常，分别在Decode和Mem阶段检测：
   [ECALL (M-mode)], [11], [M模式下执行ECALL],
 )
 
-异常优先级：当前设置同步异常优先于中断；同一指令边界上的同步异常先处理。
+异常优先级：按照规范设置同步异常优先于中断（保证中断时指令点是清楚的）；同一指令边界上的同步异常先处理。
 
 === CSR寄存器
 
@@ -478,7 +475,7 @@ CSR模块支持*双写端口*：
 
 === 中断响应
 
-支持三种中断，电平触发（持续到软件ack）：
+支持三级中断，电平触发（持续到软件ack）：
 
 #table(
   columns: (2fr, 1fr, 3fr),
@@ -491,7 +488,17 @@ CSR模块支持*双写端口*：
   [外部中断(MEIP)], [0x8000000B], [MEIE=1 && MEIP=1 && MIE=1],
 )
 
-中断源连接：双定时器路径。`AHB CLINT`产生本地定时器中断`o_mtip`，直连CPU核心`timer_irq`（触发MTIP，Cause 7）；`APB Timer`产生外设定时器中断，连接到`AHB PLIC`的`src_irq[1]`，经PLIC仲裁后输出`o_eip`至CPU网络`ext_meip_in`（触发MEIP，Cause 11）。中断和异常检测点在指令间隔，具体为EXEC完成（分支指令）和WB完成后。
+中断源连接：
+
+总线上的PLIC设备连接到MEIP，总线上的CLINT设备连接到MTIP（设备描述见总线下的设备描述部分）。
+
+目前来源于总线设备的中断有两个，均为定时器：
+#move(dx: 3em)[
+  - 规范中定义的`mtime`：`AHB CLINT`产生本地定时器中断`o_mtip`，直连CPU核心`timer_irq`（触发MTIP，Cause 7）
+  - `APB Timer`产生外设定时器中断，连接到`AHB PLIC`的`src_irq[1]`，经PLIC仲裁后输出`o_eip`至CPU网络`ext_meip_in`（触发MEIP，Cause 11）。
+]
+
+中断和异常检测点在指令间隔，具体为EXEC完成（分支指令）和WB完成（其他）后。
 
 == 系统总线
 
@@ -597,7 +604,7 @@ AHB-Lite每次传输分为*地址相位*和*数据相位*两个阶段，各占�
 
   rect((5.2, 1), (6.2, 2.5), name: "sram")
   content("sram", [#text(size: 9pt, "SRAM")])
-  
+
   rect((6.4, 1), (7.4, 2.5), name: "plic")
   content("plic", [#text(size: 9pt, "PLIC")])
 
@@ -605,11 +612,11 @@ AHB-Lite每次传输分为*地址相位*和*数据相位*两个阶段，各占�
   content("clint", [#text(size: 9pt, "CLINT")])
 
   rect((8.8, 1), (9.8, 2.5), name: "apbb")
-  content("apbb", [#text(size: 9pt, "AHB→APB")])
+  content("apbb", [#text(size: 9pt, [AHB\ to\ APB])])
 
   line("bridge.east", "bus.west", mark: (end: "straight"), name: "l1")
   content("l1", anchor: "south", padding: .1, [#text(size: 10pt, "AHB-Lite")])
-  
+
   line("decoder.south", "sram.north", stroke: (dash: "dashed"), mark: (end: "straight"), name: "bus_sram")
   line("decoder.south", "plic.north", stroke: (dash: "dashed"), mark: (end: "straight"), name: "bus_plic")
   line("decoder.south", "clint.north", stroke: (dash: "dashed"), mark: (end: "straight"), name: "bus_clint")
@@ -627,11 +634,13 @@ AHB-Lite总线当前挂载4个从设备：
   stroke: 0.5pt,
   inset: 6pt,
   [*从设备*], [*选择条件*], [*模块*], [*说明*],
-  [Slave 0], [HADDR\[31:24\]=0x00], [`ahb_sram_slave`], [主存SRAM (16MB地址空间)],
-  [Slave 1], [HADDR\[31:24\]=0x0C], [`ahb_plic`],       [PLIC 中断控制器 (16MB)],
-  [Slave 2], [HADDR\[31:24\]=0x02], [`ahb_clint`],      [CLINT 核心本地中断器 (16MB)],
-  [Slave 3], [HADDR\[31:24\]=0x10], [`ahb_lite_to_apb`], [APB桥，连接外设总线 (16MB)],
+  [Slave 0], [HADDR\[31:24\]=0x00], [`ahb_sram_slave`], [主存Sram],
+  [Slave 1], [HADDR\[31:24\]=0x0C], [`ahb_plic`], [PLIC 中断控制器 (16MB)],
+  [Slave 2], [HADDR\[31:24\]=0x02], [`ahb_clint`], [CLINT 核心本地中断器 (16MB)],
+  [Slave 3], [HADDR\[31:24\]=0x10], [`ahb_lite_to_apb`], [APB桥，连接外设（UART0/VirtIO等）],
 )
+
+以下是各个设备的介绍：
 
 === cpu_bus_bridge
 
@@ -667,26 +676,45 @@ AHB信号映射：
 
 === AHB CLINT从设备
 
-`ahb_clint`为RISC-V CLINT（Core Local Interruptor）的总线接口层：
+CLINT（Core Local Interruptor）核心中断处理器，总线上的专门负责MTIP的执行，核心内部的则负责所有中断的顶层处理：
 #move(dx: 2em)[
   - 64位`mtime`计数器：每个时钟周期自增1
   - 64位`mtimecmp`比较寄存器：通过总线写入
   - MTIP输出：`o_mtip = (mtime >= mtimecmp) && (mtimecmp != 0)`，直连CPU核心`timer_irq`
-  - MSIP输出：当前默认置0
 ]
 
 === AHB PLIC从设备
 
-`ahb_plic`为RISC-V PLIC（Platform-Level Interrupt Controller）的总线接口层，参数化`NUM_SRC=8`：
-#move(dx: 2em)[
-  - 挂载8个中断源输入，具有网关边沿检测
-  - 支持中断优先级仲裁，输出最高优先级中断
-  - EIP输出：连接CPU核心`ext_meip_in`
-]
+PLIC（Platform-Level Interrupt Controller）平台控制器，工作是管理外设的中断信号，负责仲裁优先级以及通知CPU。
 
-=== AHB SRAM从设备
+PLIC的输入是专用中断信号线，用于接收外设中断信号（目前只连接了Timer的中断信号，`Source ID=1`），输出是到CPU的MEIP（外设中断）的中断信号线，负责通知CPU有外设中断等待处理。
 
-`ahb_sram_slave`内部实例化Sram BRAM IP（Xilinx Block Memory Generator），参数化`MEM_DEPTH=262144`（1MB），支持字节/半字/字写使能，通过`byte_we`转换HSIZE+HADDR为BRAM字节掩码。等待状态计数器处理BRAM读延迟（1周期）。
+CPU通过MMIO访问外设，PLIC只负责中断信号传递，不负责数据传递。
+
+=== SRAM从设备
+
+主存，现阶段未使用，占位用。
+
+== 内存映射模型<mmap>
+
+在内存布局上，我们参考了QEMU riscv virt机器的内存映射模型：
+
+#table(
+  columns: (auto, auto, auto, 1fr),
+  align: horizon,
+  stroke: 0.5pt,
+  inset: 6pt,
+  [*地址范围*], [*大小*], [*设备/区域*], [*说明*],
+  [0x0200_0000 - 0x0200_FFFF], [64 KB], [CLINT], [核心本地中断器，提供mtime/Timer中断],
+  [0x0C00_0000 - 0x0C2F_FFFF], [3 MB], [PLIC], [平台级中断控制器，管理外设全局中断],
+  [0x1000_0000 - 0x1000_3FFF], [1 KB], [GPIO], [GPIO，连在LED],
+  [0x1000_4000 - 0x1000_7FFF], [1 KB], [Timer], [外设计时器],
+  [0x1000_8000 - 0x1000_BFFF], [1 KB], [UART], [UART],
+  [0x1000_C000 - 0x1000_FFFF], [1 KB], [SPI], [未使用],
+  [0x8000_0000 - 0xFFFF_FFFF], [2 GB], [DRAM (RAM)], [主内存区域],
+)
+
+比较遗憾的是我们当前的Cache逻辑上是互相独立的，要实现程序无感需要i/dcache均加载coe文件初始化，所以并没有完整实现此内存布局，预计下一个实验中会实现。
 
 == 外设总线
 
@@ -808,23 +836,25 @@ APB每次传输经历*IDLE → SETUP → ACCESS*三个状态，SETUP和ACCESS各
   content((9.85, 1.8), [#text(size: 10pt, "11")])
 })]
 
-APB总线挂载4个从设备，通过`PADDR[15:14]`译码：
+APB总线挂载4个从设备译码段，用以适配更新后的外设地址段位映射（包含向virt映射）：
 
 #table(
-  columns: (auto, 1fr, 2fr),
+  columns: (auto, auto, 1fr),
   align: (horizon, center),
   stroke: 0.5pt,
   inset: 6pt,
-  [*从设备*], [*PADDR\[15:14\]*], [*模块*],
-  [Slave 0], [00], [GPIO (16bit双向)],
-  [Slave 1], [01], [Timer (含IRQ)],
-  [Slave 2], [10], [UART (RX+TX)],
-  [Slave 3], [11], [SPI主机],
+  [*从设备*], [*译码地址区间/匹配基准*], [*模块或映射说明*],
+  [Slave 0], [0x1000_0000 区域], [UART0 (RX+TX, 兼容virt空间)],
+  [Slave 1], [0x1000_1000 区域], [VirtIO0 MMIO (预留)],
+  [Slave 2], [其它映射], [Timer (含IRQ) / GPIO等复用],
+  [Slave 3], [其它映射], [SPI主机等扩展外设],
 )
+
+以下是各个设备的介绍：
 
 === AHB-to-APB桥
 
-`ahb_lite_to_apb`实现3状态FSM（IDLE→SETUP→ACCESS），将AHB-Lite传输转换为APB协议（PSEL/PENABLE/PWRITE/PADDR/PWDATA/PSTRB）。支持PSLVERR错误响应回传、背靠背传输（ACCESS阶段检测新AHB请求直接进入SETUP）。
+`ahb_lite_to_apb`实现将AHB-Lite传输转换为APB协议，连接外设总线和系统总线。
 
 === 外设
 
@@ -928,21 +958,7 @@ APB总线挂载4个从设备，通过`PADDR[15:14]`译码：
   line("csr.west", "execute.north", mark: (start: "straight"))
 })]
 
-其中蓝色虚线为*exe→wb快速路径*，R/I-type运算指令执行完成后跳过MEM阶段直接进入WB，减少2周期开销。
-
-*模块间数据通路*：
-
-#table(
-  columns: (1fr, 1fr, 3fr),
-  align: horizon,
-  stroke: 0.5pt,
-  inset: 6pt,
-  [*总线*], [*位宽*], [*主要内容*],
-  [`if_id_bus`], [96], [`pc_plus4`(32) + `pc`(32) + `inst`(32)],
-  [`id_exe_bus`], [320], [PC信息 + 控制标志 + ALU控制 + 操作数 + CSR信息 + 寄存器值 + 指令],
-  [`exe_mem_bus`], [207], [PC信息 + ALU结果 + 访存信息 + CSR数据 + 指令],
-  [`mem_wb_bus`], [168], [PC信息 + 写回数据 + CSR数据 + 指令],
-)
+其中蓝色虚线为新增的*exe→wb路径*，R/I-type运算指令执行完成后跳过MEM阶段直接进入WB，减少2周期开销。
 
 = 仿真验证
 
@@ -957,13 +973,8 @@ APB总线挂载4个从设备，通过`PADDR[15:14]`译码：
   [`tb_simple_cpu_top`], [CPU综合测试（ALU/访存/对齐/CSR/异常/中断）],
   [`tb_simple_cpu_compute`], [CPU运算指令测试（M扩展+算术）],
   [`tb_simple_cpu_trap`], [CPU异常/中断测试],
-  [`tb_ahb_bus`], [AHB-Lite总线功能测试],
-  [`tb_apb_perips`], [APB外设读写测试],
   [`tb_uart_hello`], [UART Hello World发送测试],
   [`tb_led_marquee`], [LED走马灯测试],
-  [`tb_alu_cpu_integration`], [ALU组合逻辑集成测试],
-  [`tb_mu_unit`], [乘除法单元测试],
-  [`tb_non_restoring_divider`], [非恢复余数除法器测试],
 )
 
 均在`dev/tb`目录下。
@@ -981,16 +992,15 @@ APB总线挂载4个从设备，通过`PADDR[15:14]`译码：
   [`cpu_test_trap.s`], [异常/中断专项测试],
   [`led_marquee.s`], [LED跑马灯演示程序],
   [`uart_hello.s`], [UART Hello World发送程序],
-  [`fib10.c`], [C语言Fibonacci数列计算],
 )
 
-均在`dev/program_source`目录下。
+均在`dev/program_source`目录下，可以通过tools目录下的`rv2coe`工具编译为coe文件，要求有gcc交叉编译器（推荐在wsl中安装，脚本会自动检测）。
 
 === 综合测试程序
 
 综合测试程序覆盖了CPU大多数功能的测试，以下是关键部分：
 
-#box(height: 17em)[#columns(2, gutter: 8pt)[```asm
+#box(height: 13em)[#columns(2, gutter: 5pt)[```asm
 150    la x10, trap_handler
 151    csrw mtvec, x10
 152    li x10, 0x88
@@ -1013,6 +1023,9 @@ APB总线挂载4个从设备，通过`PADDR[15:14]`译码：
 250    csrrs x21, mscratch, x0
 251    slli x21, x21, 2
 252    addi x22, x21, 72
+```]]
+
+```asm
 253    sw x19, 0(x22)
 254    csrrs x21, mscratch, x0
 255    addi x21, x21, 1
@@ -1020,62 +1033,73 @@ APB总线挂载4个从设备，通过`PADDR[15:14]`译码：
 257    li x10, 0x80
 258    csrw mstatus, x10
 259    mret
-```]]
-
+```
 这段代码展示了异常测试和异常服务程序，涵盖了自陷入和指令异常的情况。`cpu_test.s`中还有关于基础指令、M指令集、时钟中断的测试，内容较多，详细请查看源码。
 
 === LED跑马灯演示程序
-#box(height: 36em)[#columns(2, gutter: 12pt)[
+#box(height: 42em)[#columns(2, gutter: 12pt)[
   ```asm
-  .equ GPIO_BASE, 0x80000000
-  .equ TIMER_BASE, 0x80004000
-  .equ TIMER_PERIOD, 100000000
+  .equ GPIO_BASE, 0x10000000
+  .equ CLINT_BASE, 0x02000000
+  .equ TIMER_PERIOD, 10000000
   .section .text
   .globl _start
   _start:
-      # Setup mtvec
       la t0, isr
       csrw mtvec, t0
-      # Enable MTIE in mie (bit 7)
+      # Enable MTIE in mie(bit7)
       li t0, 0x80
       csrw mie, t0
-      # Enable MIE in mstatus (bit 3)
+      # Enable MIE in mstatus(bit3)
       li t0, 0x8
       csrw mstatus, t0
       # Initialize GPIO direction (all output)
-      lui x10, 0x80000
+      lui x10, 0x10000
       li x11, 0xFFFF
       sw x11, 0(x10)
       # Initialize LED state
-      li x12, 0       # x12 will be our counter (0-15)
+      li x12, 0
       li x11, 1
       xori x13, x11, -1
       sw x13, 4(x10)
-      # Setup Timer
-      lui x15, 0x80004
-      li x16, TIMER_PERIOD
-      sw x16, 0(x15)  # expr_val = TIMER_PERIOD
-      li x16, 3
-      sw x16, 4(x15)  # start = 1, mode = 1 (periodic)
+      lui x15, 0x02000
+      lw x16, 8(x15)
+      lw x14, 12(x15)
+      li x11, TIMER_PERIOD
+      mv x13, x16
+      add x16, x16, x11
+      sltu x11, x16, x13
+      add x14, x14, x11
+      sw x16, 0(x15)
+      sw x14, 4(x15)
   loop:
       j loop
   .align 4
   isr:
       csrrw sp, mscratch, sp
-      addi sp, sp, -16
+      addi sp, sp, -24
       sw x11, 0(sp)
       sw x13, 4(sp)
       sw x14, 8(sp)
-      # Clear Timer IRQ
-      lui x15, 0x80004
-      sw x0, 8(x15)
+      sw x15, 12(sp)
+      sw x16, 16(sp)
+      lui x15, 0x02000
+      lw x16, 8(x15)
+      lw x14, 12(x15)
+      li x11, TIMER_PERIOD
+      mv x13, x16
+      add x16, x16, x11
+      sltu x11, x16, x13
+      add x14, x14, x11
+      sw x16, 0(x15)
+      sw x14, 4(x15)
       # Update LED state
       addi x12, x12, 1
       li x11, 16
       bne x12, x11, skip_reset
       li x12, 0
   skip_reset:
-      lui x10, 0x80000
+      lui x10, 0x10000
       li x11, 1
       sll x13, x11, x12
       xori x13, x13, -1
@@ -1083,12 +1107,14 @@ APB总线挂载4个从设备，通过`PADDR[15:14]`译码：
       lw x11, 0(sp)
       lw x13, 4(sp)
       lw x14, 8(sp)
-      addi sp, sp, 16
+      lw x15, 12(sp)
+      lw x16, 16(sp)
+      addi sp, sp, 24
       csrrw sp, mscratch, sp
       mret
   ```]]
 
-通过计时器中断服务程序`isr`定时修改GPIO（连接到LED）的输出数据来改变LED的状态，每100M个时钟周期触发一次，每次输出数据都是循环右移一位，即LED亮灯位置一秒循环右移一次。
+通过计时器中断服务程序`isr`定时修改GPIO（连接到LED）的输出状态来改变LED的状态，每一亿个时钟周期触发一次，每次输出数据都是循环右移一位，即LED亮灯位置0.1s循环右移一次。
 
 === UART测试程序
 
@@ -1141,19 +1167,14 @@ APB总线挂载4个从设备，通过`PADDR[15:14]`译码：
   [CPU综合测试], [33], [ALL PASS],
   [CPU运算测试], [33], [ALL PASS],
   [CPU异常测试], [8], [ALL PASS],
-  [AHB总线测试], [3], [ALL PASS],
-  [APB外设测试], [10], [ALL PASS],
-  [ALU集成测试], [11], [ALL PASS],
-  [MU单元测试], [10], [ALL PASS],
-  [除法器测试], [8], [ALL PASS],
 )
 
-共116项测试全部通过模拟测试。重要测试结果以及上板结果见下。
+共74项测试全部通过模拟测试。重要测试结果以及上板结果见下。
 
 === 综合测试
 
 模拟测试：
-#image("media/cpu1-控制台.png")
+#image("media/cpu1-控制台.png", height: 80%)
 #image("media/cpu1-波形.png")
 上板结果：
 #image("media/嵌入式cpu测试.jpg")
@@ -1179,75 +1200,6 @@ APB总线挂载4个从设备，通过`PADDR[15:14]`译码：
 可见所有测试均通过，上板验证均达到效果。
 
 = 性能计算<PerformanceCalculation>
-
-== 各阶段周期数分析
-
-=== 取指阶段（FETCH）：2周期
-
-与上一次设计相同，icache使用BRAM IP核具有1周期同步读延迟，需要2周期完成取指。
-
-=== 译码阶段（DECODE）：1周期
-
-纯组合逻辑，当拍完成。
-
-=== 执行阶段（EXEC）
-
-*LUI指令（`use_fixed_wb=1`，旁路ALU）：2周期*
-
-#move(dx: 2em)[
-  - 沿1：检测到`exe_valid`，直接锁存`wb_fixed_data`，`done_reg<=1`
-  - 沿2：`exe_done=1`，FSM转移
-]
-
-*ALU指令（单周期，无握手）：2周期*
-
-#move(dx: 2em)[
-  - 沿1：`exe_valid=1`，ALU组合逻辑计算，结果可用，`done_reg<=1`
-  - 沿2：`exe_done=1`，FSM转移
-]
-
-相比上一次设计的4周期（握手协议引入3周期额外开销），EXEC阶段从4周期降至2周期。
-
-*M扩展指令（多周期握手）：约34周期*
-
-#move(dx: 2em)[
-  - 沿1：`mu_req_valid=1`，发起乘除法请求
-  - 沿2-33：`mu_unit`执行运算（Booth乘法32周期 / 非恢复余数除法32周期+修正）
-  - 沿34：`mu_result_valid=1`，采样结果，`done_reg<=1`
-]
-
-*CSR指令：1周期*
-
-CSR读写为组合逻辑，在CSR\_ACCESS状态1周期完成。
-
-=== 访存阶段（MEM）
-
-*R/I-type ALU指令：0周期（快速路径跳过）*
-
-exe\_to\_wb快速路径使R/I-type运算指令跳过MEM阶段，直接进入WB。
-
-*Load指令：3周期*
-
-#move(dx: 2em)[
-  - 沿1：MEM\_IDLE→MEM\_READ，设置dcache使能和地址
-  - 沿2：MEM\_READ，BRAM锁存地址并输出数据
-  - 沿3：BRAM输出有效，采样数据，`done=1`
-]
-
-相比上一次设计的4周期（需要额外的MEM\_READ2状态），减少1周期。
-
-*Store指令：2周期*
-
-#move(dx: 2em)[
-  - 沿1：MEM\_IDLE→MEM\_WRITE，使用字节掩码直接写入
-  - 沿2：写入完成，`done=1`
-]
-
-相比上一次设计的5周期（需要读-改-写3步），字节掩码写入使Store从5周期降至2周期。
-
-=== 回写阶段（WB）：1周期
-
-纯组合逻辑，当拍完成。
 
 == 各指令类型CPI与平均CPI
 
@@ -1341,11 +1293,11 @@ $ "MIPS" = 10^8 / (6.75 times 10^6) approx #text(red)[14.8] $
 = 组员以及分工
 
 #table(
-  columns: (1fr,2fr,2fr),
+  columns: (1fr, 2fr, 2fr),
   align: horizon,
-  [*姓名*],[*学号*],[*分工*],
-  [王之翼],[320240944621],[构建],
-  [陈海攀],[320230904051],[测试、DEBUG],
-  [张潘妍],[320240944910],[c程序、riscv汇编交叉编译],
-  [张之恒],[320240944971],[资料查找、文档整理],
+  [*姓名*], [*学号*], [*分工*],
+  [王之翼], [320240944621], [构建],
+  [陈海攀], [320230904051], [测试、DEBUG],
+  [张潘妍], [320240944910], [c程序、riscv汇编交叉编译],
+  [张之恒], [320240944971], [资料查找、文档整理],
 )

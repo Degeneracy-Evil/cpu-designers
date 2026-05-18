@@ -1,162 +1,118 @@
-# simpleCPU 优化计划
+# Verilog → SystemVerilog 迁移计划
 
-## 项目概述
+## 1. 概述
 
-RISC-V RV32I + Zicsr 多周期处理器，5 级流水线 (IF→ID→EXE→MEM→WB)，
-AHB-Lite + APB 两级总线架构，目标 Xilinx 7 系列 FPGA。
+将本项目从 Verilog (`*.v` / `*.vh`) 迁移至 SystemVerilog (`*.sv` / `*.svh`)，同时将仿真工具链从 `iverilog + mk.py` 切换至 Vivado TCL 仿真。
 
-- ISA: 47 条指令 (RV32I 40 + Zicsr 6 + Zifencei 1)
-- 8 个 Machine 模式 CSR，异常/中断完整支持
-- 外设: GPIO × 16, Timer + IRQ, UART (RX+TX), SPI
-- 仿真: 52 项检查全部 PASS
+## 2. 迁移范围
 
-## 目录结构
+### 2.1 RTL 源文件 (`dev/rtl/`)
+
+| 子目录 | `.v` 文件数 | `.vh` 文件数 | 说明 |
+|--------|------------|-------------|------|
+| ALU/ | 10 | 0 | alu_32bit, alu_result_selector, cla_adder_*bit, logic_unit, lui, mux, shifter, subtractor |
+| MU/ | 3 | 0 | booth_multiplier, mu_unit, non_restoring_divider |
+| core/ | 21 | 0 | 含 icache.v / dcache.v（仿真时排除，但仍需改名） |
+| AHB-lite/ | 5 | 1 | ahb_plic, ahb_lite_bus, ahb_decoder, ahb_mux, ahb_sram_slave + ahb_def.vh |
+| AHB-lite/ip/ | 1 | 0 | sram_model |
+| APB/ | 5 | 1 | apb_decoder, apb_bus, ahb_lite_to_apb, apb_master, apb_slave + apb_def.vh |
+| APB/header/ | 0 | 2 | timer_define.vh, bus_define.vh |
+| APB/perips/ | 7 | 0 | uart_tx, uart_top, uart_rx, timer, spi, gpio, apb_perips |
+| 根目录 | 1 | 0 | system_top.v |
+| **合计** | **53** | **4** | |
+
+**操作：**
+- 所有 `.v` → `.sv`，所有 `.vh` → `.svh`
+- 文件内 `include 引用路径同步更新（`"xxx.vh"` → `"xxx.svh"`）
+- 代码语法无需大改（Verilog 是 SystemVerilog 子集），但可逐步引入 SV 特性：
+  - `logic` 替代 `reg` / `wire`
+  - `always_ff` / `always_comb` 替代 `always @(...)`
+  - `enum` / `struct` / `typedef` 等类型化改造（后续增量进行，本次不强制）
+
+### 2.2 Testbench 文件 (`dev/tb/`)
+
+| 路径 | 文件数 |
+|------|--------|
+| dev/tb/ (根) | 8 (tb_simple_cpu_top, tb_simple_cpu_compute, tb_simple_cpu_trap, tb_uart_hello, tb_led_marquee, tb_ahb_bus, tb_apb_perips, lcd_module_stub) |
+| dev/tb/ALU/ | 3 (tb_non_restoring_divider, tb_mu_unit, tb_alu_cpu_integration) |
+| **合计** | **11** |
+
+**操作：**
+- `.v` → `.sv`
+- 测试模块命名保持 `tb_<module>` 不变
+
+### 2.3 仿真工具链切换
+
+| 项目 | 旧 | 新 |
+|------|----|----|
+| 编译仿真 | `python tools/mk.py --top <file>` | `vivado.bat -mode tcl` + TCL 脚本 |
+| 仿真脚本 | `vivado_do.tcl`（单文件固定流程） | 拆分为多个 TCL 脚本 + 参数化入口 |
+| mk.py | 活跃使用 | **弃用**（保留文件，标记 deprecated） |
+
+### 2.4 TCL 脚本重构
+
+将现有 `vivado_do.tcl` 拆分为：
 
 ```
-dev/
-├── rtl/                  # 所有 RTL 源文件
-│   ├── ALU/              # ALU 模块 (12 文件)
-│   ├── MU/               # 乘除法器 (3 文件)
-│   ├── core/             # CPU 核心 (21 文件)
-│   ├── AHB-lite/         # AHB-Lite 总线 (8 文件 + ip/)
-│   ├── APB/              # APB 总线及外设 (10 文件 + header/ + perips/)
-│   └── system_top.v      # 系统顶层
-├── tb/                   # 所有 testbench
-│   ├── ALU/              # ALU 专项测试
-│   ├── tb_simple_cpu_top.v   # CPU 全功能测试 (34 PASS)
-│   ├── tb_ahb_bus.v          # AHB 总线测试 (3 PASS)
-│   ├── tb_apb_perips.v       # APB 外设测试 (10 PASS)
-│   ├── tb_led_marquee.v      # LED 走马灯测试
-│   ├── tb_uart_hello.v       # UART 发送测试
-│   └── lcd_module_stub.v     # LCD 仿真 stub
-├── fpga/                 # FPGA 约束与 IP
-│   ├── cpu.xdc           # 引脚约束
-│   ├── lcd_module.dcp    # LCD 预编译 IP
-│   └── QUICK_REF.md      # ALU 控制信号速查
-├── program_source/       # 测试程序 (.s / .hex / .coe)
-├── docs/                 # 设计文档
-│   ├── simpleCPU-design-report.md
-│   ├── core/             # ISA, 异常中断, 项目描述
-│   ├── alu/              # ALU 设计, 接口, 多周期握手
-│   ├── AHB-lite/         # AHB-Lite 协议规范
-│   └── APB/              # APB 协议规范
-├── PLAN.md
-└── PROCESS.md
+vivado_do.tcl          ← 主入口，解析参数，调用子脚本
+tools/tcl/
+  ├── create_proj.tcl   ← Step 1-3: 创建工程、添加源文件、设置 include
+  ├── setup_ip.tcl      ← Step 4: 导入 IP、配置 COE
+  ├── add_constrs.tcl   ← Step 5: 添加 DCP / XDC
+  ├── add_tb.tcl        ← Step 6: 添加 testbench
+  └── run_sim.tcl       ← Step 7-8: 启动仿真、读取日志
 ```
 
-## 优化目标
+**参数化设计：**
 
-### P0 — 已完成
+```tcl
+# vivado_do.tcl 定义 proc vivado_do，支持以下参数:
+#   -tb <testbench_name>   指定 testbench（默认 tb_simple_cpu_top）
+#   -step <step>           执行到哪一步: create|ip|constrs|tb|sim|all（默认 all）
+#   -runtime <time>        仿真运行时间（默认按 tb_runtime_map 映射）
+#   -clean                 删除已有工程目录后重建
+```
 
-- [x] **文件夹重构**: 从 `dev/1-alu/` + `dev/2-simpleCPU/` 扁平化为 `dev/rtl/`, `dev/tb/`, `dev/fpga/`, `dev/program_source/`, `dev/docs/`
-- [x] **AHB-Lite + APB 总线架构**: 替换 Bus4LZU mock，实现完整 AMBA 两级总线
-- [x] **外设集成**: GPIO, Timer, UART, SPI 通过 APB 总线接入
-- [x] **异常/中断处理**: Illegal inst, ECALL, EBREAK, 地址不对齐, MEIP/MTIP/MSIP
-- [x] **FPGA 集成**: system_top, XDC 约束, LCD 调试显示, BRAM IP
+**启动方式：**
 
-### P1 — 已完成
+```tcl
+# 方式1: Vivado TCL Shell 交互
+vivado.bat -mode tcl
+source vivado_do.tcl -notrace
+vivado_do -tb tb_simple_cpu_top -step all
 
-- [x] **完全去除 Bus4LZU 风格接口**
-  - 删除 `cpu_bus_adapter`，CPU 核心直接输出 AHB-Lite master 信号
-  - 3 状态主 FSM（AHB_IDLE→AHB_ADDR→AHB_DATA）替代原 9 状态两级桥接
-  - 收益: 减少一级适配延迟，简化数据通路，消除冗余 FSM 状态
+# 方式2: 单步执行
+vivado_do -tb tb_ahb_bus -step create
+vivado_do -tb tb_ahb_bus -step ip
+# ...
 
-- [x] **AHB-Lite 主 FSM 模块化**
-  - 从 `core_top.v` 提取 AHB-Lite 主设备 FSM 到独立模块 `cpu_bus_bridge.v`
-  - `core_top.v` 仅实例化 `cpu_bus_bridge`，不再内联总线协议逻辑
-  - 收益: 降低 `core_top` 复杂度，总线逻辑可独立验证和复用
+# 方式3: 通过 tcl-tunnel 远程执行（见 tools/tcl-tunnel/）
+```
 
-- [x] **CSR 与 异常/Trap 重构**
-  - 从 `core_top.v` 提取 CSR 写解码 + 异常检测/注册 + `cpu_csr` + `cpu_clint` 到独立模块 `cpu_trap_csr.v`
-  - `core_top.v` 仅实例化 `cpu_trap_csr`，移除所有 CSR/异常内联逻辑
-  - 收益: `core_top` 从 573 行缩减至 439 行，CSR/异常路径可独立验证
+### 2.5 文档更新
 
-- [x] **CSR 与 异常/Trap 进一步拆分**
-  - 将 `cpu_trap_csr.v` 拆分为 `cpu_trap_manager`（异常捕获/注册 + `cpu_clint` + trap 决策）和 `cpu_csr_interface`（CSR 读写解码 + 写回总线 + `cpu_csr`）
-  - `cpu_trap_csr` 退化为薄包装层，仅做信号连线
-  - 收益: CSR 写逻辑与 trap 决策可独立测试，为 vectored mtvec、可编程中断优先级等扩展留出清晰边界
+| 文件 | 修改内容 |
+|------|----------|
+| `README.md` | 工具说明：mk.py → Vivado TCL 仿真 |
+| `tools/README-mk.md` | 标记 deprecated，指向新的 TCL 方式 |
+| `tools/tcl-tunnel/README.md` | 更新示例命令（.v → .sv 引用） |
+| `dev/rtl/AHB-lite/AHB-lite.md` | 文件引用 .v → .sv |
+| `dev/rtl/APB/APB.md` | 文件引用 .v → .sv |
+| `dev/rtl/core/core.md` | 文件引用 .v → .sv |
+| `.opencode/skills/coding-standards/SKILL.md` | 仿真命令更新 |
 
-### P2 — 优化与扩展
+## 3. 执行顺序
 
-- [x] **ALU 乘除法器独立与ALU重构**
-  - 现状: `booth_multiplier` 和 `non_restoring_divider` 嵌入在 `alu_32bit` 内部
-  - 目标: 乘法器/除法器作为独立乘除模块（放在MU文件夹下），ALU 变为单周期模块，ALU重构：不使用握手逻辑作为接口，mem不经过握手逻辑直接调用
-  - 收益: 流水线时序优化，加减法等单周期运算直接调用单周期ALU，不需要握手，CPI更低。
-  
-- [x] **RV32M 扩展**:
-  - 现状：硬件乘除法器已就绪，
-  - 目标：实现M指令集扩展，需在 decode/execute 中添加 M 扩展指令识别
-  - 完成：8 条 M 指令 (MUL/MULH/MULHSU/MULHU/DIV/DIVU/REM/REMU) 全部实现
-  - 关键变更：`mu_funct3[2:0]` 直接映射 funct3，Booth 乘法器 A/M 扩展至 33 位修复符号溢出，
-    除法器增加 `is_unsigned` 支持 DIVU/REMU，`cpu_decode` 添加 M 指令识别，
-    `id_exe_bus` 扩展至 320 位 (is_mu + mu_funct3)
+1. **Phase 1 — 文件重命名**：批量 `.v` → `.sv`，`.vh` → `.svh`
+2. **Phase 2 — 引用更新**：修改所有 `` `include ``、`add_files` glob、文档中的文件引用
+3. **Phase 3 — TCL 重构**：拆分 vivado_do.tcl，添加参数解析，适配 .sv 扩展名
+4. **Phase 4 — mk.py 弃用**：标记 deprecated，更新文档
+5. **Phase 5 — 验证**：逐个 testbench 跑通 Vivado 仿真
 
-### P3 - 优化数据通路 (已完成)
+## 4. 风险与注意事项
 
-- [x] **回写数据链路优化**
-  - 现状：回写只能在访存单元之后执行，不需要访存的指令也需要经过MEM，CPU空转。
-  - 目标：在执行单元和访存单元之间直接建立数据通路，不需要访存的指令直接进入回写阶段。
-  - 关键更变：
-    - `cpu_controller.v`: 新增 `exe_need_mem` 输入和 `exe_to_wb` 输出；FSM STATE_EXEC 分支增加判断——非分支且非访存指令直接跳转 STATE_WB，访存指令仍走 STATE_MEM
-    - `cpu_execute.v`: 新增 `exe_need_mem` 输出（`is_load | is_store`）
-    - `core_top.v`: 新增 `exe_wb_bus` 组合逻辑，将 `exe_mem_bus` 映射为 `mem_wb_bus` 格式；`mem_wb_bus_r` 加载条件增加 `exe_to_wb` 分支（优先于 `mem_done` 和 `csr_valid`）
-  - 收益: ALU/JAL/JALR/LUI/AUIPC/MUL/DIV 等非访存指令减少 1 个 FSM 状态（跳过 MEM），CPI 降低
-
-### P4 — 远期
-
-- [ ] **MMU 实现**: 当前 paddr=vaddr 直通，接口已预留，可扩展为简单 SV32 页表
-- [ ] **中断优先级完善**: 当前 MEIP > MSIP，需补充完整优先级 MSIP > MTIP > MEIP
-- [ ] **mtvec Vectored 模式**: 当前仅 Direct 模式，可扩展 Vectored 异常向量
-- [ ] **Cache 容量扩展**: 4KB direct-mapped (12-bit index)，≥16KB 地址别名问题需解决
-- [ ] **FPGA 构建自动化**: 当前 Vivado 项目需手动创建，可编写 TCL 脚本自动化综合/实现/比特流生成
-
-## 已知限制
-
-| 限制 | 说明 |
-|------|------|
-| MMU 直通 | paddr=vaddr，无虚拟内存 |
-| 仅 Machine 模式 | 无 Supervisor 模式，无委托 |
-| 无中断嵌套 | 单级中断控制，无可编程优先级 |
-| FENCE/FENCE.I 为 NOP | 单 hart 无乱序，无需缓存一致性 |
-| mtvec 仅 Direct | Vectored 模式未实现 |
-| Cache 别名 | 4KB direct-mapped, ≥16KB 地址回绕别名 |
-| 无 RV32M | ~~乘除硬件存在但未接入 ISA 解码~~ 已实现 |
-| 无 A/F/D/C 扩展 | 无原子/浮点/双精度/压缩指令 |
-
-## 地址映射
-
-| 地址范围 | 总线 | 从设备 |
-|----------|------|--------|
-| 0x00000000 - 0x7FFFFFFF | AHB-Lite | SRAM (1MB BRAM) |
-| 0x80000000 - 0x8000FFFF | APB | GPIO (16-bit) |
-| 0x80004000 - 0x80007FFF | APB | Timer (+IRQ) |
-| 0x80008000 - 0x8000BFFF | APB | UART (RX+TX) |
-| 0x8000C000 - 0x8000FFFF | APB | SPI |
-
-> bit31=0 访问本地 BRAM Cache，bit31=1 绕过 Cache 直接到 AHB-Lite 总线 (MMIO)
-
-## 工具链
-
-| 工具 | 路径 | 用途 |
-|------|------|------|
-| mk.py | `tools/mk.py` | iverilog 编译 + vvp 仿真，自动依赖解析 |
-| rv2coe.py | `tools/rv2coe.py` | RISC-V 源码编译为 COE/HEX/BIN |
-| vivado_sim.tcl | `vivado_sim.tcl` | Vivado 仿真自动化 (创建工程/添加源/配置IP/启动仿真) |
-| tcl-tunnel | `tools/tcl-tunnel/` | 远程 Vivado TCL 执行 (HTTP 服务) |
-| Makefile | `dev/program_source/Makefile` | 测试程序编译 (.s → .hex) |
-
-## 文档索引
-
-| 文档 | 路径 |
-|------|------|
-| 系统设计报告 | `dev/docs/simpleCPU-design-report.md` |
-| 指令集定义 | `dev/docs/core/instruction-set.md` |
-| 异常/中断机制 | `dev/docs/core/exception-interrupt.md` |
-| ALU 设计 | `dev/docs/alu/ALU_DESIGN.md` |
-| ALU 接口 | `dev/docs/alu/ALU_INTERFACE.md` |
-| MU 接口 | `dev/docs/alu/MU_INTERFACE.md` |
-| AHB-Lite 规范 | `dev/docs/AHB-lite/AMBA_AHB-Lite_Spec_Summary.md` |
-| APB 规范 | `dev/docs/APB/AMBA_APB_Spec_Summary.md` |
-| FPGA 引脚速查 | `dev/fpga/QUICK_REF.md` |
-| mk.py 使用说明 | `tools/README-mk.md` |
-| rv2coe.py 使用说明 | `tools/program_source_usage.md` |
+- **`$readmemh` 路径**：Vivado xsim 工作目录与 iverilog 不同，相对路径需改为绝对路径（已在现有 TCL 中处理）
+- **icache.v / dcache.v**：这两个文件在仿真中被排除（使用 IP 核替代），但文件仍需改名
+- **`.vh` → `.svh`**：Vivado 对 `.svh` 的 include 行为与 iverilog 一致，但需确认 `include_dirs` 设置正确
+- **Verilog → SV 语法兼容**：本次仅做文件扩展名迁移，不强制语法改造；Vivado 对 `.sv` 文件使用 SV 编译器，Verilog 语法完全兼容
+- **tcl-tunnel 兼容**：tcl-tunnel 本身不涉及文件扩展名，但 README 示例需更新

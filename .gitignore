@@ -36,3 +36,4 @@ netlist/
 # vivado
 vivado*.log
 vivado*.jou
+.Xil/

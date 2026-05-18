@@ -38,9 +38,13 @@ _start:
 
     lui x10, 0x02000
     lw x11, 8(x10)
+    lw x12, 12(x10)
+    mv x13, x11
     addi x11, x11, 200
+    sltu x13, x11, x13
+    add x12, x12, x13
     sw x11, 0(x10)
-    sw x0, 4(x10)
+    sw x12, 4(x10)
 
     li x25, 80
 1:

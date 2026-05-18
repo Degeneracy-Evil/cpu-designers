@@ -1,5 +1,9 @@
 # FPGA约束文件 - System Top (CPU + Bus4LZU)
 
+# 配置属性
+set_property CFGBVS VCCO [current_design]
+set_property CONFIG_VOLTAGE 3.3 [current_design]
+
 # 时钟信号连接 (100MHz)
 set_property PACKAGE_PIN AC19 [get_ports clk]
 create_clock -period 10.000 [get_ports clk]

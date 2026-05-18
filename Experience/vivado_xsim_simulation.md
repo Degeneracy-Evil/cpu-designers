@@ -157,7 +157,7 @@ testbench 中 `repeat (3000000) @(posedge clk)` 等待 3M 个时钟周期。在 
 
 ### 建议
 
-在 `vivado_sim.tcl` 的 `tb_runtime_map` 中，为每个 testbench 预留充足余量：
+在 `vivado_do.tcl` 的 `tb_runtime_map` 中，为每个 testbench 预留充足余量：
 
 ```tcl
 array set tb_runtime_map {
@@ -172,7 +172,7 @@ array set tb_runtime_map {
 
 ---
 
-## 5. vivado_sim.tcl 使用流程
+## 5. vivado_do.tcl 使用流程
 
 ### 完整命令
 
@@ -181,12 +181,12 @@ array set tb_runtime_map {
 rm -rf project/
 
 # 启动 Vivado TCL 并执行脚本
-vivado.bat -mode tcl -source vivado_sim.tcl
+vivado.bat -mode tcl -source vivado_do.tcl -notrace
 ```
 
 ### 切换 testbench
 
-修改 `vivado_sim.tcl` 中的 `tb_name` 变量：
+修改 `vivado_do.tcl` 中的 `tb_name` 变量：
 
 ```tcl
 set tb_name "tb_uart_hello"    ;# 可选: tb_simple_cpu_top, tb_uart_hello, tb_led_marquee, tb_ahb_bus, tb_apb_perips, tb_cpu_bus_adapter
@@ -202,7 +202,7 @@ set tb_name "tb_uart_hello"    ;# 可选: tb_simple_cpu_top, tb_uart_hello, tb_l
 
 ### 问题
 
-`vivado_sim.tcl` Step 8 尝试读取 `xsim.log`，但该文件在 Vivado 2018.3 中不存在。testbench 的 `$display` 输出实际出现在 Vivado 控制台 stdout 中，而非写入独立日志文件。
+`vivado_do.tcl` Step 8 尝试读取 `xsim.log`，但该文件在 Vivado 2018.3 中不存在。testbench 的 `$display` 输出实际出现在 Vivado 控制台 stdout 中，而非写入独立日志文件。
 
 ### 可用的日志文件
 
@@ -230,4 +230,4 @@ waveform/
 netlist/
 ```
 
-每次重新运行 `vivado_sim.tcl` 时，`create_project -force` 会覆盖已有工程。也可手动删除 `project/` 目录确保干净重建。
+每次重新运行 `vivado_do.tcl` 时，`create_project -force` 会覆盖已有工程。也可手动删除 `project/` 目录确保干净重建。

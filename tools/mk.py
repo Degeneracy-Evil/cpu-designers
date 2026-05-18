@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Simple Verilog build runner for this repository.
+"""[DEPRECATED] Simple Verilog build runner for this repository.
+
+**此脚本已弃用。** 项目已迁移至 SystemVerilog，仿真请使用 Vivado TCL:
+    vivado.bat -mode tcl
+    source vivado_do.tcl
+    vivado_do -tb <testbench_name>
 
 Features:
 - Use command line arguments to choose top Verilog file.

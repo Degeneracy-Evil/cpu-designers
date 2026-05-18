@@ -273,16 +273,42 @@ def detect_lang(input_path: Path, lang_arg: str) -> str:
     return "asm"
 
 
+WSL_TOOLS: set[str] = set()
+
+
+def to_wsl_path(p_str: str) -> str:
+    match = re.match(r"^([a-zA-Z]):[\\/](.*)$", p_str)
+    if match:
+        drive = match.group(1).lower()
+        rest = match.group(2).replace("\\", "/")
+        return f"/mnt/{drive}/{rest}"
+    return p_str.replace("\\", "/")
+
+
 def ensure_tool(tool_name: str) -> None:
     if shutil.which(tool_name) is None:
+        if sys.platform == "win32":
+            try:
+                ret = subprocess.run(["wsl", "which", tool_name], capture_output=True, text=True, check=False)
+                if ret.returncode == 0:
+                    if tool_name not in WSL_TOOLS:
+                        print(f"[INFO] Tool '{tool_name}' not found natively, falling back to WSL.", file=sys.stderr)
+                        WSL_TOOLS.add(tool_name)
+                    return
+            except FileNotFoundError:
+                pass
         raise RuntimeError(f"Required tool not found in PATH: {tool_name}")
 
 
 def run_cmd(cmd: Sequence[str], verbose: bool) -> str:
+    actual_cmd = list(cmd)
+    if actual_cmd[0] in WSL_TOOLS:
+        actual_cmd = ["wsl"] + [to_wsl_path(str(x)) for x in cmd]
+
     if verbose:
-        print("[CMD ]", " ".join(cmd))
+        print("[CMD ]", " ".join(actual_cmd))
     proc = subprocess.run(
-        cmd,
+        actual_cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
@@ -293,8 +319,8 @@ def run_cmd(cmd: Sequence[str], verbose: bool) -> str:
     if proc.returncode != 0:
         out = proc.stdout.rstrip()
         if out:
-            raise RuntimeError(f"Command failed ({proc.returncode}): {' '.join(cmd)}\n{out}")
-        raise RuntimeError(f"Command failed ({proc.returncode}): {' '.join(cmd)}")
+            raise RuntimeError(f"Command failed ({proc.returncode}): {' '.join(actual_cmd)}\n{out}")
+        raise RuntimeError(f"Command failed ({proc.returncode}): {' '.join(actual_cmd)}")
     return proc.stdout
 
 

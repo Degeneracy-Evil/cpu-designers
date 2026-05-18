@@ -1,4 +1,16 @@
-# Verilog 编译与仿真（mk.py）
+# ~~Verilog 编译与仿真（mk.py）~~ [DEPRECATED]
+
+> **此工具已弃用。** 项目已迁移至 SystemVerilog，仿真请使用 Vivado TCL 方式：
+>
+> ```tcl
+> vivado.bat -mode tcl
+> source vivado_do.tcl -notrace
+> vivado_do -tb <testbench_name>
+> ```
+>
+> 详见 `vivado_do.tcl` 头部注释。
+
+---
 
 仓库tools提供了 `tools/mk.py`，用于统一调用 `iverilog` 和 `vvp`。
 
@@ -17,21 +29,21 @@ python tools/mk.py --top <顶层Verilog文件路径>
 例如（当前 32 位 ALU 测试）：
 
 ```bash
-python tools/mk.py --top dev/1-alu/tb/tb_alu_32bit.v
+python tools/mk.py --top dev/1-alu/tb/tb_alu_32bit.sv
 ```
 
 ## 常用参数
 
 ```bash
 # 仅编译，不运行
-python tools/mk.py --top dev/1-alu/tb/tb_alu_32bit.v --compile-only
+python tools/mk.py --top dev/1-alu/tb/tb_alu_32bit.sv --compile-only
 
 # 仅运行（使用已编译的 vvp 输出）
-python tools/mk.py --top dev/1-alu/tb/tb_alu_32bit.v --run-only
+python tools/mk.py --top dev/1-alu/tb/tb_alu_32bit.sv --run-only
 
 # 指定顶层模块名（传给 iverilog -s）
-python tools/mk.py --top dev/1-alu/tb/tb_alu_32bit.v --top-module tb_alu_32bit
+python tools/mk.py --top dev/1-alu/tb/tb_alu_32bit.sv --top-module tb_alu_32bit
 
 # 指定输出目录（默认 build）
-python tools/mk.py --top dev/1-alu/tb/tb_alu_32bit.v --build-dir build
+python tools/mk.py --top dev/1-alu/tb/tb_alu_32bit.sv --build-dir build
 ```

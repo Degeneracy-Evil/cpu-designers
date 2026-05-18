@@ -4,6 +4,8 @@
 
 ## 要求
 
+在本地或者wsl中有（Windows时回自动尝试查找本地以及wsl）：
+
 - `riscv64-unknown-elf-gcc`
 - `riscv64-unknown-elf-objcopy`
 - `riscv64-unknown-elf-objdump`（仅 `--check-isa` 时需要）

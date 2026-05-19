@@ -12,29 +12,35 @@
 
 ## 设计
 
-主存和缓存均使用BRAM IP（在`Reference\ips`文件夹下），参数如下：
+主存和缓存均使用BRAM IP（新IP文件在`Reference\newips`文件夹下，当前项目使用的旧IP在`Reference\ips`文件夹下），参数如下：
 
 - SRAM:$32bit *8192=32KB$
   - 地址宽:15bit
   - 块大小:32字节
-- i/dcache-d:$256bit *4路 *8组=1KB$
+  - IP设置：没有开启字节读写，wea,web宽度只有1
+- i/dcache-d:$256bit *4路 *8组=1KB$（cache数据段）
   - 行大小:32字节
   - 组数:8组
   - offset:5bit
   - 组号:3bit
-  - tag: $15-5-3=7bit$
-- i/dcache-t:$16bit *4路 *8组=64B$
-  - tag:7bit
+  - IP设置：开启字节读写，wea,web宽度32
+- i/dcache-t:$16bit *4路 *8组=64B$（cache标志段）
+  - tag:$15-5-3=7bit$
   - 有效位:1bit
   - 脏位:1bit
   - PLRU状态位:3bit
   - resave:4bit
+  - IP设置：没有开启字节读写，wea,web宽度只有1
 
 计划采用写回设计，tree-PLRU替换算法，使用4路组相连。
 
 icache进行只读特殊优化：脏位恒为零，替换时不进行回写到主存
 
-*意向： 考虑进行算法层面的优化？icache使用FIFO？
+## 验收
+
+验收目标：将coe加载到主存，cpu完成执行且结果正确，预计不需要更改测试程序。
+
+注意：cpu复位应该读取0x8000_0000（内存模型主存首地址），当前不是这样，需要改为这样。
 
 ## 参考资料
 

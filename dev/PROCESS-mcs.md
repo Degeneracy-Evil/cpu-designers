@@ -104,6 +104,23 @@
   - Cache miss → refill → merge path verified working
   - Cache hit → store/load path verified working
 
+- **tb_simple_cpu_compute**: **pass=40 fail=2**
+  - FAIL reg x21 expected=0x12345000 got=0x80001000
+  - FAIL reg x31 expected=0x800000ac got=0x800000b0
+  - Please verify whether the test program complies with the memory model which the Sram is starting at 0x80000000, and check if the expected values in the tb file have been updated.
+
+- **tb_simple_cpu_trap**: **pass=13 fail=1**
+  - FAIL reg x20 expected=0x8000003c got=0x80000038
+  - Please verify whether the test program complies with the memory model which the Sram is starting at 0x80000000, and check if the expected values in the tb file have been updated.
+
+- **tb_led_marquee**: **16 PASS, 0 FAIL — ALL TESTS PASSED**
+  - GPIO peripheral functions are correct
+  - CLINT MTIP function is correct
+  - MMIO-GPIO is correct
+
+- **tb_uart_hello**
+  - It can be seen from the waveform graph that the output is available, but the test and summary functions of the tb file do not provide any output.
+
 ### Recent Fixes
 
 - Fixed repeated trigger bug in dcache_ctrl.sv and icache_ctrl.sv: added !cpu_req_ready_r condition to cache hit determination and S_IDLE state transition to prevent multiple re-evaluations.
@@ -111,7 +128,6 @@
 
 ### Next Steps
 
-1. Run tb_simple_cpu_compute and tb_simple_cpu_trap simulations
-2. Run tb_uart_hello, tb_led_marquee simulations
-3. Verify writeback path (dirty victim eviction) with targeted tests
-4. Performance measurement: cache hit/miss statistics
+1. Check and rerun tb_simple_cpu_compute and tb_simple_cpu_trap simulations
+2. Verify writeback path (dirty victim eviction) with targeted tests
+3. Performance measurement: cache hit/miss statistics

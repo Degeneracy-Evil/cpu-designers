@@ -120,6 +120,8 @@ module dcache_ctrl(
     wire [31:0]  store_full_wea  = ({28'b0, word_byte_we}) << (word_off * 4);
     wire [255:0] store_full_dina = ({224'b0, word_store_data}) << (word_off * 32);
 
+    reg cpu_req_ready_r;
+
     wire is_store_hit = cpu_req_valid && !cpu_req_ready_r && !is_mmio && cache_hit && cpu_req_hwrite;
     wire is_load_hit  = cpu_req_valid && !cpu_req_ready_r && !is_mmio && cache_hit && !cpu_req_hwrite;
 
@@ -177,7 +179,6 @@ module dcache_ctrl(
 
     assign cpu_req_rdata = is_mmio ? mmio_rdata : bypass_data;
 
-    reg cpu_req_ready_r;
     assign cpu_req_ready = cpu_req_ready_r;
 
     reg refill_req_r;

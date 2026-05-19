@@ -86,6 +86,8 @@ module icache_ctrl(
     wire [255:0] bram_douta;
     wire [255:0] bram_doutb;
 
+    reg cpu_req_ready_r;
+
     wire bram_ena = (state == S_IDLE) && cpu_req_valid && !cpu_req_ready_r && !is_mmio;
     wire bram_enb = refill_valid && (state == S_REFILL);
 
@@ -123,7 +125,6 @@ module icache_ctrl(
     assign mmio_req  = is_mmio ? cpu_req_valid : 1'b0;
     assign mmio_addr = cpu_req_addr;
 
-    reg cpu_req_ready_r;
     assign cpu_req_ready = cpu_req_ready_r;
 
     wire [2:0] plru_next_refill;

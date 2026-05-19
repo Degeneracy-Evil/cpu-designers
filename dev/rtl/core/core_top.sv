@@ -227,9 +227,12 @@ module core_top(
     wire [31:0] ahb_inst_data;
     wire        ahb_inst_valid;
 
-    icache_ctrl #(
-        .DEPTH(4096)
-    ) u_icache_wrap (
+    wire        icache_refill_req;
+    wire [31:0] icache_refill_addr;
+    wire [255:0] icache_refill_data;
+    wire        icache_refill_valid;
+
+    icache_ctrl u_icache_wrap (
         .clk(clk),
         .reset(reset),
 
@@ -241,7 +244,12 @@ module core_top(
         .mmio_req(icache_mmio_req),
         .mmio_addr(),
         .mmio_data(ahb_inst_data),
-        .mmio_valid(ahb_inst_valid)
+        .mmio_valid(ahb_inst_valid),
+
+        .refill_req(icache_refill_req),
+        .refill_addr(icache_refill_addr),
+        .refill_data(icache_refill_data),
+        .refill_valid(icache_refill_valid)
     );
 
     cpu_fetch u_fetch(
@@ -323,9 +331,17 @@ module core_top(
     wire [31:0] ahb_data_rdata;
     wire        ahb_data_valid;
 
-    dcache_ctrl #(
-        .DEPTH(4096)
-    ) u_dcache_wrap (
+    wire        dcache_refill_req;
+    wire [31:0] dcache_refill_addr;
+    wire [255:0] dcache_refill_data;
+    wire        dcache_refill_valid;
+
+    wire        dcache_wb_req;
+    wire [31:0] dcache_wb_addr;
+    wire [255:0] dcache_wb_data;
+    wire        dcache_wb_valid;
+
+    dcache_ctrl u_dcache_wrap (
         .clk(clk),
         .reset(reset),
 
@@ -343,7 +359,17 @@ module core_top(
         .mmio_hwrite(dcache_mmio_hwrite),
         .mmio_hsize(dcache_mmio_hsize),
         .mmio_rdata(ahb_data_rdata),
-        .mmio_valid(ahb_data_valid)
+        .mmio_valid(ahb_data_valid),
+
+        .refill_req(dcache_refill_req),
+        .refill_addr(dcache_refill_addr),
+        .refill_data(dcache_refill_data),
+        .refill_valid(dcache_refill_valid),
+
+        .wb_req(dcache_wb_req),
+        .wb_addr(dcache_wb_addr),
+        .wb_data(dcache_wb_data),
+        .wb_valid(dcache_wb_valid)
     );
 
     cpu_mem u_mem(
@@ -456,6 +482,18 @@ module core_top(
         .ahb_inst_valid   (ahb_inst_valid),
         .ahb_data_rdata   (ahb_data_rdata),
         .ahb_data_valid   (ahb_data_valid),
+        .icache_refill_req  (icache_refill_req),
+        .icache_refill_addr (icache_refill_addr),
+        .icache_refill_data (icache_refill_data),
+        .icache_refill_valid (icache_refill_valid),
+        .dcache_refill_req  (dcache_refill_req),
+        .dcache_refill_addr (dcache_refill_addr),
+        .dcache_refill_data (dcache_refill_data),
+        .dcache_refill_valid (dcache_refill_valid),
+        .dcache_wb_req      (dcache_wb_req),
+        .dcache_wb_addr     (dcache_wb_addr),
+        .dcache_wb_data     (dcache_wb_data),
+        .dcache_wb_valid    (dcache_wb_valid),
         .HADDR            (HADDR),
         .HTRANS           (HTRANS),
         .HWRITE           (HWRITE),

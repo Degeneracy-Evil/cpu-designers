@@ -1,60 +1,73 @@
 # =============================================================================
-# setup_ip.tcl — Step 4: 导入 IP 并配置 ICache/DCache COE
+# setup_ip.tcl — Step 4: 导入 IP 并配置 Sram COE (主存初始化)
 #
 # 前置变量:
 #   ips_dir, icache_coe_file, dcache_coe_file, proj_dir, proj_name
+#
+# IP 说明:
+#   icached  — ICache 数据 BRAM (256bit×32, True Dual Port) — 冷启动, 无 COE
+#   dcached  — DCache 数据 BRAM (256bit×32, True Dual Port) — 冷启动, 无 COE
+#   Sram     — 主存 SRAM   (32bit×8192) — 可选 COE 初始化程序
 # =============================================================================
 
-puts "========== Step 4: 导入 IP 并配置 ICache COE =========="
+puts "========== Step 4: 导入 IP 并配置 Sram COE =========="
 
 set ip_xci_dir "${proj_dir}/${proj_name}.srcs/sources_1/ip"
 
-import_files -norecurse "${ips_dir}/icache.xci"
-import_files -norecurse "${ips_dir}/dcache.xci"
+import_files -norecurse "${ips_dir}/icached.xci"
+import_files -norecurse "${ips_dir}/dcached.xci"
 import_files -norecurse "${ips_dir}/Sram.xci"
-
-export_ip_user_files -of_objects [get_files "${ip_xci_dir}/icache/icache.xci"] -force -quiet
-export_ip_user_files -of_objects [get_files "${ip_xci_dir}/dcache/dcache.xci"] -force -quiet
-export_ip_user_files -of_objects [get_files "${ip_xci_dir}/Sram/Sram.xci"] -force -quiet
 
 update_compile_order -fileset sources_1
 
+# ICache/DCache 数据 BRAM: 冷启动, 不加载 COE
+set ip_icached [get_ips -all icached]
+set ip_dcached [get_ips -all dcached]
+set ip_sram    [get_ips -all Sram]
+
+if { $ip_icached eq "" } {
+    puts "ERROR: get_ips icached 返回空, 尝试刷新 IP..."
+    update_compile_order -fileset sources_1
+    set ip_icached [get_ips -all icached]
+    set ip_dcached [get_ips -all dcached]
+    set ip_sram    [get_ips -all Sram]
+}
+
+set_property -dict [list \
+    CONFIG.Load_Init_File {false} \
+] $ip_icached
+
+set_property -dict [list \
+    CONFIG.Load_Init_File {false} \
+] $ip_dcached
+
+# Sram 主存: 用 COE 初始化程序 (icache_coe_file 复用为程序 COE)
 if { $icache_coe_file ne "" } {
     set coe_tail [file tail $icache_coe_file]
-    file copy -force $icache_coe_file "${ip_xci_dir}/icache/"
-    file copy -force $dcache_coe_file "${ip_xci_dir}/dcache/"
+    file copy -force $icache_coe_file "${ip_xci_dir}/Sram/"
 
     set_property -dict [list \
         CONFIG.Load_Init_File {true} \
-        CONFIG.Coe_File "${ip_xci_dir}/icache/${coe_tail}" \
-    ] [get_ips icache]
-
-    set_property -dict [list \
-        CONFIG.Load_Init_File {true} \
-        CONFIG.Coe_File "${ip_xci_dir}/dcache/${coe_tail}" \
-    ] [get_ips dcache]
-    puts "ICache 和 DCache IP 已配置 (COE: $icache_coe_file)"
+        CONFIG.Coe_File "${ip_xci_dir}/Sram/${coe_tail}" \
+    ] $ip_sram
+    puts "Sram IP 已配置 (COE: $icache_coe_file)"
 } else {
     set_property -dict [list \
         CONFIG.Load_Init_File {false} \
-    ] [get_ips icache]
-
-    set_property -dict [list \
-        CONFIG.Load_Init_File {false} \
-    ] [get_ips dcache]
-    puts "ICache 和 DCache IP 已配置 (无 COE 初始化)"
+    ] $ip_sram
+    puts "Sram IP 已配置 (无 COE 初始化)"
 }
 
-generate_target all [get_files "${ip_xci_dir}/icache/icache.xci"]
-generate_target all [get_files "${ip_xci_dir}/dcache/dcache.xci"]
-generate_target all [get_files "${ip_xci_dir}/Sram/Sram.xci"]
+generate_target all $ip_icached
+generate_target all $ip_dcached
+generate_target all $ip_sram
 
-catch { config_ip_cache -export [get_ips -all icache] }
-catch { config_ip_cache -export [get_ips -all dcache] }
-catch { config_ip_cache -export [get_ips -all Sram] }
+catch { config_ip_cache -export $ip_icached }
+catch { config_ip_cache -export $ip_dcached }
+catch { config_ip_cache -export $ip_sram }
 
-export_ip_user_files -of_objects [get_files "${ip_xci_dir}/icache/icache.xci"] -no_script -sync -force -quiet
-export_ip_user_files -of_objects [get_files "${ip_xci_dir}/dcache/dcache.xci"] -no_script -sync -force -quiet
-export_ip_user_files -of_objects [get_files "${ip_xci_dir}/Sram/Sram.xci"] -no_script -sync -force -quiet
+export_ip_user_files -of_objects $ip_icached -no_script -sync -force -quiet
+export_ip_user_files -of_objects $ip_dcached -no_script -sync -force -quiet
+export_ip_user_files -of_objects $ip_sram    -no_script -sync -force -quiet
 
 puts "IP 导入与配置完成"

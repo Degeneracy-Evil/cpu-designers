@@ -25,30 +25,23 @@ update_compile_order -fileset sim_1
 puts "Testbench 已添加: $tb_name"
 
 # ---------------------------------------------------------------------------
-# 更新 ICache/DCache COE 配置 (reuse 时此步骤必不可少)
+# 更新 Sram COE 配置 (reuse 时此步骤必不可少)
 # ---------------------------------------------------------------------------
-if { [catch {get_ips icache} ] == 0 } {
+if { [catch {get_ips Sram} ip_sram] == 0 && $ip_sram ne "" } {
     if { $icache_coe_file ne "" } {
+        set coe_tail [file tail $icache_coe_file]
+        set ip_xci_dir "${proj_dir}/${proj_name}.srcs/sources_1/ip"
+        file copy -force $icache_coe_file "${ip_xci_dir}/Sram/"
         set_property -dict [list \
             CONFIG.Load_Init_File {true} \
-            CONFIG.Coe_File $icache_coe_file \
-        ] [get_ips icache]
-
-        set_property -dict [list \
-            CONFIG.Load_Init_File {true} \
-            CONFIG.Coe_File $dcache_coe_file \
-        ] [get_ips dcache]
+            CONFIG.Coe_File "${ip_xci_dir}/Sram/${coe_tail}" \
+        ] $ip_sram
         puts "COE 已更新: $icache_coe_file"
     } else {
         set_property -dict [list \
             CONFIG.Load_Init_File {false} \
-        ] [get_ips icache]
-
-        set_property -dict [list \
-            CONFIG.Load_Init_File {false} \
-        ] [get_ips dcache]
+        ] $ip_sram
         puts "COE 已更新: 无 COE 初始化"
     }
-    generate_target all [get_ips icache]
-    generate_target all [get_ips dcache]
+    generate_target all $ip_sram
 }

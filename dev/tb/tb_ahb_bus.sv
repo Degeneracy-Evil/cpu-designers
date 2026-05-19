@@ -32,7 +32,7 @@ module tb_ahb_bus;
         .ADDR_WIDTH  (32),
         .DATA_WIDTH  (32),
         .SLAVE_NUM   (4),
-        .MEM_DEPTH   (262144),
+        .MEM_DEPTH   (8192),
         .WAIT_STATES (0),
         .GPIO_NUM    (16),
         .UART_FREQ   (100)
@@ -134,31 +134,31 @@ module tb_ahb_bus;
 
         begin : sram_write_read_test
             reg [31:0] rd_val;
-            ahb_write(32'h00000000, 32'hDEADBEEF);
-            ahb_read(32'h00000000, rd_val);
+            ahb_write(32'h80000000, 32'hDEADBEEF);
+            ahb_read(32'h80000000, rd_val);
             if (rd_val === 32'hDEADBEEF) begin
                 pass_count = pass_count + 1;
-                $display("PASS SRAM write/read @0x0");
+                $display("PASS SRAM write/read @0x80000000");
             end else begin
                 fail_count = fail_count + 1;
-                $display("FAIL SRAM write/read @0x0 expected=0xDEADBEEF got=0x%08h", rd_val);
+                $display("FAIL SRAM write/read @0x80000000 expected=0xDEADBEEF got=0x%08h", rd_val);
             end
 
-            ahb_write(32'h00000004, 32'hCAFEBABE);
-            ahb_read(32'h00000004, rd_val);
+            ahb_write(32'h80000004, 32'hCAFEBABE);
+            ahb_read(32'h80000004, rd_val);
             if (rd_val === 32'hCAFEBABE) begin
                 pass_count = pass_count + 1;
-                $display("PASS SRAM write/read @0x4");
+                $display("PASS SRAM write/read @0x80000004");
             end else begin
                 fail_count = fail_count + 1;
-                $display("FAIL SRAM write/read @0x4 expected=0xCAFEBABE got=0x%08h", rd_val);
+                $display("FAIL SRAM write/read @0x80000004 expected=0xCAFEBABE got=0x%08h", rd_val);
             end
         end
 
         begin : apb_bridge_gpio_test
             reg [31:0] rd_val;
-            ahb_write(32'h80000000, 32'h0000FFFF);
-            ahb_read(32'h80000000, rd_val);
+            ahb_write(32'h10000000, 32'h0000FFFF);
+            ahb_read(32'h10000000, rd_val);
             pass_count = pass_count + 1;
             $display("PASS APB bridge GPIO access completed (no error)");
         end

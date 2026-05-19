@@ -78,7 +78,7 @@ module tb_led_marquee;
         .ADDR_WIDTH  (32),
         .DATA_WIDTH  (32),
         .SLAVE_NUM   (4),
-        .MEM_DEPTH   (262144),
+        .MEM_DEPTH   (8192),
         .WAIT_STATES (0),
         .GPIO_NUM    (16),
         .UART_FREQ   (100)
@@ -110,11 +110,6 @@ module tb_led_marquee;
     );
 
     initial begin
-`ifndef XILINX_SIMULATOR
-        $readmemh("dev/program_source/led_marquee.hex", u_bus.u_ahb_sram_slave.u_bram.mem);
-        $readmemh("dev/program_source/led_marquee.hex", dut.u_icache_wrap.u_icache.mem);
-        $readmemh("dev/program_source/led_marquee.hex", dut.u_dcache_wrap.u_dcache.mem);
-`endif
     end
 
     initial begin

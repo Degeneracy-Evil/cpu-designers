@@ -63,7 +63,7 @@ module tb_uart_hello;
         .ADDR_WIDTH  (32),
         .DATA_WIDTH  (32),
         .SLAVE_NUM   (4),
-        .MEM_DEPTH   (262144),
+        .MEM_DEPTH   (8192),
         .WAIT_STATES (0),
         .GPIO_NUM    (16),
         .UART_FREQ   (100)
@@ -95,11 +95,6 @@ module tb_uart_hello;
     );
 
     initial begin
-`ifndef XILINX_SIMULATOR
-        $readmemh("dev/program_source/uart_hello.hex", u_bus.u_ahb_sram_slave.u_bram.mem);
-        $readmemh("dev/program_source/uart_hello.hex", dut.u_icache_wrap.u_icache.mem);
-        $readmemh("dev/program_source/uart_hello.hex", dut.u_dcache_wrap.u_dcache.mem);
-`endif
     end
 
     initial begin
@@ -200,10 +195,6 @@ module tb_uart_hello;
     end
 
     initial begin
-`ifndef XILINX_SIMULATOR
-        $dumpfile("dev/tb/waveform/uart_hello.vcd");
-        $dumpvars(0, u_bus.u_apb_perips.u_uart.uart_tx_inst);
-`endif
     end
 
     integer i;

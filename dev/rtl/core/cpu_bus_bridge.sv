@@ -19,6 +19,21 @@ module cpu_bus_bridge(
     output [31:0] ahb_data_rdata,
     output        ahb_data_valid,
 
+    input         icache_refill_req,
+    input  [31:0] icache_refill_addr,
+    output [255:0] icache_refill_data,
+    output        icache_refill_valid,
+
+    input         dcache_refill_req,
+    input  [31:0] dcache_refill_addr,
+    output [255:0] dcache_refill_data,
+    output        dcache_refill_valid,
+
+    input         dcache_wb_req,
+    input  [31:0] dcache_wb_addr,
+    input  [255:0] dcache_wb_data,
+    output        dcache_wb_valid,
+
     output [31:0] HADDR,
     output [1:0]  HTRANS,
     output        HWRITE,
@@ -32,100 +47,170 @@ module cpu_bus_bridge(
     input         HRESP
 );
 
-    localparam AHB_IDLE = 2'd0;
-    localparam AHB_ADDR = 2'd1;
-    localparam AHB_DATA = 2'd2;
+    localparam S_IDLE          = 4'd0;
+    localparam S_MMIO_ADDR     = 4'd1;
+    localparam S_MMIO_DATA     = 4'd2;
+    localparam S_IREFILL_ADDR  = 4'd3;
+    localparam S_IREFILL_DATA  = 4'd4;
+    localparam S_DREFILL_ADDR  = 4'd5;
+    localparam S_DREFILL_DATA  = 4'd6;
+    localparam S_WB_ADDR       = 4'd7;
+    localparam S_WB_DATA       = 4'd8;
 
-    reg [1:0]  ahb_state;
-    reg [31:0] ahb_HADDR_r;
-    reg [1:0]  ahb_HTRANS_r;
-    reg        ahb_HWRITE_r;
-    reg [2:0]  ahb_HSIZE_r;
-    reg [2:0]  ahb_HBURST_r;
-    reg [3:0]  ahb_HPROT_r;
-    reg        ahb_HMASTLOCK_r;
-    reg [31:0] ahb_HWDATA_r;
+    reg [3:0]  state;
 
-    reg [31:0] ahb_latch_wdata;
-    reg        ahb_is_ireq_r;
+    reg [31:0] haddr_r;
+    reg [1:0]  htrans_r;
+    reg        hwrite_r;
+    reg [2:0]  hsize_r;
+    reg [2:0]  hburst_r;
+    reg [3:0]  hprot_r;
+    reg        hmastlock_r;
+    reg [31:0] hwdata_r;
+
+    reg [31:0] mmio_latch_wdata;
+    reg        mmio_is_ireq;
 
     reg [31:0] ahb_inst_data_r;
     reg        ahb_inst_valid_r;
     reg [31:0] ahb_data_rdata_r;
     reg        ahb_data_valid_r;
 
-    assign ahb_inst_data  = ahb_inst_data_r;
-    assign ahb_inst_valid = ahb_inst_valid_r;
-    assign ahb_data_rdata = ahb_data_rdata_r;
-    assign ahb_data_valid = ahb_data_valid_r;
+    reg [2:0]   beat_cnt;
+    reg [31:0]  burst_base_addr;
+    reg [255:0] refill_shift_reg;
+    reg [255:0] wb_shift_reg;
+
+    reg icache_refill_valid_r;
+    reg dcache_refill_valid_r;
+    reg dcache_wb_valid_r;
+
+    assign ahb_inst_data     = ahb_inst_data_r;
+    assign ahb_inst_valid    = ahb_inst_valid_r;
+    assign ahb_data_rdata    = ahb_data_rdata_r;
+    assign ahb_data_valid    = ahb_data_valid_r;
+    assign icache_refill_data  = refill_shift_reg;
+    assign icache_refill_valid = icache_refill_valid_r;
+    assign dcache_refill_data  = refill_shift_reg;
+    assign dcache_refill_valid = dcache_refill_valid_r;
+    assign dcache_wb_valid     = dcache_wb_valid_r;
+
+    wire beat_done = HREADY && htrans_r[1];
+    wire last_beat = (beat_cnt == 3'd7);
 
     always @(posedge clk or posedge reset) begin
         if (reset) begin
-            ahb_state        <= AHB_IDLE;
-            ahb_HADDR_r     <= 32'b0;
-            ahb_HTRANS_r    <= `AHB_TRANS_IDLE;
-            ahb_HWRITE_r    <= 1'b0;
-            ahb_HSIZE_r     <= `AHB_SIZE_WORD;
-            ahb_HBURST_r    <= `AHB_BURST_SINGLE;
-            ahb_HPROT_r     <= 4'b0011;
-            ahb_HMASTLOCK_r <= 1'b0;
-            ahb_HWDATA_r    <= 32'b0;
-            ahb_latch_wdata <= 32'b0;
-            ahb_is_ireq_r   <= 1'b0;
-            ahb_inst_data_r <= 32'b0;
-            ahb_inst_valid_r<= 1'b0;
-            ahb_data_rdata_r<= 32'b0;
-            ahb_data_valid_r<= 1'b0;
+            state                <= S_IDLE;
+            haddr_r              <= 32'b0;
+            htrans_r             <= `AHB_TRANS_IDLE;
+            hwrite_r             <= 1'b0;
+            hsize_r              <= `AHB_SIZE_WORD;
+            hburst_r             <= `AHB_BURST_SINGLE;
+            hprot_r              <= 4'b0011;
+            hmastlock_r          <= 1'b0;
+            hwdata_r             <= 32'b0;
+            mmio_latch_wdata     <= 32'b0;
+            mmio_is_ireq         <= 1'b0;
+            ahb_inst_data_r      <= 32'b0;
+            ahb_inst_valid_r     <= 1'b0;
+            ahb_data_rdata_r     <= 32'b0;
+            ahb_data_valid_r     <= 1'b0;
+            beat_cnt             <= 3'd0;
+            burst_base_addr      <= 32'b0;
+            refill_shift_reg     <= 256'b0;
+            wb_shift_reg         <= 256'b0;
+            icache_refill_valid_r <= 1'b0;
+            dcache_refill_valid_r <= 1'b0;
+            dcache_wb_valid_r     <= 1'b0;
         end else begin
-            ahb_inst_valid_r <= 1'b0;
-            ahb_data_valid_r <= 1'b0;
+            ahb_inst_valid_r      <= 1'b0;
+            ahb_data_valid_r      <= 1'b0;
+            icache_refill_valid_r <= 1'b0;
+            dcache_refill_valid_r <= 1'b0;
+            dcache_wb_valid_r     <= 1'b0;
 
-            case (ahb_state)
-                AHB_IDLE: begin
-                    ahb_HTRANS_r <= `AHB_TRANS_IDLE;
-                    if (icache_mmio_req && !ahb_inst_valid_r && !ahb_data_valid_r) begin
-                        ahb_state        <= AHB_ADDR;
-                        ahb_HADDR_r     <= icache_mmio_addr;
-                        ahb_HTRANS_r    <= `AHB_TRANS_NONSEQ;
-                        ahb_HWRITE_r    <= 1'b0;
-                        ahb_HSIZE_r     <= `AHB_SIZE_WORD;
-                        ahb_HBURST_r    <= `AHB_BURST_SINGLE;
-                        ahb_HPROT_r     <= 4'b0011;
-                        ahb_HMASTLOCK_r <= 1'b0;
-                        ahb_latch_wdata <= 32'b0;
-                        ahb_is_ireq_r   <= 1'b1;
-                    end else if (dcache_mmio_req && !ahb_inst_valid_r && !ahb_data_valid_r) begin
-                        ahb_state        <= AHB_ADDR;
-                        ahb_HADDR_r     <= dcache_mmio_addr;
-                        ahb_HTRANS_r    <= `AHB_TRANS_NONSEQ;
-                        ahb_HWRITE_r    <= dcache_mmio_hwrite;
-                        ahb_HSIZE_r     <= dcache_mmio_hsize;
-                        ahb_HBURST_r    <= `AHB_BURST_SINGLE;
-                        ahb_HPROT_r     <= 4'b0011;
-                        ahb_HMASTLOCK_r <= 1'b0;
-                        ahb_latch_wdata <= dcache_mmio_wdata;
-                        ahb_is_ireq_r   <= 1'b0;
+            case (state)
+                S_IDLE: begin
+                    htrans_r <= `AHB_TRANS_IDLE;
+                    if (icache_mmio_req && !ahb_inst_valid_r) begin
+                        state            <= S_MMIO_ADDR;
+                        haddr_r          <= icache_mmio_addr;
+                        htrans_r         <= `AHB_TRANS_NONSEQ;
+                        hwrite_r         <= 1'b0;
+                        hsize_r          <= `AHB_SIZE_WORD;
+                        hburst_r         <= `AHB_BURST_SINGLE;
+                        hprot_r          <= 4'b0011;
+                        hmastlock_r      <= 1'b0;
+                        mmio_latch_wdata <= 32'b0;
+                        mmio_is_ireq     <= 1'b1;
+                    end else if (dcache_mmio_req && !ahb_data_valid_r) begin
+                        state            <= S_MMIO_ADDR;
+                        haddr_r          <= dcache_mmio_addr;
+                        htrans_r         <= `AHB_TRANS_NONSEQ;
+                        hwrite_r         <= dcache_mmio_hwrite;
+                        hsize_r          <= dcache_mmio_hsize;
+                        hburst_r         <= `AHB_BURST_SINGLE;
+                        hprot_r          <= 4'b0011;
+                        hmastlock_r      <= 1'b0;
+                        mmio_latch_wdata <= dcache_mmio_wdata;
+                        mmio_is_ireq     <= 1'b0;
+                    end else if (dcache_wb_req && !dcache_wb_valid_r) begin
+                        state            <= S_WB_ADDR;
+                        haddr_r          <= dcache_wb_addr;
+                        htrans_r         <= `AHB_TRANS_NONSEQ;
+                        hwrite_r         <= 1'b1;
+                        hsize_r          <= `AHB_SIZE_WORD;
+                        hburst_r         <= `AHB_BURST_INCR8;
+                        hprot_r          <= 4'b0011;
+                        hmastlock_r      <= 1'b0;
+                        burst_base_addr  <= dcache_wb_addr;
+                        beat_cnt         <= 3'd0;
+                        wb_shift_reg     <= dcache_wb_data;
+                    end else if (icache_refill_req && !icache_refill_valid_r) begin
+                        state            <= S_IREFILL_ADDR;
+                        haddr_r          <= icache_refill_addr;
+                        htrans_r         <= `AHB_TRANS_NONSEQ;
+                        hwrite_r         <= 1'b0;
+                        hsize_r          <= `AHB_SIZE_WORD;
+                        hburst_r         <= `AHB_BURST_INCR8;
+                        hprot_r          <= 4'b0011;
+                        hmastlock_r      <= 1'b0;
+                        burst_base_addr  <= icache_refill_addr;
+                        beat_cnt         <= 3'd0;
+                        refill_shift_reg <= 256'b0;
+                    end else if (dcache_refill_req && !dcache_refill_valid_r) begin
+                        state            <= S_DREFILL_ADDR;
+                        haddr_r          <= dcache_refill_addr;
+                        htrans_r         <= `AHB_TRANS_NONSEQ;
+                        hwrite_r         <= 1'b0;
+                        hsize_r          <= `AHB_SIZE_WORD;
+                        hburst_r         <= `AHB_BURST_INCR8;
+                        hprot_r          <= 4'b0011;
+                        hmastlock_r      <= 1'b0;
+                        burst_base_addr  <= dcache_refill_addr;
+                        beat_cnt         <= 3'd0;
+                        refill_shift_reg <= 256'b0;
                     end
                 end
 
-                AHB_ADDR: begin
+                S_MMIO_ADDR: begin
                     if (HREADY) begin
                         if (HRESP == `AHB_RESP_ERROR) begin
-                            ahb_state     <= AHB_IDLE;
-                            ahb_HTRANS_r  <= `AHB_TRANS_IDLE;
+                            state     <= S_IDLE;
+                            htrans_r  <= `AHB_TRANS_IDLE;
                             ahb_data_valid_r <= 1'b1;
                         end else begin
-                            ahb_state     <= AHB_DATA;
-                            ahb_HWDATA_r  <= ahb_latch_wdata;
+                            state     <= S_MMIO_DATA;
+                            hwdata_r  <= mmio_latch_wdata;
                         end
                     end
                 end
 
-                AHB_DATA: begin
+                S_MMIO_DATA: begin
                     if (HREADY) begin
-                        ahb_state     <= AHB_IDLE;
-                        ahb_HTRANS_r  <= `AHB_TRANS_IDLE;
-                        if (ahb_is_ireq_r) begin
+                        state     <= S_IDLE;
+                        htrans_r  <= `AHB_TRANS_IDLE;
+                        if (mmio_is_ireq) begin
                             ahb_inst_data_r  <= HRDATA;
                             ahb_inst_valid_r <= 1'b1;
                         end else begin
@@ -135,21 +220,92 @@ module cpu_bus_bridge(
                     end
                 end
 
+                S_IREFILL_ADDR: begin
+                    if (HREADY) begin
+                        state    <= S_IREFILL_DATA;
+                        htrans_r <= `AHB_TRANS_SEQ;
+                        haddr_r  <= burst_base_addr + 32'd4;
+                    end
+                end
+
+                S_IREFILL_DATA: begin
+                    if (beat_done) begin
+                        refill_shift_reg[beat_cnt*32 +: 32] <= HRDATA;
+                        if (last_beat) begin
+                            state    <= S_IDLE;
+                            htrans_r <= `AHB_TRANS_IDLE;
+                            icache_refill_valid_r <= 1'b1;
+                        end else begin
+                            beat_cnt <= beat_cnt + 3'd1;
+                            haddr_r  <= burst_base_addr + ({29'b0, beat_cnt + 3'd1, 2'b0}) + 32'd4;
+                            htrans_r <= `AHB_TRANS_SEQ;
+                        end
+                    end
+                end
+
+                S_DREFILL_ADDR: begin
+                    if (HREADY) begin
+                        state    <= S_DREFILL_DATA;
+                        htrans_r <= `AHB_TRANS_SEQ;
+                        haddr_r  <= burst_base_addr + 32'd4;
+                    end
+                end
+
+                S_DREFILL_DATA: begin
+                    if (beat_done) begin
+                        refill_shift_reg[beat_cnt*32 +: 32] <= HRDATA;
+                        if (last_beat) begin
+                            state    <= S_IDLE;
+                            htrans_r <= `AHB_TRANS_IDLE;
+                            dcache_refill_valid_r <= 1'b1;
+                        end else begin
+                            beat_cnt <= beat_cnt + 3'd1;
+                            haddr_r  <= burst_base_addr + ({29'b0, beat_cnt + 3'd1, 2'b0}) + 32'd4;
+                            htrans_r <= `AHB_TRANS_SEQ;
+                        end
+                    end
+                end
+
+                S_WB_ADDR: begin
+                    if (HREADY) begin
+                        state    <= S_WB_DATA;
+                        htrans_r <= `AHB_TRANS_SEQ;
+                        haddr_r  <= burst_base_addr + 32'd4;
+                        hwdata_r <= wb_shift_reg[31:0];
+                    end
+                end
+
+                S_WB_DATA: begin
+                    if (beat_done) begin
+                        if (last_beat) begin
+                            state    <= S_IDLE;
+                            htrans_r <= `AHB_TRANS_IDLE;
+                            dcache_wb_valid_r <= 1'b1;
+                        end else begin
+                            beat_cnt    <= beat_cnt + 3'd1;
+                            wb_shift_reg <= wb_shift_reg >> 32;
+                            hwdata_r    <= wb_shift_reg[63:32];
+                            haddr_r     <= burst_base_addr + ({29'b0, beat_cnt + 3'd1, 2'b0}) + 32'd4;
+                            htrans_r    <= `AHB_TRANS_SEQ;
+                        end
+                    end
+                end
+
                 default: begin
-                    ahb_state     <= AHB_IDLE;
-                    ahb_HTRANS_r  <= `AHB_TRANS_IDLE;
+                    state    <= S_IDLE;
+                    htrans_r <= `AHB_TRANS_IDLE;
                 end
             endcase
         end
     end
 
-    assign HADDR     = ahb_HADDR_r;
-    assign HTRANS    = ahb_HTRANS_r;
-    assign HWRITE    = ahb_HWRITE_r;
-    assign HSIZE     = ahb_HSIZE_r;
-    assign HBURST    = ahb_HBURST_r;
-    assign HPROT     = ahb_HPROT_r;
-    assign HMASTLOCK = ahb_HMASTLOCK_r;
-    assign HWDATA    = ahb_HWDATA_r;
+    assign HADDR     = haddr_r;
+    assign HTRANS    = htrans_r;
+    assign HWRITE    = hwrite_r;
+    assign HSIZE     = hsize_r;
+    assign HBURST    = hburst_r;
+    assign HPROT     = hprot_r;
+    assign HMASTLOCK = hmastlock_r;
+    assign HWDATA    = hwdata_r;
 
 endmodule

@@ -5,7 +5,7 @@ module ahb_lite_bus #(
     parameter ADDR_WIDTH  = `AHB_ADDR_WIDTH,
     parameter DATA_WIDTH  = `AHB_DATA_WIDTH,
     parameter SLAVE_NUM   = 4,
-    parameter MEM_DEPTH   = 262144,
+    parameter MEM_DEPTH   = 8192,
     parameter WAIT_STATES = 0,
     parameter GPIO_NUM    = 16,
     parameter UART_FREQ   = 100
@@ -49,7 +49,7 @@ module ahb_lite_bus #(
     wire [SLAVE_NUM-1:0]   slave_HREADYOUT;
     wire [SLAVE_NUM-1:0]   slave_HRESP;
 
-    assign slave_HSELx[0] = (HADDR[31:24] == 8'h00);
+    assign slave_HSELx[0] = (HADDR[31:24] == 8'h80);
     assign slave_HSELx[1] = (HADDR[31:24] == 8'h0C);
     assign slave_HSELx[2] = (HADDR[31:24] == 8'h02);
     assign slave_HSELx[3] = (HADDR[31:24] == 8'h10);
@@ -80,7 +80,7 @@ module ahb_lite_bus #(
         .HTRANS    (HTRANS),
         .HWRITE    (HWRITE),
         .HSIZE     (HSIZE),
-        .HBURST    ({1'b0, HBURST}),
+        .HBURST    (HBURST),
         .HPROT     (HPROT),
         .HWDATA    (HWDATA),
         .HREADY    (HREADY),

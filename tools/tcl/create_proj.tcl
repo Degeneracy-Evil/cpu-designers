@@ -33,14 +33,7 @@ foreach f [glob -directory $mu_rtl_dir *.sv] {
     import_files -norecurse $f
 }
 
-set cpu_files [glob -directory $cpu_core_dir *.sv]
-set filtered_cpu []
-foreach f $cpu_files {
-    if {![string match "*icache.sv" $f] && ![string match "*dcache.sv" $f]} {
-        lappend filtered_cpu $f
-    }
-}
-foreach f $filtered_cpu {
+foreach f [glob -directory $cpu_core_dir *.sv] {
     import_files -norecurse $f
 }
 

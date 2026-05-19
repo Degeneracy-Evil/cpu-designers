@@ -78,7 +78,7 @@ set sys_rtl_dir     "${dev_dir}/rtl"
 set tb_dir          "${dev_dir}/tb"
 set prog_dir        "${dev_dir}/program_source"
 set fpga_dir        "${dev_dir}/fpga"
-set ips_dir         "${base_dir}/Reference/ips"
+set ips_dir         "${base_dir}/Reference/newips"
 
 set tcl_dir         "${base_dir}/tools/tcl"
 
@@ -189,7 +189,7 @@ proc vivado_do {args} {
     # --- -clear: 删除工程目录 ---
     if { $opt_clear && [file exists $proj_dir] } {
         puts "删除已有工程目录: $proj_dir"
-        close_project
+        # close_project
         file delete -force $proj_dir
     }
 

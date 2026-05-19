@@ -51,9 +51,9 @@ _start:
     addi x25, x25, -1
     bnez x25, 1b
 
-    li x10, 0x54
+    li x10, 0x80001054
     sw x23, 0(x10)
-    li x10, 0x58
+    li x10, 0x80001058
     sw x19, 0(x10)
 
 end_loop:
@@ -70,6 +70,8 @@ trap_handler:
     csrrs x21, mscratch, x0
     slli x21, x21, 2
     addi x22, x21, 72
+    lui  x21, 0x80001
+    add  x22, x22, x21
     sw x19, 0(x22)
     csrrs x21, mscratch, x0
     addi x21, x21, 1

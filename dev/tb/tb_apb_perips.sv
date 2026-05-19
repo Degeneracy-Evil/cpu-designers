@@ -4,19 +4,18 @@ module tb_apb_perips;
 
     reg         HCLK;
     reg         HRESETn;
-    reg         req_valid;
-    reg         req_write;
-    reg  [31:0] req_addr;
-    reg  [31:0] req_wdata;
-    reg  [2:0]  req_size;
-    reg  [2:0]  req_burst;
-    reg  [3:0]  req_prot;
-    reg         req_lock;
+    reg  [31:0] HADDR;
+    reg  [1:0]  HTRANS;
+    reg         HWRITE;
+    reg  [2:0]  HSIZE;
+    reg  [2:0]  HBURST;
+    reg  [3:0]  HPROT;
+    reg         HMASTLOCK;
+    reg  [31:0] HWDATA;
 
-    wire        req_ready;
-    wire        resp_valid;
-    wire        resp_error;
-    wire [31:0] resp_rdata;
+    wire [31:0] HRDATA;
+    wire        HREADY;
+    wire        HRESP;
 
     wire        o_timer_irq;
     wire [15:0] io_gpioPin;
@@ -32,25 +31,24 @@ module tb_apb_perips;
         .ADDR_WIDTH  (32),
         .DATA_WIDTH  (32),
         .SLAVE_NUM   (4),
-        .MEM_DEPTH   (262144),
+        .MEM_DEPTH   (8192),
         .WAIT_STATES (0),
         .GPIO_NUM    (16),
         .UART_FREQ   (100)
     ) u_dut (
         .HCLK       (HCLK),
         .HRESETn    (HRESETn),
-        .req_valid  (req_valid),
-        .req_write  (req_write),
-        .req_addr   (req_addr),
-        .req_wdata  (req_wdata),
-        .req_size   (req_size),
-        .req_burst  (req_burst),
-        .req_prot   (req_prot),
-        .req_lock   (req_lock),
-        .req_ready  (req_ready),
-        .resp_valid (resp_valid),
-        .resp_error (resp_error),
-        .resp_rdata (resp_rdata),
+        .HADDR      (HADDR),
+        .HTRANS     (HTRANS),
+        .HWRITE     (HWRITE),
+        .HSIZE      (HSIZE),
+        .HBURST     (HBURST),
+        .HPROT      (HPROT),
+        .HMASTLOCK  (HMASTLOCK),
+        .HWDATA     (HWDATA),
+        .HRDATA     (HRDATA),
+        .HREADY     (HREADY),
+        .HRESP      (HRESP),
         .o_timer_irq(o_timer_irq),
         .o_plic_eip (),
         .o_clint_mtip(),
@@ -69,23 +67,26 @@ module tb_apb_perips;
         forever #5 HCLK = ~HCLK;
     end
 
+    reg [31:0] latch_wdata;
     task ahb_write;
         input [31:0] addr;
         input [31:0] data;
         begin
             @(posedge HCLK);
-            while (!req_ready) @(posedge HCLK);
-            req_valid = 1'b1;
-            req_write = 1'b1;
-            req_addr  = addr;
-            req_wdata = data;
-            req_size  = 3'b010;
-            req_burst = 3'b000;
-            req_prot  = 4'b0011;
-            req_lock  = 1'b0;
+            #1;
+            HADDR     = addr;
+            HTRANS    = 2'b10; // NONSEQ
+            HWRITE    = 1'b1;
+            HSIZE     = 3'b010; // WORD
+            HBURST    = 3'b000;
+            HPROT     = 4'b0011;
+            HMASTLOCK = 1'b0;
+            latch_wdata = data;
             @(posedge HCLK);
-            req_valid = 1'b0;
-            while (!resp_valid) @(posedge HCLK);
+            #1;
+            HWDATA = latch_wdata;
+            HTRANS = 2'b00; // IDLE
+            while (!HREADY) @(posedge HCLK);
         end
     endtask
 
@@ -94,19 +95,20 @@ module tb_apb_perips;
         output [31:0] data;
         begin
             @(posedge HCLK);
-            while (!req_ready) @(posedge HCLK);
-            req_valid = 1'b1;
-            req_write = 1'b0;
-            req_addr  = addr;
-            req_wdata = 32'b0;
-            req_size  = 3'b010;
-            req_burst = 3'b000;
-            req_prot  = 4'b0011;
-            req_lock  = 1'b0;
+            #1;
+            HADDR     = addr;
+            HTRANS    = 2'b10; // NONSEQ
+            HWRITE    = 1'b0;
+            HSIZE     = 3'b010; // WORD
+            HBURST    = 3'b000;
+            HPROT     = 4'b0011;
+            HMASTLOCK = 1'b0;
             @(posedge HCLK);
-            req_valid = 1'b0;
-            while (!resp_valid) @(posedge HCLK);
-            data = resp_rdata;
+            #1;
+            HTRANS = 2'b00; // IDLE
+            while (!HREADY) @(posedge HCLK);
+            #1;
+            data = HRDATA;
         end
     endtask
 
@@ -132,61 +134,61 @@ module tb_apb_perips;
         fail_count = 0;
 
         HRESETn   = 1'b0;
-        req_valid = 1'b0;
-        req_write = 1'b0;
-        req_addr  = 32'b0;
-        req_wdata = 32'b0;
-        req_size  = 3'b010;
-        req_burst = 3'b000;
-        req_prot  = 4'b0011;
-        req_lock  = 1'b0;
+        HADDR     = 32'b0;
+        HTRANS    = 2'b00;
+        HWRITE    = 1'b0;
+        HWDATA    = 32'b0;
+        HSIZE     = 3'b010;
+        HBURST    = 3'b000;
+        HPROT     = 4'b0011;
+        HMASTLOCK = 1'b0;
 
         repeat (5) @(posedge HCLK);
         HRESETn = 1'b1;
         repeat (2) @(posedge HCLK);
 
         begin : gpio_test
-            ahb_write(32'h80000000, 32'h0000FFFF);
-            ahb_read(32'h80000000, rd_val);
+            ahb_write(32'h10000000, 32'h0000FFFF);
+            ahb_read(32'h10000000, rd_val);
             check("GPIO_CTRL write/read", rd_val, 32'h0000FFFF);
 
-            ahb_write(32'h80000004, 32'h0000AAAA);
-            ahb_read(32'h80000004, rd_val);
+            ahb_write(32'h10000004, 32'h0000AAAA);
+            ahb_read(32'h10000004, rd_val);
             check("GPIO_DATA write/read", rd_val, 32'h0000AAAA);
         end
 
         begin : timer_test
-            ahb_write(32'h80004000, 32'd200);
-            ahb_read(32'h80004000, rd_val);
+            ahb_write(32'h10004000, 32'd200);
+            ahb_read(32'h10004000, rd_val);
             check("Timer_EXPR write/read", rd_val, 32'd200);
 
-            ahb_write(32'h80004004, 32'h00000003);
-            ahb_read(32'h80004004, rd_val);
+            ahb_write(32'h10004004, 32'h00000003);
+            ahb_read(32'h10004004, rd_val);
             check("Timer_CTRL write/read", rd_val, 32'h00000003);
 
-            ahb_read(32'h80004008, rd_val);
+            ahb_read(32'h10004008, rd_val);
             check("Timer_IRQ initial", rd_val[0], 1'b0);
         end
 
         begin : uart_test
-            ahb_write(32'h80008000, 32'h00000003);
-            ahb_read(32'h80008000, rd_val);
+            ahb_write(32'h10008000, 32'h00000003);
+            ahb_read(32'h10008000, rd_val);
             check("UART_CTRL write/read", rd_val, 32'h00000003);
 
-            ahb_read(32'h80008004, rd_val);
+            ahb_read(32'h10008004, rd_val);
             check("UART_STATUS read", rd_val, 32'h00000000);
         end
 
         begin : spi_test
-            ahb_write(32'h8000C000, 32'h0000000F);
-            ahb_read(32'h8000C000, rd_val);
+            ahb_write(32'h1000C000, 32'h0000000F);
+            ahb_read(32'h1000C000, rd_val);
             check("SPI_CTRL write/read", rd_val, 32'h0000000F);
 
-            ahb_write(32'h8000C004, 32'h000000AB);
-            ahb_read(32'h8000C004, rd_val);
+            ahb_write(32'h1000C004, 32'h000000AB);
+            ahb_read(32'h1000C004, rd_val);
             check("SPI_DATA write/read", rd_val, 32'h000000AB);
 
-            ahb_read(32'h8000C008, rd_val);
+            ahb_read(32'h1000C008, rd_val);
             check("SPI_STATUS read", rd_val, 32'h00000000);
         end
 

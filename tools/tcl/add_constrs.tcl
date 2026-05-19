@@ -7,7 +7,7 @@
 
 puts "========== Step 5: 添加 DCP 与 constraints =========="
 
-add_files "${fpga_dir}/lcd_module.dcp"
-add_files -fileset constrs_1 "${fpga_dir}/cpu.xdc"
+import_files -norecurse "${fpga_dir}/lcd_module.dcp"
+import_files -norecurse -fileset constrs_1 "${fpga_dir}/cpu.xdc"
 
 puts "DCP 和约束文件添加完成"

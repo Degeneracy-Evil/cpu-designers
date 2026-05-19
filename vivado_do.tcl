@@ -4,16 +4,22 @@
 # 用法:
 #   vivado.bat -mode tcl
 #   source vivado_do.tcl -notrace -encoding utf-8
-#   vivado_do ?-create? ?-sim <tb>? ?-runtime <t>? ?-clear? ?-bitstream? ?-hw_connect? ?-program?
+#   vivado_do ?-create? ?-sim <tb>? ?-runtime <t>? ?-clear? ?-refresh? ?-bitstream? ?-hw_connect? ?-program?
 #
 # 参数:
 #   -create                 创建/打开工程（已存在则打开，不存在则创建并配置 RTL/IP/约束）
 #   -sim <testbench_name>   指定 testbench 并运行仿真
 #   -runtime <time>         仿真运行时间 (默认按 tb_runtime_map 映射)
 #   -clear                  删除已有工程目录（需配合 -create 重建）
+#   -refresh                刷新工程：删除并重建，用于拷贝策略下同步源码变更
 #   -bitstream              运行综合、实现并生成 Bitstream (输出 system_top.bit)
 #   -hw_connect             连接硬件 (hw_server)
 #   -program                下载 bitstream 到 FPGA
+#
+# 工程策略:
+#   - 拷贝策略 (source_mgmt_mode=Copy): 源码完全拷贝到工程目录，与原始源码隔离
+#   - IP 仅存储 XCI 文件于 Reference/ips/ 下 (扁平目录，无子文件夹)
+#   - 源码变更后使用 -refresh 刷新工程以同步最新源码
 #
 # 典型用法:
 #   # 首次: 创建工程并仿真
@@ -22,6 +28,8 @@
 #   vivado_do -sim tb_ahb_bus
 #   # 完全重建: 清除后重新创建
 #   vivado_do -clear -create -sim tb_simple_cpu_top
+#   # 源码变更后刷新工程
+#   vivado_do -refresh
 #   # 仅生成 bitstream
 #   vivado_do -bitstream
 #
@@ -132,6 +140,7 @@ proc vivado_do {args} {
     set opt_sim       ""
     set opt_runtime   ""
     set opt_clear     0
+    set opt_refresh   0
     set opt_bitstream 0
     set opt_hwconnect 0
     set opt_program   0
@@ -144,6 +153,7 @@ proc vivado_do {args} {
             -sim        { incr i; set opt_sim [lindex $args $i] }
             -runtime    { incr i; set opt_runtime [lindex $args $i] }
             -clear      { set opt_clear 1 }
+            -refresh    { set opt_refresh 1 }
             -bitstream  { set opt_bitstream 1 }
             -hw_connect { set opt_hwconnect 1 }
             -program    { set opt_program 1 }
@@ -152,7 +162,7 @@ proc vivado_do {args} {
         incr i
     }
 
-    puts "参数: -create $opt_create -sim $opt_sim -runtime $opt_runtime -clear $opt_clear -bitstream $opt_bitstream -hw_connect $opt_hwconnect -program $opt_program"
+    puts "参数: -create $opt_create -sim $opt_sim -runtime $opt_runtime -clear $opt_clear -refresh $opt_refresh -bitstream $opt_bitstream -hw_connect $opt_hwconnect -program $opt_program"
 
     set tb_name $opt_sim
 
@@ -179,6 +189,7 @@ proc vivado_do {args} {
     # --- -clear: 删除工程目录 ---
     if { $opt_clear && [file exists $proj_dir] } {
         puts "删除已有工程目录: $proj_dir"
+        close_project
         file delete -force $proj_dir
     }
 
@@ -195,6 +206,25 @@ proc vivado_do {args} {
             source -notrace -encoding utf-8 "${tcl_dir}/setup_ip.tcl"
             source -notrace -encoding utf-8 "${tcl_dir}/add_constrs.tcl"
         }
+    }
+
+    # --- -refresh: 刷新工程 (删除并重建，同步源码变更) ---
+    if { $opt_refresh } {
+        puts "========================================"
+        puts "刷新工程 (拷贝策略下同步源码)..."
+        puts "========================================"
+        if { [catch {current_project} cur_proj] == 0 } {
+            close_project
+        }
+        if { [file exists $proj_dir] } {
+            puts "删除工程目录: $proj_dir"
+            file delete -force $proj_dir
+        }
+        puts "重建工程..."
+        source -notrace -encoding utf-8 "${tcl_dir}/create_proj.tcl"
+        source -notrace -encoding utf-8 "${tcl_dir}/setup_ip.tcl"
+        source -notrace -encoding utf-8 "${tcl_dir}/add_constrs.tcl"
+        puts "--> 工程刷新完成"
     }
 
     # --- -sim: 添加 testbench 并运行仿真 ---
@@ -278,5 +308,5 @@ proc vivado_do {args} {
     puts "========================================"
 }
 
-puts "vivado_do.tcl 已加载。用法: vivado_do ?-create? ?-sim <tb>? ?-runtime <t>? ?-clear? ?-bitstream? ?-hw_connect? ?-program?"
+puts "vivado_do.tcl 已加载。用法: vivado_do ?-create? ?-sim <tb>? ?-runtime <t>? ?-clear? ?-refresh? ?-bitstream? ?-hw_connect? ?-program?"
 puts "(建议使用 source vivado_do.tcl -notrace 来关闭命令回显功能)"

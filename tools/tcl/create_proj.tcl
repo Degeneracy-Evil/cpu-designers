@@ -18,16 +18,20 @@ create_project $proj_name $proj_dir -part $device_part -force
 set_property target_language Verilog [current_project]
 set_property simulator_language Mixed [current_project]
 
-puts "工程已创建: $proj_dir"
+puts "工程已创建: $proj_dir (拷贝策略)"
 
 # ---------------------------------------------------------------------------
 # Step 2: 添加 RTL 源文件
 # ---------------------------------------------------------------------------
 puts "========== Step 2: 添加 RTL 源文件 =========="
 
-add_files [glob -directory $alu_rtl_dir *.sv]
+foreach f [glob -directory $alu_rtl_dir *.sv] {
+    import_files -norecurse $f
+}
 
-add_files [glob -directory $mu_rtl_dir *.sv]
+foreach f [glob -directory $mu_rtl_dir *.sv] {
+    import_files -norecurse $f
+}
 
 set cpu_files [glob -directory $cpu_core_dir *.sv]
 set filtered_cpu []
@@ -36,17 +40,35 @@ foreach f $cpu_files {
         lappend filtered_cpu $f
     }
 }
-if {[llength $filtered_cpu] > 0} {
-    add_files $filtered_cpu
+foreach f $filtered_cpu {
+    import_files -norecurse $f
 }
 
-add_files [glob -directory $ahb_dir *.sv]
+foreach f [glob -directory $ahb_dir *.sv] {
+    import_files -norecurse $f
+}
+foreach f [glob -directory $ahb_dir *.svh] {
+    import_files -norecurse $f
+    set_property file_type "Verilog Header" [get_files [file tail $f]]
+}
 
-add_files [glob -directory $apb_dir *.sv]
+foreach f [glob -directory $apb_dir *.sv] {
+    import_files -norecurse $f
+}
+foreach f [glob -directory $apb_dir *.svh] {
+    import_files -norecurse $f
+    set_property file_type "Verilog Header" [get_files [file tail $f]]
+}
 
-add_files [glob -directory $apb_perips_dir *.sv]
+foreach f [glob -directory $apb_perips_dir *.sv] {
+    import_files -norecurse $f
+}
+foreach f [glob -directory $apb_header_dir *.svh] {
+    import_files -norecurse $f
+    set_property file_type "Verilog Header" [get_files [file tail $f]]
+}
 
-add_files "${sys_rtl_dir}/system_top.sv"
+import_files -norecurse "${sys_rtl_dir}/system_top.sv"
 
 update_compile_order -fileset sources_1
 

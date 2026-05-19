@@ -4,8 +4,8 @@
 
 **==> picture [25 x 24] intentionally omitted <==**
 
-**----- Start of picture text -----**<br>
-<br>**----- End of picture text -----**<br>
+**----- Start of picture text -----** 
+ **----- End of picture text -----** 
 
 _我们曾考虑但未纳入一条 "store instruction word" 指令，如 (Tremblay et al., 2000) 中所述。JIT 编译器可能在单条 FENCE.I 之前生成大量指令追踪，并通过将翻译后的指令写入已知不驻留在指令缓存中的内存区域来摊薄任何指令缓存侦听/无效化开销。_
 
@@ -19,10 +19,10 @@ _其次，在类 Unix 操作系统环境中，该指令的能力不足以在用�
 
 _正在讨论的未来指令-获取一致性方法包括提供更受限的 FENCE.I 版本（仅针对 rs1 中指定的地址），和/或允许软件使用依赖机器模式缓存维护操作的 ABI。_
 
-|0<br>6<br>7<br>11<br>12<br>14<br>15<br>19<br>20<br>31|0<br>6<br>7<br>11<br>12<br>14<br>15<br>19<br>20<br>31|0<br>6<br>7<br>11<br>12<br>14<br>15<br>19<br>20<br>31|0<br>6<br>7<br>11<br>12<br>14<br>15<br>19<br>20<br>31|0<br>6<br>7<br>11<br>12<br>14<br>15<br>19<br>20<br>31|
+|0 6|7 11|12 14|15 19|20 31|
 |---|---|---|---|---|
 |funct12|rs1|funct3|rd|opcode|
-|7<br>MISC-MEM<br>5<br>0<br>3<br>FENCE.I<br>5<br>0<br>12<br>0|||||
+|7 MISC-MEM 5 0 3 FENCE.I 5 0 12 0|||||
 
 FENCE.I 指令用于同步指令流和数据流。RISC-V 不保证对指令存储器的写入会对硬件线程的指令获取可见，直到该硬件线程执行一条 FENCE.I 指令为止。一条 FENCE.I 指令确保该 RISC-V 硬件线程上随后的指令获取将看到之前的、已对同一 RISC-V 硬件线程可见的任何数据写入。FENCE.I _不_ 确保在多处理器系统中其他 RISC-V 硬件线程的指令获取会观察到本地硬件线程的写入。若要使指令存储器的写入对所有 RISC-V 硬件线程可见，写入线程还必须执行一条数据 FENCE，然后请求所有远程 RISC-V 硬件线程执行 FENCE.I。
 

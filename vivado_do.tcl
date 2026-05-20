@@ -4,7 +4,7 @@
 # 用法:
 #   vivado.bat -mode tcl
 #   source vivado_do.tcl -notrace -encoding utf-8
-#   vivado_do ?-create? ?-sim <tb>? ?-runtime <t>? ?-clear? ?-refresh? ?-bitstream? ?-hw_connect? ?-program?
+#   vivado_do ?-create? ?-sim <tb>? ?-runtime <t>? ?-clear? ?-refresh? ?-bitstream? ?-hw_connect? ?-program? ?-archive?
 #
 # 参数:
 #   -create                 创建/打开工程（已存在则打开，不存在则创建并配置 RTL/IP/约束）
@@ -15,6 +15,7 @@
 #   -bitstream              运行综合、实现并生成 Bitstream (输出 system_top.bit)
 #   -hw_connect             连接硬件 (hw_server)
 #   -program                下载 bitstream 到 FPGA
+#   -archive                导出当前工程为 ZIP 归档（自动按时间戳命名）
 #
 # 工程策略:
 #   - 拷贝策略 (source_mgmt_mode=Copy): 源码完全拷贝到工程目录，与原始源码隔离
@@ -99,7 +100,7 @@ array set tb_runtime_map {
     tb_simple_cpu_top     "5ms"
     tb_simple_cpu_compute "5ms"
     tb_simple_cpu_trap    "3ms"
-    tb_uart_hello         "5ms"
+    tb_uart_hello         "40ms"
     tb_led_marquee        "2s"
     tb_ahb_bus            "5000ns"
     tb_apb_perips         "2000ns"
@@ -109,17 +110,37 @@ array set tb_runtime_map {
 }
 
 # ---------------------------------------------------------------------------
-# 辅助 proc: 确保工程已打开
+# 辅助 proc: 确保没有工程打开，防止删文件冲突
+# ---------------------------------------------------------------------------
+proc ensure_project_closed {} {
+    set cur_proj [current_project -quiet]
+    if { $cur_proj ne "" } {
+        puts "关闭当前打开的工程: $cur_proj"
+        catch { close_project }
+    }
+}
+
+# ---------------------------------------------------------------------------
+# 辅助 proc: 确保目标工程已打开
 # ---------------------------------------------------------------------------
 proc ensure_project_open {} {
     global proj_dir proj_name
-    if { [catch {current_project}] == 0 } {
-        return 1
+    set cur_proj [current_project -quiet]
+    if { $cur_proj ne "" } {
+        if { $cur_proj == $proj_name } {
+            return 1
+        } else {
+            puts "关闭当前打开的其他工程: $cur_proj"
+            catch { close_project }
+        }
     }
     set xpr_path "${proj_dir}/${proj_name}.xpr"
     if { [file exists $xpr_path] } {
         puts "打开已有工程: $xpr_path"
-        open_project $xpr_path
+        if { [catch {open_project $xpr_path} err] } {
+            puts "ERROR: 打开工程失败: $err"
+            return 0
+        }
         return 1
     }
     puts "ERROR: 工程不存在，请先使用 -create 创建工程"
@@ -144,6 +165,7 @@ proc vivado_do {args} {
     set opt_bitstream 0
     set opt_hwconnect 0
     set opt_program   0
+    set opt_archive   0
 
     set i 0
     while { $i < [llength $args] } {
@@ -157,12 +179,13 @@ proc vivado_do {args} {
             -bitstream  { set opt_bitstream 1 }
             -hw_connect { set opt_hwconnect 1 }
             -program    { set opt_program 1 }
+            -archive    { set opt_archive 1 }
             default     { puts "WARNING: 未知参数: $arg" }
         }
         incr i
     }
 
-    puts "参数: -create $opt_create -sim $opt_sim -runtime $opt_runtime -clear $opt_clear -refresh $opt_refresh -bitstream $opt_bitstream -hw_connect $opt_hwconnect -program $opt_program"
+    puts "参数: -create $opt_create -sim $opt_sim -runtime $opt_runtime -clear $opt_clear -refresh $opt_refresh -bitstream $opt_bitstream -hw_connect $opt_hwconnect -program $opt_program -archive $opt_archive"
 
     set tb_name $opt_sim
 
@@ -187,15 +210,30 @@ proc vivado_do {args} {
     set ip_output_dir "${proj_dir}/${proj_name}.srcs/sources_1/ip"
 
     # --- -clear: 删除工程目录 ---
-    if { $opt_clear && [file exists $proj_dir] } {
-        puts "删除已有工程目录: $proj_dir"
-        # close_project
-        file delete -force $proj_dir
+    if { $opt_clear } {
+        if { [file exists $proj_dir] } {
+            ensure_project_closed
+            puts "删除已有工程目录: $proj_dir"
+            if { [catch {file delete -force $proj_dir} err] } {
+                puts "WARNING: 删除目录失败: $err"
+            } else {
+                puts "--> 成功删除工程目录"
+            }
+        } else {
+            puts "工程目录不存在，无需删除: $proj_dir"
+        }
     }
 
     # --- -create: 创建/打开工程 ---
     if { $opt_create } {
-        if { [catch {current_project} cur_proj] == 0 } {
+        set cur_proj [current_project -quiet]
+        if { $cur_proj ne "" && $cur_proj != $proj_name } {
+            puts "关闭当前打开的其他工程: $cur_proj"
+            catch { close_project }
+            set cur_proj ""
+        }
+        
+        if { $cur_proj == $proj_name } {
             puts "工程已打开: $cur_proj"
         } elseif { [file exists "${proj_dir}/${proj_name}.xpr"] } {
             puts "打开已有工程: ${proj_dir}/${proj_name}.xpr"
@@ -213,12 +251,13 @@ proc vivado_do {args} {
         puts "========================================"
         puts "刷新工程 (拷贝策略下同步源码)..."
         puts "========================================"
-        if { [catch {current_project} cur_proj] == 0 } {
-            close_project
-        }
+        ensure_project_closed
         if { [file exists $proj_dir] } {
             puts "删除工程目录: $proj_dir"
-            file delete -force $proj_dir
+            if { [catch {file delete -force $proj_dir} err] } {
+                puts "ERROR: 删除工程目录失败: $err (可能文件被占用)"
+                return
+            }
         }
         puts "重建工程..."
         source -notrace -encoding utf-8 "${tcl_dir}/create_proj.tcl"
@@ -302,11 +341,36 @@ proc vivado_do {args} {
         }
     }
 
+    # --- -archive: 导出工程压缩包 ---
+    if { $opt_archive } {
+        if { ![ensure_project_open] } { return }
+        puts "========================================"
+        puts "开始导出项目 Archive..."
+        puts "========================================"
+        set time_str [clock format [clock seconds] -format "%Y%m%d_%H%M%S"]
+        set target_archive_dir "${base_dir}/archive"
+        set archive_path "${target_archive_dir}/${proj_name}_${time_str}.xpr.zip"
+        
+        if { ![file exists $target_archive_dir] } {
+            file mkdir $target_archive_dir
+        }
+        
+        if { [catch {archive_project $archive_path -force -include_local_ip_cache -include_config_settings} err] } {
+            if { [catch {archive_project $archive_path -force} err2] } {
+                puts "--> [ERROR] 导出项目 Archive 失败: $err2"
+            } else {
+                puts "--> 成功导出项目 Archive (基础模式): $archive_path"
+            }
+        } else {
+            puts "--> 成功导出项目 Archive: $archive_path"
+        }
+    }
+
     puts "========================================"
     puts "vivado_do 执行完成"
     if { $opt_sim ne "" } { puts "Testbench: $tb_name" }
     puts "========================================"
 }
 
-puts "vivado_do.tcl 已加载。用法: vivado_do ?-create? ?-sim <tb>? ?-runtime <t>? ?-clear? ?-refresh? ?-bitstream? ?-hw_connect? ?-program?"
+puts "vivado_do.tcl 已加载。用法: vivado_do ?-create? ?-sim <tb>? ?-runtime <t>? ?-clear? ?-refresh? ?-bitstream? ?-hw_connect? ?-program? ?-archive?"
 puts "(建议使用 source vivado_do.tcl -notrace 来关闭命令回显功能)"

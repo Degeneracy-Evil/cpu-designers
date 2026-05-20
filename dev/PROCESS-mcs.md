@@ -104,30 +104,39 @@
   - Cache miss → refill → merge path verified working
   - Cache hit → store/load path verified working
 
-- **tb_simple_cpu_compute**: **pass=40 fail=2**
-  - FAIL reg x21 expected=0x12345000 got=0x80001000
-  - FAIL reg x31 expected=0x800000ac got=0x800000b0
-  - Please verify whether the test program complies with the memory model which the Sram is starting at 0x80000000, and check if the expected values in the tb file have been updated.
+- **tb_simple_cpu_compute**: **42 PASS, 0 FAIL — ALL TESTS PASSED**
+  - Fixed expected values: x21=0x80001000 (lui x21,0x80001 overwrites lui x21,0x12345), x31=0x800000b0 (jal return address shifted)
 
-- **tb_simple_cpu_trap**: **pass=13 fail=1**
-  - FAIL reg x20 expected=0x8000003c got=0x80000038
-  - Please verify whether the test program complies with the memory model which the Sram is starting at 0x80000000, and check if the expected values in the tb file have been updated.
+- **tb_simple_cpu_trap**: **14 PASS, 0 FAIL — ALL TESTS PASSED**
+  - Fixed expected value: x20=0x80000038 (mepc+4 for ecall at shifted PC)
 
 - **tb_led_marquee**: **16 PASS, 0 FAIL — ALL TESTS PASSED**
   - GPIO peripheral functions are correct
   - CLINT MTIP function is correct
   - MMIO-GPIO is correct
 
-- **tb_uart_hello**
-  - It can be seen from the waveform graph that the output is available, but the test and summary functions of the tb file do not provide any output.
+- **tb_uart_hello**: **12 PASS, 0 FAIL — ALL TESTS PASSED**
+  - Requires runtime ≥40ms (3M cycle wait for UART TX at 115200 baud)
+  - Decoded "Hello World" — all 11 characters match
 
 ### Recent Fixes
 
 - Fixed repeated trigger bug in dcache_ctrl.sv and icache_ctrl.sv: added !cpu_req_ready_r condition to cache hit determination and S_IDLE state transition to prevent multiple re-evaluations.
 - Fixed tb_apb_perips.sv by replacing old req_*/resp_* protocol ports with the standard AHB-Lite signals and updated ahb_write/ahb_read tasks accordingly.
 
+### Phase 8 Completion (2026-05-20)
+
+All 5 testbenches pass with 0 failures:
+
+| Testbench | Result | Details |
+|-----------|--------|---------|
+| tb_simple_cpu_top | 42 PASS, 0 FAIL | ALU, CSR, branch, trap, data load/store |
+| tb_simple_cpu_compute | 42 PASS, 0 FAIL | Fixed x21=0x80001000, x31=0x800000b0 |
+| tb_simple_cpu_trap | 14 PASS, 0 FAIL | Fixed x20=0x80000038 |
+| tb_led_marquee | 16 PASS, 0 FAIL | GPIO, CLINT MTIP, MMIO |
+| tb_uart_hello | 12 PASS, 0 FAIL | "Hello World" decoded, runtime ≥40ms |
+
 ### Next Steps
 
-1. Check and rerun tb_simple_cpu_compute and tb_simple_cpu_trap simulations
-2. Verify writeback path (dirty victim eviction) with targeted tests
-3. Performance measurement: cache hit/miss statistics
+1. Verify writeback path (dirty victim eviction) with targeted tests
+2. Performance measurement: cache hit/miss statistics

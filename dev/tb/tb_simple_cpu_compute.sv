@@ -178,7 +178,7 @@ module tb_simple_cpu_compute;
         check_reg(5'd18, 32'h00000006);
         check_reg(5'd19, 32'h00000012);
         check_reg(5'd20, 32'h00005678);
-        check_reg(5'd21, 32'h12345000);
+        check_reg(5'd21, 32'h80001000);
         check_reg(5'd22, 32'hffffffff);
         check_reg(5'd23, 32'h00000000);
         check_reg(5'd24, 32'h00000000);
@@ -188,7 +188,7 @@ module tb_simple_cpu_compute;
         check_reg(5'd28, 32'h00000000);
         check_reg(5'd29, 32'h00000000);
         check_reg(5'd30, 32'h00000000);
-        check_reg(5'd31, 32'h800000ac);
+        check_reg(5'd31, 32'h800000b0);
 
         check_mem_word(32'd0, 32'habcd5678);
         check_mem_word(32'd4, 32'h12345678);

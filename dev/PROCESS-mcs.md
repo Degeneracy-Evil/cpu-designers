@@ -140,3 +140,70 @@ All 5 testbenches pass with 0 failures:
 
 1. Verify writeback path (dirty victim eviction) with targeted tests
 2. Performance measurement: cache hit/miss statistics
+
+## 2026-05-21: 7+a fence.i instruction support
+
+### Files Modified
+
+- `dev/rtl/core/cpu_decode.sv` — Separated `is_fence` into `is_nop_like` (fence+wfi) and `is_fencei`; added outputs `dec_is_nop_like`, `dec_is_fencei`; updated `valid_inst` and `dec_need_exe`
+- `dev/rtl/core/icache_ctrl.sv` — Added `invalidate_req`/`invalidate_done` ports, `S_INVALIDATE` state (single-cycle clear all tag_ram valid bits and plru_state)
+- `dev/rtl/core/dcache_ctrl.sv` — Added `flush_req`/`flush_done` ports, states `S_FLUSH_SCAN`/`S_FLUSH_WB_RD`/`S_FLUSH_WB_SD`, flush_set/flush_way counters, iterates 8×4=32 entries writing back dirty lines then clearing all valid bits
+- `dev/rtl/core/cpu_controller.sv` — Replaced `dec_is_fence` with `dec_is_nop_like`+`dec_is_fencei`, added `STATE_FENCEI=4'd9`, `fencei_req`/`fencei_done` ports, fencei→wait done→FETCH
+- `dev/rtl/core/core_top.sv` — Added fencei wiring: `dcache_flush_req=fencei_req`, `icache_invalidate_req=fencei_req&&dcache_flush_done`, `fencei_done=dcache_flush_done&&icache_invalidate_done`; updated decode/controller/icache/dcache instance ports; PC logic uses `dec_is_nop_like||dec_is_fencei`
+
+### Design Summary
+
+- **fence.i semantics**: dcache write-back all dirty lines, then icache invalidate all lines
+- **Flush order**: dcache first (write-back dirty), then icache invalidate (clear valid bits) — ensures memory consistency
+- **icache invalidate**: single-cycle (tag_ram is register array, not BRAM)
+- **dcache flush**: iterates all sets/ways via counter, writes back dirty lines through bus bridge
+- **`is_nop_like`**: covers fence+wfi (still NOP), `is_fencei` is separate with full cache sync
+
+### Bug Fixes (2026-05-21, fence.i handshake)
+
+1. **`fencei_req`/`fencei_done` implicit wire redeclaration** — In core_top.sv, `fencei_req` and `fencei_done` were used as port connections in the controller instance (creating implicit wires) before their explicit `wire` declarations. Fix: moved `wire` declarations before the controller instance.
+
+2. **dcache re-flushes forever** — `dcache_flush_req = fencei_req` stayed high for the entire STATE_FENCEI duration. After the dcache flush completed and returned to S_IDLE, it immediately saw flush_req still high and started another flush, looping indefinitely. Fix: added `dcache_flush_sent_r` flag; changed to `dcache_flush_req = fencei_req && !dcache_flush_sent_r`.
+
+3. **fencei_done never asserts** — `fencei_done = dcache_flush_done && icache_invalidate_done` required both one-cycle pulses in the same cycle, but icache invalidate happens the cycle after dcache flush done, so the condition was never true. Fix: added `dcache_flush_sent_r` and `icache_invalidate_sent_r` latched flags; changed to `fencei_done = dcache_flush_sent_r && icache_invalidate_sent_r`.
+
+   Corrected fencei handshake wiring in core_top.sv:
+   ```
+   dcache_flush_req      = fencei_req && !dcache_flush_sent_r
+   icache_invalidate_req = fencei_req && dcache_flush_sent_r && !icache_invalidate_sent_r
+   fencei_done           = dcache_flush_sent_r && icache_invalidate_sent_r
+   ```
+   Both flags reset when fencei_req goes low (controller exits STATE_FENCEI).
+
+### Test Results (2026-05-21, after fence.i fixes)
+
+- Added `fence.i` instruction at cpu_test.s:96 (between store and load to same address)
+- **tb_simple_cpu_top**: 40 PASS, 2 FAIL → updated expected values:
+  - x11: `0x0001903c` → `0x000190a2` (mtime shifted by fence.i flush+invalidate cycles)
+  - x20: `0x80000224` → `0x80000228` (mepc shifted by fence.i instruction word in PC)
+- After expected value update: **42 PASS, 0 FAIL**
+
+## 2026-05-21: 7+b access fault exception support
+
+### Files Created
+
+- `dev/rtl/AHB-lite/ahb_default_slave.sv` — Default slave for unmapped AHB addresses; 2-cycle ERROR response for NONSEQ/SEQ transfers, OKAY for IDLE/BUSY
+
+### Files Modified
+
+- `dev/rtl/AHB-lite/ahb_lite_bus.sv` — SLAVE_NUM 4→5, added default slave selection logic (HSELx[4] = ~any_other_HSELx), instantiated ahb_default_slave, added default_HRDATA to slave_HRDATA concatenation
+- `dev/rtl/core/cpu_bus_bridge.sv` — Added error output ports (`icache_error`, `dcache_error`, `dcache_error_is_store`, `bus_error_addr`); added error registers; HRESP checked in all data states (S_MMIO_ADDR, S_MMIO_DATA, S_IREFILL_DATA, S_DREFILL_DATA, S_WB_DATA); on error: latch address and type, abort to S_IDLE with HTRANS=IDLE
+- `dev/rtl/core/cpu_trap_manager.sv` — Added access fault inputs (inst/load/store with addr and PC); added latch registers for access faults (persist until trap_enter_valid/trap_return_valid); added access fault to exception priority logic (cause 1/5/7, highest priority); `exception_at_decode` suppressed when `inst_access_fault_r` active; outputs `inst_access_fault_pending`/`data_access_fault_pending`
+- `dev/rtl/core/cpu_trap_csr.sv` — Added access fault inputs/outputs, wired through to cpu_trap_manager instance
+- `dev/rtl/core/cpu_controller.sv` — Added `inst_access_fault_pending`/`data_access_fault_pending` inputs; STATE_FETCH checks inst_access_fault_pending→STATE_TRAP_ENTER; STATE_MEM checks data_access_fault_pending→STATE_TRAP_ENTER
+- `dev/rtl/core/core_top.sv` — Added bridge error wire declarations; wired bridge error outputs to trap_csr access fault inputs; wired trap_csr pending outputs to controller; `mem_access_fault_pc` tied to `exe_pc`
+
+### Design Summary
+
+- **Default slave**: Returns 2-cycle ERROR for NONSEQ/SEQ to unmapped addresses; previously unmapped addresses got silent OKAY (bug)
+- **Error detection**: Bridge checks HRESP in all data-phase states; on ERROR, latches fault address and type, returns to S_IDLE
+- **Exception causes**: inst_access_fault=1, load_access_fault=5, store_access_fault=7
+- **Priority**: access_fault > exception_at_decode > misalign > exe_misalign
+- **inst_access_fault suppresses exception_at_decode**: prevents garbage decode of unfetched instruction causing cause 2 instead of cause 1
+- **Access fault latching**: Bridge error pulses are latched in trap_manager, persist until trap is taken
+- **APB PSLVERR support deferred**: ahb_lite_to_apb.sv already handles PSLVERR→HRESP correctly

@@ -35,6 +35,14 @@ module cpu_trap_csr(
     input  [31:0] exe_misalign_target,
     input  [31:0] exe_pc,
 
+    input         inst_access_fault,
+    input  [31:0] inst_access_fault_addr,
+    input         load_access_fault,
+    input  [31:0] load_access_fault_addr,
+    input         store_access_fault,
+    input  [31:0] store_access_fault_addr,
+    input  [31:0] mem_access_fault_pc,
+
     input         cycle_en,
     input         inst_retire,
 
@@ -43,7 +51,10 @@ module cpu_trap_csr(
     output [31:0] csr_read_data,
     output [167:0] csr_wb_bus,
     output [31:0] trap_pc,
-    output [31:0] csr_pc_plus4
+    output [31:0] csr_pc_plus4,
+
+    output        inst_access_fault_pending,
+    output        data_access_fault_pending
 );
 
     wire        hw_csr_wen;
@@ -86,6 +97,13 @@ module cpu_trap_csr(
         .exe_misalign_valid(exe_misalign_valid),
         .exe_misalign_target(exe_misalign_target),
         .exe_pc           (exe_pc),
+        .inst_access_fault(inst_access_fault),
+        .inst_access_fault_addr(inst_access_fault_addr),
+        .load_access_fault(load_access_fault),
+        .load_access_fault_addr(load_access_fault_addr),
+        .store_access_fault(store_access_fault),
+        .store_access_fault_addr(store_access_fault_addr),
+        .mem_access_fault_pc(mem_access_fault_pc),
         .exception_at_decode(exception_at_decode),
         .trap_pending     (trap_pending),
         .trap_pc          (trap_pc),
@@ -93,7 +111,9 @@ module cpu_trap_csr(
         .hw_mepc_wdata    (hw_mepc_wdata),
         .hw_mcause_wdata  (hw_mcause_wdata),
         .hw_mtval_wdata   (hw_mtval_wdata),
-        .hw_mstatus_wdata (hw_mstatus_wdata)
+        .hw_mstatus_wdata (hw_mstatus_wdata),
+        .inst_access_fault_pending(inst_access_fault_pending),
+        .data_access_fault_pending(data_access_fault_pending)
     );
 
     cpu_csr_interface u_csr_if(

@@ -93,6 +93,7 @@ jalr_target:
 
     li x10, 0xABCD
     sh x10, 2(x21)
+    fence.i
     lh x12, 2(x21)
     lhu x13, 2(x21)
 

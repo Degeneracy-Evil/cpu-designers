@@ -17,16 +17,20 @@ module icache_ctrl(
     output wire        refill_req,
     output wire [31:0] refill_addr,
     input  wire [255:0] refill_data,
-    input  wire        refill_valid
+    input  wire        refill_valid,
+
+    input  wire        invalidate_req,
+    output wire        invalidate_done
 );
 
     localparam NUM_SETS  = 8;
     localparam NUM_WAYS  = 4;
     localparam TAG_WIDTH = 7;
 
-    localparam S_IDLE   = 2'd0;
-    localparam S_READ   = 2'd1;
-    localparam S_REFILL = 2'd2;
+    localparam S_IDLE       = 2'd0;
+    localparam S_READ       = 2'd1;
+    localparam S_REFILL    = 2'd2;
+    localparam S_INVALIDATE = 2'd3;
 
     wire is_mmio = ~cpu_req_addr[31];
 
@@ -87,6 +91,7 @@ module icache_ctrl(
     wire [255:0] bram_doutb;
 
     reg cpu_req_ready_r;
+    reg  invalidate_done_r;
 
     wire bram_ena = (state == S_IDLE) && cpu_req_valid && !cpu_req_ready_r && !is_mmio;
     wire bram_enb = refill_valid && (state == S_REFILL);
@@ -126,6 +131,7 @@ module icache_ctrl(
     assign mmio_addr = cpu_req_addr;
 
     assign cpu_req_ready = cpu_req_ready_r;
+    assign invalidate_done = invalidate_done_r;
 
     wire [2:0] plru_next_refill;
     tree_plru u_plru_refill(
@@ -145,6 +151,7 @@ module icache_ctrl(
             latched_addr  <= 32'b0;
             bypass_data   <= 32'b0;
             cpu_req_ready_r <= 1'b0;
+            invalidate_done_r <= 1'b0;
             for (integer s = 0; s < NUM_SETS; s = s + 1) begin
                 plru_state[s] <= 3'b0;
                 for (integer w = 0; w < NUM_WAYS; w = w + 1) begin
@@ -153,11 +160,14 @@ module icache_ctrl(
             end
         end else begin
             cpu_req_ready_r <= 1'b0;
+            invalidate_done_r <= 1'b0;
 
             case (state)
                 S_IDLE: begin
                     refill_req_r <= 1'b0;
-                    if (cpu_req_valid && !cpu_req_ready_r) begin
+                    if (invalidate_req) begin
+                        state <= S_INVALIDATE;
+                    end else if (cpu_req_valid && !cpu_req_ready_r) begin
                         if (is_mmio) begin
                             if (mmio_valid) begin
                                 bypass_data     <= mmio_data;
@@ -195,6 +205,17 @@ module icache_ctrl(
                         plru_state[latched_set] <= plru_next_refill;
                         state <= S_IDLE;
                     end
+                end
+
+                S_INVALIDATE: begin
+                    for (integer s = 0; s < NUM_SETS; s = s + 1) begin
+                        plru_state[s] <= 3'b0;
+                        for (integer w = 0; w < NUM_WAYS; w = w + 1) begin
+                            tag_ram[s][w] <= 8'b0;
+                        end
+                    end
+                    invalidate_done_r <= 1'b1;
+                    state <= S_IDLE;
                 end
 
                 default: state <= S_IDLE;

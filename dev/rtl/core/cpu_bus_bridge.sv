@@ -44,7 +44,12 @@ module cpu_bus_bridge(
     output [31:0] HWDATA,
     input  [31:0] HRDATA,
     input         HREADY,
-    input         HRESP
+    input         HRESP,
+
+    output        icache_error,
+    output        dcache_error,
+    output        dcache_error_is_store,
+    output [31:0] bus_error_addr
 );
 
     localparam S_IDLE          = 4'd0;
@@ -85,6 +90,11 @@ module cpu_bus_bridge(
     reg dcache_refill_valid_r;
     reg dcache_wb_valid_r;
 
+    reg icache_error_r;
+    reg dcache_error_r;
+    reg dcache_error_is_store_r;
+    reg [31:0] bus_error_addr_r;
+
     assign ahb_inst_data     = ahb_inst_data_r;
     assign ahb_inst_valid    = ahb_inst_valid_r;
     assign ahb_data_rdata    = ahb_data_rdata_r;
@@ -94,6 +104,11 @@ module cpu_bus_bridge(
     assign dcache_refill_data  = refill_shift_reg;
     assign dcache_refill_valid = dcache_refill_valid_r;
     assign dcache_wb_valid     = dcache_wb_valid_r;
+
+    assign icache_error        = icache_error_r;
+    assign dcache_error        = dcache_error_r;
+    assign dcache_error_is_store = dcache_error_is_store_r;
+    assign bus_error_addr      = bus_error_addr_r;
 
     wire beat_done = HREADY && htrans_r[1];
     wire last_beat = (beat_cnt == 3'd7);
@@ -122,12 +137,19 @@ module cpu_bus_bridge(
             icache_refill_valid_r <= 1'b0;
             dcache_refill_valid_r <= 1'b0;
             dcache_wb_valid_r     <= 1'b0;
+            icache_error_r        <= 1'b0;
+            dcache_error_r        <= 1'b0;
+            dcache_error_is_store_r <= 1'b0;
+            bus_error_addr_r      <= 32'b0;
         end else begin
             ahb_inst_valid_r      <= 1'b0;
             ahb_data_valid_r      <= 1'b0;
             icache_refill_valid_r <= 1'b0;
             dcache_refill_valid_r <= 1'b0;
             dcache_wb_valid_r     <= 1'b0;
+            icache_error_r        <= 1'b0;
+            dcache_error_r        <= 1'b0;
+            dcache_error_is_store_r <= 1'b0;
 
             case (state)
                 S_IDLE: begin
@@ -198,7 +220,13 @@ module cpu_bus_bridge(
                         if (HRESP == `AHB_RESP_ERROR) begin
                             state     <= S_IDLE;
                             htrans_r  <= `AHB_TRANS_IDLE;
-                            ahb_data_valid_r <= 1'b1;
+                            bus_error_addr_r <= haddr_r;
+                            if (mmio_is_ireq) begin
+                                icache_error_r <= 1'b1;
+                            end else begin
+                                dcache_error_r <= 1'b1;
+                                dcache_error_is_store_r <= hwrite_r;
+                            end
                         end else begin
                             state     <= S_MMIO_DATA;
                             hwdata_r  <= mmio_latch_wdata;
@@ -208,14 +236,26 @@ module cpu_bus_bridge(
 
                 S_MMIO_DATA: begin
                     if (HREADY) begin
-                        state     <= S_IDLE;
-                        htrans_r  <= `AHB_TRANS_IDLE;
-                        if (mmio_is_ireq) begin
-                            ahb_inst_data_r  <= HRDATA;
-                            ahb_inst_valid_r <= 1'b1;
+                        if (HRESP == `AHB_RESP_ERROR) begin
+                            state     <= S_IDLE;
+                            htrans_r  <= `AHB_TRANS_IDLE;
+                            bus_error_addr_r <= haddr_r;
+                            if (mmio_is_ireq) begin
+                                icache_error_r <= 1'b1;
+                            end else begin
+                                dcache_error_r <= 1'b1;
+                                dcache_error_is_store_r <= hwrite_r;
+                            end
                         end else begin
-                            ahb_data_rdata_r <= HRDATA;
-                            ahb_data_valid_r <= 1'b1;
+                            state     <= S_IDLE;
+                            htrans_r  <= `AHB_TRANS_IDLE;
+                            if (mmio_is_ireq) begin
+                                ahb_inst_data_r  <= HRDATA;
+                                ahb_inst_valid_r <= 1'b1;
+                            end else begin
+                                ahb_data_rdata_r <= HRDATA;
+                                ahb_data_valid_r <= 1'b1;
+                            end
                         end
                     end
                 end
@@ -230,15 +270,22 @@ module cpu_bus_bridge(
 
                 S_IREFILL_DATA: begin
                     if (beat_done) begin
-                        refill_shift_reg[beat_cnt*32 +: 32] <= HRDATA;
-                        if (last_beat) begin
+                        if (HRESP == `AHB_RESP_ERROR) begin
                             state    <= S_IDLE;
                             htrans_r <= `AHB_TRANS_IDLE;
-                            icache_refill_valid_r <= 1'b1;
+                            icache_error_r   <= 1'b1;
+                            bus_error_addr_r <= burst_base_addr;
                         end else begin
-                            beat_cnt <= beat_cnt + 3'd1;
-                            haddr_r  <= burst_base_addr + ({29'b0, beat_cnt + 3'd1, 2'b0}) + 32'd4;
-                            htrans_r <= `AHB_TRANS_SEQ;
+                            refill_shift_reg[beat_cnt*32 +: 32] <= HRDATA;
+                            if (last_beat) begin
+                                state    <= S_IDLE;
+                                htrans_r <= `AHB_TRANS_IDLE;
+                                icache_refill_valid_r <= 1'b1;
+                            end else begin
+                                beat_cnt <= beat_cnt + 3'd1;
+                                haddr_r  <= burst_base_addr + ({29'b0, beat_cnt + 3'd1, 2'b0}) + 32'd4;
+                                htrans_r <= `AHB_TRANS_SEQ;
+                            end
                         end
                     end
                 end
@@ -253,15 +300,23 @@ module cpu_bus_bridge(
 
                 S_DREFILL_DATA: begin
                     if (beat_done) begin
-                        refill_shift_reg[beat_cnt*32 +: 32] <= HRDATA;
-                        if (last_beat) begin
+                        if (HRESP == `AHB_RESP_ERROR) begin
                             state    <= S_IDLE;
                             htrans_r <= `AHB_TRANS_IDLE;
-                            dcache_refill_valid_r <= 1'b1;
+                            dcache_error_r   <= 1'b1;
+                            dcache_error_is_store_r <= 1'b0;
+                            bus_error_addr_r <= burst_base_addr;
                         end else begin
-                            beat_cnt <= beat_cnt + 3'd1;
-                            haddr_r  <= burst_base_addr + ({29'b0, beat_cnt + 3'd1, 2'b0}) + 32'd4;
-                            htrans_r <= `AHB_TRANS_SEQ;
+                            refill_shift_reg[beat_cnt*32 +: 32] <= HRDATA;
+                            if (last_beat) begin
+                                state    <= S_IDLE;
+                                htrans_r <= `AHB_TRANS_IDLE;
+                                dcache_refill_valid_r <= 1'b1;
+                            end else begin
+                                beat_cnt <= beat_cnt + 3'd1;
+                                haddr_r  <= burst_base_addr + ({29'b0, beat_cnt + 3'd1, 2'b0}) + 32'd4;
+                                htrans_r <= `AHB_TRANS_SEQ;
+                            end
                         end
                     end
                 end
@@ -277,16 +332,24 @@ module cpu_bus_bridge(
 
                 S_WB_DATA: begin
                     if (beat_done) begin
-                        if (last_beat) begin
+                        if (HRESP == `AHB_RESP_ERROR) begin
                             state    <= S_IDLE;
                             htrans_r <= `AHB_TRANS_IDLE;
-                            dcache_wb_valid_r <= 1'b1;
+                            dcache_error_r   <= 1'b1;
+                            dcache_error_is_store_r <= 1'b1;
+                            bus_error_addr_r <= burst_base_addr;
                         end else begin
-                            beat_cnt    <= beat_cnt + 3'd1;
-                            wb_shift_reg <= wb_shift_reg >> 32;
-                            hwdata_r    <= wb_shift_reg[63:32];
-                            haddr_r     <= burst_base_addr + ({29'b0, beat_cnt + 3'd1, 2'b0}) + 32'd4;
-                            htrans_r    <= `AHB_TRANS_SEQ;
+                            if (last_beat) begin
+                                state    <= S_IDLE;
+                                htrans_r <= `AHB_TRANS_IDLE;
+                                dcache_wb_valid_r <= 1'b1;
+                            end else begin
+                                beat_cnt    <= beat_cnt + 3'd1;
+                                wb_shift_reg <= wb_shift_reg >> 32;
+                                hwdata_r    <= wb_shift_reg[63:32];
+                                haddr_r     <= burst_base_addr + ({29'b0, beat_cnt + 3'd1, 2'b0}) + 32'd4;
+                                htrans_r    <= `AHB_TRANS_SEQ;
+                            end
                         end
                     end
                 end

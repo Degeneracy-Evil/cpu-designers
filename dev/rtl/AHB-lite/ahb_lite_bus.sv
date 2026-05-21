@@ -4,7 +4,7 @@
 module ahb_lite_bus #(
     parameter ADDR_WIDTH  = `AHB_ADDR_WIDTH,
     parameter DATA_WIDTH  = `AHB_DATA_WIDTH,
-    parameter SLAVE_NUM   = 4,
+    parameter SLAVE_NUM   = 5,
     parameter MEM_DEPTH   = 8192,
     parameter WAIT_STATES = 0,
     parameter GPIO_NUM    = 16,
@@ -53,6 +53,7 @@ module ahb_lite_bus #(
     assign slave_HSELx[1] = (HADDR[31:24] == 8'h0C);
     assign slave_HSELx[2] = (HADDR[31:24] == 8'h02);
     assign slave_HSELx[3] = (HADDR[31:24] == 8'h10);
+    assign slave_HSELx[4] = ~(slave_HSELx[0] | slave_HSELx[1] | slave_HSELx[2] | slave_HSELx[3]);
 
     ahb_mux #(
         .DATA_WIDTH (DATA_WIDTH),
@@ -257,6 +258,20 @@ module ahb_lite_bus #(
         end
     end
 
-    assign slave_HRDATA = {bridge_HRDATA, clint_HRDATA, plic_HRDATA, sram_HRDATA};
+    wire [DATA_WIDTH-1:0]  default_HRDATA;
+
+    ahb_default_slave u_ahb_default_slave (
+        .HCLK      (HCLK),
+        .HRESETn   (HRESETn),
+        .HSEL      (slave_HSELx[4]),
+        .HTRANS    (HTRANS),
+        .HREADY    (HREADY),
+        .HREADYOUT (slave_HREADYOUT[4]),
+        .HRESP     (slave_HRESP[4])
+    );
+
+    assign default_HRDATA = {DATA_WIDTH{1'b0}};
+
+    assign slave_HRDATA = {default_HRDATA, bridge_HRDATA, clint_HRDATA, plic_HRDATA, sram_HRDATA};
 
 endmodule

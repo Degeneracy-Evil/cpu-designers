@@ -370,6 +370,7 @@ CSR 写掩码：mstatus 仅允许写 MPP[12:11]、MIE[3]、MPIE[7]；mie 仅允�
 BRAM 地址映射：`bram_addr = {set_idx[2:0], way[1:0]}`，5-bit 寻址 32 项。
 
 **BRAM 读延迟差异**：
+
 - 仿真：BRAM 行为模型提供组合输出（0-cycle 延迟）
 - 硬件：`READ_LATENCY=1`，寄存输出（1-cycle 延迟）
 - 仿真通过不代表硬件时序正确，综合时需关注
@@ -406,15 +407,18 @@ S_REFILL:            保持 refill_req，等 refill_valid，写 BRAM PortB
 ```
 
 **写策略**：
+
 - 写回（write-back）：Store 命中时仅写 BRAM + 置 dirty，不立即写主存
 - 写分配（write-allocate）：Store 缺失时先 Refill 读入整行，再合并写入
 
 **Store 数据合并**：
+
 - Byte Store：`wdata[7:0] << (addr[1:0] * 8)`
 - Halfword/Word Store：直接使用 `cpu_req_wdata`（`cpu_mem` 已将数据放置到正确字节位置）
 - Store 缺失合并：Refill 读回数据中，仅替换 store 目标字，其余保持 Refill 数据
 
 **脏行驱逐（Writeback）**：
+
 - 替换受害路时，若 dirty=1，先通过 BRAM PortB 读出整行 256-bit 数据
 - 重构写回地址：`{tag, set_idx, 3'b000, 2'b00}`
 - 通过 `cpu_bus_bridge` 发 INCR8 写突发，8 拍写回主存
@@ -433,6 +437,7 @@ S_WB_ADDR/S_WB_DATA:          INCR8 写突发，每拍移出 wb_shift_reg[31:0]
 ```
 
 **突发传输协议**：
+
 - 地址拍：HTRANS=NONSEQ，HBURST=INCR8
 - 数据拍 1-7：HTRANS=SEQ
 - 数据拍 8（最后拍）：HTRANS=IDLE（提前指示突发结束）

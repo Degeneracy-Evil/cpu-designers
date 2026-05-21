@@ -20,7 +20,8 @@ module cpu_decode(
     output             dec_is_ecall,
     output             dec_is_ebreak,
     output             dec_is_mret,
-    output             dec_is_fence,
+    output             dec_is_nop_like,
+    output             dec_is_fencei,
     output     [11:0]  dec_csr_addr,
     output     [2:0]   dec_csr_funct3,
     output             dec_csr_addr_valid
@@ -205,7 +206,8 @@ module cpu_decode(
   wire is_ecall;
   wire is_ebreak;
   wire is_mret;
-  wire is_fence;
+  wire is_nop_like;
+  wire is_fencei;
   wire is_system_trap;
 
   assign is_branch = inst_beq | inst_bne | inst_blt | inst_bge | inst_bltu | inst_bgeu;
@@ -221,7 +223,8 @@ module cpu_decode(
   assign is_ecall = inst_ecall;
   assign is_ebreak = inst_ebreak;
   assign is_mret = inst_mret;
-  assign is_fence = inst_fence | inst_fencei | inst_wfi;
+  assign is_nop_like = inst_fence | inst_wfi;
+  assign is_fencei   = inst_fencei;
   assign is_system_trap = is_ecall | is_ebreak;
 
   wire use_fixed_wb;
@@ -229,7 +232,7 @@ module cpu_decode(
 
   wire valid_inst;
   assign valid_inst = is_branch | is_load | is_store | is_jal_like | is_alu | is_mu |
-                      is_csr | is_system_trap | is_mret | is_fence;
+                      is_csr | is_system_trap | is_mret | is_nop_like | is_fencei;
 
   wire [31:0] alu_src1;
   wire [31:0] alu_src2;
@@ -306,13 +309,14 @@ module cpu_decode(
   assign rs1_addr = rs1;
   assign rs2_addr = rs2;
   assign dec_is_branch = id_valid && valid_inst && is_branch;
-  assign dec_need_exe = id_valid && valid_inst && !is_fence && !is_system_trap && !is_mret && !is_csr;
+  assign dec_need_exe = id_valid && valid_inst && !is_nop_like && !is_fencei && !is_system_trap && !is_mret && !is_csr;
 
   assign dec_is_csr    = id_valid && valid_inst && is_csr;
   assign dec_is_ecall  = id_valid && valid_inst && is_ecall;
   assign dec_is_ebreak = id_valid && valid_inst && is_ebreak;
   assign dec_is_mret   = id_valid && valid_inst && is_mret;
-  assign dec_is_fence  = id_valid && valid_inst && is_fence;
+  assign dec_is_nop_like = id_valid && valid_inst && is_nop_like;
+  assign dec_is_fencei   = id_valid && valid_inst && is_fencei;
   assign dec_csr_addr  = csr_addr;
   assign dec_csr_funct3 = csr_funct3;
 

@@ -35,6 +35,14 @@ module cpu_trap_manager(
     input  [31:0] exe_misalign_target,
     input  [31:0] exe_pc,
 
+    input         inst_access_fault,
+    input  [31:0] inst_access_fault_addr,
+    input         load_access_fault,
+    input  [31:0] load_access_fault_addr,
+    input         store_access_fault,
+    input  [31:0] store_access_fault_addr,
+    input  [31:0] mem_access_fault_pc,
+
     output        exception_at_decode,
     output        trap_pending,
     output [31:0] trap_pc,
@@ -43,10 +51,13 @@ module cpu_trap_manager(
     output [31:0] hw_mepc_wdata,
     output [31:0] hw_mcause_wdata,
     output [31:0] hw_mtval_wdata,
-    output [31:0] hw_mstatus_wdata
+    output [31:0] hw_mstatus_wdata,
+
+    output        inst_access_fault_pending,
+    output        data_access_fault_pending
 );
 
-    assign exception_at_decode = (id_valid && id_done) && (dec_illegal || dec_is_ecall || dec_is_ebreak);
+    assign exception_at_decode = (id_valid && id_done) && (dec_illegal || dec_is_ecall || dec_is_ebreak) && !inst_access_fault_r;
 
     wire [31:0] decode_exception_cause;
     assign decode_exception_cause = dec_illegal  ? 32'd2 :
@@ -55,6 +66,49 @@ module cpu_trap_manager(
 
     wire [31:0] decode_exception_mtval;
     assign decode_exception_mtval = dec_illegal ? id_inst : 32'b0;
+
+    reg inst_access_fault_r;
+    reg [31:0] inst_access_fault_addr_r;
+    reg load_access_fault_r;
+    reg [31:0] load_access_fault_addr_r;
+    reg store_access_fault_r;
+    reg [31:0] store_access_fault_addr_r;
+    reg [31:0] mem_access_fault_pc_r;
+
+    always @(posedge clk or posedge reset) begin
+        if (reset) begin
+            inst_access_fault_r      <= 1'b0;
+            inst_access_fault_addr_r <= 32'b0;
+            load_access_fault_r      <= 1'b0;
+            load_access_fault_addr_r <= 32'b0;
+            store_access_fault_r     <= 1'b0;
+            store_access_fault_addr_r<= 32'b0;
+            mem_access_fault_pc_r    <= 32'b0;
+        end else begin
+            if (inst_access_fault && !inst_access_fault_r) begin
+                inst_access_fault_r      <= 1'b1;
+                inst_access_fault_addr_r <= inst_access_fault_addr;
+            end
+            if (load_access_fault && !load_access_fault_r && !store_access_fault_r) begin
+                load_access_fault_r      <= 1'b1;
+                load_access_fault_addr_r <= load_access_fault_addr;
+                mem_access_fault_pc_r    <= mem_access_fault_pc;
+            end
+            if (store_access_fault && !store_access_fault_r && !load_access_fault_r) begin
+                store_access_fault_r     <= 1'b1;
+                store_access_fault_addr_r<= store_access_fault_addr;
+                mem_access_fault_pc_r    <= mem_access_fault_pc;
+            end
+            if (trap_enter_valid || trap_return_valid) begin
+                inst_access_fault_r  <= 1'b0;
+                load_access_fault_r  <= 1'b0;
+                store_access_fault_r <= 1'b0;
+            end
+        end
+    end
+
+    assign inst_access_fault_pending = inst_access_fault_r;
+    assign data_access_fault_pending = load_access_fault_r || store_access_fault_r;
 
     reg exception_valid_r;
     reg [31:0] exception_cause_r;
@@ -86,16 +140,34 @@ module cpu_trap_manager(
     wire [31:0] exception_pc;
     wire [31:0] exception_mtval;
 
-    assign exception_valid = exception_at_decode || misalign_exception_valid || exe_exception_valid;
-    assign exception_cause = exception_at_decode ? decode_exception_cause :
+    wire access_fault_valid;
+    wire [31:0] access_fault_cause;
+    wire [31:0] access_fault_pc;
+    wire [31:0] access_fault_mtval;
+
+    assign access_fault_valid = inst_access_fault_r || load_access_fault_r || store_access_fault_r;
+    assign access_fault_cause = inst_access_fault_r ? 32'd1 :
+                                load_access_fault_r ? 32'd5 :
+                                                       32'd7;
+    assign access_fault_pc   = inst_access_fault_r ? inst_access_fault_addr_r :
+                                mem_access_fault_pc_r;
+    assign access_fault_mtval = inst_access_fault_r ? inst_access_fault_addr_r :
+                                load_access_fault_r ? load_access_fault_addr_r :
+                                                       store_access_fault_addr_r;
+
+    assign exception_valid = access_fault_valid || exception_at_decode || misalign_exception_valid || exe_exception_valid;
+    assign exception_cause = access_fault_valid   ? access_fault_cause :
+                             exception_at_decode  ? decode_exception_cause :
                              misalign_exception_valid ? misalign_exception_cause :
                              exe_exception_cause;
-    assign exception_pc   = exception_at_decode ? id_pc :
-                             misalign_exception_valid ? misalign_exception_pc :
-                             exe_exception_pc;
-    assign exception_mtval= exception_at_decode ? decode_exception_mtval :
-                             misalign_exception_valid ? misalign_exception_mtval :
-                             exe_exception_mtval;
+    assign exception_pc   = access_fault_valid   ? access_fault_pc :
+                            exception_at_decode  ? id_pc :
+                            misalign_exception_valid ? misalign_exception_pc :
+                            exe_exception_pc;
+    assign exception_mtval= access_fault_valid   ? access_fault_mtval :
+                            exception_at_decode  ? decode_exception_mtval :
+                            misalign_exception_valid ? misalign_exception_mtval :
+                            exe_exception_mtval;
 
     always @(posedge clk or posedge reset) begin
         if (reset) begin

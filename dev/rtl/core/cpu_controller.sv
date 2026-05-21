@@ -15,11 +15,15 @@ module cpu_controller(
     input        dec_is_ecall,
     input        dec_is_ebreak,
     input        dec_is_mret,
-    input        dec_is_fence,
+    input        dec_is_nop_like,
+    input        dec_is_fencei,
+    input        fencei_done,
     input        exe_is_branch,
     input        exe_need_mem,
     input        trap_pending,
     input        exception_at_decode,
+    input        inst_access_fault_pending,
+    input        data_access_fault_pending,
     input        init_sig,
     output       if_valid,
     output       id_valid,
@@ -30,6 +34,7 @@ module cpu_controller(
     output       trap_enter_valid,
     output       trap_return_valid,
     output       exe_to_wb,
+    output       fencei_req,
 
     output [3:0] state
 );
@@ -42,6 +47,7 @@ module cpu_controller(
     localparam STATE_CSR_ACCESS = 4'd6;
     localparam STATE_TRAP_ENTER = 4'd7;
     localparam STATE_TRAP_RETURN= 4'd8;
+    localparam STATE_FENCEI     = 4'd9;
 
     reg [3:0] state_r;
     reg [3:0] next_state;
@@ -64,7 +70,11 @@ module cpu_controller(
                     next_state = STATE_FETCH;
                 end
                 STATE_FETCH: begin
-                    next_state = if_done ? STATE_DECODE : STATE_FETCH;
+                    if (inst_access_fault_pending) begin
+                        next_state = STATE_TRAP_ENTER;
+                    end else begin
+                        next_state = if_done ? STATE_DECODE : STATE_FETCH;
+                    end
                 end
                 STATE_DECODE: begin
                     if (!id_done) begin
@@ -73,7 +83,9 @@ module cpu_controller(
                         next_state = STATE_TRAP_ENTER;
                     end else if (dec_is_mret) begin
                         next_state = STATE_TRAP_RETURN;
-                    end else if (dec_is_fence) begin
+                    end else if (dec_is_fencei) begin
+                        next_state = STATE_FENCEI;
+                    end else if (dec_is_nop_like) begin
                         next_state = STATE_FETCH;
                     end else if (dec_is_csr) begin
                         next_state = STATE_CSR_ACCESS;
@@ -95,7 +107,11 @@ module cpu_controller(
                     end
                 end
                 STATE_MEM: begin
-                    next_state = mem_done ? STATE_WB : STATE_MEM;
+                    if (data_access_fault_pending) begin
+                        next_state = STATE_TRAP_ENTER;
+                    end else begin
+                        next_state = mem_done ? STATE_WB : STATE_MEM;
+                    end
                 end
                 STATE_WB: begin
                     if (wb_done) begin
@@ -113,6 +129,9 @@ module cpu_controller(
                 STATE_TRAP_RETURN: begin
                     next_state = STATE_FETCH;
                 end
+                STATE_FENCEI: begin
+                    next_state = fencei_done ? STATE_FETCH : STATE_FENCEI;
+                end
                 default: begin
                     next_state = STATE_IDLE;
                 end
@@ -129,6 +148,7 @@ module cpu_controller(
     assign trap_enter_valid = (state_r == STATE_TRAP_ENTER) && !init_sig;
     assign trap_return_valid= (state_r == STATE_TRAP_RETURN) && !init_sig;
     assign exe_to_wb        = (state_r == STATE_EXEC) && exe_done && !exe_is_branch && !exe_need_mem && !init_sig;
+    assign fencei_req       = (state_r == STATE_FENCEI) && !init_sig;
     assign state = state_r;
 
 endmodule

@@ -55,6 +55,9 @@ module core_top(
     wire exe_to_wb;
     wire [3:0] fsm_state;
 
+    wire        fencei_req;
+    wire        fencei_done;
+
     wire dec_is_branch;
     wire dec_need_exe;
     wire dec_illegal;
@@ -62,7 +65,8 @@ module core_top(
     wire dec_is_ecall;
     wire dec_is_ebreak;
     wire dec_is_mret;
-    wire dec_is_fence;
+    wire dec_is_nop_like;
+    wire dec_is_fencei;
     wire [11:0] dec_csr_addr;
     wire [2:0]  dec_csr_funct3;
     wire dec_csr_addr_valid;
@@ -139,6 +143,9 @@ module core_top(
     wire [31:0] trap_csr_pc;
     wire [31:0] csr_pc_plus4_out;
 
+    wire inst_access_fault_pending;
+    wire data_access_fault_pending;
+
     wire cycle_en;
     assign cycle_en = ~init_sig;
     wire inst_retire;
@@ -179,7 +186,7 @@ module core_top(
                 end
             end else if (csr_valid) begin
                 pc <= csr_pc_plus4_out;
-            end else if (id_valid && id_done && dec_is_fence) begin
+            end else if (id_valid && id_done && (dec_is_nop_like || dec_is_fencei)) begin
                 pc <= id_pc_plus4;
             end
         end
@@ -200,11 +207,15 @@ module core_top(
         .dec_is_ecall(dec_is_ecall),
         .dec_is_ebreak(dec_is_ebreak),
         .dec_is_mret(dec_is_mret),
-        .dec_is_fence(dec_is_fence),
+        .dec_is_nop_like(dec_is_nop_like),
+        .dec_is_fencei(dec_is_fencei),
+        .fencei_done(fencei_done),
         .exe_is_branch(exe_is_branch),
         .exe_need_mem(exe_need_mem),
         .trap_pending(trap_pending),
         .exception_at_decode(exception_at_decode),
+        .inst_access_fault_pending(inst_access_fault_pending),
+        .data_access_fault_pending(data_access_fault_pending),
         .init_sig(init_sig),
         .if_valid(if_valid),
         .id_valid(id_valid),
@@ -215,6 +226,7 @@ module core_top(
         .trap_enter_valid(trap_enter_valid),
         .trap_return_valid(trap_return_valid),
         .exe_to_wb(exe_to_wb),
+        .fencei_req(fencei_req),
         .state(fsm_state)
     );
 
@@ -231,6 +243,35 @@ module core_top(
     wire [31:0] icache_refill_addr;
     wire [255:0] icache_refill_data;
     wire        icache_refill_valid;
+
+    wire        dcache_flush_req;
+    wire        dcache_flush_done;
+    wire        icache_invalidate_req;
+    wire        icache_invalidate_done;
+
+    reg dcache_flush_sent_r;
+    reg icache_invalidate_sent_r;
+
+    always @(posedge clk or posedge reset) begin
+        if (reset) begin
+            dcache_flush_sent_r      <= 1'b0;
+            icache_invalidate_sent_r <= 1'b0;
+        end else begin
+            if (!fencei_req) begin
+                dcache_flush_sent_r      <= 1'b0;
+                icache_invalidate_sent_r <= 1'b0;
+            end else begin
+                if (dcache_flush_done && !dcache_flush_sent_r)
+                    dcache_flush_sent_r <= 1'b1;
+                if (icache_invalidate_done && !icache_invalidate_sent_r)
+                    icache_invalidate_sent_r <= 1'b1;
+            end
+        end
+    end
+
+    assign dcache_flush_req      = fencei_req && !dcache_flush_sent_r;
+    assign icache_invalidate_req = fencei_req && dcache_flush_sent_r && !icache_invalidate_sent_r;
+    assign fencei_done           = dcache_flush_sent_r && icache_invalidate_sent_r;
 
     icache_ctrl u_icache_wrap (
         .clk(clk),
@@ -249,7 +290,10 @@ module core_top(
         .refill_req(icache_refill_req),
         .refill_addr(icache_refill_addr),
         .refill_data(icache_refill_data),
-        .refill_valid(icache_refill_valid)
+        .refill_valid(icache_refill_valid),
+
+        .invalidate_req(icache_invalidate_req),
+        .invalidate_done(icache_invalidate_done)
     );
 
     cpu_fetch u_fetch(
@@ -285,7 +329,8 @@ module core_top(
         .dec_is_ecall(dec_is_ecall),
         .dec_is_ebreak(dec_is_ebreak),
         .dec_is_mret(dec_is_mret),
-        .dec_is_fence(dec_is_fence),
+        .dec_is_nop_like(dec_is_nop_like),
+        .dec_is_fencei(dec_is_fencei),
         .dec_csr_addr(dec_csr_addr),
         .dec_csr_funct3(dec_csr_funct3),
         .dec_csr_addr_valid(dec_csr_addr_valid)
@@ -341,6 +386,11 @@ module core_top(
     wire [255:0] dcache_wb_data;
     wire        dcache_wb_valid;
 
+    wire        bridge_icache_error;
+    wire        bridge_dcache_error;
+    wire        bridge_dcache_error_is_store;
+    wire [31:0] bridge_bus_error_addr;
+
     dcache_ctrl u_dcache_wrap (
         .clk(clk),
         .reset(reset),
@@ -369,7 +419,10 @@ module core_top(
         .wb_req(dcache_wb_req),
         .wb_addr(dcache_wb_addr),
         .wb_data(dcache_wb_data),
-        .wb_valid(dcache_wb_valid)
+        .wb_valid(dcache_wb_valid),
+
+        .flush_req(dcache_flush_req),
+        .flush_done(dcache_flush_done)
     );
 
     cpu_mem u_mem(
@@ -448,6 +501,13 @@ module core_top(
         .exe_misalign_valid(exe_misalign_valid),
         .exe_misalign_target(exe_misalign_target),
         .exe_pc           (exe_pc),
+        .inst_access_fault(bridge_icache_error),
+        .inst_access_fault_addr(bridge_bus_error_addr),
+        .load_access_fault(bridge_dcache_error && !bridge_dcache_error_is_store),
+        .load_access_fault_addr(bridge_bus_error_addr),
+        .store_access_fault(bridge_dcache_error && bridge_dcache_error_is_store),
+        .store_access_fault_addr(bridge_bus_error_addr),
+        .mem_access_fault_pc(exe_pc),
         .cycle_en         (cycle_en),
         .inst_retire      (inst_retire),
         .exception_at_decode(exception_at_decode),
@@ -455,7 +515,9 @@ module core_top(
         .csr_read_data    (csr_read_data),
         .csr_wb_bus       (csr_wb_bus),
         .trap_pc          (trap_csr_pc),
-        .csr_pc_plus4     (csr_pc_plus4_out)
+        .csr_pc_plus4     (csr_pc_plus4_out),
+        .inst_access_fault_pending(inst_access_fault_pending),
+        .data_access_fault_pending(data_access_fault_pending)
     );
 
     MMU u_mmu_inst(
@@ -504,7 +566,11 @@ module core_top(
         .HWDATA           (HWDATA),
         .HRDATA           (HRDATA),
         .HREADY           (HREADY),
-        .HRESP            (HRESP)
+        .HRESP            (HRESP),
+        .icache_error     (bridge_icache_error),
+        .dcache_error     (bridge_dcache_error),
+        .dcache_error_is_store(bridge_dcache_error_is_store),
+        .bus_error_addr   (bridge_bus_error_addr)
     );
 
     assign display_state = {28'b0, fsm_state};

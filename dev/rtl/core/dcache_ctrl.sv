@@ -29,18 +29,24 @@ module dcache_ctrl(
     output wire        wb_req,
     output wire [31:0] wb_addr,
     output wire [255:0] wb_data,
-    input  wire        wb_valid
+    input  wire        wb_valid,
+
+    input  wire        flush_req,
+    output wire        flush_done
 );
 
     localparam NUM_SETS  = 8;   // 组数
     localparam NUM_WAYS  = 4;   // 路数
     localparam TAG_WIDTH = 7;   // tag宽
     // 状态机状态
-    localparam S_IDLE     = 3'd0;
-    localparam S_READ_HIT = 3'd1;
-    localparam S_WB_READ  = 3'd2;
-    localparam S_WB_SEND  = 3'd3;
-    localparam S_REFILL   = 3'd4;
+    localparam S_IDLE        = 3'd0;
+    localparam S_READ_HIT    = 3'd1;
+    localparam S_WB_READ     = 3'd2;
+    localparam S_WB_SEND     = 3'd3;
+    localparam S_REFILL      = 3'd4;
+    localparam S_FLUSH_SCAN  = 3'd5;
+    localparam S_FLUSH_WB_RD = 3'd6;
+    localparam S_FLUSH_WB_SD = 3'd7;
 
     wire is_mmio = ~cpu_req_addr[31];
 
@@ -101,8 +107,14 @@ module dcache_ctrl(
     reg [2:0]  latched_word_off;
     reg [6:0]  latched_tag;
 
-    wire [4:0] bram_addra = {set_idx, hit_way};                 // A端口，CPU访存
-    wire [4:0] bram_addrb = {latched_set, latched_victim_way};  // B端口，填充（面向主存）
+    reg [2:0]  flush_set;
+    reg [1:0]  flush_way;
+    reg        flush_done_r;
+
+    wire [4:0] bram_addra = {set_idx, hit_way};
+    wire [4:0] bram_addrb = (state == S_FLUSH_WB_RD || state == S_FLUSH_WB_SD) ?
+                            {flush_set, flush_way} :
+                            {latched_set, latched_victim_way};
 
     wire [255:0] bram_douta;
     wire [255:0] bram_doutb;
@@ -153,6 +165,7 @@ module dcache_ctrl(
     wire [255:0] refill_bram_din = latched_hwrite ? merged_line : refill_data;
 
     wire bram_enb = (state == S_WB_READ) ||
+                    (state == S_FLUSH_WB_RD) ||
                     (refill_valid && (state == S_REFILL));
     wire [31:0]  bram_web = (state == S_REFILL && refill_valid) ? 32'hFFFFFFFF : 32'b0;
 
@@ -192,6 +205,8 @@ module dcache_ctrl(
     assign wb_addr     = wb_addr_r;
     assign wb_data     = bram_doutb;
 
+    assign flush_done  = flush_done_r;
+
     assign mmio_req    = (state == S_IDLE) && cpu_req_valid && is_mmio ? 1'b1 : 1'b0;
     assign mmio_addr   = cpu_req_addr;
     assign mmio_wdata  = cpu_req_wdata;
@@ -223,6 +238,9 @@ module dcache_ctrl(
             latched_tag      <= 7'b0;
             bypass_data      <= 32'b0;
             cpu_req_ready_r  <= 1'b0;
+            flush_set        <= 3'b0;
+            flush_way        <= 2'b0;
+            flush_done_r     <= 1'b0;
             for (integer s = 0; s < NUM_SETS; s = s + 1) begin
                 plru_state[s] <= 3'b0;
                 for (integer w = 0; w < NUM_WAYS; w = w + 1) begin
@@ -231,12 +249,17 @@ module dcache_ctrl(
             end
         end else begin
             cpu_req_ready_r <= 1'b0;
+            flush_done_r    <= 1'b0;
 
             case (state)
                 S_IDLE: begin
                     refill_req_r <= 1'b0;
                     wb_req_r     <= 1'b0;
-                    if (cpu_req_valid && !cpu_req_ready_r) begin
+                    if (flush_req) begin
+                        state     <= S_FLUSH_SCAN;
+                        flush_set <= 3'b0;
+                        flush_way <= 2'b0;
+                    end else if (cpu_req_valid && !cpu_req_ready_r) begin
                         if (is_mmio) begin
                             if (mmio_valid) begin
                                 bypass_data     <= mmio_rdata;
@@ -302,6 +325,62 @@ module dcache_ctrl(
                         tag_ram[latched_set][latched_victim_way] <= {1'b1, latched_hwrite, latched_tag};
                         plru_state[latched_set] <= plru_next_miss;
                         state <= S_IDLE;
+                    end
+                end
+
+                S_FLUSH_SCAN: begin
+                    if (tag_ram[flush_set][flush_way][8] && tag_ram[flush_set][flush_way][7]) begin
+                        latched_set        <= flush_set;
+                        latched_victim_way <= flush_way;
+                        state <= S_FLUSH_WB_RD;
+                    end else begin
+                        if (flush_way == 2'd3) begin
+                            if (flush_set == 3'd7) begin
+                                for (integer s = 0; s < NUM_SETS; s = s + 1) begin
+                                    for (integer w = 0; w < NUM_WAYS; w = w + 1) begin
+                                        tag_ram[s][w][8] <= 1'b0;
+                                    end
+                                end
+                                flush_done_r <= 1'b1;
+                                state <= S_IDLE;
+                            end else begin
+                                flush_set <= flush_set + 3'd1;
+                                flush_way <= 2'd0;
+                            end
+                        end else begin
+                            flush_way <= flush_way + 2'd1;
+                        end
+                    end
+                end
+
+                S_FLUSH_WB_RD: begin
+                    wb_addr_r <= {1'b1, 16'b0, tag_ram[flush_set][flush_way][6:0], flush_set, 5'b0};
+                    state <= S_FLUSH_WB_SD;
+                end
+
+                S_FLUSH_WB_SD: begin
+                    wb_req_r <= 1'b1;
+                    if (wb_valid) begin
+                        wb_req_r <= 1'b0;
+                        tag_ram[flush_set][flush_way][7] <= 1'b0;
+                        if (flush_way == 2'd3) begin
+                            if (flush_set == 3'd7) begin
+                                for (integer s = 0; s < NUM_SETS; s = s + 1) begin
+                                    for (integer w = 0; w < NUM_WAYS; w = w + 1) begin
+                                        tag_ram[s][w][8] <= 1'b0;
+                                    end
+                                end
+                                flush_done_r <= 1'b1;
+                                state <= S_IDLE;
+                            end else begin
+                                flush_set <= flush_set + 3'd1;
+                                flush_way <= 2'd0;
+                                state <= S_FLUSH_SCAN;
+                            end
+                        end else begin
+                            flush_way <= flush_way + 2'd1;
+                            state <= S_FLUSH_SCAN;
+                        end
                     end
                 end
 

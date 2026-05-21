@@ -48,6 +48,7 @@ python3 tools/rv2coe.py \
 - `--data-depth N`：数据输出补齐到 N 条（默认不补齐）
 - `--hex FILE`：同时输出 `$readmemh` 格式 hex 文件
 - `-v` / `--verbose`：打印完整工具链命令
+- `--text-base`：指定连接地址，默认`0x80000000`
 
 ### 指令/数据分离输出
 

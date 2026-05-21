@@ -32,10 +32,10 @@ module dcache_ctrl(
     input  wire        wb_valid
 );
 
-    localparam NUM_SETS  = 8;
-    localparam NUM_WAYS  = 4;
-    localparam TAG_WIDTH = 7;
-
+    localparam NUM_SETS  = 8;   // 组数
+    localparam NUM_WAYS  = 4;   // 路数
+    localparam TAG_WIDTH = 7;   // tag宽
+    // 状态机状态
     localparam S_IDLE     = 3'd0;
     localparam S_READ_HIT = 3'd1;
     localparam S_WB_READ  = 3'd2;
@@ -44,34 +44,34 @@ module dcache_ctrl(
 
     wire is_mmio = ~cpu_req_addr[31];
 
-    wire [TAG_WIDTH-1:0] req_tag  = cpu_req_addr[14:8];
-    wire [2:0]            set_idx  = cpu_req_addr[7:5];
-    wire [2:0]            word_off = cpu_req_addr[4:2];
+    wire [TAG_WIDTH-1:0] req_tag  = cpu_req_addr[14:8]; // Cache tag
+    wire [2:0]            set_idx  = cpu_req_addr[7:5]; // Cache Index（组号）
+    wire [2:0]            word_off = cpu_req_addr[4:2]; // 块内偏移
 
-    reg [2:0] state;
+    reg [2:0] state; // 状态机
 
-    reg [8:0] tag_ram [0:NUM_SETS-1][0:NUM_WAYS-1];
-    reg [2:0] plru_state [0:NUM_SETS-1];
+    reg [8:0] tag_ram [0:NUM_SETS-1][0:NUM_WAYS-1]; // 标志段寄存器（0~6:tag,7:D,8:V）
+    reg [2:0] plru_state [0:NUM_SETS-1];            // PLRU算法寄存器
 
-    wire [8:0] tag_r0 = tag_ram[set_idx][0];
+    wire [8:0] tag_r0 = tag_ram[set_idx][0];        // 取tag
     wire [8:0] tag_r1 = tag_ram[set_idx][1];
     wire [8:0] tag_r2 = tag_ram[set_idx][2];
     wire [8:0] tag_r3 = tag_ram[set_idx][3];
 
-    wire hit0 = tag_r0[8] && (tag_r0[6:0] == req_tag);
+    wire hit0 = tag_r0[8] && (tag_r0[6:0] == req_tag); // 比较tag，测试有效位
     wire hit1 = tag_r1[8] && (tag_r1[6:0] == req_tag);
     wire hit2 = tag_r2[8] && (tag_r2[6:0] == req_tag);
     wire hit3 = tag_r3[8] && (tag_r3[6:0] == req_tag);
 
-    wire cache_hit = hit0 | hit1 | hit2 | hit3;
+    wire cache_hit = hit0 | hit1 | hit2 | hit3;     // 命中判断
 
-    wire [1:0] hit_way;
+    wire [1:0] hit_way;             // 具体命中路
     assign hit_way = hit0 ? 2'd0 :
                      hit1 ? 2'd1 :
                      hit2 ? 2'd2 :
                             2'd3;
 
-    wire inv0 = ~tag_r0[8];
+    wire inv0 = ~tag_r0[8];         // 统计无效行
     wire inv1 = ~tag_r1[8];
     wire inv2 = ~tag_r2[8];
     wire inv3 = ~tag_r3[8];
@@ -85,12 +85,12 @@ module dcache_ctrl(
         .next_state (plru_next)
     );
 
-    wire [1:0] victim_way = inv0 ? 2'd0 :
+    wire [1:0] victim_way = inv0 ? 2'd0 :               // 选择受害者行-无效行
                             inv1 ? 2'd1 :
                             inv2 ? 2'd2 :
                                    2'd3;
 
-    wire victim_dirty = tag_ram[set_idx][victim_way][7];
+    wire victim_dirty = tag_ram[set_idx][victim_way][7]; // 脏位
 
     reg [2:0]  latched_set;
     reg [1:0]  latched_victim_way;
@@ -101,8 +101,8 @@ module dcache_ctrl(
     reg [2:0]  latched_word_off;
     reg [6:0]  latched_tag;
 
-    wire [4:0] bram_addra = {set_idx, hit_way};
-    wire [4:0] bram_addrb = {latched_set, latched_victim_way};
+    wire [4:0] bram_addra = {set_idx, hit_way};                 // A端口，CPU访存
+    wire [4:0] bram_addrb = {latched_set, latched_victim_way};  // B端口，填充（面向主存）
 
     wire [255:0] bram_douta;
     wire [255:0] bram_doutb;

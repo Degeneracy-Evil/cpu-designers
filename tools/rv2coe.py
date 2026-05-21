@@ -249,6 +249,11 @@ def parse_args() -> argparse.Namespace:
         default="",
         help="Also output a plain hex file for $readmemh (one word per line)",
     )
+    parser.add_argument(
+    "--text-base",
+    default="0x80000000",
+    help="Base address for the .text section (default: 0x80000000)"
+    )
     sep_group = parser.add_argument_group("separate inst/data output", "For Harvard-architecture CPUs with split memories")
     sep_group.add_argument("--inst-coe", default="", help="Instruction COE file (.text section only)")
     sep_group.add_argument("--inst-hex", default="", help="Instruction hex file for $readmemh")
@@ -336,7 +341,7 @@ def compile_to_elf(
         f"-mabi={args.abi}",
         "-nostdlib",
         "-nostartfiles",
-        "-Wl,-Ttext=0x0",
+        f"-Wl,-Ttext={args.text_base}",
         "-Wl,--no-relax",
         "-Wl,--build-id=none",
         f"-Wl,-e,{args.entry}",

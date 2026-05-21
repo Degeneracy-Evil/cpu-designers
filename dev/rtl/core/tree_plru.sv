@@ -1,5 +1,5 @@
 `timescale 1ns / 1ps
-
+// tree_PLRU状态转换
 module tree_plru(
     input  wire [2:0] plru_state,
     output wire [1:0] victim_way,

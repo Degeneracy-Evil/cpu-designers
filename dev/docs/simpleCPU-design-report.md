@@ -1,6 +1,6 @@
 # SimpleCPU 设计报告
 
-> 生成日期: 2026-05-18 | 项目路径: `dev/rtl/`
+> 生成日期: 2026-05-20 | 项目路径: `dev/rtl/`
 
 ---
 
@@ -16,8 +16,9 @@
 | 架构 | 多周期 FSM 控制，五级流水线数据通路 |
 | 数据位宽 | 32-bit |
 | 地址空间 | 32-bit，虚拟地址直通（MMU 恒等映射） |
-| 存储架构 | 哈佛结构（icache / dcache 分离） |
-| 总线接口 | AHB-Lite Master |
+| 存储架构 | 哈佛结构（icache / dcache 分离），4 路组相联，Tree-PLRU 替换 |
+| 缓存策略 | 写回（write-back）+ 写分配（write-allocate），脏行驱逐写回主存 |
+| 总线接口 | AHB-Lite Master，支持 INCR8 突发传输 |
 | 中断/异常 | 支持 Trap 进入/返回（mret）、CLINT 定时器中断、PLIC 外部中断 |
 | 乘法器 | Booth 编码，32 周期迭代 |
 | 除法器 | 非恢复余数法，32 周期迭代 + 修正 |
@@ -74,12 +75,17 @@ system_top
 │   │   │   └── cpu_clint
 │   │   └── cpu_csr_interface
 │   │       └── cpu_csr
-│   ├── icache_ctrl       ← 指令缓存控制器
-│   ├── dcache_ctrl       ← 数据缓存控制器
+│   ├── icache_ctrl       ← 指令缓存控制器（4路组相联）
+│   │   ├── tree_plru     ← Tree-PLRU 替换策略
+│   │   └── icached       ← ICache 数据 BRAM IP（256bit×32）
+│   ├── dcache_ctrl       ← 数据缓存控制器（4路组相联，写回+写分配）
+│   │   ├── tree_plru     ← Tree-PLRU 替换策略
+│   │   ├── dcached       ← DCache 数据 BRAM IP（256bit×32）
+│   │   └── dtag          ← DCache 标签 BRAM IP（9bit×32）
 │   ├── MMU (×2)          ← 地址映射（恒等）
-│   └── cpu_bus_bridge    ← AHB-Lite 总线桥接
+│   └── cpu_bus_bridge    ← AHB-Lite 总线桥接（MMIO + INCR8 突发）
 ├── ahb_lite_bus          ← AHB-Lite 总线
-│   ├── ahb_sram_slave    ← SRAM 从设备
+│   ├── ahb_sram_slave    ← SRAM 从设备（32KB BRAM IP）
 │   ├── ahb_clint         ← CLINT
 │   ├── ahb_plic          ← PLIC
 │   └── ahb_lite_to_apb → apb_bus → apb_perips
@@ -94,12 +100,12 @@ system_top
 
 | 地址高位 | 从设备 | 说明 |
 |----------|--------|------|
-| `0x00_xxxx_xxxx` | SRAM Slave | 主存储器（1MB） |
+| `0x80_xxxx_xxxx` | SRAM Slave | 主存储器（32KB，缓存映射区域） |
 | `0x02_xxxx_xxxx` | CLINT | 核心本地中断器 |
 | `0x0C_xxxx_xxxx` | PLIC | 平台级中断控制器 |
 | `0x10_xxxx_xxxx` | APB Bridge | 外设桥（GPIO/UART/Timer/SPI） |
 
-Cache/MMIO 判定规则：地址最高位 `addr[31] == 0` 为 MMIO 区域（走 AHB 总线），`addr[31] == 1` 为 Cache 命中区域（走 BRAM）。
+Cache/MMIO 判定规则：地址最高位 `addr[31] == 0` 为 MMIO 区域（走 AHB 总线旁路缓存），`addr[31] == 1` 为 Cacheable 区域（走 icache/dcache）。SRAM 从设备地址由 `0x00` 迁移至 `0x80`，所有数据访问使用 `0x8000_0000` 基址。
 
 ---
 
@@ -311,32 +317,138 @@ CSR 写掩码：mstatus 仅允许写 MPP[12:11]、MIE[3]、MPIE[7]；mie 仅允�
 
 ## 5. 存储子系统
 
-### 5.1 指令缓存 (`icache_ctrl`)
+### 5.1 缓存几何参数
 
-- 深度：4096 字（16KB）
-- 实现：Xilinx BRAM IP 核（双端口，Port A 读，Port B 保留）
-- MMIO 判定：`addr[31] == 0` → MMIO 请求（走 AHB 总线），否则 → Cache 读
-- 1 周期延迟：BRAM 使能寄存一级，`icache_valid_r` 延迟一拍
+| 参数 | 值 | 说明 |
+|------|-----|------|
+| 相联度 | 4 路组相联 | 每组 4 个缓存行 |
+| 组数 | 8 | set_idx = addr[7:5] |
+| 标签位 | 7 | tag = addr[14:8] |
+| 字偏移 | 3 位 | word_off = addr[4:2]，每行 8 字（32 字节） |
+| 行大小 | 256-bit（8×32-bit） | 一次 INCR8 突发填充 |
+| 总容量 | 8 组 × 4 路 × 32 字节 = 1KB | ICache 与 DCache 各 1KB |
 
-### 5.2 数据缓存 (`dcache_ctrl`)
+地址分解：`| tag[14:8] | set[7:5] | word[4:2] | byte[1:0] |`
 
-- 深度：4096 字（16KB）
-- 实现：Xilinx BRAM IP 核（双端口，Port A 读写，Port B 保留）
-- 写使能按字节/半字/字粒度生成 `wea[3:0]`
-- MMIO 判定同 icache
+### 5.2 Tree-PLRU 替换策略 (`tree_plru`)
 
-### 5.3 总线桥接 (`cpu_bus_bridge`)
-
-将 Cache MMIO 请求转换为 AHB-Lite Master 协议：
+4 路 Tree-PLRU 使用 3-bit 状态编码，组织为二叉树：
 
 ```
-AHB_IDLE → AHB_ADDR (发地址/控制) → AHB_DATA (等 HREADY) → AHB_IDLE
+       bit0
+      /    \
+   bit1    bit2
+   / \     / \
+  W0  W1  W2  W3
 ```
 
-- 指令/数据请求优先级：icache 优先于 dcache
-- 单次传输（NONSEQ + IDLE），无突发
+- `bit=0` 指向左子树，`bit=1` 指向右子树
+- 访问 way N 时，从根到叶路径上所有节点指向 N 所在子树的反方向
+- 替换时从根到叶按 bit 方向行走，定位受害路
+- 优先选择无效路（invalid way first），仅当所有路有效时使用 PLRU
 
-### 5.4 MMU
+### 5.3 标签存储
+
+标签使用寄存器数组（非 BRAM），实现单周期 4 路并行比较：
+
+| 缓存 | 标签格式 | 位宽 | 说明 |
+|------|----------|------|------|
+| ICache | `{valid, tag[6:0]}` | 8-bit | 无脏位（指令缓存只读） |
+| DCache | `{valid, dirty, tag[6:0]}` | 9-bit | dirty 位标识写回需求 |
+
+- 每组 4 路标签寄存器，共 8 组 × 4 路 = 32 个标签项
+- 命中判定：`valid && (tag == addr[14:8])`，4 路并行，1 周期出结果
+
+### 5.4 数据存储（BRAM IP）
+
+| BRAM | 配置 | 端口 A | 端口 B |
+|------|------|--------|--------|
+| icached | 256-bit × 32，True Dual Port，WRITE_FIRST | CPU 读 | Refill 写 |
+| dcached | 256-bit × 32，True Dual Port，WRITE_FIRST | CPU 读/写 | Refill 写 / Victim 读 |
+| dtag | 9-bit × 32，True Dual Port，WRITE_FIRST | CPU 读/写 | Refill 写 |
+
+BRAM 地址映射：`bram_addr = {set_idx[2:0], way[1:0]}`，5-bit 寻址 32 项。
+
+**BRAM 读延迟差异**：
+- 仿真：BRAM 行为模型提供组合输出（0-cycle 延迟）
+- 硬件：`READ_LATENCY=1`，寄存输出（1-cycle 延迟）
+- 仿真通过不代表硬件时序正确，综合时需关注
+
+### 5.5 指令缓存控制器 (`icache_ctrl`)
+
+ICache FSM 状态转换：
+
+```
+S_IDLE → S_READ (BRAM 使能，锁存请求)
+S_READ → hit:  返回数据，更新 PLRU，回 S_IDLE
+S_READ → miss: 锁存 set/addr/victim，发 refill_req，进 S_REFILL
+S_REFILL:      保持 refill_req，等 refill_valid，写 BRAM PortB，
+               更新标签+PLRU，旁路返回数据，回 S_IDLE
+```
+
+- MMIO 旁路：`addr[31]==0` 时直接发 AHB 请求，不经过缓存
+- 标签比较在 S_READ 完成，命中时 1 周期返回（仿真）或 2 周期（硬件）
+- 缺失时向 `cpu_bus_bridge` 发 INCR8 读突发请求，8 拍填充整行
+
+### 5.6 数据缓存控制器 (`dcache_ctrl`)
+
+DCache FSM 状态转换：
+
+```
+S_IDLE → store hit:  写 BRAM PortA，置 dirty，更新 PLRU，ready=1
+S_IDLE → load hit:   进 S_READ_HIT
+S_IDLE → miss:       锁存请求，若 victim dirty → S_WB_READ，否则 → S_REFILL
+S_READ_HIT:          返回 BRAM 数据，更新 PLRU，回 S_IDLE
+S_WB_READ:           使能 BRAM PortB 读，重构 WB 地址，进 S_WB_SEND
+S_WB_SEND:           保持 wb_req，等 wb_valid，清 dirty，发 refill_req，进 S_REFILL
+S_REFILL:            保持 refill_req，等 refill_valid，写 BRAM PortB
+                     （store miss 时合并写入数据），更新标签+PLRU，旁路返回，回 S_IDLE
+```
+
+**写策略**：
+- 写回（write-back）：Store 命中时仅写 BRAM + 置 dirty，不立即写主存
+- 写分配（write-allocate）：Store 缺失时先 Refill 读入整行，再合并写入
+
+**Store 数据合并**：
+- Byte Store：`wdata[7:0] << (addr[1:0] * 8)`
+- Halfword/Word Store：直接使用 `cpu_req_wdata`（`cpu_mem` 已将数据放置到正确字节位置）
+- Store 缺失合并：Refill 读回数据中，仅替换 store 目标字，其余保持 Refill 数据
+
+**脏行驱逐（Writeback）**：
+- 替换受害路时，若 dirty=1，先通过 BRAM PortB 读出整行 256-bit 数据
+- 重构写回地址：`{tag, set_idx, 3'b000, 2'b00}`
+- 通过 `cpu_bus_bridge` 发 INCR8 写突发，8 拍写回主存
+- 写回完成后清 dirty，再发 Refill 读请求
+
+### 5.7 总线桥接 (`cpu_bus_bridge`)
+
+将 Cache Refill/Writeback 和 MMIO 请求转换为 AHB-Lite Master 协议：
+
+```
+S_IDLE: 仲裁请求（优先级: MMIO > WB > IRefill > DRefill）
+S_MMIO_ADDR/S_MMIO_DATA:     单次 AHB 传输
+S_IREFILL_ADDR/S_IREFILL_DATA: INCR8 读突发，累积 HRDATA 至 refill_shift_reg
+S_DREFILL_ADDR/S_DREFILL_DATA: INCR8 读突发，同上
+S_WB_ADDR/S_WB_DATA:          INCR8 写突发，每拍移出 wb_shift_reg[31:0]
+```
+
+**突发传输协议**：
+- 地址拍：HTRANS=NONSEQ，HBURST=INCR8
+- 数据拍 1-7：HTRANS=SEQ
+- 数据拍 8（最后拍）：HTRANS=IDLE（提前指示突发结束）
+- Refill 累积：`refill_shift_reg = {HRDATA, refill_shift_reg[255:32]}`，8 拍后得到完整 256-bit 行
+
+**优先级防饿**：MMIO 最高优先（单拍完成），WB 次之（防止脏行堆积），IRefill 再次，DRefill 最低。
+
+### 5.8 SRAM 从设备 (`ahb_sram_slave`)
+
+- 容量：32KB（32-bit × 8192 字）
+- 实现：Xilinx BRAM IP 核（True Dual Port，WRITE_FIRST）
+- 写使能：1-bit（Sram IP 仅支持整字写）
+- 基地址：`0x8000_0000`（地址译码 `HADDR[31:24] == 8'h80`）
+- 支持 INCR8 突发读写，1 等待状态
+
+### 5.9 MMU
 
 当前为恒等映射（`paddr = vaddr`），为未来虚拟地址扩展预留接口。
 
@@ -381,24 +493,40 @@ AHB_IDLE → AHB_ADDR (发地址/控制) → AHB_DATA (等 HREADY) → AHB_IDLE
 
 ### 8.1 测试平台
 
-| Testbench | 程序 | 测试内容 | 仿真周期 |
-|-----------|------|----------|----------|
-| `tb_simple_cpu_top` | `cpu_test.hex` | 完整指令集测试（ALU + 分支 + 跳转 + Load/Store + M 扩展） | 80000 |
-| `tb_simple_cpu_compute` | `cpu_test_compute.hex` | 算术/逻辑/移位/乘除法计算测试 | 50000 |
-| `tb_simple_cpu_trap` | `cpu_test_trap.hex` | 异常/中断陷阱处理测试 | 30000 |
-| `tb_ahb_bus` | — | AHB-Lite 总线功能测试 | — |
-| `tb_apb_perips` | — | APB 外设功能测试 | — |
-| `tb_uart_hello` | `uart_hello.hex` | UART 输出测试 | — |
-| `tb_led_marquee` | `led_marquee.hex` | LED 跑马灯测试 | — |
-| `tb_non_restoring_divider` | — | 除法器单元测试 | — |
-| `tb_mu_unit` | — | 乘除法单元测试 | — |
-| `tb_alu_cpu_integration` | — | ALU 集成测试 | — |
+| Testbench | 程序 | 测试内容 | 仿真时间 | 结果 |
+|-----------|------|----------|----------|------|
+| `tb_simple_cpu_top` | `cpu_test.hex` | 完整指令集测试（ALU + 分支 + 跳转 + Load/Store + M 扩展 + CLINT + Trap） | 10ms | 42 PASS, 0 FAIL |
+| `tb_simple_cpu_compute` | `cpu_test_compute.hex` | 算术/逻辑/移位/乘除法计算测试 | 10ms | 42 PASS, 0 FAIL |
+| `tb_simple_cpu_trap` | `cpu_test_trap.hex` | 异常/中断陷阱处理测试 | 5ms | 14 PASS, 0 FAIL |
+| `tb_led_marquee` | `led_marquee.hex` | LED 跑马灯 + GPIO + CLINT MTIP 测试 | 2s | 16 PASS, 0 FAIL |
+| `tb_uart_hello` | `uart_hello.hex` | UART 输出 "Hello World" 测试 | 40ms | 12 PASS, 0 FAIL |
+| `tb_ahb_bus` | — | AHB-Lite 总线功能测试 | 5000ns | — |
+| `tb_apb_perips` | — | APB 外设功能测试 | 2000ns | — |
+| `tb_non_restoring_divider` | — | 除法器单元测试 | — | — |
+| `tb_mu_unit` | — | 乘除法单元测试 | — | — |
+| `tb_alu_cpu_integration` | — | ALU 集成测试 | — | — |
 
 ### 8.2 验证方法
 
 - 寄存器检查：通过 `rf_addr`/`rf_data` 端口直接读取寄存器堆，与期望值比对
-- 存储器检查：通过 `$readmemh` 初始化后直接访问 BRAM 数组验证
+- 存储器检查：BRAM IP 内部数组路径在仿真中不可直接访问，标记为 SKIP
+- UART 检查：testbench 内嵌 UART RX 解码器，逐字符比对输出
+- GPIO 检查：监测 GPIO 端口状态变化，验证 LED 跑马灯序列
 - PASS/FAIL 计数汇总
+
+### 8.3 仿真环境
+
+- 仿真器：Vivado XSim 2018.3（行为级仿真）
+- 自动化脚本：`vivado_do.tcl`（工程创建/刷新/仿真/综合/实现/下载一体化）
+- 程序加载：`$readmemh` 在 elaboration 阶段将 hex 文件加载至 Sram BRAM IP
+- hex 文件由 `tools/rv2coe.py` 从 RISC-V 汇编源码编译生成（`--base-addr 0x80000000`）
+- BRAM 行为模型：0-cycle 读延迟，不精确模拟碰撞行为
+
+### 8.4 已知限制
+
+- **BRAM 读延迟**：仿真中 BRAM 行为模型为组合输出（0-cycle），硬件中为寄存输出（1-cycle），仿真通过不代表硬件时序正确
+- **SRAM 地址空间**：SRAM 从设备仅 32KB（8192 字），地址范围 `0x8000_0000` ~ `0x8000_7FFC`
+- **Cache 容量**：ICache/DCache 各 1KB（8 组 × 4 路 × 32 字节），大工作集程序可能频繁缺失
 
 ---
 
@@ -424,10 +552,11 @@ AHB_IDLE → AHB_ADDR (发地址/控制) → AHB_DATA (等 HREADY) → AHB_IDLE
 | `dev/rtl/core/` | `cpu_clint.sv` | 核心本地中断控制器 |
 | `dev/rtl/core/` | `cpu_csr_interface.sv` | CSR 读写接口 |
 | `dev/rtl/core/` | `cpu_csr.sv` | CSR 寄存器文件 |
-| `dev/rtl/core/` | `icache_ctrl.sv` | 指令缓存控制器 |
-| `dev/rtl/core/` | `dcache_ctrl.sv` | 数据缓存控制器 |
+| `dev/rtl/core/` | `icache_ctrl.sv` | 指令缓存控制器（4路组相联，Tree-PLRU） |
+| `dev/rtl/core/` | `dcache_ctrl.sv` | 数据缓存控制器（4路组相联，写回+写分配） |
+| `dev/rtl/core/` | `tree_plru.sv` | Tree-PLRU 替换策略（4路，3-bit 状态） |
 | `dev/rtl/core/` | `MMU.sv` | 地址映射（恒等） |
-| `dev/rtl/core/` | `cpu_bus_bridge.sv` | AHB-Lite 总线桥接 |
+| `dev/rtl/core/` | `cpu_bus_bridge.sv` | AHB-Lite 总线桥接（MMIO + INCR8 突发） |
 | `dev/rtl/ALU/` | `alu_32bit.sv` | 32-bit ALU 顶层 |
 | `dev/rtl/ALU/` | `cla_adder_4bit.sv` | 4-bit CLA |
 | `dev/rtl/ALU/` | `cla_adder_16bit.sv` | 16-bit CLA |
@@ -443,7 +572,7 @@ AHB_IDLE → AHB_ADDR (发地址/控制) → AHB_DATA (等 HREADY) → AHB_IDLE
 | `dev/rtl/AHB-lite/` | `ahb_lite_bus.sv` | AHB-Lite 总线 |
 | `dev/rtl/AHB-lite/` | `ahb_decoder.sv` | 地址译码器 |
 | `dev/rtl/AHB-lite/` | `ahb_mux.sv` | 数据多路复用 |
-| `dev/rtl/AHB-lite/` | `ahb_sram_slave.sv` | SRAM 从设备 |
+| `dev/rtl/AHB-lite/` | `ahb_sram_slave.sv` | SRAM 从设备（32KB，INCR8 突发） |
 | `dev/rtl/AHB-lite/` | `ahb_clint.sv` | CLINT 从设备 |
 | `dev/rtl/AHB-lite/` | `ahb_plic.sv` | PLIC 从设备 |
 | `dev/rtl/APB/` | `ahb_lite_to_apb.sv` | AHB→APB 桥 |
@@ -485,5 +614,10 @@ AHB_IDLE → AHB_ADDR (发地址/控制) → AHB_DATA (等 HREADY) → AHB_IDLE
 5. **Booth 乘法器**：Radix-2 Booth 编码，32 周期迭代，支持有符号/无符号
 6. **非恢复余数除法器**：32 周期迭代 + 修正阶段，处理除零/溢出/符号
 7. **完整陷阱处理**：支持 6 种异常 + 3 种中断，符合 RISC-V 特权规范
-8. **哈佛缓存 + MMIO**：icache/dcache 独立，MMIO 区域直通 AHB 总线
-9. **AHB-Lite + APB 双总线**：高速设备挂 AHB，低速外设挂 APB，通过桥接互联
+8. **4 路组相联缓存**：ICache/DCache 各 1KB（8 组 × 4 路 × 32B 行），寄存器标签并行比较
+9. **Tree-PLRU 替换**：3-bit 状态编码，无效路优先，近似 LRU 替换策略
+10. **写回 + 写分配**：Store 命中仅写 BRAM + 置 dirty，缺失先 Refill 再合并写入，脏行驱逐写回主存
+11. **INCR8 突发传输**：Cache Refill/Writeback 使用 AHB INCR8 突发，8 拍传输整行 256-bit 数据
+12. **MMIO 旁路**：`addr[31]==0` 直接走 AHB 总线，不经过缓存，保证外设访问强序
+13. **AHB-Lite + APB 双总线**：高速设备挂 AHB，低速外设挂 APB，通过桥接互联
+14. **总线桥优先级**：MMIO > Writeback > IRefill > DRefill，防止饿死与脏行堆积

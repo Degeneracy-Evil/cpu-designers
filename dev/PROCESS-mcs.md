@@ -168,11 +168,13 @@ All 5 testbenches pass with 0 failures:
 3. **fencei_done never asserts** — `fencei_done = dcache_flush_done && icache_invalidate_done` required both one-cycle pulses in the same cycle, but icache invalidate happens the cycle after dcache flush done, so the condition was never true. Fix: added `dcache_flush_sent_r` and `icache_invalidate_sent_r` latched flags; changed to `fencei_done = dcache_flush_sent_r && icache_invalidate_sent_r`.
 
    Corrected fencei handshake wiring in core_top.sv:
+
    ```
    dcache_flush_req      = fencei_req && !dcache_flush_sent_r
    icache_invalidate_req = fencei_req && dcache_flush_sent_r && !icache_invalidate_sent_r
    fencei_done           = dcache_flush_sent_r && icache_invalidate_sent_r
    ```
+
    Both flags reset when fencei_req goes low (controller exits STATE_FENCEI).
 
 ### Test Results (2026-05-21, after fence.i fixes)
@@ -207,3 +209,59 @@ All 5 testbenches pass with 0 failures:
 - **inst_access_fault suppresses exception_at_decode**: prevents garbage decode of unfetched instruction causing cause 2 instead of cause 1
 - **Access fault latching**: Bridge error pulses are latched in trap_manager, persist until trap is taken
 - **APB PSLVERR support deferred**: ahb_lite_to_apb.sv already handles PSLVERR→HRESP correctly
+
+## 2026-05-22: fence.i JIT test + access fault exception test + bridge MMIO error fix
+
+### Files Created
+
+- `dev/program_source/cpu_test_fencei.s` — 44-word JIT test: store→fence.i→load, write instruction words to 0x80002000→fence.i→jalr execute, halfword/byte stores with fence.i
+- `dev/program_source/cpu_test_access_fault.s` — 40-word access fault test: load/store/jalr to 0x40000000 (unmapped), trap handler stores mcause to 0x80001048/4C/50
+- `dev/tb/tb_cpu_test_fencei.sv` — fence.i testbench (SLAVE_NUM=5, 120000 cycles); checks x10=0xFF, x11=0xDEADBEEF, x12=0x12345678, x13=0xABCDEF01, x14=0xDEADBEEF, x15=0xCAFE, x16=0x42
+- `dev/tb/tb_cpu_test_access_fault.sv` — access fault testbench (SLAVE_NUM=5, 50000 cycles); checks x1=3, x2=42, x19=1, x21=0x40000000, mem[0x48/4C/50]=5/7/1
+
+### Files Modified
+
+- `dev/rtl/core/cpu_bus_bridge.sv` — **Critical fix**: S_MMIO_ADDR and S_MMIO_DATA error paths now set `ahb_inst_valid_r` (icache) or `ahb_data_valid_r` (dcache) alongside error flags; previously only set error flags without valid, causing caches to hang indefinitely waiting for mmio_valid
+- `dev/program_source/Makefile` — Added cpu_test_fencei and cpu_test_access_fault to PROGS list
+- `vivado_do.tcl` — Added tb_coe_map entries (fencei→cpu_test_fencei.coe, access_fault→cpu_test_access_fault.coe), tb_runtime_map entries (fencei=5ms, access_fault=3ms)
+
+### Bug Fix (2026-05-22): cpu_bus_bridge MMIO error path cache hang
+
+**Root cause**: When the AHB bus returns ERROR for an MMIO access (e.g., access to unmapped address via default slave), `cpu_bus_bridge.sv` set the error flags (`icache_error`/`dcache_error`) but did NOT set the valid flags (`ahb_inst_valid_r`/`ahb_data_valid_r`). The cache controllers (`icache_ctrl.sv`, `dcache_ctrl.sv`) in S_IDLE wait for `mmio_valid` to complete their MMIO requests. Without valid, they hung forever with `mmio_req` staying high, causing the bridge to retry the request infinitely.
+
+**Fix**: In `cpu_bus_bridge.sv` S_MMIO_ADDR and S_MMIO_DATA error paths, added:
+
+```systemverilog
+// S_MMIO_ADDR error path (already had error flag, added valid):
+ahb_inst_valid_r <= 1'b1;  // for instruction access
+ahb_data_valid_r <= 1'b1;  // for data access
+
+// S_MMIO_DATA error path (same pattern):
+ahb_inst_valid_r <= 1'b1;  // for instruction access
+ahb_data_valid_r <= 1'b1;  // for data access
+```
+
+**Why this is safe**: The caches complete with garbage data on the valid signal, but the CPU controller checks `data_access_fault_pending`/`inst_access_fault_pending` BEFORE `mem_done`/`if_done`, so it takes the trap before using the garbage data. One bridge retry still occurs due to a 1-cycle delay between the controller's trap decision and `state_r` transitioning to STATE_TRAP_ENTER, but this wastes only 2 bus cycles and is benign.
+
+**Refill/writeback error paths NOT fixed**: Setting valid on refill/writeback error would corrupt cache tag RAM with garbage data. Lower priority since SRAM should never return errors.
+
+### Design Notes
+
+- **JIT test approach**: Writes raw instruction words (addi=0x02A00513, jalr=0x00028067, ori=0x0FF06513) to SRAM at 0x80002000, then fence.i+jalr to execute them. Verifies dcache flush→icache invalidate→correct instruction fetch from updated SRAM.
+- **Access fault test approach**: Uses 0x40000000 (unmapped MMIO address, addr[31]=0) to trigger ahb_default_slave ERROR response. Tests cause 5 (load), cause 7 (store), cause 1 (instruction fetch via jalr).
+- **SLAVE_NUM=5**: New testbenches use SLAVE_NUM=5 to include ahb_default_slave; existing testbenches use SLAVE_NUM=4 (no default slave, but no unmapped access in those tests).
+- **mstatus handling**: Removed manual `csrw mstatus,0x80` from trap handler because cpu_clint.sv hardcodes MPP=11 on trap enter/mret; mstatus_wmask forces MPP=11 on software writes anyway.
+
+### Simulation Results (2026-05-22)
+
+| Testbench | Result | Details |
+|-----------|--------|---------|
+| tb_cpu_test_access_fault | 7 PASS, 0 FAIL | x1=3, x2=42, x19=1, x21=0x40000000 |
+| tb_cpu_test_fencei | 10 PASS, 0 FAIL | x10=0xFF, x11=0xDEADBEEF, x12=0x12345678, x13=0xABCDEF01, x14=0xDEADBEEF, x15=0xCAFE, x16=0x42 |
+| tb_simple_cpu_top | 42 PASS, 0 FAIL | Full regression — no regressions from bridge fix |
+
+### Next Steps
+
+1. Verify writeback path (dirty victim eviction) with targeted tests
+2. Performance measurement: cache hit/miss statistics
+3. Consider fixing refill/writeback error paths by adding error inputs to cache controllers (lower priority)

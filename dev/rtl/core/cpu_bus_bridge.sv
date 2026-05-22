@@ -222,10 +222,12 @@ module cpu_bus_bridge(
                             htrans_r  <= `AHB_TRANS_IDLE;
                             bus_error_addr_r <= haddr_r;
                             if (mmio_is_ireq) begin
-                                icache_error_r <= 1'b1;
+                                icache_error_r   <= 1'b1;
+                                ahb_inst_valid_r <= 1'b1;
                             end else begin
-                                dcache_error_r <= 1'b1;
+                                dcache_error_r        <= 1'b1;
                                 dcache_error_is_store_r <= hwrite_r;
+                                ahb_data_valid_r  <= 1'b1;
                             end
                         end else begin
                             state     <= S_MMIO_DATA;
@@ -241,10 +243,12 @@ module cpu_bus_bridge(
                             htrans_r  <= `AHB_TRANS_IDLE;
                             bus_error_addr_r <= haddr_r;
                             if (mmio_is_ireq) begin
-                                icache_error_r <= 1'b1;
+                                icache_error_r   <= 1'b1;
+                                ahb_inst_valid_r <= 1'b1;
                             end else begin
-                                dcache_error_r <= 1'b1;
+                                dcache_error_r        <= 1'b1;
                                 dcache_error_is_store_r <= hwrite_r;
+                                ahb_data_valid_r  <= 1'b1;
                             end
                         end else begin
                             state     <= S_IDLE;

@@ -35,9 +35,11 @@
 #   vivado_do -bitstream
 #
 # 可选 testbench:
-#   tb_simple_cpu_top     — CPU 全功能测试 (34 PASS, 需要 cpu_test.hex)
+#   tb_simple_cpu_top     — CPU 全功能测试 (42 PASS, 需要 cpu_test.hex)
 #   tb_simple_cpu_compute — CPU 计算/访存测试 (42 PASS, 需要 cpu_test_compute.hex)
-#   tb_simple_cpu_trap    — CPU 异常/陷阱测试 (10 PASS, 需要 cpu_test_trap.hex)
+#   tb_simple_cpu_trap    — CPU 异常/陷阱测试 (14 PASS, 需要 cpu_test_trap.hex)
+#   tb_cpu_test_fencei    — fence.i JIT 测试 (需要 cpu_test_fencei.hex)
+#   tb_cpu_test_access_fault — 访问错误异常测试 (需要 cpu_test_access_fault.hex)
 #   tb_uart_hello         — UART 发送测试 (12 PASS, 需要 uart_hello.hex)
 #   tb_led_marquee        — LED 走马灯测试 (16 PASS, 需要 led_marquee.hex)
 #   tb_ahb_bus            — AHB 总线测试 (3 PASS, 无需 hex)
@@ -87,6 +89,8 @@ array set tb_coe_map {
     tb_simple_cpu_top     "cpu_test.coe"
     tb_simple_cpu_compute "cpu_test_compute.coe"
     tb_simple_cpu_trap    "cpu_test_trap.coe"
+    tb_cpu_test_fencei    "cpu_test_fencei.coe"
+    tb_cpu_test_access_fault "cpu_test_access_fault.coe"
     tb_uart_hello         "uart_hello.coe"
     tb_led_marquee        "led_marquee.coe"
     tb_ahb_bus            ""
@@ -100,6 +104,8 @@ array set tb_runtime_map {
     tb_simple_cpu_top     "5ms"
     tb_simple_cpu_compute "5ms"
     tb_simple_cpu_trap    "3ms"
+    tb_cpu_test_fencei    "5ms"
+    tb_cpu_test_access_fault "3ms"
     tb_uart_hello         "40ms"
     tb_led_marquee        "2s"
     tb_ahb_bus            "5000ns"

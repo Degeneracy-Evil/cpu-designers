@@ -15,9 +15,10 @@ module cpu_controller(
     input        dec_is_ecall,
     input        dec_is_ebreak,
     input        dec_is_mret,
+    input        dec_is_sret,
     input        dec_is_nop_like,
     input        dec_is_fencei,
-    input        fencei_done,
+    input        dec_is_sfence_vma,
     input        exe_is_branch,
     input        exe_need_mem,
     input        trap_pending,
@@ -81,10 +82,12 @@ module cpu_controller(
                         next_state = STATE_DECODE;
                     end else if (exception_at_decode) begin
                         next_state = STATE_TRAP_ENTER;
-                    end else if (dec_is_mret) begin
+                    end else if (dec_is_mret || dec_is_sret) begin
                         next_state = STATE_TRAP_RETURN;
                     end else if (dec_is_fencei) begin
                         next_state = STATE_FENCEI;
+                    end else if (dec_is_sfence_vma) begin
+                        next_state = STATE_FETCH;
                     end else if (dec_is_nop_like) begin
                         next_state = STATE_FETCH;
                     end else if (dec_is_csr) begin

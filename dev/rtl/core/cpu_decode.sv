@@ -20,12 +20,22 @@ module cpu_decode(
     output             dec_is_ecall,
     output             dec_is_ebreak,
     output             dec_is_mret,
+    output             dec_is_sret,
     output             dec_is_nop_like,
     output             dec_is_fencei,
+    output             dec_is_sfence_vma,
     output     [11:0]  dec_csr_addr,
     output     [2:0]   dec_csr_funct3,
-    output             dec_csr_addr_valid
+    output             dec_csr_addr_valid,
+    output             dec_csr_access_ok,
+
+    input      [1:0]   priv_mode,
+    input      [31:0]  csr_mstatus
   );
+  localparam PRIV_U = 2'b00;
+  localparam PRIV_S = 2'b01;
+  localparam PRIV_M = 2'b11;
+
   localparam OPCODE_LUI    = 7'b0110111;
   localparam OPCODE_AUIPC  = 7'b0010111;
   localparam OPCODE_JAL    = 7'b1101111;
@@ -173,8 +183,10 @@ module cpu_decode(
   wire inst_ebreak;
   wire inst_wfi;
   wire inst_mret;
+  wire inst_sret;
   wire inst_fence;
   wire inst_fencei;
+  wire inst_sfence_vma;
   wire inst_csrrw;
   wire inst_csrrs;
   wire inst_csrrc;
@@ -186,8 +198,10 @@ module cpu_decode(
   assign inst_ebreak = (opcode == OPCODE_SYSTEM) && (funct3 == 3'b000) && (inst[31:20] == 12'h001);
   assign inst_wfi    = (opcode == OPCODE_SYSTEM) && (funct3 == 3'b000) && (inst[31:20] == 12'h105);
   assign inst_mret   = (opcode == OPCODE_SYSTEM) && (funct3 == 3'b000) && (inst[31:7] == 25'b0011000_00010_00000_000_00000);
+  assign inst_sret   = (opcode == OPCODE_SYSTEM) && (funct3 == 3'b000) && (inst[31:7] == 25'b0001000_00010_00000_000_00000);
   assign inst_fence  = (opcode == OPCODE_FENCE)  && (funct3 == 3'b000);
   assign inst_fencei = (opcode == OPCODE_FENCE)  && (funct3 == 3'b001);
+  assign inst_sfence_vma = (opcode == OPCODE_SYSTEM) && (funct3 == 3'b000) && (inst[31:7] == 25'b0001001_00000_00000_000_00000);
 
   assign inst_csrrw  = (opcode == OPCODE_SYSTEM) && (funct3 == 3'b001);
   assign inst_csrrs  = (opcode == OPCODE_SYSTEM) && (funct3 == 3'b010);
@@ -206,8 +220,10 @@ module cpu_decode(
   wire is_ecall;
   wire is_ebreak;
   wire is_mret;
+  wire is_sret;
   wire is_nop_like;
   wire is_fencei;
+  wire is_sfence_vma;
   wire is_system_trap;
 
   assign is_branch = inst_beq | inst_bne | inst_blt | inst_bge | inst_bltu | inst_bgeu;
@@ -223,8 +239,10 @@ module cpu_decode(
   assign is_ecall = inst_ecall;
   assign is_ebreak = inst_ebreak;
   assign is_mret = inst_mret;
+  assign is_sret = inst_sret;
   assign is_nop_like = inst_fence | inst_wfi;
   assign is_fencei   = inst_fencei;
+  assign is_sfence_vma = inst_sfence_vma;
   assign is_system_trap = is_ecall | is_ebreak;
 
   wire use_fixed_wb;
@@ -232,7 +250,7 @@ module cpu_decode(
 
   wire valid_inst;
   assign valid_inst = is_branch | is_load | is_store | is_jal_like | is_alu | is_mu |
-                      is_csr | is_system_trap | is_mret | is_nop_like | is_fencei;
+                      is_csr | is_system_trap | is_mret | is_sret | is_nop_like | is_fencei | is_sfence_vma;
 
   wire [31:0] alu_src1;
   wire [31:0] alu_src2;
@@ -295,35 +313,24 @@ module cpu_decode(
 
   assign id_done = id_valid;
 
-  wire csr_addr_invalid = is_csr && !dec_csr_addr_valid;
-  wire csr_read_only = (csr_addr[11:10] == 2'b11);
-  wire csr_is_write   = (csr_funct3 == 3'b001) ||
-                        (csr_funct3 == 3'b010 && rs1 != 5'd0) ||
-                        (csr_funct3 == 3'b011 && rs1 != 5'd0) ||
-                        (csr_funct3 == 3'b101) ||
-                        (csr_funct3 == 3'b110 && inst[19:15] != 5'd0) ||
-                        (csr_funct3 == 3'b111 && inst[19:15] != 5'd0);
-  wire write_ro_csr   = is_csr && csr_read_only && csr_is_write;
-
-  assign illegal_inst = id_valid && (!valid_inst || csr_addr_invalid || write_ro_csr);
-  assign rs1_addr = rs1;
-  assign rs2_addr = rs2;
-  assign dec_is_branch = id_valid && valid_inst && is_branch;
-  assign dec_need_exe = id_valid && valid_inst && !is_nop_like && !is_fencei && !is_system_trap && !is_mret && !is_csr;
-
-  assign dec_is_csr    = id_valid && valid_inst && is_csr;
-  assign dec_is_ecall  = id_valid && valid_inst && is_ecall;
-  assign dec_is_ebreak = id_valid && valid_inst && is_ebreak;
-  assign dec_is_mret   = id_valid && valid_inst && is_mret;
-  assign dec_is_nop_like = id_valid && valid_inst && is_nop_like;
-  assign dec_is_fencei   = id_valid && valid_inst && is_fencei;
-  assign dec_csr_addr  = csr_addr;
-  assign dec_csr_funct3 = csr_funct3;
+  localparam CSR_SSTATUS    = 12'h100;
+  localparam CSR_SIE        = 12'h104;
+  localparam CSR_STVEC      = 12'h105;
+  localparam CSR_SCOUNTEREN = 12'h106;
+  localparam CSR_SSCRATCH   = 12'h140;
+  localparam CSR_SEPC       = 12'h141;
+  localparam CSR_SCAUSE     = 12'h142;
+  localparam CSR_STVAL      = 12'h143;
+  localparam CSR_SIP        = 12'h144;
+  localparam CSR_SATP       = 12'h180;
 
   localparam CSR_MSTATUS    = 12'h300;
   localparam CSR_MISA       = 12'h301;
+  localparam CSR_MEDELEG    = 12'h302;
+  localparam CSR_MIDELEG    = 12'h303;
   localparam CSR_MIE        = 12'h304;
   localparam CSR_MTVEC      = 12'h305;
+  localparam CSR_MCOUNTEREN = 12'h306;
   localparam CSR_MSTATUSH   = 12'h310;
   localparam CSR_MSCRATCH   = 12'h340;
   localparam CSR_MEPC       = 12'h341;
@@ -340,25 +347,81 @@ module cpu_decode(
   localparam CSR_MHARTID    = 12'hF14;
   localparam CSR_MCONFIGPTR = 12'hF15;
 
-  assign dec_csr_addr_valid = (csr_addr == CSR_MSTATUS)    ||
-                              (csr_addr == CSR_MISA)       ||
-                              (csr_addr == CSR_MIE)        ||
-                              (csr_addr == CSR_MTVEC)      ||
-                              (csr_addr == CSR_MSTATUSH)   ||
-                              (csr_addr == CSR_MSCRATCH)   ||
-                              (csr_addr == CSR_MEPC)       ||
-                              (csr_addr == CSR_MCAUSE)     ||
-                              (csr_addr == CSR_MTVAL)      ||
-                              (csr_addr == CSR_MIP)        ||
-                              (csr_addr == CSR_MCYCLE)     ||
-                              (csr_addr == CSR_MINSTRET)   ||
-                              (csr_addr == CSR_MCYCLEH)    ||
-                              (csr_addr == CSR_MINSTRETH)  ||
-                              (csr_addr == CSR_MVENDORID)  ||
-                              (csr_addr == CSR_MARCHID)    ||
-                              (csr_addr == CSR_MIMPID)     ||
-                              (csr_addr == CSR_MHARTID)    ||
-                              (csr_addr == CSR_MCONFIGPTR);
+  function is_s_csr;
+      input [11:0] addr;
+      begin
+          is_s_csr = (addr == CSR_SSTATUS)   || (addr == CSR_SIE)       ||
+                     (addr == CSR_STVEC)     || (addr == CSR_SSCRATCH)  ||
+                     (addr == CSR_SEPC)      || (addr == CSR_SCAUSE)    ||
+                     (addr == CSR_STVAL)     || (addr == CSR_SIP)       ||
+                     (addr == CSR_SATP)      || (addr == CSR_SCOUNTEREN);
+      end
+  endfunction
+
+  function is_m_csr;
+      input [11:0] addr;
+      begin
+          is_m_csr = (addr == CSR_MSTATUS)    || (addr == CSR_MISA)       ||
+                     (addr == CSR_MEDELEG)   || (addr == CSR_MIDELEG)    ||
+                     (addr == CSR_MIE)       || (addr == CSR_MTVEC)      ||
+                     (addr == CSR_MCOUNTEREN)|| (addr == CSR_MSTATUSH)   ||
+                     (addr == CSR_MSCRATCH)  || (addr == CSR_MEPC)       ||
+                     (addr == CSR_MCAUSE)    || (addr == CSR_MTVAL)      ||
+                     (addr == CSR_MIP)       || (addr == CSR_MCYCLE)     ||
+                     (addr == CSR_MINSTRET)  || (addr == CSR_MCYCLEH)   ||
+                     (addr == CSR_MINSTRETH) || (addr == CSR_MVENDORID) ||
+                     (addr == CSR_MARCHID)   || (addr == CSR_MIMPID)    ||
+                     (addr == CSR_MHARTID)   || (addr == CSR_MCONFIGPTR);
+      end
+  endfunction
+
+  assign dec_csr_addr_valid = is_s_csr(csr_addr) || is_m_csr(csr_addr);
+
+  always @(*) begin
+      case (priv_mode)
+          PRIV_U: dec_csr_access_ok = 1'b0;
+          PRIV_S: dec_csr_access_ok = is_s_csr(csr_addr);
+          PRIV_M: dec_csr_access_ok = 1'b1;
+          default: dec_csr_access_ok = 1'b0;
+      endcase
+  end
+
+  wire csr_addr_invalid = is_csr && !dec_csr_addr_valid;
+  wire csr_read_only = (csr_addr[11:10] == 2'b11);
+  wire csr_is_write   = (csr_funct3 == 3'b001) ||
+                        (csr_funct3 == 3'b010 && rs1 != 5'd0) ||
+                        (csr_funct3 == 3'b011 && rs1 != 5'd0) ||
+                        (csr_funct3 == 3'b101) ||
+                        (csr_funct3 == 3'b110 && inst[19:15] != 5'd0) ||
+                        (csr_funct3 == 3'b111 && inst[19:15] != 5'd0);
+  wire write_ro_csr   = is_csr && csr_read_only && csr_is_write;
+
+  wire sret_priv_violation = is_sret && (priv_mode == PRIV_U);
+  wire tw_bit = csr_mstatus[21];
+  wire wfi_priv_violation = inst_wfi && tw_bit && (priv_mode != PRIV_M);
+  wire tsr_bit = csr_mstatus[22];
+  wire sret_tsr_violation = is_sret && tsr_bit && (priv_mode == PRIV_S);
+  wire tvm_bit = csr_mstatus[20];
+  wire sfence_tvm_violation = is_sfence_vma && tvm_bit && (priv_mode == PRIV_S);
+
+  assign illegal_inst = id_valid && (!valid_inst || csr_addr_invalid || write_ro_csr ||
+                                      sret_priv_violation || wfi_priv_violation ||
+                                      sret_tsr_violation || sfence_tvm_violation);
+  assign rs1_addr = rs1;
+  assign rs2_addr = rs2;
+  assign dec_is_branch = id_valid && valid_inst && is_branch;
+  assign dec_need_exe = id_valid && valid_inst && !is_nop_like && !is_fencei && !is_sfence_vma && !is_system_trap && !is_mret && !is_sret && !is_csr;
+
+  assign dec_is_csr    = id_valid && valid_inst && is_csr;
+  assign dec_is_ecall  = id_valid && valid_inst && is_ecall;
+  assign dec_is_ebreak = id_valid && valid_inst && is_ebreak;
+  assign dec_is_mret   = id_valid && valid_inst && is_mret;
+  assign dec_is_sret   = id_valid && valid_inst && is_sret;
+  assign dec_is_nop_like = id_valid && valid_inst && (is_nop_like && !wfi_priv_violation);
+  assign dec_is_fencei   = id_valid && valid_inst && is_fencei;
+  assign dec_is_sfence_vma = id_valid && valid_inst && is_sfence_vma && !sfence_tvm_violation;
+  assign dec_csr_addr  = csr_addr;
+  assign dec_csr_funct3 = csr_funct3;
 
   assign id_exe_bus = {
            pc_plus4,

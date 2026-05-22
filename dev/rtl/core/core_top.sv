@@ -36,7 +36,12 @@ module core_top(
     input         ext_msip_in
 );
 
+    localparam PRIV_U = 2'b00;
+    localparam PRIV_S = 2'b01;
+    localparam PRIV_M = 2'b11;
+
     reg [31:0] pc;
+    reg [1:0]  priv_mode;
 
     wire if_done;
     wire id_done;
@@ -65,11 +70,14 @@ module core_top(
     wire dec_is_ecall;
     wire dec_is_ebreak;
     wire dec_is_mret;
+    wire dec_is_sret;
     wire dec_is_nop_like;
     wire dec_is_fencei;
+    wire dec_is_sfence_vma;
     wire [11:0] dec_csr_addr;
     wire [2:0]  dec_csr_funct3;
     wire dec_csr_addr_valid;
+    wire dec_csr_access_ok;
 
     wire exe_branch_taken;
     wire [31:0] exe_branch_target;
@@ -142,6 +150,7 @@ module core_top(
     wire [167:0] csr_wb_bus;
     wire [31:0] trap_csr_pc;
     wire [31:0] csr_pc_plus4_out;
+    wire [1:0]  target_priv;
 
     wire inst_access_fault_pending;
     wire data_access_fault_pending;
@@ -151,9 +160,35 @@ module core_top(
     wire inst_retire;
     assign inst_retire = wb_done;
 
+    wire [31:0] csr_mstatus;
+    wire [31:0] csr_mie;
+    wire [31:0] csr_mtvec;
+    wire [31:0] csr_mepc;
+    wire [31:0] csr_mip;
+    wire [31:0] csr_medeleg;
+    wire [31:0] csr_mideleg;
+    wire [31:0] csr_sstatus;
+    wire [31:0] csr_sie;
+    wire [31:0] csr_stvec;
+    wire [31:0] csr_sscratch;
+    wire [31:0] csr_sepc;
+    wire [31:0] csr_scause;
+    wire [31:0] csr_stval;
+    wire [31:0] csr_sip;
+    wire [31:0] csr_satp;
+    wire [31:0] csr_mcounteren;
+    wire [31:0] csr_scounteren;
+    wire csr_access_ok;
+
+    wire [1:0] mpp_field;
+    assign mpp_field = csr_mstatus[12:11];
+    wire spp_field;
+    assign spp_field = csr_mstatus[8];
+
     always @(posedge clk or posedge reset) begin
         if (reset) begin
             pc <= 32'h80000000;
+            priv_mode <= PRIV_M;
             if_id_bus_r <= 96'b0;
             id_exe_bus_r <= 320'b0;
             exe_mem_bus_r <= 207'b0;
@@ -176,8 +211,16 @@ module core_top(
                 mem_wb_bus_r <= csr_wb_bus;
             end
 
-            if (trap_enter_valid || trap_return_valid) begin
+            if (trap_enter_valid) begin
                 pc <= trap_csr_pc;
+                priv_mode <= target_priv;
+            end else if (trap_return_valid) begin
+                pc <= trap_csr_pc;
+                if (priv_mode == PRIV_M) begin
+                    priv_mode <= mpp_field;
+                end else begin
+                    priv_mode <= spp_field ? PRIV_S : PRIV_U;
+                end
             end else if (exe_valid && exe_done) begin
                 if (exe_is_ctrl_flow && exe_branch_taken) begin
                     pc <= exe_branch_target;
@@ -186,7 +229,7 @@ module core_top(
                 end
             end else if (csr_valid) begin
                 pc <= csr_pc_plus4_out;
-            end else if (id_valid && id_done && (dec_is_nop_like || dec_is_fencei)) begin
+            end else if (id_valid && id_done && (dec_is_nop_like || dec_is_fencei || dec_is_sfence_vma)) begin
                 pc <= id_pc_plus4;
             end
         end
@@ -207,8 +250,10 @@ module core_top(
         .dec_is_ecall(dec_is_ecall),
         .dec_is_ebreak(dec_is_ebreak),
         .dec_is_mret(dec_is_mret),
+        .dec_is_sret(dec_is_sret),
         .dec_is_nop_like(dec_is_nop_like),
         .dec_is_fencei(dec_is_fencei),
+        .dec_is_sfence_vma(dec_is_sfence_vma),
         .fencei_done(fencei_done),
         .exe_is_branch(exe_is_branch),
         .exe_need_mem(exe_need_mem),
@@ -329,11 +374,16 @@ module core_top(
         .dec_is_ecall(dec_is_ecall),
         .dec_is_ebreak(dec_is_ebreak),
         .dec_is_mret(dec_is_mret),
+        .dec_is_sret(dec_is_sret),
         .dec_is_nop_like(dec_is_nop_like),
         .dec_is_fencei(dec_is_fencei),
+        .dec_is_sfence_vma(dec_is_sfence_vma),
         .dec_csr_addr(dec_csr_addr),
         .dec_csr_funct3(dec_csr_funct3),
-        .dec_csr_addr_valid(dec_csr_addr_valid)
+        .dec_csr_addr_valid(dec_csr_addr_valid),
+        .dec_csr_access_ok(dec_csr_access_ok),
+        .priv_mode(priv_mode),
+        .csr_mstatus(csr_mstatus)
     );
 
     cpu_execute u_execute(
@@ -494,6 +544,7 @@ module core_top(
         .csr_valid        (csr_valid),
         .trap_enter_valid (trap_enter_valid),
         .trap_return_valid(trap_return_valid),
+        .priv_mode        (priv_mode),
         .timer_irq        (timer_irq),
         .ext_meip_in      (ext_meip_in),
         .ext_msip_in      (ext_msip_in),
@@ -516,8 +567,28 @@ module core_top(
         .csr_wb_bus       (csr_wb_bus),
         .trap_pc          (trap_csr_pc),
         .csr_pc_plus4     (csr_pc_plus4_out),
+        .target_priv      (target_priv),
         .inst_access_fault_pending(inst_access_fault_pending),
-        .data_access_fault_pending(data_access_fault_pending)
+        .data_access_fault_pending(data_access_fault_pending),
+        .csr_mstatus      (csr_mstatus),
+        .csr_mie          (csr_mie),
+        .csr_mtvec        (csr_mtvec),
+        .csr_mepc         (csr_mepc),
+        .csr_mip          (csr_mip),
+        .csr_medeleg      (csr_medeleg),
+        .csr_mideleg      (csr_mideleg),
+        .csr_sstatus      (csr_sstatus),
+        .csr_sie          (csr_sie),
+        .csr_stvec        (csr_stvec),
+        .csr_sscratch     (csr_sscratch),
+        .csr_sepc         (csr_sepc),
+        .csr_scause       (csr_scause),
+        .csr_stval        (csr_stval),
+        .csr_sip          (csr_sip),
+        .csr_satp         (csr_satp),
+        .csr_mcounteren   (csr_mcounteren),
+        .csr_scounteren   (csr_scounteren),
+        .csr_access_ok    (csr_access_ok)
     );
 
     MMU u_mmu_inst(

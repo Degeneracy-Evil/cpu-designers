@@ -163,7 +163,7 @@ module tb_simple_cpu_trap;
         check_reg(5'd3,  32'h00000000);
         check_reg(5'd4,  32'h00000000);
         check_reg(5'd19, 32'h80000007);
-        check_reg(5'd20, 32'h80000038);
+        check_reg(5'd20, 32'h8000003c);
         check_reg(5'd21, 32'h00000003);
         check_reg(5'd23, 32'h00000001);
         check_reg(5'd24, 32'h00000001);

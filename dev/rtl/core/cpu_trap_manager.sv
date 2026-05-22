@@ -22,11 +22,19 @@ module cpu_trap_manager(
     input         trap_enter_valid,
     input         trap_return_valid,
 
+    input  [1:0]  priv_mode,
+
     input  [31:0] csr_mstatus,
     input  [31:0] csr_mie,
     input  [31:0] csr_mtvec,
     input  [31:0] csr_mepc,
     input  [31:0] csr_mip,
+    input  [31:0] csr_medeleg,
+    input  [31:0] csr_mideleg,
+    input  [31:0] csr_stvec,
+    input  [31:0] csr_sepc,
+    input  [31:0] csr_sie,
+    input  [31:0] csr_sip,
 
     input         timer_irq,
     input  [31:0] current_pc,
@@ -46,23 +54,33 @@ module cpu_trap_manager(
     output        exception_at_decode,
     output        trap_pending,
     output [31:0] trap_pc,
+    output [1:0]  target_priv,
 
     output        hw_csr_wen,
+    output [1:0]  hw_target_priv,
     output [31:0] hw_mepc_wdata,
     output [31:0] hw_mcause_wdata,
     output [31:0] hw_mtval_wdata,
     output [31:0] hw_mstatus_wdata,
+    output [31:0] hw_sepc_wdata,
+    output [31:0] hw_scause_wdata,
+    output [31:0] hw_stval_wdata,
+    output [31:0] hw_sstatus_wdata,
 
     output        inst_access_fault_pending,
     output        data_access_fault_pending
 );
+    localparam PRIV_U = 2'b00;
+    localparam PRIV_S = 2'b01;
+    localparam PRIV_M = 2'b11;
 
     assign exception_at_decode = (id_valid && id_done) && (dec_illegal || dec_is_ecall || dec_is_ebreak) && !inst_access_fault_r;
 
     wire [31:0] decode_exception_cause;
     assign decode_exception_cause = dec_illegal  ? 32'd2 :
-                                    dec_is_ecall ? 32'd11 :
-                                                   32'd3;
+                                    dec_is_ecall ? ((priv_mode == PRIV_U) ? 32'd8 :
+                                                     (priv_mode == PRIV_S) ? 32'd9 : 32'd11) :
+                                                    32'd3;
 
     wire [31:0] decode_exception_mtval;
     assign decode_exception_mtval = dec_illegal ? id_inst : 32'b0;
@@ -189,9 +207,11 @@ module cpu_trap_manager(
 
     wire clint_trap_enter;
     wire [31:0] clint_trap_pc;
+    wire [1:0] clint_target_priv;
 
     assign trap_pending = clint_trap_enter && !exception_valid_r;
     assign trap_pc = clint_trap_pc;
+    assign target_priv = clint_target_priv;
 
     cpu_clint u_clint(
         .clk(clk),
@@ -200,23 +220,37 @@ module cpu_trap_manager(
         .exception_cause(exception_cause_r),
         .exception_pc(exception_pc_r),
         .exception_mtval(exception_mtval_r),
-        .mret_req(trap_return_valid),
+        .mret_req(trap_return_valid && (priv_mode == PRIV_M)),
+        .sret_req(trap_return_valid && (priv_mode == PRIV_S)),
         .trap_enter_valid(trap_enter_valid),
         .interrupt_pc(current_pc),
+        .priv_mode(priv_mode),
         .csr_mstatus(csr_mstatus),
         .csr_mie(csr_mie),
         .csr_mtvec(csr_mtvec),
         .csr_mepc(csr_mepc),
         .csr_mip(csr_mip),
+        .csr_medeleg(csr_medeleg),
+        .csr_mideleg(csr_mideleg),
+        .csr_stvec(csr_stvec),
+        .csr_sepc(csr_sepc),
+        .csr_sie(csr_sie),
+        .csr_sip(csr_sip),
         .ext_mtip(timer_irq),
         .trap_enter(clint_trap_enter),
         .trap_return(),
         .trap_pc(clint_trap_pc),
+        .target_priv(clint_target_priv),
         .hw_csr_wen(hw_csr_wen),
+        .hw_target_priv(hw_target_priv),
         .hw_mepc_wdata(hw_mepc_wdata),
         .hw_mcause_wdata(hw_mcause_wdata),
         .hw_mtval_wdata(hw_mtval_wdata),
-        .hw_mstatus_wdata(hw_mstatus_wdata)
+        .hw_mstatus_wdata(hw_mstatus_wdata),
+        .hw_sepc_wdata(hw_sepc_wdata),
+        .hw_scause_wdata(hw_scause_wdata),
+        .hw_stval_wdata(hw_stval_wdata),
+        .hw_sstatus_wdata(hw_sstatus_wdata)
     );
 
 endmodule

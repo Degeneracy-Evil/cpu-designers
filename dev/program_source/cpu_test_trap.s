@@ -6,7 +6,7 @@
 _start:
     la x10, trap_handler
     csrw mtvec, x10
-    li x10, 0x88
+    li x10, 0x1888
     csrw mstatus, x10
     li x10, 0x080
     csrw mie, x10
@@ -33,7 +33,7 @@ _start:
 
     addi x23, x0, 0
 
-    li x10, 0x88
+    li x10, 0x1888
     csrw mstatus, x10
 
     lui x10, 0x02000
@@ -76,7 +76,7 @@ trap_handler:
     csrrs x21, mscratch, x0
     addi x21, x21, 1
     csrw mscratch, x21
-    li x10, 0x80
+    li x10, 0x1880
     csrw mstatus, x10
     mret
 
@@ -85,6 +85,6 @@ timer_int_handler:
     lui x10, 0x02000
     sw x0, 0(x10)
     sw x0, 4(x10)
-    li x10, 0x88
+    li x10, 0x1888
     csrw mstatus, x10
     mret

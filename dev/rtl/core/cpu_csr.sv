@@ -7,13 +7,14 @@ module cpu_csr(
     input       [11:0] sw_csr_addr,
     input              sw_csr_wen,
     input       [31:0] sw_csr_wdata,
-    output reg  [31:0] sw_csr_rdata,
+    output     [31:0] sw_csr_rdata,
     output             csr_addr_valid,
     output             csr_access_ok,
 
     input       [1:0]  priv_mode,
 
     input              hw_csr_wen,
+    input              hw_trap_is_enter,
     input       [1:0]  hw_target_priv,
     input       [31:0] hw_mepc_wdata,
     input       [31:0] hw_mcause_wdata,
@@ -122,9 +123,25 @@ module cpu_csr(
     assign sd_bit = (r_mstatus[14:13] != 2'b00) || (r_mstatus[16:15] != 2'b00);
 
     wire [31:0] w_sstatus;
-    assign w_sstatus = {sd_bit, 1'b0, r_mstatus[30:23], r_mstatus[18], r_mstatus[19],
-                        r_mstatus[16:13], 3'b0, r_mstatus[8], 4'b0,
-                        r_mstatus[5], 3'b0, r_mstatus[1], 1'b0};
+    assign w_sstatus = {sd_bit,
+                        8'b0,
+                        3'b000,
+                        r_mstatus[19],
+                        r_mstatus[18],
+                        r_mstatus[17],
+                        r_mstatus[16:15],
+                        r_mstatus[14:13],
+                        2'b00,
+                        2'b00,
+                        r_mstatus[8],
+                        1'b0,
+                        1'b0,
+                        r_mstatus[5],
+                        1'b0,
+                        1'b0,
+                        1'b0,
+                        r_mstatus[1],
+                        1'b0};
 
     function is_s_csr;
         input [11:0] addr;
@@ -165,19 +182,37 @@ module cpu_csr(
                               (sw_csr_addr == ADDR_MHARTID)   ||
                               (sw_csr_addr == ADDR_MCONFIGPTR);
 
+    reg csr_access_ok_r;
     always @(*) begin
         case (priv_mode)
-            PRIV_U: csr_access_ok = 1'b0;
-            PRIV_S: csr_access_ok = is_s_csr(sw_csr_addr) && !is_read_only_csr;
-            PRIV_M: csr_access_ok = 1'b1;
-            default: csr_access_ok = 1'b0;
+            PRIV_U: csr_access_ok_r = 1'b0;
+            PRIV_S: csr_access_ok_r = is_s_csr(sw_csr_addr) && !is_read_only_csr;
+            PRIV_M: csr_access_ok_r = 1'b1;
+            default: csr_access_ok_r = 1'b0;
         endcase
     end
+    assign csr_access_ok = csr_access_ok_r;
 
     wire [31:0] mstatus_wmask;
-    assign mstatus_wmask = {1'b0, sw_csr_wdata[30:23], sw_csr_wdata[18], sw_csr_wdata[19],
-                            sw_csr_wdata[16:13], 1'b0, sw_csr_wdata[11:9], sw_csr_wdata[8],
-                            sw_csr_wdata[7], 3'b0, sw_csr_wdata[3], 1'b0, sw_csr_wdata[1], 1'b0};
+    assign mstatus_wmask = {1'b0,
+                            sw_csr_wdata[30:23],
+                            sw_csr_wdata[22],
+                            sw_csr_wdata[21],
+                            sw_csr_wdata[20],
+                            sw_csr_wdata[19],
+                            sw_csr_wdata[18],
+                            sw_csr_wdata[17],
+                            sw_csr_wdata[16:15],
+                            sw_csr_wdata[14:13],
+                            sw_csr_wdata[12:11],
+                            2'b00,
+                            sw_csr_wdata[8],
+                            sw_csr_wdata[7],
+                            3'b000,
+                            sw_csr_wdata[3],
+                            1'b0,
+                            sw_csr_wdata[1],
+                            1'b0};
 
     wire [31:0] mie_wmask;
     assign mie_wmask = {20'd0, sw_csr_wdata[11], 3'd0, sw_csr_wdata[7], 3'd0, sw_csr_wdata[3], 3'd0};
@@ -240,14 +275,18 @@ module cpu_csr(
 
             if (hw_csr_wen) begin
                 if (hw_target_priv == PRIV_M) begin
-                    r_mepc    <= hw_mepc_wdata;
-                    r_mcause  <= hw_mcause_wdata;
-                    r_mtval   <= hw_mtval_wdata;
+                    if (hw_trap_is_enter) begin
+                        r_mepc    <= hw_mepc_wdata;
+                        r_mcause  <= hw_mcause_wdata;
+                        r_mtval   <= hw_mtval_wdata;
+                    end
                     r_mstatus <= hw_mstatus_wdata;
                 end else begin
-                    r_sepc    <= hw_sepc_wdata;
-                    r_scause  <= hw_scause_wdata;
-                    r_stval   <= hw_stval_wdata;
+                    if (hw_trap_is_enter) begin
+                        r_sepc    <= hw_sepc_wdata;
+                        r_scause  <= hw_scause_wdata;
+                        r_stval   <= hw_stval_wdata;
+                    end
                     r_mstatus <= hw_sstatus_wdata;
                 end
             end else if (sw_csr_wen) begin
@@ -274,6 +313,7 @@ module cpu_csr(
                         r_mstatus[14]  <= sw_csr_wdata[14];
                         r_mstatus[15]  <= sw_csr_wdata[15];
                         r_mstatus[16]  <= sw_csr_wdata[16];
+                        r_mstatus[17]  <= sw_csr_wdata[17];
                         r_mstatus[18]  <= sw_csr_wdata[18];
                         r_mstatus[19]  <= sw_csr_wdata[19];
                     end
@@ -292,44 +332,46 @@ module cpu_csr(
         end
     end
 
+    reg [31:0] sw_csr_rdata_r;
     always @(*) begin
         case (sw_csr_addr)
-            ADDR_SSTATUS:     sw_csr_rdata = w_sstatus;
-            ADDR_SIE:         sw_csr_rdata = r_sie;
-            ADDR_STVEC:       sw_csr_rdata = r_stvec;
-            ADDR_SCOUNTEREN:  sw_csr_rdata = r_scounteren;
-            ADDR_SSCRATCH:    sw_csr_rdata = r_sscratch;
-            ADDR_SEPC:        sw_csr_rdata = r_sepc;
-            ADDR_SCAUSE:      sw_csr_rdata = r_scause;
-            ADDR_STVAL:       sw_csr_rdata = r_stval;
-            ADDR_SIP:         sw_csr_rdata = {31'd0, r_sip[1]};
-            ADDR_SATP:        sw_csr_rdata = r_satp;
+            ADDR_SSTATUS:     sw_csr_rdata_r = w_sstatus;
+            ADDR_SIE:         sw_csr_rdata_r = r_sie;
+            ADDR_STVEC:       sw_csr_rdata_r = r_stvec;
+            ADDR_SCOUNTEREN:  sw_csr_rdata_r = r_scounteren;
+            ADDR_SSCRATCH:    sw_csr_rdata_r = r_sscratch;
+            ADDR_SEPC:        sw_csr_rdata_r = r_sepc;
+            ADDR_SCAUSE:      sw_csr_rdata_r = r_scause;
+            ADDR_STVAL:       sw_csr_rdata_r = r_stval;
+            ADDR_SIP:         sw_csr_rdata_r = {31'd0, r_sip[1]};
+            ADDR_SATP:        sw_csr_rdata_r = r_satp;
 
-            ADDR_MSTATUS:     sw_csr_rdata = {sd_bit, r_mstatus[30:0]};
-            ADDR_MISA:        sw_csr_rdata = 32'h40141100;
-            ADDR_MEDELEG:     sw_csr_rdata = r_medeleg;
-            ADDR_MIDELEG:     sw_csr_rdata = r_mideleg;
-            ADDR_MIE:         sw_csr_rdata = r_mie;
-            ADDR_MTVEC:       sw_csr_rdata = r_mtvec;
-            ADDR_MCOUNTEREN:  sw_csr_rdata = r_mcounteren;
-            ADDR_MSTATUSH:    sw_csr_rdata = 32'b0;
-            ADDR_MSCRATCH:    sw_csr_rdata = r_mscratch;
-            ADDR_MEPC:        sw_csr_rdata = r_mepc;
-            ADDR_MCAUSE:      sw_csr_rdata = r_mcause;
-            ADDR_MTVAL:       sw_csr_rdata = r_mtval;
-            ADDR_MIP:         sw_csr_rdata = r_mip;
-            ADDR_MCYCLE:      sw_csr_rdata = r_mcycle[31:0];
-            ADDR_MINSTRET:    sw_csr_rdata = r_minstret[31:0];
-            ADDR_MCYCLEH:     sw_csr_rdata = r_mcycle[63:32];
-            ADDR_MINSTRETH:   sw_csr_rdata = r_minstret[63:32];
-            ADDR_MVENDORID:   sw_csr_rdata = 32'b0;
-            ADDR_MARCHID:     sw_csr_rdata = 32'b0;
-            ADDR_MIMPID:      sw_csr_rdata = 32'b0;
-            ADDR_MHARTID:     sw_csr_rdata = 32'b0;
-            ADDR_MCONFIGPTR:  sw_csr_rdata = 32'b0;
-            default:          sw_csr_rdata = 32'b0;
+            ADDR_MSTATUS:     sw_csr_rdata_r = {sd_bit, r_mstatus[30:0]};
+            ADDR_MISA:        sw_csr_rdata_r = 32'h40141100;
+            ADDR_MEDELEG:     sw_csr_rdata_r = r_medeleg;
+            ADDR_MIDELEG:     sw_csr_rdata_r = r_mideleg;
+            ADDR_MIE:         sw_csr_rdata_r = r_mie;
+            ADDR_MTVEC:       sw_csr_rdata_r = r_mtvec;
+            ADDR_MCOUNTEREN:  sw_csr_rdata_r = r_mcounteren;
+            ADDR_MSTATUSH:    sw_csr_rdata_r = 32'b0;
+            ADDR_MSCRATCH:    sw_csr_rdata_r = r_mscratch;
+            ADDR_MEPC:        sw_csr_rdata_r = r_mepc;
+            ADDR_MCAUSE:      sw_csr_rdata_r = r_mcause;
+            ADDR_MTVAL:       sw_csr_rdata_r = r_mtval;
+            ADDR_MIP:         sw_csr_rdata_r = r_mip;
+            ADDR_MCYCLE:      sw_csr_rdata_r = r_mcycle[31:0];
+            ADDR_MINSTRET:    sw_csr_rdata_r = r_minstret[31:0];
+            ADDR_MCYCLEH:     sw_csr_rdata_r = r_mcycle[63:32];
+            ADDR_MINSTRETH:   sw_csr_rdata_r = r_minstret[63:32];
+            ADDR_MVENDORID:   sw_csr_rdata_r = 32'b0;
+            ADDR_MARCHID:     sw_csr_rdata_r = 32'b0;
+            ADDR_MIMPID:      sw_csr_rdata_r = 32'b0;
+            ADDR_MHARTID:     sw_csr_rdata_r = 32'b0;
+            ADDR_MCONFIGPTR:  sw_csr_rdata_r = 32'b0;
+            default:          sw_csr_rdata_r = 32'b0;
         endcase
     end
+    assign sw_csr_rdata = sw_csr_rdata_r;
 
     assign csr_mstatus   = {sd_bit, r_mstatus[30:0]};
     assign csr_mie       = r_mie;

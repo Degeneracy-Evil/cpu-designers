@@ -11,6 +11,7 @@ module cpu_csr_interface(
     input  [1:0]   priv_mode,
 
     input         hw_csr_wen,
+    input         hw_trap_is_enter,
     input  [1:0]  hw_target_priv,
     input  [31:0] hw_mepc_wdata,
     input  [31:0] hw_mcause_wdata,
@@ -112,6 +113,7 @@ module cpu_csr_interface(
         .csr_access_ok(csr_access_ok),
         .priv_mode(priv_mode),
         .hw_csr_wen(hw_csr_wen),
+        .hw_trap_is_enter(hw_trap_is_enter),
         .hw_target_priv(hw_target_priv),
         .hw_mepc_wdata(hw_mepc_wdata),
         .hw_mcause_wdata(hw_mcause_wdata),

@@ -21,7 +21,8 @@ module cpu_mem(
 
         output             mem_misalign_load,
         output             mem_misalign_store,
-        output     [31:0]  mem_misalign_addr
+        output     [31:0]  mem_misalign_addr,
+        output             mem_data_access
     );
 
     localparam MEM_IDLE  = 2'd0;
@@ -238,5 +239,6 @@ module cpu_mem(
     assign mem_misalign_load  = is_load  && misalign_addr;
     assign mem_misalign_store = is_store && misalign_addr;
     assign mem_misalign_addr  = alu_result;
+    assign mem_data_access    = is_load || is_store;
 
 endmodule

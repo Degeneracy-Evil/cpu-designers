@@ -377,14 +377,16 @@ module cpu_decode(
 
   assign dec_csr_addr_valid = is_s_csr(csr_addr) || is_m_csr(csr_addr);
 
+  reg dec_csr_access_ok_r;
   always @(*) begin
       case (priv_mode)
-          PRIV_U: dec_csr_access_ok = 1'b0;
-          PRIV_S: dec_csr_access_ok = is_s_csr(csr_addr);
-          PRIV_M: dec_csr_access_ok = 1'b1;
-          default: dec_csr_access_ok = 1'b0;
+          PRIV_U: dec_csr_access_ok_r = 1'b0;
+          PRIV_S: dec_csr_access_ok_r = is_s_csr(csr_addr);
+          PRIV_M: dec_csr_access_ok_r = 1'b1;
+          default: dec_csr_access_ok_r = 1'b0;
       endcase
   end
+  assign dec_csr_access_ok = dec_csr_access_ok_r;
 
   wire csr_addr_invalid = is_csr && !dec_csr_addr_valid;
   wire csr_read_only = (csr_addr[11:10] == 2'b11);
@@ -403,10 +405,12 @@ module cpu_decode(
   wire sret_tsr_violation = is_sret && tsr_bit && (priv_mode == PRIV_S);
   wire tvm_bit = csr_mstatus[20];
   wire sfence_tvm_violation = is_sfence_vma && tvm_bit && (priv_mode == PRIV_S);
+  wire satp_tvm_violation = is_csr && (csr_addr == CSR_SATP) && csr_is_write && tvm_bit && (priv_mode == PRIV_S);
 
   assign illegal_inst = id_valid && (!valid_inst || csr_addr_invalid || write_ro_csr ||
                                       sret_priv_violation || wfi_priv_violation ||
-                                      sret_tsr_violation || sfence_tvm_violation);
+                                      sret_tsr_violation || sfence_tvm_violation ||
+                                      satp_tvm_violation);
   assign rs1_addr = rs1;
   assign rs2_addr = rs2;
   assign dec_is_branch = id_valid && valid_inst && is_branch;

@@ -103,6 +103,39 @@ module core_top(
     wire [31:0] mmu_inst_paddr;
     wire [31:0] mmu_data_paddr;
 
+    wire        mmu_inst_miss;
+    wire        mmu_data_miss;
+    wire        mem_data_access;
+    wire        mmu_inst_page_fault;
+    wire        mmu_data_page_fault;
+    wire [3:0]  mmu_inst_pf_cause;
+    wire [3:0]  mmu_data_pf_cause;
+    wire [31:0] mmu_inst_pf_vaddr;
+    wire [31:0] mmu_data_pf_vaddr;
+
+    wire        ptw_i_bus_req;
+    wire [31:0] ptw_i_bus_addr;
+    wire        ptw_i_bus_we;
+    wire [31:0] ptw_i_bus_wdata;
+    wire [31:0] ptw_i_bus_rdata;
+    wire        ptw_i_bus_done;
+    wire        ptw_i_bus_error;
+
+    wire        ptw_d_bus_req;
+    wire [31:0] ptw_d_bus_addr;
+    wire        ptw_d_bus_we;
+    wire [31:0] ptw_d_bus_wdata;
+    wire [31:0] ptw_d_bus_rdata;
+    wire        ptw_d_bus_done;
+    wire        ptw_d_bus_error;
+
+    wire        mmu_inst_walk_done;
+    wire        mmu_inst_walk_fault;
+    wire        mmu_data_walk_done;
+    wire        mmu_data_walk_fault;
+
+    wire        sfence_vma_pulse;
+
     wire [4:0] rs1_addr;
     wire [4:0] rs2_addr;
     wire [31:0] rs1_value;
@@ -154,6 +187,8 @@ module core_top(
 
     wire inst_access_fault_pending;
     wire data_access_fault_pending;
+    wire inst_page_fault_pending;
+    wire data_page_fault_pending;
 
     wire cycle_en;
     assign cycle_en = ~init_sig;
@@ -261,6 +296,11 @@ module core_top(
         .exception_at_decode(exception_at_decode),
         .inst_access_fault_pending(inst_access_fault_pending),
         .data_access_fault_pending(data_access_fault_pending),
+        .inst_page_fault_pending(inst_page_fault_pending),
+        .data_page_fault_pending(data_page_fault_pending),
+        .mmu_inst_miss(mmu_inst_miss),
+        .mmu_data_miss(mmu_data_miss),
+        .mem_data_access(mem_en),
         .init_sig(init_sig),
         .if_valid(if_valid),
         .id_valid(id_valid),
@@ -493,7 +533,8 @@ module core_top(
         .mem_inst(mem_inst),
         .mem_misalign_load(mem_misalign_load),
         .mem_misalign_store(mem_misalign_store),
-        .mem_misalign_addr(mem_misalign_addr)
+        .mem_misalign_addr(mem_misalign_addr),
+        .mem_data_access(mem_data_access)
     );
 
     cpu_wb u_wb(
@@ -559,6 +600,13 @@ module core_top(
         .store_access_fault(bridge_dcache_error && bridge_dcache_error_is_store),
         .store_access_fault_addr(bridge_bus_error_addr),
         .mem_access_fault_pc(exe_pc),
+        .inst_page_fault(mmu_inst_page_fault),
+        .inst_page_fault_vaddr(mmu_inst_pf_vaddr),
+        .load_page_fault(mmu_data_page_fault && mem_en && !mem_hwrite),
+        .load_page_fault_vaddr(mmu_data_pf_vaddr),
+        .store_page_fault(mmu_data_page_fault && mem_en && mem_hwrite),
+        .store_page_fault_vaddr(mmu_data_pf_vaddr),
+        .mem_page_fault_pc(exe_pc),
         .cycle_en         (cycle_en),
         .inst_retire      (inst_retire),
         .exception_at_decode(exception_at_decode),
@@ -570,6 +618,8 @@ module core_top(
         .target_priv      (target_priv),
         .inst_access_fault_pending(inst_access_fault_pending),
         .data_access_fault_pending(data_access_fault_pending),
+        .inst_page_fault_pending(inst_page_fault_pending),
+        .data_page_fault_pending(data_page_fault_pending),
         .csr_mstatus      (csr_mstatus),
         .csr_mie          (csr_mie),
         .csr_mtvec        (csr_mtvec),
@@ -592,13 +642,60 @@ module core_top(
     );
 
     MMU u_mmu_inst(
+        .clk(clk),
+        .reset(reset),
         .vaddr(fetch_vaddr),
-        .paddr(mmu_inst_paddr)
+        .access_type(2'b00),
+        .priv_mode(priv_mode),
+        .satp(csr_satp),
+        .mstatus_sum(csr_mstatus[18]),
+        .mstatus_mxr(csr_mstatus[19]),
+        .translate_en(1'b1),             // inst MMU always translates
+        .paddr(mmu_inst_paddr),
+        .miss(mmu_inst_miss),
+        .page_fault(mmu_inst_page_fault),
+        .page_fault_cause(mmu_inst_pf_cause),
+        .page_fault_vaddr(mmu_inst_pf_vaddr),
+        .ptw_done(mmu_inst_walk_done),
+        .ptw_fault(mmu_inst_walk_fault),
+        .sfence_vma(sfence_vma_pulse),
+        .ptw_bus_req(ptw_i_bus_req),
+        .ptw_bus_addr(ptw_i_bus_addr),
+        .ptw_bus_we(ptw_i_bus_we),
+        .ptw_bus_wdata(ptw_i_bus_wdata),
+        .ptw_bus_rdata(ptw_i_bus_rdata),
+        .ptw_bus_done(ptw_i_bus_done),
+        .ptw_bus_error(ptw_i_bus_error)
     );
 
+    wire [1:0] data_access_type;
+    assign data_access_type = mem_hwrite ? 2'b10 : 2'b01;
+
     MMU u_mmu_data(
+        .clk(clk),
+        .reset(reset),
         .vaddr(mem_dataAddr_32),
-        .paddr(mmu_data_paddr)
+        .access_type(data_access_type),
+        .priv_mode(priv_mode),
+        .satp(csr_satp),
+        .mstatus_sum(csr_mstatus[18]),
+        .mstatus_mxr(csr_mstatus[19]),
+        .translate_en(mem_en),   // data MMU only translates when address is valid (registered)
+        .paddr(mmu_data_paddr),
+        .miss(mmu_data_miss),
+        .page_fault(mmu_data_page_fault),
+        .page_fault_cause(mmu_data_pf_cause),
+        .page_fault_vaddr(mmu_data_pf_vaddr),
+        .ptw_done(mmu_data_walk_done),
+        .ptw_fault(mmu_data_walk_fault),
+        .sfence_vma(sfence_vma_pulse),
+        .ptw_bus_req(ptw_d_bus_req),
+        .ptw_bus_addr(ptw_d_bus_addr),
+        .ptw_bus_we(ptw_d_bus_we),
+        .ptw_bus_wdata(ptw_d_bus_wdata),
+        .ptw_bus_rdata(ptw_d_bus_rdata),
+        .ptw_bus_done(ptw_d_bus_done),
+        .ptw_bus_error(ptw_d_bus_error)
     );
 
     cpu_bus_bridge u_bus_bridge(
@@ -627,6 +724,20 @@ module core_top(
         .dcache_wb_addr     (dcache_wb_addr),
         .dcache_wb_data     (dcache_wb_data),
         .dcache_wb_valid    (dcache_wb_valid),
+        .ptw_i_req          (ptw_i_bus_req),
+        .ptw_i_addr         (ptw_i_bus_addr),
+        .ptw_i_we           (ptw_i_bus_we),
+        .ptw_i_wdata        (ptw_i_bus_wdata),
+        .ptw_i_rdata        (ptw_i_bus_rdata),
+        .ptw_i_done         (ptw_i_bus_done),
+        .ptw_i_error        (ptw_i_bus_error),
+        .ptw_d_req          (ptw_d_bus_req),
+        .ptw_d_addr         (ptw_d_bus_addr),
+        .ptw_d_we           (ptw_d_bus_we),
+        .ptw_d_wdata        (ptw_d_bus_wdata),
+        .ptw_d_rdata        (ptw_d_bus_rdata),
+        .ptw_d_done         (ptw_d_bus_done),
+        .ptw_d_error        (ptw_d_bus_error),
         .HADDR            (HADDR),
         .HTRANS           (HTRANS),
         .HWRITE           (HWRITE),
@@ -645,6 +756,8 @@ module core_top(
     );
 
     assign display_state = {28'b0, fsm_state};
+
+    assign sfence_vma_pulse = id_valid && id_done && dec_is_sfence_vma;
 
     assign id_pc   = id_pc_wire;
     assign id_inst = id_inst_wire;

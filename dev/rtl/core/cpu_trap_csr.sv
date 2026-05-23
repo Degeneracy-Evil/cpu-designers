@@ -45,6 +45,14 @@ module cpu_trap_csr(
     input  [31:0] store_access_fault_addr,
     input  [31:0] mem_access_fault_pc,
 
+    input         inst_page_fault,
+    input  [31:0] inst_page_fault_vaddr,
+    input         load_page_fault,
+    input  [31:0] load_page_fault_vaddr,
+    input         store_page_fault,
+    input  [31:0] store_page_fault_vaddr,
+    input  [31:0] mem_page_fault_pc,
+
     input         cycle_en,
     input         inst_retire,
 
@@ -58,6 +66,9 @@ module cpu_trap_csr(
 
     output        inst_access_fault_pending,
     output        data_access_fault_pending,
+
+    output        inst_page_fault_pending,
+    output        data_page_fault_pending,
 
     output [31:0] csr_mstatus,
     output [31:0] csr_mie,
@@ -82,6 +93,7 @@ module cpu_trap_csr(
 );
 
     wire        hw_csr_wen;
+    wire        hw_trap_is_enter;
     wire [1:0]  hw_target_priv;
     wire [31:0] hw_mepc_wdata;
     wire [31:0] hw_mcause_wdata;
@@ -134,11 +146,19 @@ module cpu_trap_csr(
         .store_access_fault(store_access_fault),
         .store_access_fault_addr(store_access_fault_addr),
         .mem_access_fault_pc(mem_access_fault_pc),
+        .inst_page_fault(inst_page_fault),
+        .inst_page_fault_vaddr(inst_page_fault_vaddr),
+        .load_page_fault(load_page_fault),
+        .load_page_fault_vaddr(load_page_fault_vaddr),
+        .store_page_fault(store_page_fault),
+        .store_page_fault_vaddr(store_page_fault_vaddr),
+        .mem_page_fault_pc(mem_page_fault_pc),
         .exception_at_decode(exception_at_decode),
         .trap_pending     (trap_pending),
         .trap_pc          (trap_pc),
         .target_priv      (target_priv),
         .hw_csr_wen       (hw_csr_wen),
+        .hw_trap_is_enter (hw_trap_is_enter),
         .hw_target_priv   (hw_target_priv),
         .hw_mepc_wdata    (hw_mepc_wdata),
         .hw_mcause_wdata  (hw_mcause_wdata),
@@ -149,7 +169,9 @@ module cpu_trap_csr(
         .hw_stval_wdata   (hw_stval_wdata),
         .hw_sstatus_wdata (hw_sstatus_wdata),
         .inst_access_fault_pending(inst_access_fault_pending),
-        .data_access_fault_pending(data_access_fault_pending)
+        .data_access_fault_pending(data_access_fault_pending),
+        .inst_page_fault_pending(inst_page_fault_pending),
+        .data_page_fault_pending(data_page_fault_pending)
     );
 
     cpu_csr_interface u_csr_if(
@@ -160,6 +182,7 @@ module cpu_trap_csr(
         .csr_valid        (csr_valid),
         .priv_mode        (priv_mode),
         .hw_csr_wen       (hw_csr_wen),
+        .hw_trap_is_enter (hw_trap_is_enter),
         .hw_target_priv   (hw_target_priv),
         .hw_mepc_wdata    (hw_mepc_wdata),
         .hw_mcause_wdata  (hw_mcause_wdata),

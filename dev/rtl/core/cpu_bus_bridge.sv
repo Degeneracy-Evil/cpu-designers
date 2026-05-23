@@ -34,6 +34,22 @@ module cpu_bus_bridge(
     input  [255:0] dcache_wb_data,
     output        dcache_wb_valid,
 
+    input         ptw_i_req,
+    input  [31:0] ptw_i_addr,
+    input         ptw_i_we,
+    input  [31:0] ptw_i_wdata,
+    output [31:0] ptw_i_rdata,
+    output        ptw_i_done,
+    output        ptw_i_error,
+
+    input         ptw_d_req,
+    input  [31:0] ptw_d_addr,
+    input         ptw_d_we,
+    input  [31:0] ptw_d_wdata,
+    output [31:0] ptw_d_rdata,
+    output        ptw_d_done,
+    output        ptw_d_error,
+
     output [31:0] HADDR,
     output [1:0]  HTRANS,
     output        HWRITE,
@@ -61,6 +77,8 @@ module cpu_bus_bridge(
     localparam S_DREFILL_DATA  = 4'd6;
     localparam S_WB_ADDR       = 4'd7;
     localparam S_WB_DATA       = 4'd8;
+    localparam S_PTW_ADDR      = 4'd9;
+    localparam S_PTW_DATA      = 4'd10;
 
     reg [3:0]  state;
 
@@ -95,6 +113,11 @@ module cpu_bus_bridge(
     reg dcache_error_is_store_r;
     reg [31:0] bus_error_addr_r;
 
+    reg [31:0] ptw_rdata_r;
+    reg        ptw_done_r;
+    reg        ptw_error_r;
+    reg        ptw_is_inst_r;
+
     assign ahb_inst_data     = ahb_inst_data_r;
     assign ahb_inst_valid    = ahb_inst_valid_r;
     assign ahb_data_rdata    = ahb_data_rdata_r;
@@ -109,6 +132,13 @@ module cpu_bus_bridge(
     assign dcache_error        = dcache_error_r;
     assign dcache_error_is_store = dcache_error_is_store_r;
     assign bus_error_addr      = bus_error_addr_r;
+
+    assign ptw_i_rdata = ptw_rdata_r;
+    assign ptw_i_done  = ptw_done_r && ptw_is_inst_r;
+    assign ptw_i_error = ptw_error_r && ptw_is_inst_r;
+    assign ptw_d_rdata = ptw_rdata_r;
+    assign ptw_d_done  = ptw_done_r && !ptw_is_inst_r;
+    assign ptw_d_error = ptw_error_r && !ptw_is_inst_r;
 
     wire beat_done = HREADY && htrans_r[1];
     wire last_beat = (beat_cnt == 3'd7);
@@ -141,6 +171,10 @@ module cpu_bus_bridge(
             dcache_error_r        <= 1'b0;
             dcache_error_is_store_r <= 1'b0;
             bus_error_addr_r      <= 32'b0;
+            ptw_rdata_r           <= 32'b0;
+            ptw_done_r            <= 1'b0;
+            ptw_error_r           <= 1'b0;
+            ptw_is_inst_r         <= 1'b0;
         end else begin
             ahb_inst_valid_r      <= 1'b0;
             ahb_data_valid_r      <= 1'b0;
@@ -150,6 +184,8 @@ module cpu_bus_bridge(
             icache_error_r        <= 1'b0;
             dcache_error_r        <= 1'b0;
             dcache_error_is_store_r <= 1'b0;
+            ptw_done_r            <= 1'b0;
+            ptw_error_r           <= 1'b0;
 
             case (state)
                 S_IDLE: begin
@@ -176,6 +212,28 @@ module cpu_bus_bridge(
                         hmastlock_r      <= 1'b0;
                         mmio_latch_wdata <= dcache_mmio_wdata;
                         mmio_is_ireq     <= 1'b0;
+                    end else if (ptw_i_req && !ptw_done_r) begin
+                        state            <= S_PTW_ADDR;
+                        haddr_r          <= ptw_i_addr;
+                        htrans_r         <= `AHB_TRANS_NONSEQ;
+                        hwrite_r         <= ptw_i_we;
+                        hsize_r          <= `AHB_SIZE_WORD;
+                        hburst_r         <= `AHB_BURST_SINGLE;
+                        hprot_r          <= 4'b0011;
+                        hmastlock_r      <= 1'b0;
+                        mmio_latch_wdata <= ptw_i_wdata;
+                        ptw_is_inst_r    <= 1'b1;
+                    end else if (ptw_d_req && !ptw_done_r) begin
+                        state            <= S_PTW_ADDR;
+                        haddr_r          <= ptw_d_addr;
+                        htrans_r         <= `AHB_TRANS_NONSEQ;
+                        hwrite_r         <= ptw_d_we;
+                        hsize_r          <= `AHB_SIZE_WORD;
+                        hburst_r         <= `AHB_BURST_SINGLE;
+                        hprot_r          <= 4'b0011;
+                        hmastlock_r      <= 1'b0;
+                        mmio_latch_wdata <= ptw_d_wdata;
+                        ptw_is_inst_r    <= 1'b0;
                     end else if (dcache_wb_req && !dcache_wb_valid_r) begin
                         state            <= S_WB_ADDR;
                         haddr_r          <= dcache_wb_addr;
@@ -354,6 +412,31 @@ module cpu_bus_bridge(
                                 haddr_r     <= burst_base_addr + ({29'b0, beat_cnt + 3'd1, 2'b0}) + 32'd4;
                                 htrans_r    <= `AHB_TRANS_SEQ;
                             end
+                        end
+                    end
+                end
+
+                S_PTW_ADDR: begin
+                    if (HREADY) begin
+                        state    <= S_PTW_DATA;
+                        hwdata_r <= mmio_latch_wdata;
+                    end
+                end
+
+                S_PTW_DATA: begin
+                    if (HREADY) begin
+                        if (HRESP == `AHB_RESP_ERROR) begin
+                            state       <= S_IDLE;
+                            htrans_r    <= `AHB_TRANS_IDLE;
+                            ptw_rdata_r <= 32'b0;
+                            ptw_done_r  <= 1'b0;
+                            ptw_error_r <= 1'b1;
+                        end else begin
+                            state       <= S_IDLE;
+                            htrans_r    <= `AHB_TRANS_IDLE;
+                            ptw_rdata_r <= HRDATA;
+                            ptw_done_r  <= 1'b1;
+                            ptw_error_r <= 1'b0;
                         end
                     end
                 end

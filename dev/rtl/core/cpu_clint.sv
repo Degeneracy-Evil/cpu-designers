@@ -38,6 +38,7 @@ module cpu_clint(
     output      [1:0]  target_priv,
 
     output             hw_csr_wen,
+    output             hw_trap_is_enter,
     output      [1:0]  hw_target_priv,
     output      [31:0] hw_mepc_wdata,
     output      [31:0] hw_mcause_wdata,
@@ -124,6 +125,7 @@ module cpu_clint(
                      {csr_mtvec[31:2], 2'b00};
 
     assign hw_csr_wen = (trap_enter && trap_enter_valid) || trap_return;
+    assign hw_trap_is_enter = trap_enter && trap_enter_valid;
     assign hw_target_priv = trap_return ? priv_mode : target_priv;
 
     assign hw_mepc_wdata = exception_valid ? exception_pc : interrupt_pc;
@@ -141,7 +143,7 @@ module cpu_clint(
     assign hw_stval_wdata = exception_valid ? exception_mtval : 32'b0;
 
     assign hw_sstatus_wdata = trap_enter ?
-        {csr_mstatus[31:13], csr_mstatus[12:11], csr_mstatus[10:9], priv_mode[0], sie_bit, csr_mstatus[6:4], 1'b0, csr_mstatus[2:0]} :
-        {csr_mstatus[31:13], csr_mstatus[12:11], csr_mstatus[10:9], 1'b0, 1'b1, csr_mstatus[6:4], spie_bit, csr_mstatus[2:0]};
+        {csr_mstatus[31:9], priv_mode[0], csr_mstatus[7:6], sie_bit, csr_mstatus[4:2], 1'b0, csr_mstatus[0]} :
+        {csr_mstatus[31:9], 1'b0, csr_mstatus[7:6], 1'b1, csr_mstatus[4:2], spie_bit, csr_mstatus[0]};
 
 endmodule

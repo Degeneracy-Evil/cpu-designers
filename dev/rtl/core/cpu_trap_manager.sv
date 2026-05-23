@@ -51,12 +51,21 @@ module cpu_trap_manager(
     input  [31:0] store_access_fault_addr,
     input  [31:0] mem_access_fault_pc,
 
+    input         inst_page_fault,
+    input  [31:0] inst_page_fault_vaddr,
+    input         load_page_fault,
+    input  [31:0] load_page_fault_vaddr,
+    input         store_page_fault,
+    input  [31:0] store_page_fault_vaddr,
+    input  [31:0] mem_page_fault_pc,
+
     output        exception_at_decode,
     output        trap_pending,
     output [31:0] trap_pc,
     output [1:0]  target_priv,
 
     output        hw_csr_wen,
+    output        hw_trap_is_enter,
     output [1:0]  hw_target_priv,
     output [31:0] hw_mepc_wdata,
     output [31:0] hw_mcause_wdata,
@@ -68,13 +77,16 @@ module cpu_trap_manager(
     output [31:0] hw_sstatus_wdata,
 
     output        inst_access_fault_pending,
-    output        data_access_fault_pending
+    output        data_access_fault_pending,
+
+    output        inst_page_fault_pending,
+    output        data_page_fault_pending
 );
     localparam PRIV_U = 2'b00;
     localparam PRIV_S = 2'b01;
     localparam PRIV_M = 2'b11;
 
-    assign exception_at_decode = (id_valid && id_done) && (dec_illegal || dec_is_ecall || dec_is_ebreak) && !inst_access_fault_r;
+    assign exception_at_decode = (id_valid && id_done) && (dec_illegal || dec_is_ecall || dec_is_ebreak) && !inst_access_fault_r && !inst_page_fault_r;
 
     wire [31:0] decode_exception_cause;
     assign decode_exception_cause = dec_illegal  ? 32'd2 :
@@ -93,6 +105,14 @@ module cpu_trap_manager(
     reg [31:0] store_access_fault_addr_r;
     reg [31:0] mem_access_fault_pc_r;
 
+    reg inst_page_fault_r;
+    reg [31:0] inst_page_fault_vaddr_r;
+    reg load_page_fault_r;
+    reg [31:0] load_page_fault_vaddr_r;
+    reg store_page_fault_r;
+    reg [31:0] store_page_fault_vaddr_r;
+    reg [31:0] mem_page_fault_pc_r;
+
     always @(posedge clk or posedge reset) begin
         if (reset) begin
             inst_access_fault_r      <= 1'b0;
@@ -102,6 +122,13 @@ module cpu_trap_manager(
             store_access_fault_r     <= 1'b0;
             store_access_fault_addr_r<= 32'b0;
             mem_access_fault_pc_r    <= 32'b0;
+            inst_page_fault_r        <= 1'b0;
+            inst_page_fault_vaddr_r  <= 32'b0;
+            load_page_fault_r        <= 1'b0;
+            load_page_fault_vaddr_r  <= 32'b0;
+            store_page_fault_r       <= 1'b0;
+            store_page_fault_vaddr_r <= 32'b0;
+            mem_page_fault_pc_r      <= 32'b0;
         end else begin
             if (inst_access_fault && !inst_access_fault_r) begin
                 inst_access_fault_r      <= 1'b1;
@@ -117,16 +144,35 @@ module cpu_trap_manager(
                 store_access_fault_addr_r<= store_access_fault_addr;
                 mem_access_fault_pc_r    <= mem_access_fault_pc;
             end
+            if (inst_page_fault && !inst_page_fault_r) begin
+                inst_page_fault_r        <= 1'b1;
+                inst_page_fault_vaddr_r  <= inst_page_fault_vaddr;
+            end
+            if (load_page_fault && !load_page_fault_r && !store_page_fault_r) begin
+                load_page_fault_r        <= 1'b1;
+                load_page_fault_vaddr_r  <= load_page_fault_vaddr;
+                mem_page_fault_pc_r      <= mem_page_fault_pc;
+            end
+            if (store_page_fault && !store_page_fault_r && !load_page_fault_r) begin
+                store_page_fault_r       <= 1'b1;
+                store_page_fault_vaddr_r <= store_page_fault_vaddr;
+                mem_page_fault_pc_r      <= mem_page_fault_pc;
+            end
             if (trap_enter_valid || trap_return_valid) begin
                 inst_access_fault_r  <= 1'b0;
                 load_access_fault_r  <= 1'b0;
                 store_access_fault_r <= 1'b0;
+                inst_page_fault_r    <= 1'b0;
+                load_page_fault_r    <= 1'b0;
+                store_page_fault_r   <= 1'b0;
             end
         end
     end
 
     assign inst_access_fault_pending = inst_access_fault_r;
     assign data_access_fault_pending = load_access_fault_r || store_access_fault_r;
+    assign inst_page_fault_pending  = inst_page_fault_r;
+    assign data_page_fault_pending  = load_page_fault_r || store_page_fault_r;
 
     reg exception_valid_r;
     reg [31:0] exception_cause_r;
@@ -163,6 +209,11 @@ module cpu_trap_manager(
     wire [31:0] access_fault_pc;
     wire [31:0] access_fault_mtval;
 
+    wire pf_valid;
+    wire [31:0] pf_cause;
+    wire [31:0] pf_pc;
+    wire [31:0] pf_mtval;
+
     assign access_fault_valid = inst_access_fault_r || load_access_fault_r || store_access_fault_r;
     assign access_fault_cause = inst_access_fault_r ? 32'd1 :
                                 load_access_fault_r ? 32'd5 :
@@ -173,16 +224,29 @@ module cpu_trap_manager(
                                 load_access_fault_r ? load_access_fault_addr_r :
                                                        store_access_fault_addr_r;
 
-    assign exception_valid = access_fault_valid || exception_at_decode || misalign_exception_valid || exe_exception_valid;
+    assign pf_valid = inst_page_fault_r || load_page_fault_r || store_page_fault_r;
+    assign pf_cause = inst_page_fault_r ? 32'd12 :
+                      load_page_fault_r ? 32'd13 :
+                                           32'd15;
+    assign pf_pc    = inst_page_fault_r ? inst_page_fault_vaddr_r :
+                      mem_page_fault_pc_r;
+    assign pf_mtval = inst_page_fault_r ? inst_page_fault_vaddr_r :
+                      load_page_fault_r ? load_page_fault_vaddr_r :
+                                           store_page_fault_vaddr_r;
+
+    assign exception_valid = access_fault_valid || pf_valid || exception_at_decode || misalign_exception_valid || exe_exception_valid;
     assign exception_cause = access_fault_valid   ? access_fault_cause :
+                             pf_valid             ? pf_cause :
                              exception_at_decode  ? decode_exception_cause :
                              misalign_exception_valid ? misalign_exception_cause :
                              exe_exception_cause;
     assign exception_pc   = access_fault_valid   ? access_fault_pc :
+                            pf_valid             ? pf_pc :
                             exception_at_decode  ? id_pc :
                             misalign_exception_valid ? misalign_exception_pc :
                             exe_exception_pc;
     assign exception_mtval= access_fault_valid   ? access_fault_mtval :
+                            pf_valid             ? pf_mtval :
                             exception_at_decode  ? decode_exception_mtval :
                             misalign_exception_valid ? misalign_exception_mtval :
                             exe_exception_mtval;
@@ -242,6 +306,7 @@ module cpu_trap_manager(
         .trap_pc(clint_trap_pc),
         .target_priv(clint_target_priv),
         .hw_csr_wen(hw_csr_wen),
+        .hw_trap_is_enter(hw_trap_is_enter),
         .hw_target_priv(hw_target_priv),
         .hw_mepc_wdata(hw_mepc_wdata),
         .hw_mcause_wdata(hw_mcause_wdata),

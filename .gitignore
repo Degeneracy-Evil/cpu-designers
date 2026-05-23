@@ -37,3 +37,10 @@ netlist/
 vivado*.log
 vivado*.jou
 .Xil/
+xsim.dir/
+
+#omo
+.omo/
+
+# xv6
+Reference/xv6/

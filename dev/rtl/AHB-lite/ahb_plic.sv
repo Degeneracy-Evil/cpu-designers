@@ -21,15 +21,39 @@ module ahb_plic #(
     output wire               o_eip
 );
 
-    wire access_active = HSEL && HTRANS[1];
-    wire rd_valid = access_active && !HWRITE;
-    wire wr_valid = access_active && HWRITE && HREADY;
+    // AHB-Lite: latch address & control during address phase (HTRANS[1]=1 && HREADY),
+    // then use latched values during data phase. The CPU bus bridge sets HTRANS=IDLE
+    // in the data phase, so gating on HTRANS[1] would cause reads to return 0 and
+    // writes to be silently dropped.
+    wire ahb_transfer = HSEL && HTRANS[1] && HREADY;
 
-    wire addr_is_prio   = (HADDR[23:6] == 18'd0);
-    wire addr_is_pend   = (HADDR[23:14] == 10'd0) && (HADDR[13:2] == 12'd256);
-    wire addr_is_enable = (HADDR[23:14] == 10'd0) && (HADDR[13:2] == 12'd512);
-    wire addr_is_thresh = (HADDR[23:4] == {20'h20000});
-    wire addr_is_claim  = (HADDR[23:4] == {20'h20001});
+    reg [31:0] latch_addr;
+    reg        latch_write;
+    reg        latch_valid;   // High during data phase (cycle after address phase)
+
+    always @(posedge HCLK or negedge HRESETn) begin
+        if (!HRESETn) begin
+            latch_addr   <= 32'b0;
+            latch_write  <= 1'b0;
+            latch_valid  <= 1'b0;
+        end else begin
+            latch_valid <= ahb_transfer;
+            if (ahb_transfer) begin
+                latch_addr   <= HADDR;
+                latch_write  <= HWRITE;
+            end
+        end
+    end
+
+    wire rd_valid = latch_valid && !latch_write;
+    wire wr_valid = latch_valid && latch_write;
+
+    // Address decode uses LATCHED address (valid during data phase)
+    wire addr_is_prio   = (latch_addr[23:6] == 18'd0);
+    wire addr_is_pend   = (latch_addr[23:14] == 10'd0) && (latch_addr[13:2] == 12'd256);
+    wire addr_is_enable = (latch_addr[23:14] == 10'd0) && (latch_addr[13:2] == 12'd512);
+    wire addr_is_thresh = (latch_addr[23:4] == {20'h20000});
+    wire addr_is_claim  = (latch_addr[23:4] == {20'h20001});
 
     reg  [31:0] r_prio [0:NUM_SRC-1];
     reg  [31:0] r_pending;
@@ -97,9 +121,9 @@ module ahb_plic #(
                     r_gw_en[ii] <= 1'b1;
             end
 
-            // 2. 处理 AHB 写操作
-            if (wr_valid && addr_is_prio && (HADDR[7:2] < NUM_SRC))
-                r_prio[HADDR[7:2]] <= HWDATA;
+            // 2. 处理 AHB 写操作 (使用 latched address)
+            if (wr_valid && addr_is_prio && (latch_addr[7:2] < NUM_SRC))
+                r_prio[latch_addr[7:2]] <= HWDATA;
 
             if (wr_valid && addr_is_enable)
                 r_enable <= HWDATA;
@@ -115,8 +139,8 @@ module ahb_plic #(
             // 3. 处理 AHB 读 Claim 时的清除逻辑
             if (rd_valid && addr_is_claim && r_claim_valid) begin
                 r_pending[r_claim_id] <= 1'b0;
-                r_gw_en[r_claim_id] <= 1'b0;
-                r_claim_valid <= 1'b0;
+                r_gw_en[r_claim_id]   <= 1'b0;
+                r_claim_valid         <= 1'b0;
             end
 
             // 4. 处理 Claim 寄存器的赋值逻辑（原第二个 always 块的内容）
@@ -133,7 +157,7 @@ module ahb_plic #(
         HRDATA = 32'd0;
         if (rd_valid) begin
             if (addr_is_prio) begin
-                HRDATA = (HADDR[7:2] < NUM_SRC) ? r_prio[HADDR[7:2]] : 32'd0;
+                HRDATA = (latch_addr[7:2] < NUM_SRC) ? r_prio[latch_addr[7:2]] : 32'd0;
             end else if (addr_is_pend) begin
                 HRDATA = r_pending;
             end else if (addr_is_enable) begin

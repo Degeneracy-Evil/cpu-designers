@@ -40,6 +40,7 @@ module ahb_lite_to_apb #(
     localparam BR_ACCESS  = 2'b10;
 
     reg [1:0] br_state;
+    reg       error_phase;
 
     reg [DATA_WIDTH/8-1:0] latch_strb;
 
@@ -62,6 +63,7 @@ module ahb_lite_to_apb #(
     always @(posedge HCLK or negedge HRESETn) begin
         if (!HRESETn) begin
             br_state    <= BR_IDLE;
+            error_phase <= 1'b0;
             PADDR       <= {ADDR_WIDTH{1'b0}};
             PSEL        <= 1'b0;
             PENABLE     <= 1'b0;
@@ -72,78 +74,93 @@ module ahb_lite_to_apb #(
             HRESP       <= 1'b0;
             HRDATA      <= {DATA_WIDTH{1'b0}};
         end else begin
-            case (br_state)
-                BR_IDLE: begin
-                    if (ahb_transfer) begin
-                        br_state    <= BR_SETUP;
-                        PADDR       <= HADDR;
-                        PSEL        <= 1'b1;
-                        PENABLE     <= 1'b0;
-                        PWRITE      <= HWRITE;
-                        PSTRB       <= HWRITE ? latch_strb : {(DATA_WIDTH/8){1'b0}};
-                        HREADYOUT   <= 1'b0;
-                        HRESP       <= 1'b0;
-                    end else begin
+            // Handle 2-cycle ERROR response (error_phase)
+            if (error_phase) begin
+                HREADYOUT  <= 1'b1;
+                HRESP      <= 1'b1;
+                error_phase <= 1'b0;
+                if (ahb_transfer) begin
+                    br_state  <= BR_SETUP;
+                    PADDR     <= HADDR;
+                    PSEL      <= 1'b1;
+                    PENABLE   <= 1'b0;
+                    PWRITE    <= HWRITE;
+                    PSTRB     <= HWRITE ? latch_strb : {(DATA_WIDTH/8){1'b0}};
+                end else begin
+                    br_state  <= BR_IDLE;
+                    PSEL      <= 1'b0;
+                    PENABLE   <= 1'b0;
+                end
+            end else begin
+                case (br_state)
+                    BR_IDLE: begin
+                        if (ahb_transfer) begin
+                            br_state    <= BR_SETUP;
+                            PADDR       <= HADDR;
+                            PSEL        <= 1'b1;
+                            PENABLE     <= 1'b0;
+                            PWRITE      <= HWRITE;
+                            PWDATA      <= HWDATA;
+                            PSTRB       <= HWRITE ? latch_strb : {(DATA_WIDTH/8){1'b0}};
+                            HREADYOUT   <= 1'b0;
+                            HRESP       <= 1'b0;
+                        end else begin
+                            PSEL      <= 1'b0;
+                            PENABLE   <= 1'b0;
+                            HREADYOUT <= 1'b1;
+                            HRESP     <= 1'b0;
+                        end
+                    end
+
+                    BR_SETUP: begin
+                        br_state  <= BR_ACCESS;
+                        PENABLE   <= 1'b1;
+                        PWDATA    <= HWDATA;
+                        HREADYOUT <= 1'b0;
+                    end
+
+                    BR_ACCESS: begin
+                        if (PREADY) begin
+                            HRDATA <= PRDATA;
+                            if (PSLVERR) begin
+                                // 2-cycle ERROR: cycle 1
+                                HRESP      <= 1'b1;
+                                HREADYOUT  <= 1'b0;
+                                error_phase <= 1'b1;
+                            end else begin
+                                if (ahb_transfer) begin
+                                    br_state    <= BR_SETUP;
+                                    PADDR       <= HADDR;
+                                    PSEL        <= 1'b1;
+                                    PENABLE     <= 1'b0;
+                                    PWRITE      <= HWRITE;
+                                    PWDATA      <= HWDATA;
+                                    PSTRB       <= HWRITE ? latch_strb : {(DATA_WIDTH/8){1'b0}};
+                                    HREADYOUT   <= 1'b0;
+                                    HRESP       <= 1'b0;
+                                end else begin
+                                    br_state  <= BR_IDLE;
+                                    PSEL      <= 1'b0;
+                                    PENABLE   <= 1'b0;
+                                    HREADYOUT <= 1'b1;
+                                    HRESP     <= 1'b0;
+                                end
+                            end
+                        end else begin
+                            HREADYOUT <= 1'b0;
+                            HRESP     <= 1'b0;
+                        end
+                    end
+
+                    default: begin
+                        br_state  <= BR_IDLE;
                         PSEL      <= 1'b0;
                         PENABLE   <= 1'b0;
                         HREADYOUT <= 1'b1;
                         HRESP     <= 1'b0;
                     end
-                end
-
-                BR_SETUP: begin
-                    br_state  <= BR_ACCESS;
-                    PENABLE   <= 1'b1;
-                    PWDATA    <= HWDATA;
-                    HREADYOUT <= 1'b0;
-                end
-
-                BR_ACCESS: begin
-                    if (PREADY) begin
-                        HRDATA <= PRDATA;
-                        if (PSLVERR) begin
-                            HRESP <= 1'b1;
-                            if (HREADY) begin
-                                br_state  <= BR_IDLE;
-                                PSEL      <= 1'b0;
-                                PENABLE   <= 1'b0;
-                                HREADYOUT <= 1'b1;
-                                HRESP     <= 1'b0;
-                            end else begin
-                                HREADYOUT <= 1'b0;
-                            end
-                        end else begin
-                            if (ahb_transfer) begin
-                                br_state    <= BR_SETUP;
-                                PADDR       <= HADDR;
-                                PSEL        <= 1'b1;
-                                PENABLE     <= 1'b0;
-                                PWRITE      <= HWRITE;
-                                PSTRB       <= HWRITE ? latch_strb : {(DATA_WIDTH/8){1'b0}};
-                                HREADYOUT   <= 1'b0;
-                                HRESP       <= 1'b0;
-                            end else begin
-                                br_state  <= BR_IDLE;
-                                PSEL      <= 1'b0;
-                                PENABLE   <= 1'b0;
-                                HREADYOUT <= 1'b1;
-                                HRESP     <= 1'b0;
-                            end
-                        end
-                    end else begin
-                        HREADYOUT <= 1'b0;
-                        HRESP     <= 1'b0;
-                    end
-                end
-
-                default: begin
-                    br_state  <= BR_IDLE;
-                    PSEL      <= 1'b0;
-                    PENABLE   <= 1'b0;
-                    HREADYOUT <= 1'b1;
-                    HRESP     <= 1'b0;
-                end
-            endcase
+                endcase
+            end
         end
     end
 

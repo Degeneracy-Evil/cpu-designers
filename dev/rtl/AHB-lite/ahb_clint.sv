@@ -19,9 +19,32 @@ module ahb_clint(
     output wire         o_msip
 );
 
-    wire access_active = HSEL && HTRANS[1];
-    wire rd_valid = access_active && !HWRITE;
-    wire wr_valid = access_active && HWRITE && HREADY;
+    // AHB-Lite: latch address & control during address phase (HTRANS[1]=1 && HREADY),
+    // then use latched values during data phase. The CPU bus bridge sets HTRANS=IDLE
+    // in the data phase, so gating on HTRANS[1] would cause reads to return 0 and
+    // writes to be silently dropped.
+    wire ahb_transfer = HSEL && HTRANS[1] && HREADY;
+
+    reg [31:0] latch_addr;
+    reg        latch_write;
+    reg        latch_valid;   // High during data phase (cycle after address phase)
+
+    always @(posedge HCLK or negedge HRESETn) begin
+        if (!HRESETn) begin
+            latch_addr   <= 32'b0;
+            latch_write  <= 1'b0;
+            latch_valid  <= 1'b0;
+        end else begin
+            latch_valid <= ahb_transfer;
+            if (ahb_transfer) begin
+                latch_addr   <= HADDR;
+                latch_write  <= HWRITE;
+            end
+        end
+    end
+
+    wire rd_valid = latch_valid && !latch_write;
+    wire wr_valid = latch_valid && latch_write;
 
     localparam ADDR_MTIMECMP_LO = 4'h0;
     localparam ADDR_MTIMECMP_HI = 4'h4;
@@ -29,11 +52,12 @@ module ahb_clint(
     localparam ADDR_MTIME_HI    = 4'hC;
     localparam ADDR_MSIP        = 4'h10;
 
-    wire addr_cmplo  = (HADDR[3:0] == ADDR_MTIMECMP_LO);
-    wire addr_cmphi  = (HADDR[3:0] == ADDR_MTIMECMP_HI);
-    wire addr_timelo = (HADDR[3:0] == ADDR_MTIME_LO);
-    wire addr_timehi = (HADDR[3:0] == ADDR_MTIME_HI);
-    wire addr_msip   = (HADDR[3:0] == ADDR_MSIP);
+    // Address decode uses LATCHED address (valid during data phase)
+    wire addr_cmplo  = (latch_addr[3:0] == ADDR_MTIMECMP_LO);
+    wire addr_cmphi  = (latch_addr[3:0] == ADDR_MTIMECMP_HI);
+    wire addr_timelo = (latch_addr[3:0] == ADDR_MTIME_LO);
+    wire addr_timehi = (latch_addr[3:0] == ADDR_MTIME_HI);
+    wire addr_msip   = (latch_addr[3:0] == ADDR_MSIP);
 
     reg [31:0] r_mtimecmp_lo;
     reg [31:0] r_mtimecmp_hi;

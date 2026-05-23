@@ -61,11 +61,24 @@ module ahb_lite_bus #(
     assign slave_HSELx[3] = (HADDR[31:24] == 8'h10);
     assign slave_HSELx[4] = ~(slave_HSELx[0] | slave_HSELx[1] | slave_HSELx[2] | slave_HSELx[3]);
 
+    // Latch HSELx when HREADY=1 for correct pipelined data phase selection.
+    // Per AHB-Lite spec, the mux must use the HSELx from the address phase,
+    // not the current HADDR (which belongs to the next transfer in a pipeline).
+    // Only update when HREADY=1 (data phase complete) so that during wait
+    // states the mux keeps pointing to the slave that owns the data phase.
+    reg [SLAVE_NUM-1:0]   mux_HSELx;
+    always @(posedge HCLK or negedge HRESETn) begin
+        if (!HRESETn)
+            mux_HSELx <= {SLAVE_NUM{1'b0}};
+        else if (HREADY)
+            mux_HSELx <= slave_HSELx;
+    end
+
     ahb_mux #(
         .DATA_WIDTH (DATA_WIDTH),
         .SLAVE_NUM  (SLAVE_NUM)
     ) u_ahb_mux (
-        .HSELx          (slave_HSELx),
+        .HSELx          (mux_HSELx),
         .slave_HRDATA   (slave_HRDATA),
         .slave_HREADYOUT(slave_HREADYOUT),
         .slave_HRESP    (slave_HRESP),

@@ -77,7 +77,7 @@ module tb_simple_cpu_priv;
     ahb_lite_bus #(
         .ADDR_WIDTH  (32),
         .DATA_WIDTH  (32),
-        .SLAVE_NUM   (4),
+        .SLAVE_NUM   (5),
         .MEM_DEPTH   (8192),
         .WAIT_STATES (0),
         .GPIO_NUM    (16),

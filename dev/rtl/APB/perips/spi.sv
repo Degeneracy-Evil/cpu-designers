@@ -39,7 +39,7 @@ module spi(
     reg        spi_clk_edge_level;
     reg [7:0]  rdata;
     reg        done;
-    reg [3:0]  bit_index;
+    reg [4:0]  bit_index;
     reg        spi_irq_pending;
     wire [8:0] div_cnt;
 
@@ -111,7 +111,7 @@ module spi(
             o_spiClk   <= 1'b0;
             rdata      <= 8'h0;
             o_spiMosi  <= 1'b0;
-            bit_index  <= 4'h0;
+            bit_index  <= 5'h0;
         end else begin
             if (en) begin
                 if (spi_clk_edge_level) begin
@@ -120,7 +120,8 @@ module spi(
                             o_spiClk <= ~o_spiClk;
                             if (spi_ctrl[2]) begin
                                 o_spiMosi <= spi_data[bit_index];
-                                bit_index <= bit_index - 1'b1;
+                                if (bit_index > 5'd0)
+                                    bit_index <= bit_index - 1'b1;
                             end else begin
                                 rdata <= {rdata[6:0], i_spiMiso};
                             end
@@ -131,7 +132,8 @@ module spi(
                                 rdata <= {rdata[6:0], i_spiMiso};
                             end else begin
                                 o_spiMosi <= spi_data[bit_index];
-                                bit_index <= bit_index - 1'b1;
+                                if (bit_index > 5'd0)
+                                    bit_index <= bit_index - 1'b1;
                             end
                         end
                         17: begin
@@ -144,9 +146,9 @@ module spi(
                 o_spiClk <= spi_ctrl[1];
                 if (!spi_ctrl[2]) begin
                     o_spiMosi <= spi_data[7];
-                    bit_index <= 4'h6;
+                    bit_index <= 5'h6;
                 end else begin
-                    bit_index <= 4'h7;
+                    bit_index <= 5'h7;
                 end
             end
         end
@@ -160,19 +162,6 @@ module spi(
                 done <= 1'b1;
             end else begin
                 done <= 1'b0;
-            end
-        end
-    end
-
-    // IRQ pending: set on transfer complete, cleared by writing SPI_STATUS
-    always @(posedge PCLK or negedge PRESETn) begin
-        if (!PRESETn) begin
-            spi_irq_pending <= 1'b0;
-        end else begin
-            if (done) begin
-                spi_irq_pending <= 1'b1;
-            end else if (write_access && (PADDR[3:0] == SPI_STATUS)) begin
-                spi_irq_pending <= 1'b0;
             end
         end
     end
@@ -198,7 +187,6 @@ module spi(
             spi_status <= 32'h0;
         end else begin
             spi_status[0] <= en;
-            spi_status[1] <= spi_irq_pending;
             spi_status[1] <= spi_irq_pending;
 
             if (write_access) begin

@@ -68,7 +68,7 @@ always@(posedge clk or negedge rst)
 begin
     if(rst == 1'b0)
         begin
-            o_txDataReady_1 <= 1'b0;
+            o_txDataReady_1 <= 1'b1;
         end
     else if(state == S_IDLE)
         if(i_txDataValid_1)

@@ -1,0 +1,11 @@
+# Vivado orchestration global configuration
+
+limits:
+  max_sessions: 5
+  max_concurrent: 3
+  max_disk_gb: 20
+  idle_timeout_min: 60
+
+vivado_path: vivado.bat
+proj_name: simplecpu_bus
+device_part: xc7a200tfbg676-2

@@ -1,0 +1,67 @@
+# Task definitions for Vivado orchestration
+# Each task maps to a testbench + optional COE + runtime
+# For FPGA-only tasks (bitstream), specify 'top' instead of 'tb'
+
+tasks:
+  cpu_full:
+    tb: tb_simple_cpu_top
+    coe: cpu_test.coe
+    runtime: 5ms
+
+  cpu_compute:
+    tb: tb_simple_cpu_compute
+    coe: cpu_test_compute.coe
+    runtime: 5ms
+
+  cpu_trap:
+    tb: tb_simple_cpu_trap
+    coe: cpu_test_trap.coe
+    runtime: 3ms
+
+  cpu_fencei:
+    tb: tb_cpu_test_fencei
+    coe: cpu_test_fencei.coe
+    runtime: 5ms
+
+  cpu_access_fault:
+    tb: tb_cpu_test_access_fault
+    coe: cpu_test_access_fault.coe
+    runtime: 3ms
+
+  cpu_priv:
+    tb: tb_simple_cpu_priv
+    coe: cpu_test_priv.coe
+    runtime: 20ms
+
+  uart_hello:
+    tb: tb_uart_hello
+    coe: uart_hello.coe
+    runtime: 40ms
+
+  led_marquee:
+    tb: tb_led_marquee
+    coe: led_marquee.coe
+    runtime: 2s
+
+  ahb_bus:
+    tb: tb_ahb_bus
+    runtime: 5000ns
+
+  apb_perips:
+    tb: tb_apb_perips
+    runtime: 2000ns
+
+  alu_integration:
+    tb: tb_alu_cpu_integration
+    runtime: 5000ns
+
+  mu_unit:
+    tb: tb_mu_unit
+    runtime: 5000ns
+
+  divider:
+    tb: tb_non_restoring_divider
+    runtime: 5000ns
+
+  fpga:
+    top: system_top

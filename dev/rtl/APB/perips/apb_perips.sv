@@ -7,7 +7,8 @@ module apb_perips #(
     parameter STRB_WIDTH  = `APB_STRB_WIDTH,
     parameter PROT_WIDTH  = `APB_PROT_WIDTH,
     parameter GPIO_NUM    = 16,
-    parameter UART_FREQ   = 100
+    parameter UART_FREQ   = 100,
+    parameter UART_FIFO_DEPTH = 16
 )(
     input  wire                  PCLK,
     input  wire                  PRESETn,
@@ -32,14 +33,17 @@ module apb_perips #(
     inout  wire [GPIO_NUM-1:0]   io_gpioPin,
 
     output wire                   o_timer_irq,
+    output wire                   o_gpio_irq,
 
     input  wire                   i_uart_rx,
     output wire                   o_uart_tx,
+    output wire                   o_uart_irq,
 
     output wire                   o_spiMosi,
     input  wire                   i_spiMiso,
     output wire                   o_spiSs,
-    output wire                   o_spiClk
+    output wire                   o_spiClk,
+    output wire                   o_spi_irq
 );
 
     gpio #(
@@ -59,7 +63,8 @@ module apb_perips #(
         .PSLVERR   (slave_PSLVERR[0]),
         .o_gpioCtrl(o_gpioCtrl),
         .o_gpioData(o_gpioData),
-        .io_gpioPin(io_gpioPin)
+        .io_gpioPin(io_gpioPin),
+        .o_irq     (o_gpio_irq)
     );
 
     timer u_timer (
@@ -79,7 +84,8 @@ module apb_perips #(
     );
 
     uart_top #(
-        .FREQ (UART_FREQ)
+        .FREQ       (UART_FREQ),
+        .FIFO_DEPTH (UART_FIFO_DEPTH)
     ) u_uart (
         .PCLK    (PCLK),
         .PRESETn (PRESETn),
@@ -94,7 +100,8 @@ module apb_perips #(
         .PRDATA  (slave2_PRDATA),
         .PSLVERR (slave_PSLVERR[2]),
         .i_rx    (i_uart_rx),
-        .o_tx    (o_uart_tx)
+        .o_tx    (o_uart_tx),
+        .o_irq   (o_uart_irq)
     );
 
     spi u_spi (
@@ -113,7 +120,8 @@ module apb_perips #(
         .o_spiMosi(o_spiMosi),
         .i_spiMiso(i_spiMiso),
         .o_spiSs  (o_spiSs),
-        .o_spiClk (o_spiClk)
+        .o_spiClk (o_spiClk),
+        .o_irq    (o_spi_irq)
     );
 
 endmodule

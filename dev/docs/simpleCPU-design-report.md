@@ -90,13 +90,13 @@ system_top
 │   └── cpu_bus_bridge    ← AHB-Lite 总线桥接（MMIO + INCR8 突发）
 ├── ahb_lite_bus          ← AHB-Lite 总线
 │   ├── ahb_sram_slave    ← SRAM 从设备（32KB BRAM IP）
-│   ├── ahb_clint         ← CLINT
-│   ├── ahb_plic          ← PLIC
+│   ├── ahb_clint         ← CLINT（mtime/mtimecmp/msip）
+│   ├── ahb_plic          ← PLIC（8-source，src[1]=Timer, src[2]=UART, src[3]=SPI, src[4]=GPIO）
 │   └── ahb_lite_to_apb → apb_bus → apb_perips
-│       ├── GPIO
-│       ├── UART (TX/RX)
-│       ├── Timer
-│       └── SPI
+│       ├── GPIO          ← 16-bit 双向 IO，引脚变化中断（o_irq→PLIC src[4]）
+│       ├── UART (TX/RX)  ← TX/RX FIFO（16字节），中断（o_irq→PLIC src[2]），可配波特率
+│       ├── Timer          ← 32-bit 定时器，中断（o_irq→PLIC src[1]）
+│       └── SPI            ← 主模式 SPI，传输完成中断（o_irq→PLIC src[3]）
 └── lcd_module            ← LCD 调试显示
 ```
 
@@ -105,7 +105,7 @@ system_top
 | 地址高位 | 从设备 | 说明 |
 |----------|--------|------|
 | `0x80_xxxx_xxxx` | SRAM Slave | 主存储器（32KB，缓存映射区域） |
-| `0x02_xxxx_xxxx` | CLINT | 核心本地中断器 |
+| `0x02_xxxx_xxxx` | CLINT | 核心本地中断器（mtime/mtimecmp/msip 可写） |
 | `0x0C_xxxx_xxxx` | PLIC | 平台级中断控制器 |
 | `0x10_xxxx_xxxx` | APB Bridge | 外设桥（GPIO/UART/Timer/SPI） |
 
@@ -641,10 +641,49 @@ PTW 优先级高于 Cache Writeback 和 Refill，确保页表漫游不会被缓�
 
 | 外设 | 说明 |
 |------|------|
-| GPIO | 16-bit 双向 IO |
-| UART | 发送/接收，参数化频率 |
-| Timer | 32-bit 定时器，产生中断 |
-| SPI | 主模式 SPI 控制器 |
+| GPIO | 16-bit 双向 IO，引脚变化中断，中断使能/状态寄存器 |
+| UART | TX/RX FIFO（16 字节），中断输出，运行时波特率配置 |
+| Timer | 32-bit 定时器，产生中断，单次/周期模式 |
+| SPI | 主模式 SPI 控制器，传输完成中断 |
+
+#### 6.2.1 UART 寄存器映射
+
+| 偏移 | 名称 | 位定义 | 说明 |
+|------|------|--------|------|
+| 0x00 | CTRL | [0]=TX_EN [1]=RX_EN [2]=TX_IE [3]=RX_IE | 控制/中断使能 |
+| 0x04 | STATUS | [0]=TX_BUSY [1]=RX_VALID [2]=TX_FIFO_FULL [3]=RX_FIFO_EMPTY [4]=TX_FIFO_EMPTY [5]=RX_FIFO_FULL | FIFO 状态 |
+| 0x08 | TXDATA | [7:0] | 写入推入 TX FIFO |
+| 0x0C | RXDATA | [7:0] | 读取弹出 RX FIFO |
+| 0x10 | BAUD | [15:0] | 波特率分频系数（0=默认 115200） |
+| 0x14 | IRQ_STAT | [0]=TX_DONE_IRQ [1]=RX_VALID_IRQ | 中断挂起（写 1 清除） |
+
+#### 6.2.2 GPIO 寄存器映射
+
+| 偏移 | 名称 | 说明 |
+|------|------|------|
+| 0x00 | CTRL | 方向控制（1=输出，0=输入） |
+| 0x04 | DATA | 数据寄存器 |
+| 0x08 | IRQ_EN | 逐引脚中断使能掩码 |
+| 0x0C | IRQ_STAT | 逐引脚中断挂起（写 1 清除） |
+
+#### 6.2.3 SPI 寄存器映射
+
+| 偏移 | 名称 | 位定义 | 说明 |
+|------|------|--------|------|
+| 0x00 | CTRL | [0]=EN [1]=CPOL [2]=CPHA [3]=CS [4]=IRQ_EN [15:8]=CLK_DIV | 控制/中断使能 |
+| 0x04 | DATA | [7:0] | 数据寄存器 |
+| 0x08 | STATUS | [0]=BUSY [1]=IRQ_PENDING | 状态/中断挂起 |
+
+#### 6.2.4 PLIC 中断路由
+
+| PLIC src_irq | 来源 | 说明 |
+|--------------|------|------|
+| src[0] | — | 保留 |
+| src[1] | Timer | APB Timer 比较匹配中断 |
+| src[2] | UART | UART TX 完成 / RX 有效中断 |
+| src[3] | SPI | SPI 传输完成中断 |
+| src[4] | GPIO | GPIO 引脚变化中断 |
+| src[5:7] | — | 保留 |
 
 ---
 
@@ -756,12 +795,13 @@ PTW 优先级高于 Cache Writeback 和 Refill，确保页表漫游不会被缓�
 | `dev/rtl/APB/` | `apb_slave.sv` | APB 从设备 |
 | `dev/rtl/APB/` | `apb_decoder.sv` | APB 地址译码 |
 | `dev/rtl/APB/perips/` | `apb_perips.sv` | 外设顶层 |
-| `dev/rtl/APB/perips/` | `gpio.sv` | GPIO |
-| `dev/rtl/APB/perips/` | `uart_top.sv` | UART |
-| `dev/rtl/APB/perips/` | `uart_tx.sv` | UART 发送 |
-| `dev/rtl/APB/perips/` | `uart_rx.sv` | UART 接收 |
+| `dev/rtl/APB/perips/` | `gpio.sv` | GPIO（16-bit 双向 IO，引脚变化中断） |
+| `dev/rtl/APB/perips/` | `uart_top.sv` | UART（TX/RX FIFO，中断，可配波特率） |
+| `dev/rtl/APB/perips/` | `uart_tx.sv` | UART 发送（可配波特率） |
+| `dev/rtl/APB/perips/` | `uart_rx.sv` | UART 接收（可配波特率） |
 | `dev/rtl/APB/perips/` | `timer.sv` | 定时器 |
-| `dev/rtl/APB/perips/` | `spi.sv` | SPI |
+| `dev/rtl/APB/perips/` | `spi.sv` | SPI（主模式，传输完成中断） |
+| `dev/rtl/APB/perips/` | `sync_fifo.sv` | 参数化同步 FIFO |
 
 ### 9.2 Testbench 文件
 
@@ -802,6 +842,12 @@ PTW 优先级高于 Cache Writeback 和 Refill，确保页表漫游不会被缓�
 17. **AHB-Lite + APB 双总线**：高速设备挂 AHB，低速外设挂 APB，通过桥接互联
 18. **总线桥优先级**：MMIO > PTW > Writeback > IRefill > DRefill，防止饿死与脏行堆积
 19. **数据 MMU translate_en 门控**：mem_en 同步控制 Sv32 翻译使能，消除组合信号竞争
+20. **外设中断路由**：UART/SPI/GPIO 中断输出经 PLIC 路由至 CPU（src[2]=UART, src[3]=SPI, src[4]=GPIO）
+21. **UART TX/RX FIFO**：各 16 字节同步 FIFO 缓冲，支持连续收发不丢数据
+22. **UART 可配波特率**：BAUD 寄存器运行时设置分频系数，0 回退默认 115200
+23. **GPIO 引脚变化中断**：逐引脚中断使能掩码 + 写 1 清除挂起状态
+24. **SPI 传输完成中断**：CTRL[4] 中断使能，传输完成置挂起，写 STATUS 清除
+25. **CLINT 可写 msip**：msip 寄存器（偏移 0x10）支持软件中断，符合 RISC-V CLINT 规范
 
 ---
 
@@ -830,6 +876,22 @@ PTW 优先级高于 Cache Writeback 和 Refill，确保页表漫游不会被缓�
 **问题**：`mem_data_access` 作为组合信号直接驱动数据 MMU 的翻译使能，形成从 MMU 输出（page_fault/miss）到 MMU 输入（translate_en）的组合环路，导致仿真中出现 X 态传播和不确定行为。
 
 **修复**：将 `mem_data_access` 替换为寄存信号 `mem_en`（在 FSM 状态转换时锁存），打断组合环路。`mem_en` 在 STATE_MEM 入口置 1，在 STATE_MEM 出口清 0，确保数据 MMU 的翻译使能是时序信号而非组合信号。
+
+### Bug 16: AHB-Lite HTRANS 未在 MMIO/PTW 数据拍撤回 IDLE（导致外设重复写入）
+
+**问题**：在 `cpu_bus_bridge` 的 `S_MMIO_ADDR` 和 `S_PTW_ADDR` 状态中，当转移到数据拍（`S_MMIO_DATA`/`S_PTW_DATA`）时，`htrans_r` 保持为 NONSEQ（2'b10）。根据 AHB-Lite 协议，非流水传输的数据拍期间 HTRANS 必须为 IDLE。保持 NONSEQ 导致 AHB-to-APB 桥将其解释为新的流水传输，对外设（如 UART TX FIFO）产生虚假的重复 APB 写操作，每次 MMIO 写被执行 2 次。
+
+**修复**：在 `S_MMIO_ADDR` 和 `S_PTW_ADDR` 转移到数据拍的 else 分支中，添加 `htrans_r <= AHB_TRANS_IDLE`，确保数据拍期间 HTRANS 为 IDLE，消除虚假流水传输。
+
+### Bug 17: dcache_mmio_req 完成后未屏蔽导致重复发起 MMIO 传输
+
+**问题**：MMIO 传输完成后，`ahb_data_valid_r` 是一个单周期脉冲，仅在一个时钟周期有效。但 `dcache_mmio_req` 在 CPU 流水线完全推进前会保持高电平若干额外周期。当总线桥接回到 `S_IDLE` 时，它看到 `dcache_mmio_req` 仍为高，于是重新发起相同的 MMIO 传输，导致每次 MMIO 写被重复执行。
+
+**修复**：引入 `mmio_inst_served` 和 `mmio_data_served` 标志位。当 MMIO 传输在 `S_MMIO_DATA` 完成时置 1；当对应的 `*_mmio_req` 信号拉低时清 0。在 `S_IDLE` 的仲裁条件中添加 `!mmio_inst_served` / `!mmio_data_served` 保护，防止已完成的请求被重复发起。
+
+### Bug 16+17 联合效果
+
+两个 Bug 叠加导致每次 MMIO 写操作被执行 4 次（Bug 16 贡献 2×，Bug 17 贡献 2×）。对于幂等外设（如 SRAM、Timer 计数器），重复写入无可见影响。但对于非幂等外设（如 UART TX FIFO），每次写入推入一个新字节，4 次重复写入导致同一字节被推入 FIFO 4 次，表现为每个字符重复发送 4 次。
 
 ### 经验教训
 

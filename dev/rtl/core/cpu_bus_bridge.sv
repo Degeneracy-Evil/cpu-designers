@@ -99,6 +99,9 @@ module cpu_bus_bridge(
     reg [31:0] ahb_data_rdata_r;
     reg        ahb_data_valid_r;
 
+    reg        mmio_inst_served;
+    reg        mmio_data_served;
+
     reg [2:0]   beat_cnt;
     reg [31:0]  burst_base_addr;
     reg [255:0] refill_shift_reg;
@@ -186,11 +189,13 @@ module cpu_bus_bridge(
             dcache_error_is_store_r <= 1'b0;
             ptw_done_r            <= 1'b0;
             ptw_error_r           <= 1'b0;
+            if (!icache_mmio_req) mmio_inst_served <= 1'b0;
+            if (!dcache_mmio_req) mmio_data_served <= 1'b0;
 
             case (state)
                 S_IDLE: begin
                     htrans_r <= `AHB_TRANS_IDLE;
-                    if (icache_mmio_req && !ahb_inst_valid_r) begin
+                    if (icache_mmio_req && !ahb_inst_valid_r && !mmio_inst_served) begin
                         state            <= S_MMIO_ADDR;
                         haddr_r          <= icache_mmio_addr;
                         htrans_r         <= `AHB_TRANS_NONSEQ;
@@ -201,7 +206,7 @@ module cpu_bus_bridge(
                         hmastlock_r      <= 1'b0;
                         mmio_latch_wdata <= 32'b0;
                         mmio_is_ireq     <= 1'b1;
-                    end else if (dcache_mmio_req && !ahb_data_valid_r) begin
+                    end else if (dcache_mmio_req && !ahb_data_valid_r && !mmio_data_served) begin
                         state            <= S_MMIO_ADDR;
                         haddr_r          <= dcache_mmio_addr;
                         htrans_r         <= `AHB_TRANS_NONSEQ;
@@ -289,6 +294,7 @@ module cpu_bus_bridge(
                             end
                         end else begin
                             state     <= S_MMIO_DATA;
+                            htrans_r  <= `AHB_TRANS_IDLE;
                             hwdata_r  <= mmio_latch_wdata;
                         end
                     end
@@ -314,9 +320,11 @@ module cpu_bus_bridge(
                             if (mmio_is_ireq) begin
                                 ahb_inst_data_r  <= HRDATA;
                                 ahb_inst_valid_r <= 1'b1;
+                                mmio_inst_served <= 1'b1;
                             end else begin
                                 ahb_data_rdata_r <= HRDATA;
                                 ahb_data_valid_r <= 1'b1;
+                                mmio_data_served <= 1'b1;
                             end
                         end
                     end
@@ -419,6 +427,7 @@ module cpu_bus_bridge(
                 S_PTW_ADDR: begin
                     if (HREADY) begin
                         state    <= S_PTW_DATA;
+                        htrans_r <= `AHB_TRANS_IDLE;
                         hwdata_r <= mmio_latch_wdata;
                     end
                 end

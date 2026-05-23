@@ -11,10 +11,12 @@ module uart_rx
     output reg[7:0]              o_rxData_8,          //received serial data
     output reg                   o_rxDataValid_1,    //received serial data is valid
     input                        i_rxDataReady_1,    //data receiver module ready
-    input                        i_rxPin_1            //serial data input
+    input                        i_rxPin_1,           //serial data input
+    input wire [15:0]            i_baud_div           //baud rate divider (0 = use default)
 );
 //calculates the clock cycle for baud rate 
-localparam                       CYCLE = CLK_FRE * 1000000 / BAUD_RATE;
+localparam [15:0]                       DEFAULT_CYCLE = CLK_FRE * 1000000 / BAUD_RATE;
+wire [15:0]                             cycle_val = (i_baud_div != 16'd0) ? i_baud_div : DEFAULT_CYCLE;
 //state machine code
 localparam                       S_IDLE      = 1;
 localparam                       S_START     = 2; //start bit
@@ -65,17 +67,17 @@ begin
             else
                 next_state <= S_IDLE;
         S_START:
-            if(cycle_cnt == CYCLE - 1)
+            if(cycle_cnt == cycle_val - 1)
                 next_state <= S_REC_BYTE;
             else
                 next_state <= S_START;
         S_REC_BYTE:
-            if(cycle_cnt == CYCLE - 1  && bit_cnt == 3'd7)
+            if(cycle_cnt == cycle_val - 1  && bit_cnt == 3'd7)
                 next_state <= S_STOP;
             else
                 next_state <= S_REC_BYTE;
         S_STOP:
-            if(cycle_cnt == CYCLE/2 - 1)
+            if(cycle_cnt == cycle_val/2 - 1)
                 next_state <= S_DATA;
             else
                 next_state <= S_STOP;
@@ -114,7 +116,7 @@ begin
             bit_cnt <= 3'd0;
         end
     else if(state == S_REC_BYTE) begin
-        if(cycle_cnt == CYCLE - 1)
+        if(cycle_cnt == cycle_val - 1)
             bit_cnt <= bit_cnt + 3'd1;
     end else
         bit_cnt <= 3'd0;
@@ -125,7 +127,7 @@ always@(posedge clk or negedge rst)
 begin
     if(rst == 1'b0)
         cycle_cnt <= 16'd0;
-    else if((state == S_REC_BYTE && cycle_cnt == CYCLE - 1) || next_state != state)
+    else if((state == S_REC_BYTE && cycle_cnt == cycle_val - 1) || next_state != state)
         cycle_cnt <= 16'd0;
     else
         cycle_cnt <= cycle_cnt + 16'd1;    
@@ -135,7 +137,7 @@ always@(posedge clk or negedge rst)
 begin
     if(rst == 1'b0)
         rx_bits <= 8'd0;
-    else if(state == S_REC_BYTE && cycle_cnt == CYCLE/2 - 1)
+    else if(state == S_REC_BYTE && cycle_cnt == cycle_val/2 - 1)
         rx_bits[bit_cnt] <= i_rxPin_1;
 end
 endmodule 

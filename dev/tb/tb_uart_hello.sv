@@ -82,6 +82,9 @@ module tb_uart_hello;
         .HREADY     (cpu_HREADY),
         .HRESP      (cpu_HRESP),
         .o_timer_irq(timer_irq),
+        .o_gpio_irq (),
+        .o_uart_irq (),
+        .o_spi_irq  (),
         .o_plic_eip (plic_eip),
         .o_clint_mtip(clint_mtip),
         .o_clint_msip(clint_msip),
@@ -91,7 +94,9 @@ module tb_uart_hello;
         .o_spiMosi  (),
         .i_spiMiso  (1'b0),
         .o_spiSs    (),
-        .o_spiClk   ()
+        .o_spiClk   (),
+        .o_gpioCtrl (),
+        .o_gpioData ()
     );
 
     initial begin

@@ -13,6 +13,9 @@ module system_top(
     output        spi_ss,
     output        spi_clk,
 
+    output [15:0] gpio_ctrl_out,
+    output [15:0] gpio_data_out,
+
     inout  [15:0] gpio_io,
 
     output        lcd_rst,
@@ -47,6 +50,11 @@ module system_top(
     wire        plic_eip;
     wire        clint_mtip;
     wire        clint_msip;
+    wire        gpio_irq;
+    wire        uart_irq;
+    wire        spi_irq;
+    wire [31:0] gpio_ctrl_out_wire;
+    wire [31:0] gpio_data_out_wire;
 
     wire [ 4:0] rf_addr;
     wire [31:0] rf_data;
@@ -118,6 +126,9 @@ module system_top(
         .HREADY     (cpu_HREADY),
         .HRESP      (cpu_HRESP),
         .o_timer_irq(timer_irq),
+        .o_gpio_irq (gpio_irq),
+        .o_uart_irq (uart_irq),
+        .o_spi_irq  (spi_irq),
         .o_plic_eip (plic_eip),
         .o_clint_mtip(clint_mtip),
         .o_clint_msip(clint_msip),
@@ -127,7 +138,9 @@ module system_top(
         .o_spiMosi  (spi_mosi),
         .i_spiMiso  (spi_miso),
         .o_spiSs    (spi_ss),
-        .o_spiClk   (spi_clk)
+        .o_spiClk   (spi_clk),
+        .o_gpioCtrl (gpio_ctrl_out_wire),
+        .o_gpioData (gpio_data_out_wire)
     );
 
     reg         display_valid;
@@ -160,6 +173,10 @@ module system_top(
     );
 
     assign rf_addr = display_number - 6'd11;
+
+    // GPIO control/data outputs
+    assign gpio_ctrl_out = gpio_ctrl_out_wire[15:0];
+    assign gpio_data_out = gpio_data_out_wire[15:0];
 
     always @(posedge clk or posedge reset) begin
         if (reset) begin

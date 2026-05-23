@@ -30,13 +30,19 @@ module ahb_lite_bus #(
     output wire                    o_clint_msip,
 
     output wire                    o_timer_irq,
+    output wire                    o_gpio_irq,
+    output wire                    o_uart_irq,
+    output wire                    o_spi_irq,
     inout  wire [GPIO_NUM-1:0]     io_gpioPin,
     input  wire                    i_uart_rx,
     output wire                    o_uart_tx,
     output wire                    o_spiMosi,
     input  wire                    i_spiMiso,
     output wire                    o_spiSs,
-    output wire                    o_spiClk
+    output wire                    o_spiClk,
+
+    output wire [DATA_WIDTH-1:0]   o_gpioCtrl,
+    output wire [DATA_WIDTH-1:0]   o_gpioData
 );
 
     wire [SLAVE_NUM-1:0]   slave_HSELx;
@@ -93,9 +99,9 @@ module ahb_lite_bus #(
     wire [7:0] plic_src_irq;
     assign plic_src_irq[0] = 1'b0;
     assign plic_src_irq[1] = o_timer_irq;
-    assign plic_src_irq[2] = 1'b0;
-    assign plic_src_irq[3] = 1'b0;
-    assign plic_src_irq[4] = 1'b0;
+    assign plic_src_irq[2] = o_uart_irq;
+    assign plic_src_irq[3] = o_spi_irq;
+    assign plic_src_irq[4] = o_gpio_irq;
     assign plic_src_irq[5] = 1'b0;
     assign plic_src_irq[6] = 1'b0;
     assign plic_src_irq[7] = 1'b0;
@@ -215,16 +221,19 @@ module ahb_lite_bus #(
         .slave2_PRDATA  (apb_slave2_PRDATA),
         .slave3_PRDATA  (apb_slave3_PRDATA),
         .slave_PSLVERR  (apb_slave_PSLVERR),
-        .o_gpioCtrl     (),
-        .o_gpioData     (),
+        .o_gpioCtrl     (o_gpioCtrl),
+        .o_gpioData     (o_gpioData),
         .io_gpioPin     (io_gpioPin),
         .o_timer_irq    (o_timer_irq),
+        .o_gpio_irq     (o_gpio_irq),
         .i_uart_rx      (i_uart_rx),
         .o_uart_tx      (o_uart_tx),
+        .o_uart_irq     (o_uart_irq),
         .o_spiMosi      (o_spiMosi),
         .i_spiMiso      (i_spiMiso),
         .o_spiSs        (o_spiSs),
-        .o_spiClk       (o_spiClk)
+        .o_spiClk       (o_spiClk),
+        .o_spi_irq      (o_spi_irq)
     );
 
     always @(*) begin

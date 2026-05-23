@@ -18,11 +18,16 @@ module tb_apb_perips;
     wire        HRESP;
 
     wire        o_timer_irq;
+    wire        o_gpio_irq;
     wire [15:0] io_gpioPin;
     wire        o_uart_tx;
+    wire        o_uart_irq;
     wire        o_spiMosi;
     wire        o_spiSs;
     wire        o_spiClk;
+    wire        o_spi_irq;
+    wire [31:0] o_gpioCtrl;
+    wire [31:0] o_gpioData;
 
     integer pass_count;
     integer fail_count;
@@ -50,6 +55,9 @@ module tb_apb_perips;
         .HREADY     (HREADY),
         .HRESP      (HRESP),
         .o_timer_irq(o_timer_irq),
+        .o_gpio_irq (o_gpio_irq),
+        .o_uart_irq (o_uart_irq),
+        .o_spi_irq  (o_spi_irq),
         .o_plic_eip (),
         .o_clint_mtip(),
         .o_clint_msip(),
@@ -59,7 +67,9 @@ module tb_apb_perips;
         .o_spiMosi  (o_spiMosi),
         .i_spiMiso  (1'b0),
         .o_spiSs    (o_spiSs),
-        .o_spiClk   (o_spiClk)
+        .o_spiClk   (o_spiClk),
+        .o_gpioCtrl (o_gpioCtrl),
+        .o_gpioData (o_gpioData)
     );
 
     initial begin
@@ -155,6 +165,15 @@ module tb_apb_perips;
             ahb_write(32'h10000004, 32'h0000AAAA);
             ahb_read(32'h10000004, rd_val);
             check("GPIO_DATA write/read", rd_val, 32'h0000AAAA);
+
+            // GPIO IRQ_EN register (new)
+            ahb_write(32'h10000008, 32'h000000FF);
+            ahb_read(32'h10000008, rd_val);
+            check("GPIO_IRQ_EN write/read", rd_val, 32'h000000FF);
+
+            // GPIO IRQ_STAT register (new)
+            ahb_read(32'h1000000C, rd_val);
+            check("GPIO_IRQ_STAT initial", rd_val, 32'h00000000);
         end
 
         begin : timer_test
@@ -176,7 +195,16 @@ module tb_apb_perips;
             check("UART_CTRL write/read", rd_val, 32'h00000003);
 
             ahb_read(32'h10008004, rd_val);
-            check("UART_STATUS read", rd_val, 32'h00000000);
+            check("UART_STATUS read", rd_val[5:2], 4'b0100); // TX empty, RX empty
+
+            // UART BAUD register (new)
+            ahb_write(32'h10008010, 32'd868);
+            ahb_read(32'h10008010, rd_val);
+            check("UART_BAUD write/read", rd_val, 32'd868);
+
+            // UART IRQ_STAT register (new)
+            ahb_read(32'h10008014, rd_val);
+            check("UART_IRQ_STAT initial", rd_val, 32'h00000000);
         end
 
         begin : spi_test
@@ -189,7 +217,7 @@ module tb_apb_perips;
             check("SPI_DATA write/read", rd_val, 32'h000000AB);
 
             ahb_read(32'h1000C008, rd_val);
-            check("SPI_STATUS read", rd_val, 32'h00000000);
+            check("SPI_STATUS read", rd_val[1:0], 2'b00); // not busy, no irq pending
         end
 
         $display("========================================");

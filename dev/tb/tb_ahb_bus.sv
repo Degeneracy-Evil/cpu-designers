@@ -51,6 +51,9 @@ module tb_ahb_bus;
         .HREADY     (HREADY),
         .HRESP      (HRESP),
         .o_timer_irq(o_timer_irq),
+        .o_gpio_irq (),
+        .o_uart_irq (),
+        .o_spi_irq  (),
         .o_plic_eip (),
         .o_clint_mtip(),
         .o_clint_msip(),
@@ -60,7 +63,9 @@ module tb_ahb_bus;
         .o_spiMosi  (o_spiMosi),
         .i_spiMiso  (1'b0),
         .o_spiSs    (o_spiSs),
-        .o_spiClk   (o_spiClk)
+        .o_spiClk   (o_spiClk),
+        .o_gpioCtrl (),
+        .o_gpioData ()
     );
 
     initial begin

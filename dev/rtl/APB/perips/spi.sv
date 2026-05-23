@@ -20,7 +20,9 @@ module spi(
     output reg                         o_spiMosi,
     input  wire                        i_spiMiso,
     output wire                        o_spiSs,
-    output reg                         o_spiClk
+    output reg                         o_spiClk,
+
+    output reg                         o_irq
 );
 
     localparam SPI_CTRL   = 4'h0;
@@ -38,6 +40,7 @@ module spi(
     reg [7:0]  rdata;
     reg        done;
     reg [3:0]  bit_index;
+    reg        spi_irq_pending;
     wire [8:0] div_cnt;
 
     wire write_access = PSEL & PENABLE & PWRITE & PREADY;
@@ -48,6 +51,11 @@ module spi(
 
     assign PREADY  = 1'b1;
     assign PSLVERR = 1'b0;
+
+    // IRQ output: active when pending and enabled
+    always @(*) begin
+        o_irq = spi_irq_pending & spi_ctrl[4];
+    end
 
     always @(posedge PCLK or negedge PRESETn) begin
         if (!PRESETn) begin
@@ -156,6 +164,33 @@ module spi(
         end
     end
 
+    // IRQ pending: set on transfer complete, cleared by writing SPI_STATUS
+    always @(posedge PCLK or negedge PRESETn) begin
+        if (!PRESETn) begin
+            spi_irq_pending <= 1'b0;
+        end else begin
+            if (done) begin
+                spi_irq_pending <= 1'b1;
+            end else if (write_access && (PADDR[3:0] == SPI_STATUS)) begin
+                spi_irq_pending <= 1'b0;
+            end
+        end
+    end
+
+    // Interrupt pending: set on transfer complete when IRQ enabled,
+    // cleared by writing to SPI_STATUS register
+    always @(posedge PCLK or negedge PRESETn) begin
+        if (!PRESETn) begin
+            spi_irq_pending <= 1'b0;
+        end else begin
+            if (done && spi_ctrl[4]) begin
+                spi_irq_pending <= 1'b1;
+            end else if (write_access && (PADDR[3:0] == SPI_STATUS)) begin
+                spi_irq_pending <= 1'b0;
+            end
+        end
+    end
+
     always @(posedge PCLK or negedge PRESETn) begin
         if (!PRESETn) begin
             spi_ctrl   <= 32'h0;
@@ -163,11 +198,14 @@ module spi(
             spi_status <= 32'h0;
         end else begin
             spi_status[0] <= en;
+            spi_status[1] <= spi_irq_pending;
+            spi_status[1] <= spi_irq_pending;
 
             if (write_access) begin
                 case (PADDR[3:0])
-                    SPI_CTRL: spi_ctrl <= PWDATA;
-                    SPI_DATA: spi_data <= PWDATA;
+                    SPI_CTRL:   spi_ctrl <= PWDATA;
+                    SPI_DATA:   spi_data <= PWDATA;
+                    SPI_STATUS: ;  // write clears irq_pending (handled above)
                     default: ;
                 endcase
             end

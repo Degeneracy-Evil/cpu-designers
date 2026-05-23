@@ -27,15 +27,18 @@ module ahb_clint(
     localparam ADDR_MTIMECMP_HI = 4'h4;
     localparam ADDR_MTIME_LO    = 4'h8;
     localparam ADDR_MTIME_HI    = 4'hC;
+    localparam ADDR_MSIP        = 4'h10;
 
     wire addr_cmplo  = (HADDR[3:0] == ADDR_MTIMECMP_LO);
     wire addr_cmphi  = (HADDR[3:0] == ADDR_MTIMECMP_HI);
     wire addr_timelo = (HADDR[3:0] == ADDR_MTIME_LO);
     wire addr_timehi = (HADDR[3:0] == ADDR_MTIME_HI);
+    wire addr_msip   = (HADDR[3:0] == ADDR_MSIP);
 
     reg [31:0] r_mtimecmp_lo;
     reg [31:0] r_mtimecmp_hi;
     reg [63:0] r_mtime;
+    reg        r_msip;
 
     wire [63:0] mtimecmp_64;
     assign mtimecmp_64 = {r_mtimecmp_hi, r_mtimecmp_lo};
@@ -44,13 +47,14 @@ module ahb_clint(
     assign mtip_raw = (r_mtime >= mtimecmp_64) && (mtimecmp_64 != 64'd0);
 
     assign o_mtip = mtip_raw;
-    assign o_msip = 1'b0;
+    assign o_msip = r_msip;
 
     always @(posedge HCLK or negedge HRESETn) begin
         if (!HRESETn) begin
             r_mtimecmp_lo <= 32'd0;
             r_mtimecmp_hi <= 32'd0;
             r_mtime       <= 64'd0;
+            r_msip        <= 1'b0;
         end else begin
             r_mtime <= r_mtime + 64'd1;
 
@@ -62,6 +66,8 @@ module ahb_clint(
                 r_mtime[31:0] <= HWDATA;
             if (wr_valid && addr_timehi)
                 r_mtime[63:32] <= HWDATA;
+            if (wr_valid && addr_msip)
+                r_msip <= HWDATA[0];
         end
     end
 
@@ -72,6 +78,7 @@ module ahb_clint(
             else if (addr_cmphi) HRDATA = r_mtimecmp_hi;
             else if (addr_timelo) HRDATA = r_mtime[31:0];
             else if (addr_timehi) HRDATA = r_mtime[63:32];
+            else if (addr_msip)   HRDATA = {31'b0, r_msip};
         end
     end
 

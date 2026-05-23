@@ -15,11 +15,13 @@
 | 指令集 | RV32IM（整数 + 乘除法） |
 | 架构 | 多周期 FSM 控制，五级流水线数据通路 |
 | 数据位宽 | 32-bit |
-| 地址空间 | 32-bit，虚拟地址直通（MMU 恒等映射） |
+| 特权模式 | M/S/U 三级特权模式，支持陷阱委托（medeleg/mideleg） |
+| 地址空间 | 32-bit，Sv32 页表虚拟内存（MMU + TLB + PTW） |
 | 存储架构 | 哈佛结构（icache / dcache 分离），4 路组相联，Tree-PLRU 替换 |
 | 缓存策略 | 写回（write-back）+ 写分配（write-allocate），脏行驱逐写回主存 |
 | 总线接口 | AHB-Lite Master，支持 INCR8 突发传输 |
-| 中断/异常 | 支持 Trap 进入/返回（mret）、CLINT 定时器中断、PLIC 外部中断 |
+| 中断/异常 | 支持 Trap 进入/返回（mret/sret）、CLINT 定时器中断、PLIC 外部中断 |
+| 特权指令 | SRET、SFENCE.VMA 指令支持 |
 | 乘法器 | Booth 编码，32 周期迭代 |
 | 除法器 | 非恢复余数法，32 周期迭代 + 修正 |
 | 加法器 | 超前进位加法器（CLA），16-bit 级联为 32-bit |
@@ -38,7 +40,7 @@
 | Store | `SB`, `SH`, `SW` |
 | 立即数算术 | `ADDI`, `SLTI`, `SLTIU`, `XORI`, `ORI`, `ANDI`, `SLLI`, `SRLI`, `SRAI` |
 | 寄存器算术 | `ADD`, `SUB`, `SLL`, `SLT`, `SLTU`, `XOR`, `SRL`, `SRA`, `OR`, `AND` |
-| 系统 | `ECALL`, `EBREAK`, `MRET`, `FENCE`, `FENCE.I`, `WFI` |
+| 系统 | `ECALL`, `EBREAK`, `MRET`, `SRET`, `SFENCE.VMA`, `FENCE`, `FENCE.I`, `WFI` |
 | CSR | `CSRRW`, `CSRRS`, `CSRRC`, `CSRRWI`, `CSRRSI`, `CSRRCI` |
 
 **RV32M 乘除法扩展（8 条）：**
@@ -82,7 +84,9 @@ system_top
 │   │   ├── tree_plru     ← Tree-PLRU 替换策略
 │   │   ├── dcached       ← DCache 数据 BRAM IP（256bit×32）
 │   │   └── dtag          ← DCache 标签 BRAM IP（9bit×32）
-│   ├── MMU (×2)          ← 地址映射（恒等）
+│   ├── MMU (×2)          ← Sv32 虚拟内存（TLB + PTW 页表漫游）
+│   │   ├── tlb           ← TLB（16 项，全相联）
+│   │   └── ptw           ← 页表漫游器（Sv32 二级页表）
 │   └── cpu_bus_bridge    ← AHB-Lite 总线桥接（MMIO + INCR8 突发）
 ├── ahb_lite_bus          ← AHB-Lite 总线
 │   ├── ahb_sram_slave    ← SRAM 从设备（32KB BRAM IP）
@@ -261,12 +265,17 @@ MEM_IDLE → MEM_IDLE   (非访存指令，直接完成)
 
 | 异常类型 | 检测位置 | Exception Code |
 |----------|----------|----------------|
+| 指令访问错误 | 取指级 | 1 |
 | 非法指令 | 译码级 | 2 |
-| ECALL | 译码级 | 11 |
 | EBREAK | 译码级 | 3 |
-| 指令地址对齐 | 执行级 | 0 |
 | Load 地址对齐 | 访存级 | 4 |
 | Store 地址对齐 | 访存级 | 6 |
+| ECALL (U-mode) | 译码级 | 8 |
+| ECALL (S-mode) | 译码级 | 9 |
+| ECALL (M-mode) | 译码级 | 11 |
+| 指令页错误 | 取指级 | 12 |
+| Load 页错误 | 访存级 | 13 |
+| Store/AMO 页错误 | 访存级 | 15 |
 
 **中断检测**（`cpu_clint`）：
 
@@ -278,40 +287,85 @@ MEM_IDLE → MEM_IDLE   (非访存指令，直接完成)
 
 中断使能条件：`mstatus.MIE == 1` 且对应 `mie` 位为 1 且 `mip` 位为 1。
 
+**陷阱委托机制**：
+
+通过 medeleg/mideleg CSR 实现异常/中断委托。对应位为 1 时，该异常/中断委托至 S-mode 处理：
+
+- 委托判定：`delegated = medeleg[cause]`（异常）或 `mideleg[cause]`（中断）
+- 委托位不可将 ECALL-from-M（code=11）设为委托（硬件强制 medeleg[11]=0）
+
 **Trap 进入**：
 
-1. 保存 `mepc = exception_pc`（异常）或 `interrupt_pc`（中断）
-2. 保存 `mcause`
-3. 保存 `mtval`
-4. 更新 `mstatus`：`MPP = 11`（Machine），`MPIE = MIE`，`MIE = 0`
-5. 跳转到 `mtvec`（仅支持 Direct 模式）
+1. 判断委托：若 `delegated=1`，进入 S-mode；否则进入 M-mode
+2. S-mode 陷阱进入：
+   - 保存 `sepc = exception_pc`（异常）或 `interrupt_pc`（中断）
+   - 保存 `scause`、`stval`
+   - 更新 `sstatus`：`SPP = 当前特权级`，`SPIE = SIE`，`SIE = 0`
+   - 跳转到 `stvec`（仅支持 Direct 模式）
+3. M-mode 陷阱进入：
+   - 保存 `mepc = exception_pc`（异常）或 `interrupt_pc`（中断）
+   - 保存 `mcause`、`mtval`
+   - 更新 `mstatus`：`MPP = 当前特权级`，`MPIE = MIE`，`MIE = 0`
+   - 跳转到 `mtvec`（仅支持 Direct 模式）
 
-**Trap 返回（MRET）**：
+**Trap 返回**：
 
-1. 恢复 `MIE = MPIE`
-2. 跳转到 `mepc`
+- **MRET**：恢复 `MIE = MPIE`，特权级恢复至 `MPP`，跳转到 `mepc`
+- **SRET**：恢复 `SIE = SPIE`，特权级恢复至 `SPP`，跳转到 `sepc`
+
+**ECALL 异常码**：根据调用者特权级区分，U-mode ECALL 产生 code=8，S-mode ECALL 产生 code=9，M-mode ECALL 产生 code=11。
+
+**hw_trap_is_enter 信号**：该信号在陷阱进入时有效，用于门控 epc/cause/tval 的写入。仅当 `hw_trap_is_enter=1` 时才更新对应 CSR，防止非陷阱周期误写（Bug 12 修复）。
 
 ### 4.2 CSR 寄存器 (`cpu_csr`)
 
+**M-mode CSR：**
+
 | CSR 地址 | 名称 | 可写 | 说明 |
 |----------|------|------|------|
-| 0x300 | mstatus | 是 | MPP/MPIE/MIE |
+| 0x300 | mstatus | 是 | MPP/MPIE/MIE/SPP/SPIE/SIE/UXS/FS/XS/SD |
 | 0x301 | misa | 否 | 硬连线 `0x40001100`（RV32IM） |
-| 0x304 | mie | 是 | MEIE/MTIE/MSIE |
-| 0x305 | mtvec | 是 | Trap 向量基址 |
+| 0x302 | medeleg | 是 | 异常委托寄存器 |
+| 0x303 | mideleg | 是 | 中断委托寄存器 |
+| 0x304 | mie | 是 | MEIE/MTIE/MSIE/SEIE/STIE/SSIE |
+| 0x305 | mtvec | 是 | M-mode Trap 向量基址 |
+| 0x306 | mcounteren | 是 | 计数器使能寄存器 |
 | 0x310 | mstatush | 否 | 硬连线 0 |
-| 0x340 | mscratch | 是 | 临时寄存器 |
-| 0x341 | mepc | 是 | 异常/中断返回 PC |
-| 0x342 | mcause | 是 | 异常/中断原因 |
-| 0x343 | mtval | 是 | 异常附加信息 |
-| 0x344 | mip | 否 | MEIP/MTIP/MSIP（硬件写入） |
+| 0x340 | mscratch | 是 | M-mode 临时寄存器 |
+| 0x341 | mepc | 是 | M-mode 异常/中断返回 PC |
+| 0x342 | mcause | 是 | M-mode 异常/中断原因 |
+| 0x343 | mtval | 是 | M-mode 异常附加信息 |
+| 0x344 | mip | 否 | MEIP/MTIP/MSIP/SEIP/STIP/SSIP（硬件写入） |
 | 0xB00 | mcycle | 是 | 时钟周期计数器低 32 位 |
 | 0xB02 | minstret | 是 | 指令退休计数器低 32 位 |
 | 0xB80 | mcycleh | 是 | 时钟周期计数器高 32 位 |
 | 0xB82 | minstreth | 是 | 指令退休计数器高 32 位 |
 | 0xF11-0xF15 | mvendorid 等 | 否 | 硬连线 0 |
 
-CSR 写掩码：mstatus 仅允许写 MPP[12:11]、MIE[3]、MPIE[7]；mie 仅允许写 MEIE[11]、MTIE[7]、MSIE[3]；mtvec/mepc 强制低 2 位为 0。
+**S-mode CSR：**
+
+| CSR 地址 | 名称 | 可写 | 说明 |
+|----------|------|------|------|
+| 0x100 | sstatus | 是 | mstatus 的 S-mode 视图（SIE/SPIE/SPP/UXS/FS/XS/SD） |
+| 0x104 | sie | 是 | SEIE/STIE/SSIE |
+| 0x105 | stvec | 是 | S-mode Trap 向量基址 |
+| 0x106 | scounteren | 是 | S-mode 计数器使能寄存器 |
+| 0x140 | sscratch | 是 | S-mode 临时寄存器 |
+| 0x141 | sepc | 是 | S-mode 异常/中断返回 PC |
+| 0x142 | scause | 是 | S-mode 异常/中断原因 |
+| 0x143 | stval | 是 | S-mode 异常附加信息 |
+| 0x144 | sip | 否 | SEIP/STIP/SSIP（硬件写入） |
+| 0x180 | satp | 是 | S-mode 地址翻译与保护（ASID + PPN） |
+
+**sstatus 与 mstatus 的关系**：sstatus 是 mstatus 的受限视图，仅暴露 SIE（位1）、SPIE（位5）、SPP（位8）、UXS（位18:17）、FS（位14:13）、XS（位16:15）、SD（位31）。对 sstatus 的写操作仅修改 mstatus 中对应位，其余位保持不变。
+
+**CSR 访问控制**：
+
+- U-mode：不可访问 S-mode 和 M-mode CSR，访问触发非法指令异常
+- S-mode：不可访问 M-mode CSR，访问触发非法指令异常
+- M-mode：可访问所有 CSR
+
+CSR 写掩码：mstatus 仅允许写 MPP[12:11]、SPP[8]、MPIE[7]、SPIE[5]、MIE[3]、SIE[1]；mie 仅允许写 MEIE[11]、SEIE[9]、MTIE[7]、STIE[5]、MSIE[3]、SSIE[1]；mtvec/mepc/stvec/sepc 强制低 2 位为 0。
 
 ---
 
@@ -453,9 +507,122 @@ S_WB_ADDR/S_WB_DATA:          INCR8 写突发，每拍移出 wb_shift_reg[31:0]
 - 基地址：`0x8000_0000`（地址译码 `HADDR[31:24] == 8'h80`）
 - 支持 INCR8 突发读写，1 等待状态
 
-### 5.9 MMU
+### 5.9 MMU（Sv32 虚拟内存）
 
-当前为恒等映射（`paddr = vaddr`），为未来虚拟地址扩展预留接口。
+CPU 包含两个 MMU 实例：指令 MMU（inst MMU）和数据 MMU（data MMU），各自拥有独立的 TLB 和 PTW。
+
+**Sv32 页表格式**：
+
+Sv32 采用二级页表结构，虚拟地址 32-bit 分解如下：
+
+```
+| VPN[1] (10-bit) | VPN[0] (10-bit) | page_offset (12-bit) |
+```
+
+- L1 页表：VPN[1] 索引，命中时为 megapage（4MB），PPN[0] 由虚拟地址 VPN[0] 直接传递
+- L0 页表：VPN[0] 索引，命中时为普通页（4KB）
+
+**页表项（PTE）格式**（32-bit）：
+
+```
+| PPN[31:10] (22-bit) | RSW[9:8] (2-bit) | D (1) | A (1) | G (1) | U (1) | X (1) | W (1) | R (1) | V (1) |
+```
+
+| 位域 | 说明 |
+|------|------|
+| PPN[31:10] | 物理页号 |
+| RSW[9:8] | 保留供软件使用 |
+| D | 脏位，该页曾被写入 |
+| A | 访问位，该页曾被访问 |
+| G | 全局映射，ASID 刷新时不驱逐 |
+| U | 用户模式可访问 |
+| X | 可执行 |
+| W | 可写 |
+| R | 可读 |
+| V | 有效位 |
+
+**TLB（`tlb.sv`）**：
+
+- 16 项全相联结构
+- ASID 感知：每项存储 ASID，匹配时需 ASID 一致或 G=1（全局项）
+- 每个MMU独立拥有一个TLB实例（inst TLB / data TLB）
+- 查找：虚拟地址 VPN 与 TLB 项比较，ASID 与 satp.ASID 匹配
+- 命中：直接输出物理地址 + PTE 权限位
+- 缺失：触发 PTW 页表漫游
+- 驱逐：SFENCE.VMA 刷新全部项（或指定 ASID/VPN 范围）
+
+**PTW 状态机（`ptw.sv`）**：
+
+页表漫游器按 Sv32 二级页表逐级查找，状态转换如下：
+
+```
+S_IDLE → S_L1_READ    ← 读取 L1 页表项（PTW 发起总线请求）
+S_L1_READ → S_L1_CHECK ← 检查 L1 PTE：V=0 或 R=W=0 且 X=0 → fault
+S_L1_CHECK → S_L0_READ ← L1 为非叶节点，计算 L0 PTE 地址，读取 L0 项
+S_L1_CHECK → S_PERM_CHECK ← L1 为 megapage（叶节点），跳转权限检查
+S_L0_READ → S_L0_CHECK  ← 检查 L0 PTE
+S_L0_CHECK → S_PERM_CHECK ← L0 为叶节点，进入权限检查
+S_PERM_CHECK → S_DONE   ← 权限通过，写入 TLB，输出物理地址
+S_PERM_CHECK → S_FAULT  ← 权限违规，输出页错误
+```
+
+**A/D 位硬件管理**：
+
+PTW 在页表漫游过程中自动管理访问位（A）和脏位（D）：
+
+- 首次访问某页时，若 PTE.A=0，PTW 写回 PTE 并置 A=1
+- 首次写入某页时，若 PTE.D=0，PTW 写回 PTE 并置 D=1
+- 写回通过 PTW 总线请求完成，旁路 dcache 直接到 AHB→BRAM
+
+**translate_en 输入**：
+
+- 指令 MMU：translate_en 恒为 1（取指始终经过地址翻译）
+- 数据 MMU：translate_en 由 mem_en 门控（Bug 14/15 修复），仅当访存使能时才激活 Sv32 翻译，消除组合信号竞争
+
+**权限检查**：
+
+| 访问类型 | 权限要求 |
+|----------|----------|
+| 取指（fetch） | PTE.X=1 |
+| Load | PTE.R=1（或 PTE.X=1 且 mstatus.MXR=1） |
+| Store/AMO | PTE.W=1 |
+| U-mode 访问 | PTE.U=1 |
+| S-mode 访问 | PTE.U=0（除非 mstatus.SUM=1 且为 Load） |
+
+**SFENCE.VMA 指令**：
+
+执行 SFENCE.VMA 时刷新两个 TLB 的全部项。若指定 rs1（ASID）或 rs2（VPN），可选择性刷新，当前实现为全刷新。
+
+**FENCE.I 指令**：
+
+执行 FENCE.I 时：
+1. 刷新 dcache：写回所有脏行（writeback dirty lines）
+2. 失效 icache：使所有标签 valid=0
+
+### 5.10 总线桥接 PTW 路径 (`cpu_bus_bridge`)
+
+`cpu_bus_bridge` 除了处理 Cache Refill/Writeback 和 MMIO 请求外，还负责 PTW 的读写请求。PTW 请求旁路 dcache，直接通过 AHB 总线访问 BRAM 中的页表数据。
+
+**PTW 请求处理**：
+
+- PTW 读请求：读取页表项（L1/L0 PTE），直接发 AHB 单拍读
+- PTW 写请求：A/D 位写回，直接发 AHB 单拍写
+- 旁路 dcache：PTW 请求不经过 dcache，避免缓存一致性问题和死锁
+
+**仲裁优先级**（从高到低）：
+
+```
+icache_mmio > dcache_mmio > ptw_i > ptw_d > dcache_wb > icache_refill > dcache_refill
+```
+
+PTW 优先级高于 Cache Writeback 和 Refill，确保页表漫游不会被缓存操作阻塞，但低于 MMIO 请求以保证外设访问的实时性。
+
+**PTW 总线错误处理**（Bug 10/11 修复）：
+
+当 PTW 发起的 AHB 请求收到错误响应（HRESP=ERROR）时：
+1. 置 `ptw_error_r = 1`
+2. PTW 状态机进入 S_FAULT
+3. 产生页错误异常，由陷阱管理器处理
 
 ---
 
@@ -503,6 +670,7 @@ S_WB_ADDR/S_WB_DATA:          INCR8 写突发，每拍移出 wb_shift_reg[31:0]
 | `tb_simple_cpu_top` | `cpu_test.hex` | 完整指令集测试（ALU + 分支 + 跳转 + Load/Store + M 扩展 + CLINT + Trap） | 10ms | 42 PASS, 0 FAIL |
 | `tb_simple_cpu_compute` | `cpu_test_compute.hex` | 算术/逻辑/移位/乘除法计算测试 | 10ms | 42 PASS, 0 FAIL |
 | `tb_simple_cpu_trap` | `cpu_test_trap.hex` | 异常/中断陷阱处理测试 | 5ms | 14 PASS, 0 FAIL |
+| `tb_simple_cpu_priv` | `cpu_test_priv.coe` | M/S/U 特权模式 + Sv32 虚拟内存测试 | 25ms | 3 PASS, 0 FAIL |
 | `tb_led_marquee` | `led_marquee.hex` | LED 跑马灯 + GPIO + CLINT MTIP 测试 | 2s | 16 PASS, 0 FAIL |
 | `tb_uart_hello` | `uart_hello.hex` | UART 输出 "Hello World" 测试 | 40ms | 12 PASS, 0 FAIL |
 | `tb_ahb_bus` | — | AHB-Lite 总线功能测试 | 5000ns | — |
@@ -560,7 +728,9 @@ S_WB_ADDR/S_WB_DATA:          INCR8 写突发，每拍移出 wb_shift_reg[31:0]
 | `dev/rtl/core/` | `icache_ctrl.sv` | 指令缓存控制器（4路组相联，Tree-PLRU） |
 | `dev/rtl/core/` | `dcache_ctrl.sv` | 数据缓存控制器（4路组相联，写回+写分配） |
 | `dev/rtl/core/` | `tree_plru.sv` | Tree-PLRU 替换策略（4路，3-bit 状态） |
-| `dev/rtl/core/` | `MMU.sv` | 地址映射（恒等） |
+| `dev/rtl/core/` | `MMU.sv` | Sv32 虚拟内存（TLB + PTW） |
+| `dev/rtl/core/` | `tlb.sv` | TLB（16项全相联，ASID感知） |
+| `dev/rtl/core/` | `ptw.sv` | Sv32 页表漫游器 |
 | `dev/rtl/core/` | `cpu_bus_bridge.sv` | AHB-Lite 总线桥接（MMIO + INCR8 突发） |
 | `dev/rtl/ALU/` | `alu_32bit.sv` | 32-bit ALU 顶层 |
 | `dev/rtl/ALU/` | `cla_adder_4bit.sv` | 4-bit CLA |
@@ -600,6 +770,7 @@ S_WB_ADDR/S_WB_DATA:          INCR8 写突发，每拍移出 wb_shift_reg[31:0]
 | `dev/tb/tb_simple_cpu_top.sv` | 完整指令集测试 |
 | `dev/tb/tb_simple_cpu_compute.sv` | 计算密集测试 |
 | `dev/tb/tb_simple_cpu_trap.sv` | 异常/中断测试 |
+| `dev/tb/tb_simple_cpu_priv.sv` | M/S/U 特权模式测试 |
 | `dev/tb/tb_ahb_bus.sv` | AHB 总线测试 |
 | `dev/tb/tb_apb_perips.sv` | APB 外设测试 |
 | `dev/tb/tb_uart_hello.sv` | UART 输出测试 |
@@ -618,11 +789,48 @@ S_WB_ADDR/S_WB_DATA:          INCR8 写突发，每拍移出 wb_shift_reg[31:0]
 4. **桶形移位器**：5 级级联（1/2/4/8/16），单周期完成任意移位
 5. **Booth 乘法器**：Radix-2 Booth 编码，32 周期迭代，支持有符号/无符号
 6. **非恢复余数除法器**：32 周期迭代 + 修正阶段，处理除零/溢出/符号
-7. **完整陷阱处理**：支持 6 种异常 + 3 种中断，符合 RISC-V 特权规范
-8. **4 路组相联缓存**：ICache/DCache 各 1KB（8 组 × 4 路 × 32B 行），寄存器标签并行比较
-9. **Tree-PLRU 替换**：3-bit 状态编码，无效路优先，近似 LRU 替换策略
-10. **写回 + 写分配**：Store 命中仅写 BRAM + 置 dirty，缺失先 Refill 再合并写入，脏行驱逐写回主存
-11. **INCR8 突发传输**：Cache Refill/Writeback 使用 AHB INCR8 突发，8 拍传输整行 256-bit 数据
-12. **MMIO 旁路**：`addr[31]==0` 直接走 AHB 总线，不经过缓存，保证外设访问强序
-13. **AHB-Lite + APB 双总线**：高速设备挂 AHB，低速外设挂 APB，通过桥接互联
-14. **总线桥优先级**：MMIO > Writeback > IRefill > DRefill，防止饿死与脏行堆积
+7. **完整陷阱处理**：支持 11 种异常 + 3 种中断，符合 RISC-V 特权规范
+8. **M/S/U 三级特权模式**：支持陷阱委托（medeleg/mideleg），S-mode 独立陷阱向量与 CSR
+9. **Sv32 二级页表虚拟内存**：硬件页表漫游（PTW），16 项全相联 TLB，ASID 感知
+10. **SRET/SFENCE.VMA/fence.i 指令**：S-mode 陷阱返回、TLB 刷新、icache 失效 + dcache 写回
+11. **硬件管理 A/D 位**：PTW 自动写回 PTE 的访问位和脏位
+12. **4 路组相联缓存**：ICache/DCache 各 1KB（8 组 × 4 路 × 32B 行），寄存器标签并行比较
+13. **Tree-PLRU 替换**：3-bit 状态编码，无效路优先，近似 LRU 替换策略
+14. **写回 + 写分配**：Store 命中仅写 BRAM + 置 dirty，缺失先 Refill 再合并写入，脏行驱逐写回主存
+15. **INCR8 突发传输**：Cache Refill/Writeback 使用 AHB INCR8 突发，8 拍传输整行 256-bit 数据
+16. **MMIO 旁路**：`addr[31]==0` 直接走 AHB 总线，不经过缓存，保证外设访问强序
+17. **AHB-Lite + APB 双总线**：高速设备挂 AHB，低速外设挂 APB，通过桥接互联
+18. **总线桥优先级**：MMIO > PTW > Writeback > IRefill > DRefill，防止饿死与脏行堆积
+19. **数据 MMU translate_en 门控**：mem_en 同步控制 Sv32 翻译使能，消除组合信号竞争
+
+---
+
+## 11. Bug 修复记录
+
+### Bug 12: hw_trap_is_enter 门控 epc/cause/tval 写入
+
+**问题**：陷阱 CSR（mepc/mcause/mtval/sepc/scause/stval）在非陷阱周期被误写，导致 CSR 值被覆盖为错误数据。
+
+**修复**：引入 `hw_trap_is_enter` 信号，仅当陷阱进入时有效。epc/cause/tval 的写入以 `hw_trap_is_enter` 为门控条件，确保仅在合法陷阱进入时更新。
+
+### Bug 13: mem_data_access 门控数据 MMU miss/page_fault
+
+**问题**：数据 MMU 的 TLB 缺失和页错误信号在非访存周期被错误触发，因为 MMU 的虚拟地址输入在非访存时为无效值。
+
+**修复**：使用 `mem_data_access` 信号门控数据 MMU 的 miss 和 page_fault 输出，仅当实际发生访存操作时才允许这些信号传播。
+
+### Bug 14: MMU translate_en 输入门控 sv32_enabled
+
+**问题**：数据 MMU 的 `sv32_enabled` 信号在非访存周期仍为活跃，导致 MMU 在不需要翻译时仍尝试翻译无效地址，产生虚假的 TLB 缺失或页错误。
+
+**修复**：MMU 增加 `translate_en` 输入，数据 MMU 的 `translate_en` 由 `mem_en` 驱动。仅当 `translate_en=1` 时 MMU 才执行 Sv32 翻译，否则直接输出虚拟地址（恒等映射）。
+
+### Bug 15: mem_data_access → mem_en 消除组合信号竞争
+
+**问题**：`mem_data_access` 作为组合信号直接驱动数据 MMU 的翻译使能，形成从 MMU 输出（page_fault/miss）到 MMU 输入（translate_en）的组合环路，导致仿真中出现 X 态传播和不确定行为。
+
+**修复**：将 `mem_data_access` 替换为寄存信号 `mem_en`（在 FSM 状态转换时锁存），打断组合环路。`mem_en` 在 STATE_MEM 入口置 1，在 STATE_MEM 出口清 0，确保数据 MMU 的翻译使能是时序信号而非组合信号。
+
+### 经验教训
+
+**Vivado 工程 RTL 同步**：修改 `dev/rtl/` 下的源文件后，Vivado 工程中引用的 RTL 文件不会自动更新。必须在 Vivado 中执行 `update_compile_order -fileset sources_1` 或通过 `vivado_do.tcl` 的 `create`/`sim` 步骤重新加载，否则仿真仍运行旧版 RTL，导致 bug 修复无法生效。

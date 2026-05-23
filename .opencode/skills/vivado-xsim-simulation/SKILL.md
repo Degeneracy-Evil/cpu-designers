@@ -222,9 +222,16 @@ vivado_do -sim tb_bootloader -runtime 30ms
 # 完全重建
 vivado_do -clear -create -sim tb_simple_cpu_top
 
+# 源码变更后刷新工程
+vivado_do -refresh
+
 # 仅生成 bitstream
 vivado_do -bitstream
 ```
+
+## 10. vivado_do.tcl 使用 注意事项
+
+vivado_do.tcl使用拷贝策略复制源码，更新工作区源码后需要刷新vivado项目代码。
 
 ## 11. 常见编译警告
 

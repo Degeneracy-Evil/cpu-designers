@@ -233,52 +233,71 @@ ALL TESTS PASSED!
 
 ## 模块接口
 
-### 顶层ALU模块
+### alu_32bit — 纯组合逻辑 ALU
+
+单周期直出结果，无时钟、无握手协议。仅处理加减移位逻辑比较等单周期运算。
 
 ```verilog
 module alu_32bit(
-    input         clk,           // 时钟信号
-    input         reset,         // 复位信号（高电平有效）
     input  [15:0] alu_control,   // ALU控制信号（one-hot编码）
     input  [31:0] src1,          // 源操作数1
     input  [31:0] src2,          // 源操作数2
-   input         req_valid,     // 请求有效
-   input         flush,         // 冲刷当前顶层状态
-   input         result_got,  // 结果消费握手
-    output [31:0] result,        // 运算结果
-   output        alu_busy,      // 多周期执行中
-   output        alu_ready,     // 可接收新请求
-   output        result_valid,  // 结果有效
-   output        illegal_op,    // 非法one-hot
-   output        div_by_zero    // 最近一次除法是否为除零
+    output [31:0] result         // 运算结果，同拍有效
+);
+```
+
+### mu_unit — 多周期乘除法单元
+
+实现 RV32M 扩展全部 8 条乘除法指令，需要时钟和握手协议。详见 `MU_INTERFACE.md`。
+
+```verilog
+module mu_unit(
+    input         clk,
+    input         reset,
+    input  [2:0]  mu_funct3,    // RISC-V funct3，直接映射M扩展操作码
+    input  [31:0] src1,
+    input  [31:0] src2,
+    input         req_valid,    // 请求有效
+    input         flush,        // 冲刷当前状态
+    input         result_got,   // 结果消费握手
+    output [31:0] result,       // 运算结果
+    output        mu_busy,      // 多周期执行中
+    output        mu_ready,     // 可接收新请求
+    output        result_valid, // 结果有效
+    output        div_by_zero   // 最近一次除法是否为除零
 );
 ```
 
 ### 使用示例
 
 ```verilog
-// 加法示例
+// alu_32bit: 加法示例（纯组合逻辑，同拍出结果）
 alu_control = 16'b0001_0000_0000_0000;  // ADD
 src1 = 32'd12345;
 src2 = 32'd67890;
-req_valid = 1'b1;
-// 当 alu_ready=1 时发射请求
-// 下一拍可见 result_valid=1, result=80235
+// result = 80235，同拍有效
 
-// 有符号比较示例
+// alu_32bit: 有符号比较示例
 alu_control = 16'b0000_0100_0000_0000;  // SLT
 src1 = 32'hffffffff;  // -1
 src2 = 32'd1;
-req_valid = 1'b1;
-// result_valid=1 时读取 result=1
+// result = 1，同拍有效
 
-// 乘法示例（等待result_valid）
-alu_control = 16'b1000_0000_0000_0000;  // MUL
+// mu_unit: 乘法示例（需等待result_valid）
+mu_funct3 = 3'b000;  // MUL
 src1 = 32'd123;
 src2 = 32'd456;
 req_valid = 1'b1;
 // 等待若干拍后 result_valid = 1
 // result = 56088
+
+// mu_unit: 除法示例
+mu_funct3 = 3'b100;  // DIV
+src1 = 32'd1000;
+src2 = 32'd7;
+req_valid = 1'b1;
+// 等待若干拍后 result_valid = 1
+// result = 142
 ```
 
 ## 设计特点

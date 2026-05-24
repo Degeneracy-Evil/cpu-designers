@@ -28,24 +28,27 @@ module alu_32bit(
 
 `alu_control` 使用 16 位 one-hot 编码：
 
-| 位 | 操作 | 指令 |
-|----|------|------|
-| 0 | — | 保留 |
-| 1 | ADD | ADD |
-| 2 | SUB | SUB |
-| 3 | SRL | SRL |
-| 4 | SRA | SRA |
-| 5 | SLL | SLL |
-| 6 | AND | AND |
-| 7 | OR | OR |
-| 8 | NOT | — |
-| 9 | XOR | XOR |
-| 10 | SLT | SLT |
-| 11 | SLTU | SLTU |
-| 12 | NOR | — |
-| 13 | LUI | LUI |
-| 14 | — | 保留 |
-| 15 | — | 保留 |
+| 位 | 十六进制 | 操作 | 指令 | 说明 |
+|----|----------|------|------|------|
+| 0 | — | — | 保留 | |
+| 1 | 0x0002 | LUI | LUI | 高位加载 |
+| 2 | 0x0004 | SRA | SRA/SRAI | 算术右移 |
+| 3 | 0x0008 | SRL | SRL/SRLI | 逻辑右移 |
+| 4 | 0x0010 | SLL | SLL/SLLI | 逻辑左移 |
+| 5 | 0x0020 | XOR | XOR/XORI | 按位异或 |
+| 6 | 0x0040 | OR | OR/ORI | 按位或 |
+| 7 | 0x0080 | NOR | — | 按位或非 |
+| 8 | 0x0100 | AND | AND/ANDI | 按位与 |
+| 9 | 0x0200 | SLTU | SLTU/SLTIU | 无符号小于 |
+| 10 | 0x0400 | SLT | SLT/SLTI | 有符号小于 |
+| 11 | 0x0800 | SUB | SUB | 减法 |
+| 12 | 0x1000 | ADD | ADD/ADDI/AUIPC/Load/Store/JAL/JALR/Branch | 加法 |
+| 13 | 0x2000 | NOT | — | 按位取反 |
+| 14 | 0x4000 | — | 保留（DIV 由 mu_unit 处理） | |
+| 15 | 0x8000 | — | 保留（MUL 由 mu_unit 处理） | |
+
+> 注：MUL(bit15) 和 DIV(bit14) 保留位仅用于 `QUICK_REF.md` 中的控制信号速查，
+> 实际乘除法由 `mu_unit` 模块通过 `mu_funct3` 编码执行，不经过 `alu_32bit`。
 
 ## 5. 时序特性
 

@@ -193,7 +193,8 @@ class SessionPanel(Vertical):
         padding: 0 1;
     }
     SessionPanel > .session-entry:focus, SessionPanel > .session-entry.selected {
-        background: $boost;
+        background: $accent;
+        color: $background;
         text-style: bold;
     }
     SessionPanel > .session-entry:hover {
@@ -547,7 +548,7 @@ class VivadoTUI(App):
 
     #main-area {
         layout: horizontal;
-        height: 14;
+        height: 18;
     }
 
     #sessions-panel {
@@ -583,6 +584,7 @@ class VivadoTUI(App):
         Binding("ctrl+q", "quit", "Quit", show=True),
         Binding("ctrl+r", "refresh_sessions", "Refresh", show=True),
         Binding("ctrl+l", "clear_output", "Clear Output", show=True),
+        Binding("ctrl+b", "bitstream", "Bitstream", show=True),
     ]
 
     # Reactive state
@@ -966,6 +968,18 @@ class VivadoTUI(App):
         if name and self._session_mgr:
             try:
                 self._current_session = self._session_mgr.get_session(name)
+                # Link task: auto-switch Task selector to session's task
+                if hasattr(self._current_session, "meta") and self._current_session.meta:
+                    session_task = getattr(self._current_session.meta, "task", None)
+                    if session_task:
+                        self.current_task_name = str(session_task)
+                        try:
+                            # Safely attempt to update dropdown UI
+                            task_sel = self.query_one("#task-select", Select)
+                            if task_sel.value != session_task:
+                                task_sel.value = str(session_task)
+                        except Exception:
+                            pass
             except VivadoCoreError:
                 self._current_session = None
         else:
@@ -1034,6 +1048,12 @@ class VivadoTUI(App):
             viewer.clear_output()
         except Exception:
             pass
+
+    def action_bitstream(self) -> None:
+        """Generate bitstream using shortcut (Ctrl+B)."""
+        session = self._resolve_session()
+        if session:
+            self._do_bitstream(session)
 
 
 # ---------------------------------------------------------------------------

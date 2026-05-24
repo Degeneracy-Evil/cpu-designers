@@ -7,11 +7,12 @@
 ## 1. 实现范围
 
 - **基础指令集**：RV32I（40 条）
+- **乘除法扩展**：RV32M（8 条）
 - **CSR 扩展**：Zicsr（6 条）
 - **指令缓存扩展**：Zifencei（1 条 FENCE.I，作为 NOP 处理）
-- **总计**：47 条指令
+- **总计**：55 条指令
 
-不实现的扩展：RV32M、RV32A、RV32F、RV32D、RV32C。
+不实现的扩展：RV32A、RV32F、RV32D、RV32C。
 
 ---
 
@@ -150,6 +151,33 @@
 
 ---
 
+## 3.10 RV32M 乘除法扩展（opcode = 0110011，funct7 = 0000001）
+
+R-Type 格式，funct7 = 0000001 区分于基础 RV32I 的 R-Type 运算（funct7 = 0000000/0100000）。
+
+| 指令 | funct3 | 语义 | 实现策略 |
+|------|--------|------|----------|
+| MUL    | 000 | `rd = (src1 × src2)[31:0]`（低32位） | Booth 乘法器，32 周期 |
+| MULH   | 001 | `rd = (src1 × src2)[63:32]`（有符号×有符号，高32位） | Booth 乘法器 + 高位选择 |
+| MULHSU | 010 | `rd = (src1 × src2)[63:32]`（有符号×无符号，高32位） | Booth 乘法器 + MULHSU 修正 |
+| MULHU  | 011 | `rd = (src1 × src2)[63:32]`（无符号×无符号，高32位） | Booth 乘法器 + MULHU 修正 |
+| DIV    | 100 | `rd = src1 ÷ src2`（有符号，向零截断） | 非恢复余数除法器，32 周期 |
+| DIVU   | 101 | `rd = src1 ÷ src2`（无符号） | 非恢复余数除法器，is_unsigned=1 |
+| REM    | 110 | `rd = src1 mod src2`（有符号，余数与被除数同号） | 非恢复余数除法器，取余数 |
+| REMU   | 111 | `rd = src1 mod src2`（无符号） | 非恢复余数除法器，is_unsigned=1，取余数 |
+
+> 乘除法通过 `mu_unit` 模块执行，使用 `req_valid/mu_ready/result_valid/result_got` 握手协议。
+> `mu_funct3` 直接对应指令的 funct3 字段。详见 `docs/alu/MU_INTERFACE.md`。
+
+### 除零与边界语义（遵循 RISC-V M 扩展规范）
+
+| 条件 | quotient | remainder |
+|------|----------|-----------|
+| divisor = 0（有符号/无符号） | 0xFFFFFFFF | dividend |
+| dividend = INT_MIN, divisor = -1（有符号） | INT_MIN (0x80000000) | 0 |
+
+---
+
 ## 4. Zicsr 扩展（CSR 指令）
 
 opcode = 1110011，与 System 指令共享 opcode 空间，通过 funct3 区分。
@@ -175,18 +203,52 @@ opcode = 1110011，与 System 指令共享 opcode 空间，通过 funct3 区分�
 
 ### 5.1 CSR 地址映射
 
+#### Machine-mode CSR
+
 | 地址 | 名称 | 读写 | 描述 |
 |------|------|------|------|
 | 0x300 | mstatus | MRW | Machine 状态寄存器 |
+| 0x301 | misa | MRO | Machine ISA 寄存器（只读，硬编码 0x40141100） |
+| 0x302 | medeleg | MRW | Machine 异常委托寄存器 |
+| 0x303 | mideleg | MRW | Machine 中断委托寄存器 |
 | 0x304 | mie | MRW | Machine 中断使能寄存器 |
 | 0x305 | mtvec | MRW | Machine trap 向量基址 |
+| 0x306 | mcounteren | MRW | Machine 计数器使能 |
+| 0x310 | mstatush | MRO | Machine 状态寄存器高32位（只读，恒为0） |
 | 0x340 | mscratch | MRW | Machine 暂存寄存器 |
 | 0x341 | mepc | MRW | Machine 异常程序计数器 |
 | 0x342 | mcause | MRW | Machine 异常原因 |
 | 0x343 | mtval | MRW | Machine trap 值 |
 | 0x344 | mip | MRW | Machine 中断等待寄存器 |
+| 0xB00 | mcycle | MRW | Machine 周期计数器低32位 |
+| 0xB02 | minstret | MRW | Machine 指令完成计数器低32位 |
+| 0xB80 | mcycleh | MRW | Machine 周期计数器高32位 |
+| 0xB82 | minstreth | MRW | Machine 指令完成计数器高32位 |
+| 0xF11 | mvendorid | MRO | 厂商 ID（只读，恒为0） |
+| 0xF12 | marchid | MRO | 架构 ID（只读，恒为0） |
+| 0xF13 | mimpid | MRO | 实现 ID（只读，恒为0） |
+| 0xF14 | mhartid | MRO | Hart ID（只读，恒为0） |
+| 0xF15 | mconfigptr | MRO | 配置指针（只读，恒为0） |
+
+#### Supervisor-mode CSR
+
+| 地址 | 名称 | 读写 | 描述 |
+|------|------|------|------|
+| 0x100 | sstatus | SRW | Supervisor 状态寄存器（mstatus 子集视图） |
+| 0x104 | sie | SRW | Supervisor 中断使能寄存器 |
+| 0x105 | stvec | SRW | Supervisor trap 向量基址 |
+| 0x106 | scounteren | SRW | Supervisor 计数器使能 |
+| 0x140 | sscratch | SRW | Supervisor 暂存寄存器 |
+| 0x141 | sepc | SRW | Supervisor 异常程序计数器 |
+| 0x142 | scause | SRW | Supervisor 异常原因 |
+| 0x143 | stval | SRW | Supervisor trap 值 |
+| 0x144 | sip | SRW | Supervisor 中断等待寄存器 |
+| 0x180 | satp | SRW | Supervisor 地址翻译与保护 |
 
 > 访问上述范围以外的 CSR 地址视为非法指令异常。
+> U-mode 下所有 CSR 访问均触发非法指令异常。
+> S-mode 下仅可访问 S-mode CSR，M-mode CSR 访问触发非法指令异常。
+> M-mode 下可访问所有 CSR。
 
 ### 5.2 mstatus（0x300）位域定义（RV32）
 
@@ -411,4 +473,5 @@ opcode = 1110011，与 System 指令共享 opcode 空间，通过 funct3 区分�
 | Upper Immediate | 2 | LUI AUIPC |
 | System | 4 | ECALL EBREAK FENCE FENCE.I |
 | CSR (Zicsr) | 6 | CSRRW CSRRS CSRRC CSRRWI CSRRSI CSRRCI |
-| **合计** | **47** | |
+| M扩展乘除法 | 8 | MUL MULH MULHSU MULHU DIV DIVU REM REMU |
+| **合计** | **55** | |

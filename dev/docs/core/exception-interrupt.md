@@ -2,10 +2,10 @@
 
 ## 1. 设计原则
 
-- 参考 RISC-V 特权架构，在课程实验范围内合理精简
-- 仅实现 M-mode trap 处理（不实现 S-mode、delegation）
+- 参考 RISC-V 特权架构，实现 M-mode 和 S-mode trap 处理
+- 支持异常委托（medeleg）和中断委托（mideleg），允许 trap 直接陷入 S-mode
 - 必须能区分：非法指令、ecall、地址未对齐、EBREAK、外部中断
-- 中断实现采用单级控制：默认实现 `MEIP`（UART RX），不实现中断嵌套与可编程优先级
+- 中断实现支持：MEIP（UART RX）、MTIP（定时器）、MSIP（软件中断），不实现中断嵌套与可编程优先级
 
 ## 2. Trap 进入流程
 
@@ -27,6 +27,44 @@
 4. **特权模式** ← mstatus.MPP
 5. **mstatus.MPP** ← U（最低特权模式）
 
+## 3.5 SRET 返回流程
+
+1. **PC** ← sepc
+2. **sstatus.SIE** ← sstatus.SPIE
+3. **sstatus.SPIE** ← 1
+4. **特权模式** ← S（若 sstatus.SPP=1）或 U（若 sstatus.SPP=0）
+5. **sstatus.SPP** ← 0
+
+## 3.6 Trap 委托机制
+
+通过 `medeleg` 和 `mideleg` CSR，M-mode 可以将特定异常和中断委托给 S-mode 处理，避免所有 trap 都陷入 M-mode。
+
+### 异常委托（medeleg）
+
+- `medeleg[i] = 1`：异常代码 i 委托给 S-mode
+- 当异常发生时，若 `medeleg[cause] = 1` 且当前特权级 ≤ S-mode，则 trap 陷入 S-mode
+- 否则陷入 M-mode
+- 已实现的委托位：异常代码 0/2/3/4/6/8/11（对应本项目支持的异常类型）
+
+### 中断委托（mideleg）
+
+- `mideleg[i] = 1`：中断代码 i 委托给 S-mode
+- 当中断发生时，若 `mideleg[cause] = 1` 且当前特权级 ≤ S-mode，则 trap 陷入 S-mode
+- 否则陷入 M-mode
+- 已实现的委托位：中断代码 3/7/11（MSIP/MTIP/MEIP）
+
+### S-mode Trap 进入流程
+
+当 trap 委托至 S-mode 时：
+
+1. **sepc** ← 触发 trap 的指令 PC
+2. **scause** ← trap 原因编码
+3. **stval** ← 附加信息
+4. **sstatus.SPIE** ← sstatus.SIE
+5. **sstatus.SIE** ← 0
+6. **sstatus.SPP** ← 当前特权模式（U=0, S=1）
+7. **PC** ← stvec.BASE（MODE=Direct）或 stvec.BASE + 4×cause（MODE=Vectored）
+
 ## 4. 异常检测
 
 ### 4.1 非法指令（Exception Code = 2）
@@ -39,8 +77,8 @@
 
 ### 4.2 ecall（Exception Code = 8 或 11）
 
-- U-mode 执行 ecall → mcause = 8
-- M-mode 执行 ecall → mcause = 11
+- U-mode 执行 ecall → 若 medeleg[8]=1 则陷入 S-mode（scause=8），否则陷入 M-mode（mcause=8）
+- S-mode 执行 ecall → mcause = 11（始终陷入 M-mode）
 
 ### 4.3 EBREAK（Exception Code = 3）
 

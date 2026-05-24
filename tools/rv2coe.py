@@ -62,6 +62,7 @@ _RV32I_BASE: FrozenSet[str] = frozenset({
     "ecall",
     "ebreak",
     "fence",
+    "wfi",
 })
 
 _RV32I_ZICSR: FrozenSet[str] = _RV32I_BASE | frozenset({
@@ -73,6 +74,7 @@ _RV32I_ZICSR: FrozenSet[str] = _RV32I_BASE | frozenset({
     "csrrci",
     "mret",
     "sret",
+    "sfence.vma",
 })
 
 _RV32I_ZIFENCEI: FrozenSet[str] = _RV32I_ZICSR | frozenset({"fence.i"})
@@ -200,13 +202,29 @@ def parse_args() -> argparse.Namespace:
         description="Compile RISC-V ASM/C into COE/hex/bin for instruction/data memories.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument("-i", "--input", required=True, help="Input source file (.S/.s/.asm/.c)")
+    parser.add_argument(
+        "-i", "--input",
+        required=True,
+        action="append",
+        help="Input source file (.S/.s/.asm/.c). May be specified multiple times for multi-file compilation.",
+    )
     parser.add_argument("-o", "--output", default="", help="Output .coe file (unified .text)")
     parser.add_argument(
         "--lang",
         choices=["auto", "asm", "c"],
         default="auto",
-        help="Input language",
+        help="Input language (applies to all files when not auto)",
+    )
+    parser.add_argument(
+        "-I", "--include",
+        action="append",
+        default=[],
+        help="Add include search path (may be specified multiple times)",
+    )
+    parser.add_argument(
+        "--linker-script",
+        default="",
+        help="Custom linker script (.ld) for multi-file linking",
     )
     parser.add_argument("--entry", default="_start", help="Link entry symbol")
     parser.add_argument(
@@ -216,6 +234,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--abi", default="ilp32", help="-mabi passed to GCC")
     parser.add_argument("--gcc", default="riscv64-unknown-elf-gcc", help="RISC-V GCC executable")
+    parser.add_argument("--ld", default="riscv64-unknown-elf-ld", help="RISC-V linker executable")
     parser.add_argument("--objcopy", default="riscv64-unknown-elf-objcopy", help="RISC-V objcopy executable")
     parser.add_argument("--objdump", default="riscv64-unknown-elf-objdump", help="RISC-V objdump executable")
     check_group = parser.add_mutually_exclusive_group()
@@ -329,22 +348,18 @@ def run_cmd(cmd: Sequence[str], verbose: bool) -> str:
     return proc.stdout
 
 
-def compile_to_elf(
+def compile_source_to_obj(
     args: argparse.Namespace,
     src_path: Path,
     src_kind: str,
-    elf_path: Path,
+    obj_path: Path,
 ) -> None:
+    """Compile a single source file to an object file (.o)."""
     cmd: List[str] = [
         args.gcc,
         f"-march={args.march}",
         f"-mabi={args.abi}",
-        "-nostdlib",
-        "-nostartfiles",
-        f"-Wl,-Ttext={args.text_base}",
-        "-Wl,--no-relax",
-        "-Wl,--build-id=none",
-        f"-Wl,-e,{args.entry}",
+        "-c",  # compile only, no link
     ]
 
     if src_kind == "asm":
@@ -364,8 +379,93 @@ def compile_to_elf(
             ]
         )
 
-    cmd.extend([str(src_path), "-o", str(elf_path)])
+    for inc_dir in args.include:
+        cmd.extend(["-I", inc_dir])
+
+    cmd.extend([str(src_path), "-o", str(obj_path)])
     run_cmd(cmd, args.verbose)
+
+
+def link_objs_to_elf(
+    args: argparse.Namespace,
+    obj_paths: List[Path],
+    elf_path: Path,
+) -> None:
+    """Link object files into an ELF executable."""
+    cmd: List[str] = [
+        args.ld,
+        "-m", "elf32lriscv",
+        f"-Ttext={args.text_base}",
+        "--no-relax",
+        "--build-id=none",
+        f"-e,{args.entry}",
+    ]
+
+    if args.linker_script:
+        cmd.extend(["-T", args.linker_script])
+
+    cmd.extend([str(p) for p in obj_paths])
+    cmd.extend(["-o", str(elf_path)])
+    run_cmd(cmd, args.verbose)
+
+
+def compile_to_elf(
+    args: argparse.Namespace,
+    src_paths: List[Path],
+    src_kinds: List[str],
+    elf_path: Path,
+    tmp_root: Path,
+) -> None:
+    """Compile source files to object files, then link into ELF.
+
+    For a single source file, uses GCC in compile+link mode (backward compatible).
+    For multiple source files, compiles each to .o then links with ld.
+    """
+    if len(src_paths) == 1 and not args.linker_script:
+        # Single-file fast path: let GCC compile and link in one step
+        cmd: List[str] = [
+            args.gcc,
+            f"-march={args.march}",
+            f"-mabi={args.abi}",
+            "-nostdlib",
+            "-nostartfiles",
+            f"-Wl,-Ttext={args.text_base}",
+            "-Wl,--no-relax",
+            "-Wl,--build-id=none",
+            f"-Wl,-e,{args.entry}",
+        ]
+
+        if src_kinds[0] == "asm":
+            cmd.extend(["-x", "assembler-with-cpp"])
+        else:
+            cmd.extend(
+                [
+                    "-x",
+                    "c",
+                    "-ffreestanding",
+                    "-fno-builtin",
+                    "-fno-stack-protector",
+                    "-fno-pic",
+                    "-fno-pie",
+                    "-fno-unwind-tables",
+                    "-fno-asynchronous-unwind-tables",
+                ]
+            )
+
+        for inc_dir in args.include:
+            cmd.extend(["-I", inc_dir])
+
+        cmd.extend([str(src_paths[0]), "-o", str(elf_path)])
+        run_cmd(cmd, args.verbose)
+    else:
+        # Multi-file path: compile each to .o, then link
+        obj_paths: List[Path] = []
+        for idx, (src_path, src_kind) in enumerate(zip(src_paths, src_kinds)):
+            obj_path = tmp_root / f"src_{idx}.o"
+            compile_source_to_obj(args, src_path, src_kind, obj_path)
+            obj_paths.append(obj_path)
+
+        link_objs_to_elf(args, obj_paths, elf_path)
 
 
 def check_isa_whitelist(args: argparse.Namespace, elf_path: Path) -> None:
@@ -483,10 +583,11 @@ def write_bin(bin_path_src: Path, output_path: Path) -> None:
 def main() -> int:
     args = parse_args()
 
-    src_path = Path(args.input).resolve()
-    if not src_path.exists():
-        print(f"[ERROR] Input file not found: {src_path}", file=sys.stderr)
-        return 2
+    src_paths = [Path(p).resolve() for p in args.input]
+    for sp in src_paths:
+        if not sp.exists():
+            print(f"[ERROR] Input file not found: {sp}", file=sys.stderr)
+            return 2
 
     has_unified = bool(args.output)
     has_inst = bool(args.inst_coe or args.inst_hex or args.inst_bin)
@@ -497,11 +598,12 @@ def main() -> int:
 
     try:
         ensure_tool(args.gcc)
+        ensure_tool(args.ld)
         ensure_tool(args.objcopy)
         if args.check_isa:
             ensure_tool(args.objdump)
 
-        src_kind = detect_lang(src_path, args.lang)
+        src_kinds = [detect_lang(sp, args.lang) for sp in src_paths]
 
         if args.keep_temp:
             tmp_root = Path(tempfile.mkdtemp(prefix="rv2coe_"))
@@ -516,7 +618,7 @@ def main() -> int:
         inst_bin_path = tmp_root / "prog.inst.bin"
         data_bin_path = tmp_root / "prog.data.bin"
 
-        compile_to_elf(args, src_path, src_kind, elf_path)
+        compile_to_elf(args, src_paths, src_kinds, elf_path, tmp_root)
         if args.check_isa:
             check_isa_whitelist(args, elf_path)
 
@@ -525,13 +627,16 @@ def main() -> int:
         if has_data:
             elf_data_to_bin(args, elf_path, data_bin_path)
 
+        input_desc = ", ".join(str(p) for p in src_paths)
+        lang_desc = ", ".join(src_kinds)
+
         if has_unified:
             output_path = Path(args.output).resolve()
             words = bin_to_words(inst_bin_path)
             words = apply_depth(words, args.depth)
             write_coe(words, output_path)
-            print(f"[INFO] Input : {src_path}")
-            print(f"[INFO] Lang  : {src_kind}")
+            print(f"[INFO] Input : {input_desc}")
+            print(f"[INFO] Lang  : {lang_desc}")
             print(f"[INFO] Words : {len(words)}")
             print(f"[INFO] Output: {output_path}")
             if args.hex:
@@ -581,8 +686,8 @@ def main() -> int:
                     print("[WARN] No data sections found, skipping --data-bin", file=sys.stderr)
 
         if not has_unified:
-            print(f"[INFO] Input : {src_path}")
-            print(f"[INFO] Lang  : {src_kind}")
+            print(f"[INFO] Input : {input_desc}")
+            print(f"[INFO] Lang  : {lang_desc}")
             print(f"[INFO] March : {args.march}")
 
         if cleanup_tmp:

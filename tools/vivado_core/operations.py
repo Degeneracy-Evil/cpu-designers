@@ -19,6 +19,20 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
+# TCL path helper
+# ---------------------------------------------------------------------------
+
+def _tcl_path(p: Path | str) -> str:
+    """Convert a path to a TCL-safe forward-slash string.
+
+    On Windows, ``str(Path(...))`` uses backslashes which TCL interprets
+    as escape characters (e.g. ``E:\\Xprogram`` -> ``E:Xprogram``).
+    Forward slashes work correctly in TCL on all platforms.
+    """
+    return Path(p).as_posix()
+
+
+# ---------------------------------------------------------------------------
 # TCL template helpers
 # ---------------------------------------------------------------------------
 
@@ -259,6 +273,22 @@ if {{ [file exists $sim_log_file] }} {{
 """
 
 
+def _tcl_open_project(proj_dir: str, proj_name: str) -> str:
+    """Generate TCL to open the project if it is not already open.
+
+    Each CLI invocation starts a fresh Vivado process, so the project
+    must be opened before any operation that needs it (sim, bitstream,
+    etc.).
+    """
+    xpr_path = f"{proj_dir}/{proj_name}.xpr"
+    return f"""\
+# --- open project ---
+if {{ [catch {{current_project}} cur_proj] != 0 }} {{
+    open_project "{xpr_path}"
+}}
+"""
+
+
 # ---------------------------------------------------------------------------
 # Operations
 # ---------------------------------------------------------------------------
@@ -319,10 +349,13 @@ class Operations:
             )
 
     def _resolve_coe_path(self, task: TaskConfig) -> str:
-        """Return the absolute COE path for a task, or empty string."""
+        """Return the absolute COE path for a task, or empty string.
+
+        The path is returned in forward-slash form for TCL safety.
+        """
         if not task.coe:
             return ""
-        return str(self.session_mgr.base_dir / "dev" / "program_source" / task.coe)
+        return _tcl_path(self.session_mgr.base_dir / "dev" / "program_source" / task.coe)
 
     def _update_hashes(self, session: Session) -> None:
         """Recompute and persist the current source hashes."""
@@ -340,6 +373,9 @@ class Operations:
         ``setup_ip.tcl`` + ``add_constrs.tcl`` as a single
         parameterised TCL script.
 
+        No preflight check is performed -- creating a project from
+        scratch is always valid regardless of staleness state.
+
         Parameters
         ----------
         session:
@@ -351,12 +387,11 @@ class Operations:
         -------
         ExecuteResult
         """
-        self._preflight(session, "create")
         self._ensure_vivado(session)
 
-        base = str(self.session_mgr.base_dir)
+        base = _tcl_path(self.session_mgr.base_dir)
         dev = f"{base}/dev"
-        proj_dir = str(session.project_dir)
+        proj_dir = _tcl_path(session.project_dir)
         proj_name = self.session_mgr.config.proj_name
         device_part = self.session_mgr.config.device_part
         coe_file = self._resolve_coe_path(task)
@@ -379,6 +414,9 @@ class Operations:
     ) -> ExecuteResult:
         """Refresh a session to bring it in sync with source changes.
 
+        No preflight check is performed -- the purpose of refresh is
+        to *fix* staleness, so blocking on it would be circular.
+
         Parameters
         ----------
         session:
@@ -391,7 +429,6 @@ class Operations:
         -------
         ExecuteResult
         """
-        self._preflight(session, "refresh")
         self._ensure_vivado(session)
 
         staleness = self.layered_hash.compute_staleness(session.meta.hashes)
@@ -402,15 +439,15 @@ class Operations:
             # Nothing to refresh.
             return ExecuteResult(output="No stale layers", success=True, timed_out=False, duration=0.0)
 
-        base = str(self.session_mgr.base_dir)
+        base = _tcl_path(self.session_mgr.base_dir)
         dev = f"{base}/dev"
-        proj_dir = str(session.project_dir)
+        proj_dir = _tcl_path(session.project_dir)
         proj_name = self.session_mgr.config.proj_name
         device_part = self.session_mgr.config.device_part
         coe_file = self._resolve_coe_path(task)
 
         if plan.full:
-            # Full rebuild: close → delete → create.
+            # Full rebuild: close -> delete -> create.
             tcl_close = "catch { close_project }\n"
             tcl_delete = f"file delete -force {proj_dir}\n"
             tcl_rebuild = "\n".join([
@@ -421,7 +458,7 @@ class Operations:
             tcl = tcl_close + tcl_delete + tcl_rebuild
         else:
             # Incremental: execute only the needed steps.
-            tcl_parts: list[str] = []
+            tcl_parts: list[str] = [_tcl_open_project(proj_dir, proj_name)]
             tb_dir = f"{dev}/tb"
             ip_xci_dir = f"{proj_dir}/{proj_name}.srcs/sources_1/ip"
 
@@ -519,13 +556,14 @@ class Operations:
         self._ensure_vivado(session)
 
         sim_runtime = runtime or task.runtime or "100000ns"
-        base = str(self.session_mgr.base_dir)
+        base = _tcl_path(self.session_mgr.base_dir)
         dev = f"{base}/dev"
-        proj_dir = str(session.project_dir)
+        proj_dir = _tcl_path(session.project_dir)
         proj_name = self.session_mgr.config.proj_name
         coe_file = self._resolve_coe_path(task)
 
         tcl = "\n".join([
+            _tcl_open_project(proj_dir, proj_name),
             _tcl_add_tb(dev, proj_dir, proj_name, task.tb, coe_file),
             _tcl_run_sim(task.tb, sim_runtime, proj_dir, proj_name),
         ])
@@ -537,7 +575,7 @@ class Operations:
     def bitstream(self, session: Session) -> ExecuteResult:
         """Generate a bitstream in the session.
 
-        Executes synthesis → implementation → write_bitstream.
+        Executes synthesis -> implementation -> write_bitstream.
 
         Parameters
         ----------
@@ -551,11 +589,13 @@ class Operations:
         self._preflight(session, "bitstream")
         self._ensure_vivado(session)
 
-        base = str(self.session_mgr.base_dir)
-        proj_dir = str(session.project_dir)
+        base = _tcl_path(self.session_mgr.base_dir)
+        proj_dir = _tcl_path(session.project_dir)
         proj_name = self.session_mgr.config.proj_name
 
-        tcl = f"""\
+        tcl = "\n".join([
+            _tcl_open_project(proj_dir, proj_name),
+            f"""\
 set_property top system_top [current_fileset]
 update_compile_order -fileset sources_1
 reset_run synth_1
@@ -572,7 +612,8 @@ if {{ [file exists $bit_file] }} {{
 }} else {{
     puts "ERROR: Bitstream generation failed"
 }}
-"""
+""",
+        ])
 
         result = session.execute(tcl, timeout=3600.0)
         session.update_last_used()
@@ -593,10 +634,14 @@ if {{ [file exists $bit_file] }} {{
         self._preflight(session, "program")
         self._ensure_vivado(session)
 
-        base = str(self.session_mgr.base_dir)
+        base = _tcl_path(self.session_mgr.base_dir)
+        proj_dir = _tcl_path(session.project_dir)
+        proj_name = self.session_mgr.config.proj_name
         bit_file = f"{base}/system_top.bit"
 
-        tcl = f"""\
+        tcl = "\n".join([
+            _tcl_open_project(proj_dir, proj_name),
+            f"""\
 if {{ [file exists "{bit_file}"] }} {{
     catch {{ open_hw }}
     catch {{ connect_hw_server }}
@@ -614,7 +659,8 @@ if {{ [file exists "{bit_file}"] }} {{
 }} else {{
     puts "ERROR: Bitstream file not found: {bit_file}"
 }}
-"""
+""",
+        ])
 
         result = session.execute(tcl, timeout=120.0)
         session.update_last_used()
@@ -635,10 +681,13 @@ if {{ [file exists "{bit_file}"] }} {{
         self._preflight(session, "archive")
         self._ensure_vivado(session)
 
-        base = str(self.session_mgr.base_dir)
+        base = _tcl_path(self.session_mgr.base_dir)
+        proj_dir = _tcl_path(session.project_dir)
         proj_name = self.session_mgr.config.proj_name
 
-        tcl = f"""\
+        tcl = "\n".join([
+            _tcl_open_project(proj_dir, proj_name),
+            f"""\
 set time_str [clock format [clock seconds] -format "%Y%m%d_%H%M%S"]
 set target_dir "{base}/archive"
 file mkdir $target_dir
@@ -652,7 +701,8 @@ if {{ [catch {{archive_project $archive_path -force -include_local_ip_cache -inc
 }} else {{
     puts "Archive created: $archive_path"
 }}
-"""
+""",
+        ])
 
         result = session.execute(tcl, timeout=300.0)
         session.update_last_used()

@@ -102,6 +102,17 @@ class SyncPolicy:
         -------
         PreflightResult
         """
+        # A session with no stored hashes has never been created —
+        # staleness is meaningless; the project simply doesn't exist yet.
+        if not session.meta.hashes:
+            return PreflightResult(
+                ok=False,
+                reason="Session has no project; create first",
+                fix="Run -create before proceeding",
+                severity="error",
+                stale_layers=[],
+            )
+
         staleness = self._hash.compute_staleness(session.meta.hashes)
         stale_layers = [layer for layer, is_stale in staleness.items() if is_stale]
 

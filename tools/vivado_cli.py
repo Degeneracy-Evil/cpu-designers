@@ -568,11 +568,10 @@ def main(argv: list[str] | None = None) -> int:
         t0 = time.monotonic()
         try:
             task_obj = task_registry.get(task_name)  # type: ignore[attr-defined]
-            output = ops.create(session, task_obj)  # type: ignore[attr-defined]
-            success = True
+            res = ops.create(session, task_obj)  # type: ignore[attr-defined]
+            output, success = res.output, res.success
         except VivadoCoreError as e:
-            output = str(e)
-            success = False
+            output, success = str(e), False
         duration = time.monotonic() - t0
         results.append(
             _make_result("create", session_name, task_name, success, output, duration, None)
@@ -583,12 +582,11 @@ def main(argv: list[str] | None = None) -> int:
         t0 = time.monotonic()
         try:
             preflight = sync.preflight_check(session, "refresh")  # type: ignore[attr-defined]
-            output = ops.refresh(session, layers=refresh_layers)  # type: ignore[attr-defined]
-            success = True
+            res = ops.refresh(session, layers=refresh_layers)  # type: ignore[attr-defined]
+            output, success = res.output, res.success
         except VivadoCoreError as e:
-            output = str(e)
+            output, success = str(e), False
             preflight = None
-            success = False
         duration = time.monotonic() - t0
         staleness_dict = {l: True for l in preflight.stale_layers} if preflight else None
         results.append(
@@ -605,11 +603,10 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"WARNING: Stale layers detected: {', '.join(preflight.stale_layers)}")
             staleness_dict = {l: True for l in preflight.stale_layers}
             task_obj = task_registry.get(task_name)  # type: ignore[attr-defined]
-            output = ops.sim(session, task_obj, runtime=runtime)  # type: ignore[attr-defined]
-            success = True
+            res = ops.sim(session, task_obj, runtime=runtime)  # type: ignore[attr-defined]
+            output, success = res.output, res.success
         except VivadoCoreError as e:
-            output = str(e)
-            success = False
+            output, success = str(e), False
         duration = time.monotonic() - t0
         results.append(
             _make_result("sim", session_name, task_name, success, output, duration, staleness_dict)
@@ -624,11 +621,10 @@ def main(argv: list[str] | None = None) -> int:
             if preflight.stale_layers:
                 print(f"WARNING: Stale layers detected: {', '.join(preflight.stale_layers)}")
             staleness_dict = {l: True for l in preflight.stale_layers}
-            output = ops.bitstream(session)  # type: ignore[attr-defined]
-            success = True
+            res = ops.bitstream(session)  # type: ignore[attr-defined]
+            output, success = res.output, res.success
         except VivadoCoreError as e:
-            output = str(e)
-            success = False
+            output, success = str(e), False
         duration = time.monotonic() - t0
         results.append(
             _make_result("bitstream", session_name, task_name, success, output, duration, staleness_dict)
@@ -638,11 +634,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.hw_connect:
         t0 = time.monotonic()
         try:
-            output = ops.hw_connect(session)  # type: ignore[attr-defined]
-            success = True
+            res = ops.hw_connect(session)  # type: ignore[attr-defined]
+            output, success = res.output, res.success
         except VivadoCoreError as e:
-            output = str(e)
-            success = False
+            output, success = str(e), False
         duration = time.monotonic() - t0
         results.append(
             _make_result("hw_connect", session_name, task_name, success, output, duration, None)
@@ -652,11 +647,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.program:
         t0 = time.monotonic()
         try:
-            output = ops.program(session)  # type: ignore[attr-defined]
-            success = True
+            res = ops.program(session)  # type: ignore[attr-defined]
+            output, success = res.output, res.success
         except VivadoCoreError as e:
-            output = str(e)
-            success = False
+            output, success = str(e), False
         duration = time.monotonic() - t0
         results.append(
             _make_result("program", session_name, task_name, success, output, duration, None)
@@ -666,11 +660,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.archive:
         t0 = time.monotonic()
         try:
-            output = ops.archive(session)  # type: ignore[attr-defined]
-            success = True
+            res = ops.archive(session)  # type: ignore[attr-defined]
+            output, success = res.output, res.success
         except VivadoCoreError as e:
-            output = str(e)
-            success = False
+            output, success = str(e), False
         duration = time.monotonic() - t0
         results.append(
             _make_result("archive", session_name, task_name, success, output, duration, None)

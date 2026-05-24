@@ -7,5 +7,5 @@ limits:
   idle_timeout_min: 60
 
 vivado_path: vivado.bat
-proj_name: simplecpu_bus
+proj_name: simplecpu_soc
 device_part: xc7a200tfbg676-2

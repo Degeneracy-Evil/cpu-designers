@@ -38,6 +38,11 @@ tasks:
     coe: uart_hello.coe
     runtime: 40ms
 
+  uart_echo:
+    tb: tb_uart_echo
+    coe: uart_echo.coe
+    runtime: 100ms
+
   led_marquee:
     tb: tb_led_marquee
     coe: led_marquee.coe

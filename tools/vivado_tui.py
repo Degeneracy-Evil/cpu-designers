@@ -26,7 +26,8 @@ try:
     from textual.app import App, ComposeResult
     from textual.binding import Binding
     from textual.containers import Container, Horizontal, Vertical
-    from textual.events import Key
+    from textual.events import Click, Key
+    from textual.message import Message
     from textual.reactive import reactive
     from textual.widgets import (
         Button,
@@ -154,6 +155,22 @@ def _project_root() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
+class SessionEntry(Static):
+    """A clickable session entry in the session panel."""
+    
+    class Selected(Message):
+        """Emitted when a session entry is clicked."""
+        def __init__(self, name: str) -> None:
+            self.name = name
+            super().__init__()
+
+    def __init__(self, session_name: str, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.session_name = session_name
+
+    def on_click(self) -> None:
+        self.post_message(self.Selected(self.session_name))
+
 # ---------------------------------------------------------------------------
 # SessionPanel — lists sessions with status/staleness
 # ---------------------------------------------------------------------------
@@ -175,12 +192,12 @@ class SessionPanel(Vertical):
     SessionPanel > .session-entry {
         padding: 0 1;
     }
-    SessionPanel > .session-entry:selected {
-        background: $surface-2;
+    SessionPanel > .session-entry:focus, SessionPanel > .session-entry.selected {
+        background: $boost;
         text-style: bold;
     }
     SessionPanel > .session-entry:hover {
-        background: $surface-1;
+        background: $surface;
     }
     .status-idle { color: $success; }
     .status-busy { color: $warning; }
@@ -189,6 +206,12 @@ class SessionPanel(Vertical):
     """
 
     selected_session: reactive[str | None] = reactive(None)
+
+    class Selected(Message):
+        """Emitted when a session is clicked."""
+        def __init__(self, name: str) -> None:
+            self.name = name
+            super().__init__()
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -231,7 +254,7 @@ class SessionPanel(Vertical):
             if stale_layers:
                 line += f"  stale: {','.join(stale_layers)}"
 
-            entry = Static(line, classes="session-entry")
+            entry = SessionEntry(name, line, classes="session-entry")
             # Apply status class for coloring
             status_class = f"status-{status}"
             entry.add_class(status_class)
@@ -241,19 +264,23 @@ class SessionPanel(Vertical):
             # Store data for click handling
             self._session_data.append({"name": name, "status": status, "stale": stale_layers})
 
-            # Click handler via lambda capturing name
-            entry.on_click = lambda event, n=name: self._on_entry_click(n)  # type: ignore[assignment]
+            if self.selected_session == name:
+                entry.add_class("selected")
+
             self.mount(entry)
 
-    def _on_entry_click(self, name: str) -> None:
-        """Handle click on a session entry."""
-        self.selected_session = name
+    def on_session_entry_selected(self, event: SessionEntry.Selected) -> None:
+        """Handle internal bubble up from SessionEntry click."""
+        event.stop()  # Stop the entry's message from bubbling further up
+        self.selected_session = event.name
         # Highlight selected
         for child in list(self.children)[1:]:
             child.remove_class("selected")
-        for i, child in enumerate(list(self.children)[1:]):
-            if i < len(self._session_data) and self._session_data[i]["name"] == name:
+        for child in list(self.children)[1:]:
+            if isinstance(child, SessionEntry) and child.session_name == event.name:
                 child.add_class("selected")
+        # Post the Panel's standard message up to the app
+        self.post_message(self.Selected(event.name))
 
 
 # ---------------------------------------------------------------------------
@@ -340,7 +367,7 @@ class ControlPanel(Vertical):
     .btn-refresh { background: $accent; }
     .btn-bitstream { background: $warning; }
     .btn-program { background: $error; }
-    .btn-archive { background: $surface-2; }
+    .btn-archive { background: $surface; }
     """
 
     def __init__(self, *args, **kwargs) -> None:
@@ -617,6 +644,8 @@ class VivadoTUI(App):
             task_names = self._task_registry.list_names()
             task_sel = self.query_one("#task-selector", TaskSelector)
             task_sel.update_tasks(task_names)
+            if task_names:
+                self.current_task_name = task_names[0]
 
             # Initial session refresh
             self._refresh_sessions()
@@ -632,6 +661,7 @@ class VivadoTUI(App):
     # Session management
     # ------------------------------------------------------------------
 
+    @work(thread=True)
     def _refresh_sessions(self) -> None:
         """Refresh the session list panel (called by interval and manually)."""
         if not self._session_mgr:
@@ -649,13 +679,19 @@ class VivadoTUI(App):
                             stale_map[sess.name] = stale_layers
             self._stale_map = stale_map
 
-            panel = self.query_one("#sessions-panel", SessionPanel)
-            panel.update_sessions(sessions, stale_map)
+            self._safe_call(self._ui_update_sessions, sessions, stale_map)
 
         except VivadoCoreError as e:
             self._output_write_error(f"Session refresh error: {e}")
         except Exception as e:
             # Silently ignore errors during auto-refresh to avoid spamming
+            pass
+
+    def _ui_update_sessions(self, sessions: list, stale_map: dict) -> None:
+        try:
+            panel = self.query_one("#sessions-panel", SessionPanel)
+            panel.update_sessions(sessions, stale_map)
+        except Exception:
             pass
 
     def _get_or_create_session(self, task_name: str, session_name: str | None = None) -> Session | None:
@@ -719,13 +755,12 @@ class VivadoTUI(App):
     # Operation workers
     # ------------------------------------------------------------------
 
-    @work(exclusive=True)
-    async def _do_create(self) -> None:
+    @work(exclusive=True, thread=True)
+    def _do_create(self, session: Session) -> None:
         """Worker: create project in session."""
-        session = self._resolve_session()
-        if not session or not self._ops or not self._task_registry:
+        if not self._ops or not self._task_registry:
             return
-        task_name = self.current_task_name or session.meta.task
+        task_name = self.current_task_name or (session.meta.task if hasattr(session, 'meta') and session.meta else "")
         try:
             task = self._task_registry.get(task_name)
         except VivadoCoreError as e:
@@ -743,16 +778,14 @@ class VivadoTUI(App):
                 self._output_write(f"Create succeeded ({result.duration:.1f}s)")
         except VivadoCoreError as e:
             self._output_write_error(f"Create error: {e}")
-        duration = time.monotonic() - t0
         self._refresh_sessions()
 
-    @work(exclusive=True)
-    async def _do_sim(self) -> None:
+    @work(exclusive=True, thread=True)
+    def _do_sim(self, session: Session) -> None:
         """Worker: run simulation."""
-        session = self._resolve_session()
-        if not session or not self._ops or not self._task_registry:
+        if not self._ops or not self._task_registry:
             return
-        task_name = self.current_task_name or session.meta.task
+        task_name = self.current_task_name or (session.meta.task if hasattr(session, 'meta') and session.meta else "")
         try:
             task = self._task_registry.get(task_name)
         except VivadoCoreError as e:
@@ -777,11 +810,10 @@ class VivadoTUI(App):
             self._output_write_error(f"Sim error: {e}")
         self._refresh_sessions()
 
-    @work(exclusive=True)
-    async def _do_refresh(self) -> None:
+    @work(exclusive=True, thread=True)
+    def _do_refresh(self, session: Session) -> None:
         """Worker: refresh session (sync source changes)."""
-        session = self._resolve_session()
-        if not session or not self._ops:
+        if not self._ops:
             return
 
         self._output_write(f"========== Refresh: {session.name} ==========")
@@ -797,11 +829,10 @@ class VivadoTUI(App):
             self._output_write_error(f"Refresh error: {e}")
         self._refresh_sessions()
 
-    @work(exclusive=True)
-    async def _do_bitstream(self) -> None:
+    @work(exclusive=True, thread=True)
+    def _do_bitstream(self, session: Session) -> None:
         """Worker: generate bitstream."""
-        session = self._resolve_session()
-        if not session or not self._ops:
+        if not self._ops:
             return
 
         # Preflight
@@ -822,11 +853,10 @@ class VivadoTUI(App):
             self._output_write_error(f"Bitstream error: {e}")
         self._refresh_sessions()
 
-    @work(exclusive=True)
-    async def _do_program(self) -> None:
+    @work(exclusive=True, thread=True)
+    def _do_program(self, session: Session) -> None:
         """Worker: program FPGA."""
-        session = self._resolve_session()
-        if not session or not self._ops:
+        if not self._ops:
             return
 
         self._output_write(f"========== Program: {session.name} ==========")
@@ -842,11 +872,10 @@ class VivadoTUI(App):
             self._output_write_error(f"Program error: {e}")
         self._refresh_sessions()
 
-    @work(exclusive=True)
-    async def _do_archive(self) -> None:
+    @work(exclusive=True, thread=True)
+    def _do_archive(self, session: Session) -> None:
         """Worker: export project archive."""
-        session = self._resolve_session()
-        if not session or not self._ops:
+        if not self._ops:
             return
 
         self._output_write(f"========== Archive: {session.name} ==========")
@@ -862,14 +891,9 @@ class VivadoTUI(App):
             self._output_write_error(f"Archive error: {e}")
         self._refresh_sessions()
 
-    @work(exclusive=True)
-    async def _do_execute_tcl(self, cmd: str) -> None:
+    @work(exclusive=True, thread=True)
+    def _do_execute_tcl(self, cmd: str, session: Session) -> None:
         """Worker: execute a raw TCL command in the current session."""
-        session = self._current_session
-        if not session:
-            self._output_write_error("No active session — select or create one first")
-            return
-
         self._output_write(f"> {cmd}")
         try:
             if not session.is_alive():
@@ -886,37 +910,53 @@ class VivadoTUI(App):
     # Output helpers (thread-safe via call_from_thread)
     # ------------------------------------------------------------------
 
-    def _output_write(self, text: str) -> None:
-        """Write to output viewer (main-thread safe)."""
+    def _safe_call(self, func, *args) -> None:
+        import threading
+        if getattr(self, "_thread_id", None) == threading.get_ident():
+            func(*args)
+        else:
+            self.call_from_thread(func, *args)
+
+    def _ui_write(self, text: str) -> None:
         try:
             viewer = self.query_one("#output-area", OutputViewer)
             viewer.write(text)
         except Exception:
             pass
 
-    def _output_write_error(self, text: str) -> None:
-        """Write error to output viewer (main-thread safe)."""
+    def _output_write(self, text: str) -> None:
+        """Write to output viewer (main-thread safe)."""
+        self._safe_call(self._ui_write, text)
+
+    def _ui_write_error(self, text: str) -> None:
         try:
             viewer = self.query_one("#output-area", OutputViewer)
             viewer.write_error(text)
         except Exception:
             pass
 
-    def _output_write_warning(self, text: str) -> None:
-        """Write warning to output viewer (main-thread safe)."""
+    def _output_write_error(self, text: str) -> None:
+        """Write error to output viewer (main-thread safe)."""
+        self._safe_call(self._ui_write_error, text)
+
+    def _ui_write_warning(self, text: str) -> None:
         try:
             viewer = self.query_one("#output-area", OutputViewer)
             viewer.write_warning(text)
         except Exception:
             pass
 
+    def _output_write_warning(self, text: str) -> None:
+        """Write warning to output viewer (main-thread safe)."""
+        self._safe_call(self._ui_write_warning, text)
+
     # ------------------------------------------------------------------
     # Event handlers
     # ------------------------------------------------------------------
 
-    def on_session_panel_selected_session_changed(self, event: SessionPanel.SelectedSessionChanged) -> None:
+    def on_session_panel_selected(self, event: SessionPanel.Selected) -> None:
         """React to session selection in the panel."""
-        name = event.value
+        name = event.name
         self.current_session_name = name
         ctrl = self.query_one("#control-panel", ControlPanel)
         ctrl.set_session_name(name)
@@ -931,30 +971,39 @@ class VivadoTUI(App):
         else:
             self._current_session = None
 
-    def on_task_selector_selected_task_changed(self, event: TaskSelector.SelectedTaskChanged) -> None:
-        """React to task selection change."""
-        self.current_task_name = event.value
-        # Update default session name in control panel
-        if event.value:
-            ctrl = self.query_one("#control-panel", ControlPanel)
-            if not self.current_session_name:
-                ctrl.set_session_name(event.value)
+    def on_select_changed(self, event: Select.Changed) -> None:
+        """React to task selection change from the dropdown."""
+        if event.select.id == "task-select":
+            self.current_task_name = str(event.value) if event.value else None
+            # Update default session name in control panel
+            if self.current_task_name:
+                ctrl = self.query_one("#control-panel", ControlPanel)
+                if not self.current_session_name:
+                    ctrl.set_session_name(self.current_task_name)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle action button presses."""
+        if event.button.id == "btn-clear-output":
+            self.action_clear_output()
+            return
+
+        session = self._resolve_session()
+        if not session:
+            return
+
         btn_id = event.button.id
         if btn_id == "btn-create":
-            self._do_create()
+            self._do_create(session)
         elif btn_id == "btn-sim":
-            self._do_sim()
+            self._do_sim(session)
         elif btn_id == "btn-refresh":
-            self._do_refresh()
+            self._do_refresh(session)
         elif btn_id == "btn-bitstream":
-            self._do_bitstream()
+            self._do_bitstream(session)
         elif btn_id == "btn-program":
-            self._do_program()
+            self._do_program(session)
         elif btn_id == "btn-archive":
-            self._do_archive()
+            self._do_archive(session)
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle command input submission (Enter key)."""
@@ -962,7 +1011,11 @@ class VivadoTUI(App):
             cmd = event.value.strip()
             if not cmd:
                 return
-            self._do_execute_tcl(cmd)
+            session = self._current_session
+            if not session:
+                self._output_write_error("No active session — select or create one first")
+                return
+            self._do_execute_tcl(cmd, session)
             event.input.value = ""
 
     # ------------------------------------------------------------------

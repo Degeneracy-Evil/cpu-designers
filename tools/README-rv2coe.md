@@ -7,6 +7,7 @@
 在本地或者wsl中有（Windows时会自动尝试查找本地以及wsl）：
 
 - `riscv64-unknown-elf-gcc`
+- `riscv64-unknown-elf-ld`（多文件链接时需要）
 - `riscv64-unknown-elf-objcopy`
 - `riscv64-unknown-elf-objdump`（仅 `--check-isa` 时需要）
 
@@ -37,9 +38,11 @@ python3 tools/rv2coe.py \
 
 ### 通用
 
-- `-i` / `--input`：输入源文件（`.S` / `.s` / `.asm` / `.c`）
+- `-i` / `--input`：输入源文件（`.S` / `.s` / `.asm` / `.c`），**可多次指定**以实现多文件编译
 - `-o` / `--output`：统一 COE 输出（仅 `.text` 段）
 - `--lang {auto,asm,c}`：指定输入语言，默认自动识别
+- `-I` / `--include`：添加头文件搜索路径（可多次指定）
+- `--linker-script FILE`：自定义链接脚本（`.ld`），多文件编译时推荐使用
 - `--entry`：链接入口符号，默认 `_start`
 - `--march`：目标 ISA，默认 `rv32i_zicsr_zifencei`（同时控制 GCC 编译和 ISA 白名单检查）
 - `--abi`：目标 ABI，默认 `ilp32`
@@ -86,6 +89,28 @@ python3 tools/rv2coe.py \
 - 需自行提供入口和启动逻辑（默认入口 `_start`）
 - 如代码触发运行时辅助符号（例如某些除法/大整数辅助），需自行提供实现
 
+## 多文件编译
+
+`-i` 可多次指定，支持将多个源文件编译后链接为一个 ELF：
+
+```bash
+# 多文件编译：start.S + uart.c + uart_echo.c → uart_echo.hex
+python3 tools/rv2coe.py \
+  -i dev/program_source/lib/start.S \
+  -i dev/program_source/lib/uart.c \
+  -i dev/program_source/uart_echo.c \
+  -I dev/program_source/lib/include \
+  --linker-script dev/program_source/link.ld \
+  --march rv32im_zicsr_zifencei \
+  --hex dev/program_source/uart_echo.hex \
+  -o dev/program_source/uart_echo.coe
+```
+
+编译流程：
+1. 每个源文件独立编译为 `.o`（C 文件加 `-ffreestanding` 等选项，ASM 文件加 `-x assembler-with-cpp`）
+2. 所有 `.o` 通过 `ld` 链接为 ELF（使用 `--linker-script` 指定链接脚本）
+3. 单文件时仍使用 GCC 一体化编译+链接（向后兼容）
+
 ## 示例
 
 ```bash
@@ -119,4 +144,12 @@ python3 tools/rv2coe.py -i app.S -o app.coe \
 # 使用 rv32imc 编译（乘除法 + 压缩指令）
 python3 tools/rv2coe.py -i app.S -o app.coe \
   --march rv32imc_zicsr_zifencei --abi ilp32
+
+# 多文件编译（C 库 + 应用）
+python3 tools/rv2coe.py \
+  -i lib/start.S -i lib/uart.c -i app/uart_echo.c \
+  -I lib/include \
+  --linker-script link.ld \
+  --march rv32im_zicsr_zifencei \
+  -o uart_echo.coe --hex uart_echo.hex
 ```

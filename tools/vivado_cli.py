@@ -134,7 +134,15 @@ class VivadoConfig:
 
 
 def load_config(path: Path) -> VivadoConfig:
-    """Load vivado_config.yaml into VivadoConfig dataclass."""
+    """Load vivado_config.yaml into config object.
+
+    When vivado_core is available, delegates to the core's ``load_config``
+    which returns a ``GlobalConfig`` (with ``memory`` field).  Otherwise
+    falls back to the CLI's own ``VivadoConfig`` (without memory).
+    """
+    if _HAS_CORE:
+        from tools.vivado_core.config import load_config as core_load_config
+        return core_load_config(path)  # type: ignore[no-any-return]
     if not path.exists():
         print(f"WARNING: Config file not found: {path} — using defaults")
         return VivadoConfig()
@@ -379,6 +387,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--cleanup-all", action="store_true", help="Remove ALL sessions"
     )
+    parser.add_argument(
+        "--gen-config", action="store_true",
+        help="Regenerate cache_def.svh from vivado_config.yaml memory section",
+    )
 
     # Output control
     parser.add_argument(
@@ -497,6 +509,32 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"Removed sessions: {', '.join(removed)}")
             else:
                 print("No sessions to remove.")
+        return EXIT_OK
+
+    # =======================================================================
+    # --gen-config: regenerate cache_def.svh from YAML
+    # =======================================================================
+    if args.gen_config:
+        _require_core()
+        try:
+            session_mgr = SessionManager(project_root, config)  # type: ignore[call-arg]
+            task_registry = TaskRegistry(tasks_path)  # type: ignore[call-arg]
+            task_registry.load()  # type: ignore[attr-defined]
+            layered_hash = LayeredHash(project_root)  # type: ignore[call-arg]
+            sync = SyncPolicy(layered_hash)  # type: ignore[call-arg]
+            ops = Operations(session_mgr, task_registry, sync, layered_hash)  # type: ignore[call-arg]
+            generated_path = ops.gen_config()  # type: ignore[attr-defined]
+        except VivadoCoreError as e:
+            print(f"ERROR: {e}", file=sys.stderr)
+            return EXIT_GENERAL
+        except Exception as e:
+            print(f"ERROR: Failed to regenerate config: {e}", file=sys.stderr)
+            return EXIT_GENERAL
+
+        if args.format == "json":
+            print(json.dumps({"generated": generated_path}, indent=2))
+        else:
+            print(f"Generated: {generated_path}")
         return EXIT_OK
 
     # =======================================================================

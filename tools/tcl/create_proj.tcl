@@ -36,6 +36,10 @@ foreach f [glob -directory $mu_rtl_dir *.sv] {
 foreach f [glob -directory $cpu_core_dir *.sv] {
     import_files -norecurse $f
 }
+foreach f [glob -directory $cpu_core_dir *.svh] {
+    import_files -norecurse $f
+    set_property file_type "Verilog Header" [get_files [file tail $f]]
+}
 
 foreach f [glob -directory $ahb_dir *.sv] {
     import_files -norecurse $f

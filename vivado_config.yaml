@@ -9,3 +9,34 @@ limits:
 vivado_path: vivado.bat
 proj_name: simplecpu_soc
 device_part: xc7a200tfbg676-2
+
+# ---------------------------------------------------------------------------
+# Memory / Cache configuration
+# Changing these values will regenerate both IP (create_ip TCL) and
+# RTL header (cache_def.svh) to keep them in sync.
+# ---------------------------------------------------------------------------
+memory:
+  sram:
+    data_width: 32        # SRAM word width (bits)
+    depth: 8192           # SRAM depth (words) — 32KB for 32-bit width
+    byte_enable: false    # Byte-write enable for SRAM
+    byte_size: 8          # Byte size (only when byte_enable=true)
+
+  icache:
+    num_sets: 8           # Number of cache sets
+    num_ways: 4           # Associativity (ways per set)
+    tag_width: 7          # Tag field width (bits)
+    line_words: 8         # Words per cache line (line_width = line_words * 32)
+    byte_enable: true     # Byte-write enable for data BRAM
+    byte_size: 8          # Byte size for write-enable granularity
+
+  dcache:
+    num_sets: 8
+    num_ways: 4
+    tag_width: 7
+    line_words: 8
+    byte_enable: true
+    byte_size: 8
+
+  # Tag storage: false = register arrays (current), true = BRAM IPs (icachet/dcachet)
+  use_tag_bram: false

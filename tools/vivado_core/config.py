@@ -33,6 +33,63 @@ class LimitsConfig:
 
 
 @dataclass(frozen=True)
+class SramConfig:
+    """SRAM (main memory) BRAM configuration."""
+
+    data_width: int = 32
+    """Word width in bits."""
+
+    depth: int = 8192
+    """Memory depth in words."""
+
+    byte_enable: bool = False
+    """Whether byte-write enable is active."""
+
+    byte_size: int = 8
+    """Byte size for write-enable granularity (only when byte_enable=true)."""
+
+
+@dataclass(frozen=True)
+class CacheConfig:
+    """Cache geometry configuration (applies to icache or dcache)."""
+
+    num_sets: int = 8
+    """Number of cache sets."""
+
+    num_ways: int = 4
+    """Associativity (ways per set)."""
+
+    tag_width: int = 7
+    """Tag field width in bits."""
+
+    line_words: int = 8
+    """Words per cache line.  line_width = line_words * 32."""
+
+    byte_enable: bool = True
+    """Whether byte-write enable is active for data BRAM."""
+
+    byte_size: int = 8
+    """Byte size for write-enable granularity."""
+
+
+@dataclass(frozen=True)
+class MemoryConfig:
+    """Top-level memory/cache configuration."""
+
+    sram: SramConfig = field(default_factory=SramConfig)
+    """Main memory SRAM configuration."""
+
+    icache: CacheConfig = field(default_factory=CacheConfig)
+    """I-cache configuration."""
+
+    dcache: CacheConfig = field(default_factory=CacheConfig)
+    """D-cache configuration."""
+
+    use_tag_bram: bool = False
+    """If true, use BRAM IPs (icachet/dcachet) for tag storage; otherwise register arrays."""
+
+
+@dataclass(frozen=True)
 class GlobalConfig:
     """Top-level configuration for the vivado_core package."""
 
@@ -47,6 +104,9 @@ class GlobalConfig:
 
     device_part: str = "xc7a200tfbg676-2"
     """Target FPGA part number."""
+
+    memory: MemoryConfig = field(default_factory=MemoryConfig)
+    """Memory and cache configuration."""
 
 
 # ---------------------------------------------------------------------------
@@ -92,9 +152,45 @@ def load_config(path: Path | str | None = None, base_dir: Path | str | None = No
         idle_timeout_min=limits_raw.get("idle_timeout_min", 60),
     )
 
+    # --- memory sub-dict ---
+    mem_raw: dict = raw.get("memory", {}) or {}
+    sram_raw: dict = mem_raw.get("sram", {}) or {}
+    icache_raw: dict = mem_raw.get("icache", {}) or {}
+    dcache_raw: dict = mem_raw.get("dcache", {}) or {}
+
+    sram = SramConfig(
+        data_width=sram_raw.get("data_width", 32),
+        depth=sram_raw.get("depth", 8192),
+        byte_enable=sram_raw.get("byte_enable", False),
+        byte_size=sram_raw.get("byte_size", 8),
+    )
+    icache = CacheConfig(
+        num_sets=icache_raw.get("num_sets", 8),
+        num_ways=icache_raw.get("num_ways", 4),
+        tag_width=icache_raw.get("tag_width", 7),
+        line_words=icache_raw.get("line_words", 8),
+        byte_enable=icache_raw.get("byte_enable", True),
+        byte_size=icache_raw.get("byte_size", 8),
+    )
+    dcache = CacheConfig(
+        num_sets=dcache_raw.get("num_sets", 8),
+        num_ways=dcache_raw.get("num_ways", 4),
+        tag_width=dcache_raw.get("tag_width", 7),
+        line_words=dcache_raw.get("line_words", 8),
+        byte_enable=dcache_raw.get("byte_enable", True),
+        byte_size=dcache_raw.get("byte_size", 8),
+    )
+    memory = MemoryConfig(
+        sram=sram,
+        icache=icache,
+        dcache=dcache,
+        use_tag_bram=mem_raw.get("use_tag_bram", False),
+    )
+
     return GlobalConfig(
         limits=limits,
         vivado_path=raw.get("vivado_path", "vivado.bat"),
         proj_name=raw.get("proj_name", "simplecpu_bus"),
         device_part=raw.get("device_part", "xc7a200tfbg676-2"),
+        memory=memory,
     )

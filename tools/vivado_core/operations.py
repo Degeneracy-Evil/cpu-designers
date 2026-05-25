@@ -9,8 +9,11 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from .cache_header_gen import write_cache_header
+from .config import MemoryConfig
 from .exceptions import OperationError, StaleSessionError, VivadoProcessError
 from .hash import LayeredHash
+from .ip_gen import generate_all_ip_tcl
 from .session import ExecuteResult, Session, SessionManager
 from .sync import SyncPolicy
 from .tasks import TaskConfig, TaskRegistry
@@ -88,6 +91,10 @@ foreach f [glob -directory {apb_header_dir} *.svh] {{
     import_files -norecurse $f
     set_property file_type "Verilog Header" [get_files [file tail $f]]
 }}
+if {{ [file exists "{cpu_core_dir}/cache_def.svh"] }} {{
+    import_files -norecurse "{cpu_core_dir}/cache_def.svh"
+    set_property file_type "Verilog Header" [get_files cache_def.svh]
+}}
 import_files -norecurse "{sys_rtl_dir}/system_top.sv"
 update_compile_order -fileset sources_1
 
@@ -111,64 +118,57 @@ def _tcl_setup_ip(
     proj_dir: str,
     base_dir: str,
     coe_file: str,
+    mem_config: MemoryConfig,
 ) -> str:
-    """Generate TCL for IP import and Sram COE configuration.
+    """Generate TCL for IP creation and Sram COE configuration.
 
-    Mirrors ``tools/tcl/setup_ip.tcl``.
+    Uses ``create_ip`` from :mod:`ip_gen` to dynamically create BRAM IPs
+    based on the memory configuration, replacing the old static XCI import.
+
+    Target generation order: icached/dcached first, then Sram (after COE
+    config) to avoid double ``generate_target`` on Sram.
     """
-    ips_dir = f"{base_dir}/Reference/newips"
-    ip_xci_dir = f"{proj_dir}/{proj_name}.srcs/sources_1/ip"
+    from .ip_gen import _tcl_generate_target
 
-    coe_block = ""
+    ip_dir = f"{proj_dir}/{proj_name}.srcs/sources_1/ip"
+
+    # --- Dynamic IP creation from config (create + set_property only) ---
+    ip_tcl, ip_names = generate_all_ip_tcl(mem_config, ip_dir)
+
+    # Generate targets for non-Sram IPs immediately.
+    gen_others = "\n".join(_tcl_generate_target(n) for n in ip_names if n != "Sram")
+
+    # --- Sram COE configuration + generate_target ---
     if coe_file:
         coe_tail = Path(coe_file).name
-        coe_block = f"""\
-file copy -force {coe_file} "{ip_xci_dir}/Sram/"
+        sram_block = f"""\
+set ip_sram [get_ips -all Sram]
+file copy -force {coe_file} "{ip_dir}/Sram/"
 set_property -dict [list \\
     CONFIG.Load_Init_File {{true}} \\
-    CONFIG.Coe_File "{ip_xci_dir}/Sram/{coe_tail}" \\
+    CONFIG.Coe_File "{ip_dir}/Sram/{coe_tail}" \\
 ] $ip_sram
+{_tcl_generate_target("Sram")}
 puts "Sram IP configured (COE: {coe_file})\""""
     else:
-        coe_block = """\
+        sram_block = f"""\
+set ip_sram [get_ips -all Sram]
 set_property -dict [list \\
-    CONFIG.Load_Init_File {false} \\
+    CONFIG.Load_Init_File {{false}} \\
 ] $ip_sram
+{_tcl_generate_target("Sram")}
 puts "Sram IP configured (no COE init)\""""
 
     return f"""\
-# --- setup IP ---
-set ip_xci_dir "{ip_xci_dir}"
-import_files -norecurse "{ips_dir}/icached.xci"
-import_files -norecurse "{ips_dir}/dcached.xci"
-import_files -norecurse "{ips_dir}/Sram.xci"
+# --- setup IP (dynamic create_ip from config) ---
 update_compile_order -fileset sources_1
+{ip_tcl}
 
-set ip_icached [get_ips -all icached]
-set ip_dcached [get_ips -all dcached]
-set ip_sram    [get_ips -all Sram]
+# --- Generate targets for cache BRAMs ---
+{gen_others}
 
-if {{ $ip_icached eq "" }} {{
-    update_compile_order -fileset sources_1
-    set ip_icached [get_ips -all icached]
-    set ip_dcached [get_ips -all dcached]
-    set ip_sram    [get_ips -all Sram]
-}}
-
-set_property -dict [list CONFIG.Load_Init_File {{false}}] $ip_icached
-set_property -dict [list CONFIG.Load_Init_File {{false}}] $ip_dcached
-
-{coe_block}
-
-generate_target all $ip_icached
-generate_target all $ip_dcached
-generate_target all $ip_sram
-catch {{ config_ip_cache -export $ip_icached }}
-catch {{ config_ip_cache -export $ip_dcached }}
-catch {{ config_ip_cache -export $ip_sram }}
-export_ip_user_files -of_objects $ip_icached -no_script -sync -force -quiet
-export_ip_user_files -of_objects $ip_dcached -no_script -sync -force -quiet
-export_ip_user_files -of_objects $ip_sram    -no_script -sync -force -quiet
+# --- Sram COE configuration + generate target ---
+{sram_block}
 """
 
 
@@ -362,6 +362,13 @@ class Operations:
         session.meta.hashes = self.layered_hash.compute_current()
         session.save_meta()
 
+    def _regenerate_cache_header(self) -> None:
+        """Regenerate ``cache_def.svh`` from the current memory config."""
+        mem_config = self.session_mgr.config.memory
+        target = self.session_mgr.base_dir / "dev" / "rtl" / "core" / "cache_def.svh"
+        write_cache_header(mem_config, target)
+        logger.info("Regenerated cache_def.svh from memory config")
+
     # ------------------------------------------------------------------
     # Public operations
     # ------------------------------------------------------------------
@@ -389,16 +396,20 @@ class Operations:
         """
         self._ensure_vivado(session)
 
+        # Regenerate cache_def.svh from current config before creating project.
+        self._regenerate_cache_header()
+
         base = _tcl_path(self.session_mgr.base_dir)
         dev = f"{base}/dev"
         proj_dir = _tcl_path(session.project_dir)
         proj_name = self.session_mgr.config.proj_name
         device_part = self.session_mgr.config.device_part
+        mem_config = self.session_mgr.config.memory
         coe_file = self._resolve_coe_path(task)
 
         tcl = "\n".join([
             _tcl_create_project(proj_name, device_part, proj_dir, dev, base),
-            _tcl_setup_ip(proj_name, proj_dir, base, coe_file),
+            _tcl_setup_ip(proj_name, proj_dir, base, coe_file, mem_config),
             _tcl_add_constrs(base),
         ])
 
@@ -406,6 +417,22 @@ class Operations:
         self._update_hashes(session)
         session.update_last_used()
         return result
+
+    def gen_config(self) -> str:
+        """Regenerate cache_def.svh from the current YAML config.
+
+        This is a standalone operation that does not require a running
+        Vivado session.  Use it after editing ``vivado_config.yaml``
+        to update the RTL header before the next create/refresh.
+
+        Returns
+        -------
+        str
+            Path to the generated file.
+        """
+        self._regenerate_cache_header()
+        target = self.session_mgr.base_dir / "dev" / "rtl" / "core" / "cache_def.svh"
+        return str(target)
 
     def refresh(
         self,
@@ -448,11 +475,12 @@ class Operations:
 
         if plan.full:
             # Full rebuild: close -> delete -> create.
+            mem_config = self.session_mgr.config.memory
             tcl_close = "catch { close_project }\n"
             tcl_delete = f"file delete -force {proj_dir}\n"
             tcl_rebuild = "\n".join([
                 _tcl_create_project(proj_name, device_part, proj_dir, dev, base),
-                _tcl_setup_ip(proj_name, proj_dir, base, coe_file),
+                _tcl_setup_ip(proj_name, proj_dir, base, coe_file, mem_config),
                 _tcl_add_constrs(base),
             ])
             tcl = tcl_close + tcl_delete + tcl_rebuild

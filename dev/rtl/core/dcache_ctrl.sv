@@ -1,5 +1,6 @@
 `timescale 1ns / 1ps
 `include "ahb_def.svh"
+`include "cache_def.svh"
 
 module dcache_ctrl(
     input  wire        clk,
@@ -23,21 +24,32 @@ module dcache_ctrl(
 
     output wire        refill_req,
     output wire [31:0] refill_addr,
-    input  wire [255:0] refill_data,
+    input  wire [`DCACHE_LINE_WIDTH-1:0] refill_data,
     input  wire        refill_valid,
 
     output wire        wb_req,
     output wire [31:0] wb_addr,
-    output wire [255:0] wb_data,
+    output wire [`DCACHE_LINE_WIDTH-1:0] wb_data,
     input  wire        wb_valid,
 
     input  wire        flush_req,
     output wire        flush_done
 );
 
-    localparam NUM_SETS  = 8;   // 组数
-    localparam NUM_WAYS  = 4;   // 路数
-    localparam TAG_WIDTH = 7;   // tag宽
+    // --- Cache geometry from config ---
+    localparam NUM_SETS      = `DCACHE_NUM_SETS;
+    localparam NUM_WAYS      = `DCACHE_NUM_WAYS;
+    localparam TAG_WIDTH     = `DCACHE_TAG_WIDTH;
+    localparam LINE_WIDTH    = `DCACHE_LINE_WIDTH;
+    localparam BRAM_ADDR_W   = `DCACHE_ADDR_WIDTH;
+    localparam WEA_WIDTH     = `DCACHE_WEA_WIDTH;
+    localparam TAG_ENTRY_W   = `DCACHE_TAG_ENTRY_WIDTH;
+    localparam SET_IDX_W     = `DCACHE_SET_IDX_WIDTH;
+    localparam WAY_W         = `DCACHE_WAY_WIDTH;
+    // Derived: address layout
+    localparam ADDR_UPPER_ZEROS = 30 - `DCACHE_TAG_HI;
+    localparam ADDR_LOWER_ZEROS = `DCACHE_SET_IDX_LO;
+
     // 状态机状态
     localparam S_IDLE        = 3'd0;
     localparam S_READ_HIT    = 3'd1;
@@ -50,40 +62,41 @@ module dcache_ctrl(
 
     wire is_mmio = ~cpu_req_addr[31];
 
-    wire [TAG_WIDTH-1:0] req_tag  = cpu_req_addr[14:8]; // Cache tag
-    wire [2:0]            set_idx  = cpu_req_addr[7:5]; // Cache Index（组号）
-    wire [2:0]            word_off = cpu_req_addr[4:2]; // 块内偏移
+    wire [TAG_WIDTH-1:0]   req_tag  = cpu_req_addr[`DCACHE_TAG_HI:`DCACHE_TAG_LO];
+    wire [SET_IDX_W-1:0]   set_idx  = cpu_req_addr[`DCACHE_SET_IDX_HI:`DCACHE_SET_IDX_LO];
+    wire [SET_IDX_W-1:0]   word_off = cpu_req_addr[`DCACHE_WORD_OFF_HI:`DCACHE_WORD_OFF_LO];
 
     reg [2:0] state; // 状态机
 
-    reg [8:0] tag_ram [0:NUM_SETS-1][0:NUM_WAYS-1]; // 标志段寄存器（0~6:tag,7:D,8:V）
-    reg [2:0] plru_state [0:NUM_SETS-1];            // PLRU算法寄存器
+    reg [TAG_ENTRY_W-1:0] tag_ram [0:NUM_SETS-1][0:NUM_WAYS-1]; // 标志段寄存器
+    reg [NUM_WAYS-2:0] plru_state [0:NUM_SETS-1];            // PLRU算法寄存器
 
-    wire [8:0] tag_r0 = tag_ram[set_idx][0];        // 取tag
-    wire [8:0] tag_r1 = tag_ram[set_idx][1];
-    wire [8:0] tag_r2 = tag_ram[set_idx][2];
-    wire [8:0] tag_r3 = tag_ram[set_idx][3];
+    wire [TAG_ENTRY_W-1:0] tag_r0 = tag_ram[set_idx][0];
+    wire [TAG_ENTRY_W-1:0] tag_r1 = tag_ram[set_idx][1];
+    wire [TAG_ENTRY_W-1:0] tag_r2 = tag_ram[set_idx][2];
+    wire [TAG_ENTRY_W-1:0] tag_r3 = tag_ram[set_idx][3];
 
-    wire hit0 = tag_r0[8] && (tag_r0[6:0] == req_tag); // 比较tag，测试有效位
-    wire hit1 = tag_r1[8] && (tag_r1[6:0] == req_tag);
-    wire hit2 = tag_r2[8] && (tag_r2[6:0] == req_tag);
-    wire hit3 = tag_r3[8] && (tag_r3[6:0] == req_tag);
+    // Tag entry layout: [TAG_ENTRY_W-1]=V, [TAG_ENTRY_W-2]=D, [TAG_WIDTH-1:0]=tag
+    wire hit0 = tag_r0[TAG_ENTRY_W-1] && (tag_r0[TAG_WIDTH-1:0] == req_tag);
+    wire hit1 = tag_r1[TAG_ENTRY_W-1] && (tag_r1[TAG_WIDTH-1:0] == req_tag);
+    wire hit2 = tag_r2[TAG_ENTRY_W-1] && (tag_r2[TAG_WIDTH-1:0] == req_tag);
+    wire hit3 = tag_r3[TAG_ENTRY_W-1] && (tag_r3[TAG_WIDTH-1:0] == req_tag);
 
-    wire cache_hit = hit0 | hit1 | hit2 | hit3;     // 命中判断
+    wire cache_hit = hit0 | hit1 | hit2 | hit3;
 
-    wire [1:0] hit_way;             // 具体命中路
-    assign hit_way = hit0 ? 2'd0 :
-                     hit1 ? 2'd1 :
-                     hit2 ? 2'd2 :
-                            2'd3;
+    wire [WAY_W-1:0] hit_way;
+    assign hit_way = hit0 ? {WAY_W{1'b0}} :
+                     hit1 ? {{(WAY_W-1){1'b0}}, 1'b1} :
+                     hit2 ? {{(WAY_W-2){1'b0}}, 2'b10} :
+                            {{(WAY_W-2){1'b0}}, 2'b11};
 
-    wire inv0 = ~tag_r0[8];         // 统计无效行
-    wire inv1 = ~tag_r1[8];
-    wire inv2 = ~tag_r2[8];
-    wire inv3 = ~tag_r3[8];
+    wire inv0 = ~tag_r0[TAG_ENTRY_W-1];
+    wire inv1 = ~tag_r1[TAG_ENTRY_W-1];
+    wire inv2 = ~tag_r2[TAG_ENTRY_W-1];
+    wire inv3 = ~tag_r3[TAG_ENTRY_W-1];
 
-    wire [1:0] plru_victim;
-    wire [2:0] plru_next;
+    wire [WAY_W-1:0] plru_victim;
+    wire [NUM_WAYS-2:0] plru_next;
     tree_plru u_plru(
         .plru_state (plru_state[set_idx]),
         .victim_way (plru_victim),
@@ -91,34 +104,34 @@ module dcache_ctrl(
         .next_state (plru_next)
     );
 
-    wire [1:0] victim_way = inv0 ? 2'd0 :               // 选择受害者行-优先填无效行，否则用PLRU
-                            inv1 ? 2'd1 :
-                            inv2 ? 2'd2 :
-                            inv3 ? 2'd3 :
+    wire [WAY_W-1:0] victim_way = inv0 ? {WAY_W{1'b0}} :
+                            inv1 ? {{(WAY_W-1){1'b0}}, 1'b1} :
+                            inv2 ? {{(WAY_W-2){1'b0}}, 2'b10} :
+                            inv3 ? {{(WAY_W-2){1'b0}}, 2'b11} :
                             plru_victim;
 
-    wire victim_dirty = tag_ram[set_idx][victim_way][7]; // 脏位
+    wire victim_dirty = tag_ram[set_idx][victim_way][TAG_ENTRY_W-2]; // 脏位
 
-    reg [2:0]  latched_set;
-    reg [1:0]  latched_victim_way;
+    reg [SET_IDX_W-1:0]  latched_set;
+    reg [WAY_W-1:0]      latched_victim_way;
     reg [31:0] latched_addr;
     reg [31:0] latched_wdata;
     reg        latched_hwrite;
     reg [2:0]  latched_hsize;
-    reg [2:0]  latched_word_off;
-    reg [6:0]  latched_tag;
+    reg [SET_IDX_W-1:0]  latched_word_off;
+    reg [TAG_WIDTH-1:0]  latched_tag;
 
-    reg [2:0]  flush_set;
-    reg [1:0]  flush_way;
+    reg [SET_IDX_W-1:0]  flush_set;
+    reg [WAY_W-1:0]      flush_way;
     reg        flush_done_r;
 
-    wire [4:0] bram_addra = {set_idx, hit_way};
-    wire [4:0] bram_addrb = (state == S_FLUSH_WB_RD || state == S_FLUSH_WB_SD) ?
+    wire [BRAM_ADDR_W-1:0] bram_addra = {set_idx, hit_way};
+    wire [BRAM_ADDR_W-1:0] bram_addrb = (state == S_FLUSH_WB_RD || state == S_FLUSH_WB_SD) ?
                             {flush_set, flush_way} :
                             {latched_set, latched_victim_way};
 
-    wire [255:0] bram_douta;
-    wire [255:0] bram_doutb;
+    wire [LINE_WIDTH-1:0] bram_douta;
+    wire [LINE_WIDTH-1:0] bram_doutb;
 
     wire [3:0] word_byte_we;
     assign word_byte_we = (cpu_req_hsize == `AHB_SIZE_BYTE) ? (4'b0001 << cpu_req_addr[1:0]) :
@@ -130,8 +143,8 @@ module dcache_ctrl(
                              (cpu_req_wdata[7:0] << (cpu_req_addr[1:0] * 8)) :
                              cpu_req_wdata;
 
-    wire [31:0]  store_full_wea  = ({28'b0, word_byte_we}) << (word_off * 4);
-    wire [255:0] store_full_dina = ({224'b0, word_store_data}) << (word_off * 32);
+    wire [WEA_WIDTH-1:0]  store_full_wea  = ({28'b0, word_byte_we}) << (word_off * 4);
+    wire [LINE_WIDTH-1:0] store_full_dina = ({224'b0, word_store_data}) << (word_off * 32);
 
     reg cpu_req_ready_r;
 
@@ -139,8 +152,8 @@ module dcache_ctrl(
     wire is_load_hit  = cpu_req_valid && !cpu_req_ready_r && !is_mmio && cache_hit && !cpu_req_hwrite;
 
     wire bram_ena = (is_load_hit || is_store_hit) && (state == S_IDLE);
-    wire [31:0]  bram_wea  = is_store_hit ? store_full_wea : 32'b0;
-    wire [255:0] bram_dina = is_store_hit ? store_full_dina : 256'b0;
+    wire [WEA_WIDTH-1:0]  bram_wea  = is_store_hit ? store_full_wea : {WEA_WIDTH{1'b0}};
+    wire [LINE_WIDTH-1:0] bram_dina = is_store_hit ? store_full_dina : {LINE_WIDTH{1'b0}};
 
     wire [3:0] latched_word_byte_we;
     assign latched_word_byte_we = (latched_hsize == `AHB_SIZE_BYTE) ? (4'b0001 << latched_addr[1:0]) :
@@ -152,23 +165,23 @@ module dcache_ctrl(
                                      (latched_wdata[7:0] << (latched_addr[1:0] * 8)) :
                                      latched_wdata;
 
-    wire [31:0]  merge_full_wea  = ({28'b0, latched_word_byte_we}) << (latched_word_off * 4);
-    wire [255:0] merge_full_dina = ({224'b0, latched_word_store_data}) << (latched_word_off * 32);
+    wire [WEA_WIDTH-1:0]  merge_full_wea  = ({28'b0, latched_word_byte_we}) << (latched_word_off * 4);
+    wire [LINE_WIDTH-1:0] merge_full_dina = ({224'b0, latched_word_store_data}) << (latched_word_off * 32);
 
-    wire [255:0] merged_line;
+    wire [LINE_WIDTH-1:0] merged_line;
     genvar gi;
     generate
-        for (gi = 0; gi < 32; gi = gi + 1) begin
+        for (gi = 0; gi < WEA_WIDTH; gi = gi + 1) begin
             assign merged_line[gi*8 +: 8] = merge_full_wea[gi] ? merge_full_dina[gi*8 +: 8] : refill_data[gi*8 +: 8];
         end
     endgenerate
 
-    wire [255:0] refill_bram_din = latched_hwrite ? merged_line : refill_data;
+    wire [LINE_WIDTH-1:0] refill_bram_din = latched_hwrite ? merged_line : refill_data;
 
     wire bram_enb = (state == S_WB_READ) ||
                     (state == S_FLUSH_WB_RD) ||
                     (refill_valid && (state == S_REFILL));
-    wire [31:0]  bram_web = (state == S_REFILL && refill_valid) ? 32'hFFFFFFFF : 32'b0;
+    wire [WEA_WIDTH-1:0]  bram_web = (state == S_REFILL && refill_valid) ? {WEA_WIDTH{1'b1}} : {WEA_WIDTH{1'b0}};
 
     dcached u_dcached(
         .clka   (clk),
@@ -214,7 +227,7 @@ module dcache_ctrl(
     assign mmio_hwrite = cpu_req_hwrite;
     assign mmio_hsize  = cpu_req_hsize;
 
-    wire [2:0] plru_next_miss;
+    wire [NUM_WAYS-2:0] plru_next_miss;
     tree_plru u_plru_miss(
         .plru_state (plru_state[latched_set]),
         .victim_way (),
@@ -229,23 +242,23 @@ module dcache_ctrl(
             refill_addr_r    <= 32'b0;
             wb_req_r         <= 1'b0;
             wb_addr_r        <= 32'b0;
-            latched_set      <= 3'b0;
-            latched_victim_way <= 2'b0;
+            latched_set      <= {SET_IDX_W{1'b0}};
+            latched_victim_way <= {WAY_W{1'b0}};
             latched_addr     <= 32'b0;
             latched_wdata    <= 32'b0;
             latched_hwrite   <= 1'b0;
             latched_hsize    <= 3'b0;
-            latched_word_off <= 3'b0;
-            latched_tag      <= 7'b0;
+            latched_word_off <= {SET_IDX_W{1'b0}};
+            latched_tag      <= {TAG_WIDTH{1'b0}};
             bypass_data      <= 32'b0;
             cpu_req_ready_r  <= 1'b0;
-            flush_set        <= 3'b0;
-            flush_way        <= 2'b0;
+            flush_set        <= {SET_IDX_W{1'b0}};
+            flush_way        <= {WAY_W{1'b0}};
             flush_done_r     <= 1'b0;
             for (integer s = 0; s < NUM_SETS; s = s + 1) begin
-                plru_state[s] <= 3'b0;
+                plru_state[s] <= {NUM_WAYS-1{1'b0}};
                 for (integer w = 0; w < NUM_WAYS; w = w + 1) begin
-                    tag_ram[s][w] <= 9'b0;
+                    tag_ram[s][w] <= {TAG_ENTRY_W{1'b0}};
                 end
             end
         end else begin
@@ -258,8 +271,8 @@ module dcache_ctrl(
                     wb_req_r     <= 1'b0;
                     if (flush_req) begin
                         state     <= S_FLUSH_SCAN;
-                        flush_set <= 3'b0;
-                        flush_way <= 2'b0;
+                        flush_set <= {SET_IDX_W{1'b0}};
+                        flush_way <= {WAY_W{1'b0}};
                     end else if (cpu_req_valid && !cpu_req_ready_r) begin
                         if (is_mmio) begin
                             if (mmio_valid) begin
@@ -268,7 +281,7 @@ module dcache_ctrl(
                             end
                         end else if (cache_hit) begin
                             if (cpu_req_hwrite) begin
-                                tag_ram[set_idx][hit_way] <= {1'b1, 1'b1, tag_ram[set_idx][hit_way][6:0]};
+                                tag_ram[set_idx][hit_way] <= {1'b1, 1'b1, tag_ram[set_idx][hit_way][TAG_WIDTH-1:0]};
                                 plru_state[set_idx] <= plru_next;
                                 cpu_req_ready_r <= 1'b1;
                             end else begin
@@ -287,7 +300,7 @@ module dcache_ctrl(
                                 state <= S_WB_READ;
                             end else begin
                                 refill_req_r  <= 1'b1;
-                                refill_addr_r <= {1'b1, 16'b0, req_tag, set_idx, 5'b0};
+                                refill_addr_r <= {1'b1, {ADDR_UPPER_ZEROS{1'b0}}, req_tag, set_idx, {ADDR_LOWER_ZEROS{1'b0}}};
                                 state <= S_REFILL;
                             end
                         end
@@ -302,7 +315,7 @@ module dcache_ctrl(
                 end
 
                 S_WB_READ: begin
-                    wb_addr_r <= {1'b1, 16'b0, tag_ram[latched_set][latched_victim_way][6:0], latched_set, 5'b0};
+                    wb_addr_r <= {1'b1, {ADDR_UPPER_ZEROS{1'b0}}, tag_ram[latched_set][latched_victim_way][TAG_WIDTH-1:0], latched_set, {ADDR_LOWER_ZEROS{1'b0}}};
                     state <= S_WB_SEND;
                 end
 
@@ -310,9 +323,9 @@ module dcache_ctrl(
                     wb_req_r <= 1'b1;
                     if (wb_valid) begin
                         wb_req_r      <= 1'b0;
-                        tag_ram[latched_set][latched_victim_way][7] <= 1'b0;
+                        tag_ram[latched_set][latched_victim_way][TAG_ENTRY_W-2] <= 1'b0; // clear dirty
                         refill_req_r  <= 1'b1;
-                        refill_addr_r <= {1'b1, 16'b0, latched_tag, latched_set, 5'b0};
+                        refill_addr_r <= {1'b1, {ADDR_UPPER_ZEROS{1'b0}}, latched_tag, latched_set, {ADDR_LOWER_ZEROS{1'b0}}};
                         state <= S_REFILL;
                     end
                 end
@@ -330,32 +343,32 @@ module dcache_ctrl(
                 end
 
                 S_FLUSH_SCAN: begin
-                    if (tag_ram[flush_set][flush_way][8] && tag_ram[flush_set][flush_way][7]) begin
+                    if (tag_ram[flush_set][flush_way][TAG_ENTRY_W-1] && tag_ram[flush_set][flush_way][TAG_ENTRY_W-2]) begin
                         latched_set        <= flush_set;
                         latched_victim_way <= flush_way;
                         state <= S_FLUSH_WB_RD;
                     end else begin
-                        if (flush_way == 2'd3) begin
-                            if (flush_set == 3'd7) begin
+                        if (flush_way == NUM_WAYS - 1) begin
+                            if (flush_set == NUM_SETS - 1) begin
                                 for (integer s = 0; s < NUM_SETS; s = s + 1) begin
                                     for (integer w = 0; w < NUM_WAYS; w = w + 1) begin
-                                        tag_ram[s][w][8] <= 1'b0;
+                                        tag_ram[s][w][TAG_ENTRY_W-1] <= 1'b0;
                                     end
                                 end
                                 flush_done_r <= 1'b1;
                                 state <= S_IDLE;
                             end else begin
-                                flush_set <= flush_set + 3'd1;
-                                flush_way <= 2'd0;
+                                flush_set <= flush_set + 1'b1;
+                                flush_way <= {WAY_W{1'b0}};
                             end
                         end else begin
-                            flush_way <= flush_way + 2'd1;
+                            flush_way <= flush_way + 1'b1;
                         end
                     end
                 end
 
                 S_FLUSH_WB_RD: begin
-                    wb_addr_r <= {1'b1, 16'b0, tag_ram[flush_set][flush_way][6:0], flush_set, 5'b0};
+                    wb_addr_r <= {1'b1, {ADDR_UPPER_ZEROS{1'b0}}, tag_ram[flush_set][flush_way][TAG_WIDTH-1:0], flush_set, {ADDR_LOWER_ZEROS{1'b0}}};
                     state <= S_FLUSH_WB_SD;
                 end
 
@@ -363,23 +376,23 @@ module dcache_ctrl(
                     wb_req_r <= 1'b1;
                     if (wb_valid) begin
                         wb_req_r <= 1'b0;
-                        tag_ram[flush_set][flush_way][7] <= 1'b0;
-                        if (flush_way == 2'd3) begin
-                            if (flush_set == 3'd7) begin
+                        tag_ram[flush_set][flush_way][TAG_ENTRY_W-2] <= 1'b0; // clear dirty
+                        if (flush_way == NUM_WAYS - 1) begin
+                            if (flush_set == NUM_SETS - 1) begin
                                 for (integer s = 0; s < NUM_SETS; s = s + 1) begin
                                     for (integer w = 0; w < NUM_WAYS; w = w + 1) begin
-                                        tag_ram[s][w][8] <= 1'b0;
+                                        tag_ram[s][w][TAG_ENTRY_W-1] <= 1'b0;
                                     end
                                 end
                                 flush_done_r <= 1'b1;
                                 state <= S_IDLE;
                             end else begin
-                                flush_set <= flush_set + 3'd1;
-                                flush_way <= 2'd0;
+                                flush_set <= flush_set + 1'b1;
+                                flush_way <= {WAY_W{1'b0}};
                                 state <= S_FLUSH_SCAN;
                             end
                         end else begin
-                            flush_way <= flush_way + 2'd1;
+                            flush_way <= flush_way + 1'b1;
                             state <= S_FLUSH_SCAN;
                         end
                     end

@@ -91,10 +91,11 @@ module dcache_ctrl(
         .next_state (plru_next)
     );
 
-    wire [1:0] victim_way = inv0 ? 2'd0 :               // 选择受害者行-无效行
+    wire [1:0] victim_way = inv0 ? 2'd0 :               // 选择受害者行-优先填无效行，否则用PLRU
                             inv1 ? 2'd1 :
                             inv2 ? 2'd2 :
-                                   2'd3;
+                            inv3 ? 2'd3 :
+                            plru_victim;
 
     wire victim_dirty = tag_ram[set_idx][victim_way][7]; // 脏位
 

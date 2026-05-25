@@ -78,7 +78,8 @@ module icache_ctrl(
     wire [1:0] victim_way = inv0 ? 2'd0 :
                             inv1 ? 2'd1 :
                             inv2 ? 2'd2 :
-                                   2'd3;
+                            inv3 ? 2'd3 :
+                            plru_victim;
 
     reg [2:0]  latched_set;
     reg [1:0]  refill_way;

@@ -56,7 +56,11 @@ module tlb #(
             wire global_i = e_out[gi][ENTRY_W-2];
             wire [8:0]  asid_i  = e_out[gi][ENTRY_W-3 -: 9];
             wire [19:0] vpn_i   = e_out[gi][ENTRY_W-12 -: 20];
-            assign hit_vec[gi] = valid_i && (vpn_i == lookup_vpn) &&
+            wire        mega_i  = e_out[gi][0];
+            // megapage: only match VPN[1] (upper 10 bits), VPN[0] is page offset
+            wire vpn_match_i = mega_i ? (vpn_i[19:10] == lookup_vpn[19:10])
+                                      : (vpn_i == lookup_vpn);
+            assign hit_vec[gi] = valid_i && vpn_match_i &&
                                  (global_i || (asid_i == lookup_asid));
         end
     endgenerate
@@ -126,8 +130,11 @@ module tlb #(
                 for (i = 0; i < ENTRIES; i = i + 1)
                     entries[i][ENTRY_W-1] <= 1'b0;
             end else if (fill_req) begin
+                // megapage: normalize VPN[0] to zero (only VPN[1] matters for matching)
                 entries[rr_ptr] <= pack_entry(
-                    1'b1, fill_g, fill_asid, fill_vpn, fill_ppn,
+                    1'b1, fill_g, fill_asid,
+                    fill_is_megapage ? {fill_vpn[19:10], 10'b0} : fill_vpn,
+                    fill_ppn,
                     fill_r, fill_w, fill_x, fill_u, fill_a, fill_d, fill_is_megapage);
                 rr_ptr <= rr_ptr + 1'b1;
             end

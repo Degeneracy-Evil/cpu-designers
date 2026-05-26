@@ -46,19 +46,25 @@ module dcache_ctrl(
     localparam TAG_ENTRY_W   = `DCACHE_TAG_ENTRY_WIDTH;
     localparam SET_IDX_W     = `DCACHE_SET_IDX_WIDTH;
     localparam WAY_W         = `DCACHE_WAY_WIDTH;
+    localparam TAG_BRAM_W    = `DCACHE_TAG_BRAM_WIDTH;
+    localparam TAG_BRAM_WEA  = `DCACHE_TAG_BRAM_WEA_WIDTH;
+    localparam TAG_BRAM_BS   = `DCACHE_TAG_BRAM_BYTE_SIZE;
     // Derived: address layout
     localparam ADDR_UPPER_ZEROS = 30 - `DCACHE_TAG_HI;
     localparam ADDR_LOWER_ZEROS = `DCACHE_SET_IDX_LO;
 
     // 状态机状态
-    localparam S_IDLE        = 3'd0;
-    localparam S_READ_HIT    = 3'd1;
-    localparam S_WB_READ     = 3'd2;
-    localparam S_WB_SEND     = 3'd3;
-    localparam S_REFILL      = 3'd4;
-    localparam S_FLUSH_SCAN  = 3'd5;
-    localparam S_FLUSH_WB_RD = 3'd6;
-    localparam S_FLUSH_WB_SD = 3'd7;
+    localparam S_IDLE             = 4'd0;
+    localparam S_TAG_READ         = 4'd1;
+    localparam S_READ_HIT         = 4'd2;
+    localparam S_WB_READ          = 4'd3;
+    localparam S_WB_SEND          = 4'd4;
+    localparam S_REFILL           = 4'd5;
+    localparam S_FLUSH_SCAN       = 4'd6;
+    localparam S_FLUSH_CHECK      = 4'd7;
+    localparam S_FLUSH_WB_RD      = 4'd8;
+    localparam S_FLUSH_WB_SD      = 4'd9;
+    localparam S_FLUSH_INVALIDATE = 4'd10;
 
     wire is_mmio = ~cpu_req_addr[31];
 
@@ -66,15 +72,51 @@ module dcache_ctrl(
     wire [SET_IDX_W-1:0]   set_idx  = cpu_req_addr[`DCACHE_SET_IDX_HI:`DCACHE_SET_IDX_LO];
     wire [SET_IDX_W-1:0]   word_off = cpu_req_addr[`DCACHE_WORD_OFF_HI:`DCACHE_WORD_OFF_LO];
 
-    reg [2:0] state; // 状态机
+    reg [3:0] state; // 状态机
 
-    reg [TAG_ENTRY_W-1:0] tag_ram [0:NUM_SETS-1][0:NUM_WAYS-1]; // 标志段寄存器
-    reg [NUM_WAYS-2:0] plru_state [0:NUM_SETS-1];            // PLRU算法寄存器
+    // --- PLRU state (kept as registers — too small for BRAM) ---
+    reg [NUM_WAYS-2:0] plru_state [0:NUM_SETS-1];
 
-    wire [TAG_ENTRY_W-1:0] tag_r0 = tag_ram[set_idx][0];
-    wire [TAG_ENTRY_W-1:0] tag_r1 = tag_ram[set_idx][1];
-    wire [TAG_ENTRY_W-1:0] tag_r2 = tag_ram[set_idx][2];
-    wire [TAG_ENTRY_W-1:0] tag_r3 = tag_ram[set_idx][3];
+    // =========================================================================
+    // Tag BRAM (dcachet) — 36-bit × 8 deep, Byte_Size=9, 4-bit WEA
+    // Each address = 1 set, data = 4 ways packed: {Way3, Way2, Way1, Way0}
+    //   Way N bits: [N*9 +: 9] = {V(1), D(1), tag(7)}
+    // =========================================================================
+    wire [TAG_BRAM_W-1:0] tag_bram_douta;
+    wire [TAG_BRAM_W-1:0] tag_bram_doutb;
+
+    // Port A: CPU read / Flush scan read
+    wire tag_bram_ena = ((state == S_IDLE) && cpu_req_valid && !cpu_req_ready_r && !is_mmio) ||
+                        (state == S_FLUSH_SCAN);
+    wire [SET_IDX_W-1:0] tag_bram_addra = (state == S_FLUSH_SCAN) ? flush_set : set_idx;
+
+    // Port B: Refill write / Dirty update / Invalidate write (registered)
+    reg                          tag_bram_enb_r;
+    reg [TAG_BRAM_WEA-1:0]      tag_bram_web_r;
+    reg [SET_IDX_W-1:0]         tag_bram_addrb_r;
+    reg [TAG_BRAM_W-1:0]        tag_bram_dinb_r;
+
+    dcachet u_dcachet(
+        .clka   (clk),
+        .ena    (tag_bram_ena),
+        .wea    ({TAG_BRAM_WEA{1'b0}}),      // Port A: read only
+        .addra  (tag_bram_addra),              // set_idx or flush_set
+        .dina   ({TAG_BRAM_W{1'b0}}),
+        .douta  (tag_bram_douta),
+
+        .clkb   (clk),
+        .enb    (tag_bram_enb_r),
+        .web    (tag_bram_web_r),
+        .addrb  (tag_bram_addrb_r),
+        .dinb   (tag_bram_dinb_r),
+        .doutb  (tag_bram_doutb)
+    );
+
+    // --- Tag comparison from BRAM Port A output (valid in S_TAG_READ / S_FLUSH_CHECK) ---
+    wire [TAG_ENTRY_W-1:0] tag_r0 = tag_bram_douta[TAG_ENTRY_W*1-1:TAG_ENTRY_W*0];
+    wire [TAG_ENTRY_W-1:0] tag_r1 = tag_bram_douta[TAG_ENTRY_W*2-1:TAG_ENTRY_W*1];
+    wire [TAG_ENTRY_W-1:0] tag_r2 = tag_bram_douta[TAG_ENTRY_W*3-1:TAG_ENTRY_W*2];
+    wire [TAG_ENTRY_W-1:0] tag_r3 = tag_bram_douta[TAG_ENTRY_W*4-1:TAG_ENTRY_W*3];
 
     // Tag entry layout: [TAG_ENTRY_W-1]=V, [TAG_ENTRY_W-2]=D, [TAG_WIDTH-1:0]=tag
     wire hit0 = tag_r0[TAG_ENTRY_W-1] && (tag_r0[TAG_WIDTH-1:0] == req_tag);
@@ -110,7 +152,22 @@ module dcache_ctrl(
                             inv3 ? {{(WAY_W-2){1'b0}}, 2'b11} :
                             plru_victim;
 
-    wire victim_dirty = tag_ram[set_idx][victim_way][TAG_ENTRY_W-2]; // 脏位
+    // Extract victim way's tag entry from BRAM output (for dirty check and tag value)
+    wire [TAG_ENTRY_W-1:0] tag_r_victim = victim_way == 2'd0 ? tag_r0 :
+                                         victim_way == 2'd1 ? tag_r1 :
+                                         victim_way == 2'd2 ? tag_r2 : tag_r3;
+    wire victim_dirty = tag_r_victim[TAG_ENTRY_W-2]; // 脏位
+
+    // Extract hit way's tag entry (for store-hit dirty update)
+    wire [TAG_ENTRY_W-1:0] tag_r_hit = hit_way == 2'd0 ? tag_r0 :
+                                       hit_way == 2'd1 ? tag_r1 :
+                                       hit_way == 2'd2 ? tag_r2 : tag_r3;
+
+    // Extract flush way's tag entry from BRAM output (for flush scan)
+    wire [TAG_ENTRY_W-1:0] tag_r_flush;
+    assign tag_r_flush = flush_way == 2'd0 ? tag_r0 :
+                         flush_way == 2'd1 ? tag_r1 :
+                         flush_way == 2'd2 ? tag_r2 : tag_r3;
 
     reg [SET_IDX_W-1:0]  latched_set;
     reg [WAY_W-1:0]      latched_victim_way;
@@ -120,11 +177,16 @@ module dcache_ctrl(
     reg [2:0]  latched_hsize;
     reg [SET_IDX_W-1:0]  latched_word_off;
     reg [TAG_WIDTH-1:0]  latched_tag;
+    reg [TAG_WIDTH-1:0]  latched_victim_tag;  // victim's tag for writeback addr
 
     reg [SET_IDX_W-1:0]  flush_set;
     reg [WAY_W-1:0]      flush_way;
     reg        flush_done_r;
+    reg [SET_IDX_W-1:0]  invalidate_set;     // multi-cycle invalidate counter
 
+    // =========================================================================
+    // Data BRAM (dcached) — 256-bit × 32 deep
+    // =========================================================================
     wire [BRAM_ADDR_W-1:0] bram_addra = {set_idx, hit_way};
     wire [BRAM_ADDR_W-1:0] bram_addrb = (state == S_FLUSH_WB_RD || state == S_FLUSH_WB_SD) ?
                             {flush_set, flush_way} :
@@ -148,10 +210,11 @@ module dcache_ctrl(
 
     reg cpu_req_ready_r;
 
-    wire is_store_hit = cpu_req_valid && !cpu_req_ready_r && !is_mmio && cache_hit && cpu_req_hwrite;
-    wire is_load_hit  = cpu_req_valid && !cpu_req_ready_r && !is_mmio && cache_hit && !cpu_req_hwrite;
+    // Store hit / Load hit detected in S_TAG_READ (after tag comparison)
+    wire is_store_hit = (state == S_TAG_READ) && cache_hit && cpu_req_hwrite;
+    wire is_load_hit  = (state == S_TAG_READ) && cache_hit && !cpu_req_hwrite;
 
-    wire bram_ena = (is_load_hit || is_store_hit) && (state == S_IDLE);
+    wire bram_ena = is_load_hit || is_store_hit;
     wire [WEA_WIDTH-1:0]  bram_wea  = is_store_hit ? store_full_wea : {WEA_WIDTH{1'b0}};
     wire [LINE_WIDTH-1:0] bram_dina = is_store_hit ? store_full_dina : {LINE_WIDTH{1'b0}};
 
@@ -235,6 +298,25 @@ module dcache_ctrl(
         .next_state (plru_next_miss)
     );
 
+    // =========================================================================
+    // Tag BRAM write helpers — pack a single way's entry into BRAM line position
+    // =========================================================================
+    // Store hit: set V=1, D=1, keep tag
+    wire [TAG_ENTRY_W-1:0] store_hit_new_entry = {1'b1, 1'b1, tag_r_hit[TAG_WIDTH-1:0]};
+    wire [TAG_BRAM_W-1:0]  store_hit_tag_din   = ({TAG_BRAM_W{1'b0}} | {{(TAG_BRAM_W-TAG_ENTRY_W){1'b0}}, store_hit_new_entry}) << (hit_way * TAG_BRAM_BS);
+
+    // Refill: set V=1, D=latched_hwrite, tag=latched_tag
+    wire [TAG_ENTRY_W-1:0] refill_new_entry = {1'b1, latched_hwrite, latched_tag};
+    wire [TAG_BRAM_W-1:0]  refill_tag_din   = ({TAG_BRAM_W{1'b0}} | {{(TAG_BRAM_W-TAG_ENTRY_W){1'b0}}, refill_new_entry}) << (latched_victim_way * TAG_BRAM_BS);
+
+    // Writeback clear dirty: set V=1, D=0, keep tag
+    wire [TAG_ENTRY_W-1:0] wb_clear_entry = {1'b1, 1'b0, latched_victim_tag};
+    wire [TAG_BRAM_W-1:0]  wb_clear_tag_din = ({TAG_BRAM_W{1'b0}} | {{(TAG_BRAM_W-TAG_ENTRY_W){1'b0}}, wb_clear_entry}) << (latched_victim_way * TAG_BRAM_BS);
+
+    // Flush clear dirty: set V=1, D=0, keep tag (uses flush_way position)
+    wire [TAG_ENTRY_W-1:0] flush_clear_entry = {1'b1, 1'b0, tag_r_flush[TAG_WIDTH-1:0]};
+    wire [TAG_BRAM_W-1:0]  flush_clear_tag_din = ({TAG_BRAM_W{1'b0}} | {{(TAG_BRAM_W-TAG_ENTRY_W){1'b0}}, flush_clear_entry}) << (flush_way * TAG_BRAM_BS);
+
     always @(posedge clk or posedge reset) begin
         if (reset) begin
             state            <= S_IDLE;
@@ -250,20 +332,24 @@ module dcache_ctrl(
             latched_hsize    <= 3'b0;
             latched_word_off <= {SET_IDX_W{1'b0}};
             latched_tag      <= {TAG_WIDTH{1'b0}};
+            latched_victim_tag <= {TAG_WIDTH{1'b0}};
             bypass_data      <= 32'b0;
             cpu_req_ready_r  <= 1'b0;
             flush_set        <= {SET_IDX_W{1'b0}};
             flush_way        <= {WAY_W{1'b0}};
             flush_done_r     <= 1'b0;
+            invalidate_set   <= {SET_IDX_W{1'b0}};
+            tag_bram_enb_r   <= 1'b0;
+            tag_bram_web_r   <= {TAG_BRAM_WEA{1'b0}};
+            tag_bram_addrb_r <= {SET_IDX_W{1'b0}};
+            tag_bram_dinb_r  <= {TAG_BRAM_W{1'b0}};
             for (integer s = 0; s < NUM_SETS; s = s + 1) begin
                 plru_state[s] <= {NUM_WAYS-1{1'b0}};
-                for (integer w = 0; w < NUM_WAYS; w = w + 1) begin
-                    tag_ram[s][w] <= {TAG_ENTRY_W{1'b0}};
-                end
             end
         end else begin
             cpu_req_ready_r <= 1'b0;
             flush_done_r    <= 1'b0;
+            tag_bram_enb_r  <= 1'b0;  // default: no tag BRAM write
 
             case (state)
                 S_IDLE: begin
@@ -279,30 +365,46 @@ module dcache_ctrl(
                                 bypass_data     <= mmio_rdata;
                                 cpu_req_ready_r <= 1'b1;
                             end
-                        end else if (cache_hit) begin
-                            if (cpu_req_hwrite) begin
-                                tag_ram[set_idx][hit_way] <= {1'b1, 1'b1, tag_ram[set_idx][hit_way][TAG_WIDTH-1:0]};
-                                plru_state[set_idx] <= plru_next;
-                                cpu_req_ready_r <= 1'b1;
-                            end else begin
-                                state <= S_READ_HIT;
-                            end
                         end else begin
-                            latched_set        <= set_idx;
-                            latched_victim_way <= victim_way;
-                            latched_addr       <= cpu_req_addr;
-                            latched_wdata      <= cpu_req_wdata;
-                            latched_hwrite     <= cpu_req_hwrite;
-                            latched_hsize      <= cpu_req_hsize;
-                            latched_word_off   <= word_off;
-                            latched_tag        <= req_tag;
-                            if (victim_dirty) begin
-                                state <= S_WB_READ;
-                            end else begin
-                                refill_req_r  <= 1'b1;
-                                refill_addr_r <= {1'b1, {ADDR_UPPER_ZEROS{1'b0}}, req_tag, set_idx, {ADDR_LOWER_ZEROS{1'b0}}};
-                                state <= S_REFILL;
-                            end
+                            // Enable tag BRAM Port A → output valid next cycle
+                            state <= S_TAG_READ;
+                        end
+                    end
+                end
+
+                S_TAG_READ: begin
+                    // Tag BRAM Port A output is now valid
+                    if (cache_hit) begin
+                        if (cpu_req_hwrite) begin
+                            // Store hit: write data BRAM + set dirty in tag BRAM
+                            tag_bram_enb_r   <= 1'b1;
+                            tag_bram_web_r   <= (1 << hit_way);
+                            tag_bram_addrb_r <= set_idx;
+                            tag_bram_dinb_r  <= store_hit_tag_din;
+                            plru_state[set_idx] <= plru_next;
+                            cpu_req_ready_r <= 1'b1;
+                            state <= S_IDLE;  // must return to S_IDLE; tag BRAM output is stale for new request
+                        end else begin
+                            // Load hit: enable data BRAM, go to S_READ_HIT
+                            state <= S_READ_HIT;
+                        end
+                    end else begin
+                        // Miss: latch victim info
+                        latched_set        <= set_idx;
+                        latched_victim_way <= victim_way;
+                        latched_addr       <= cpu_req_addr;
+                        latched_wdata      <= cpu_req_wdata;
+                        latched_hwrite     <= cpu_req_hwrite;
+                        latched_hsize      <= cpu_req_hsize;
+                        latched_word_off   <= word_off;
+                        latched_tag        <= req_tag;
+                        latched_victim_tag <= tag_r_victim[TAG_WIDTH-1:0];
+                        if (victim_dirty) begin
+                            state <= S_WB_READ;
+                        end else begin
+                            refill_req_r  <= 1'b1;
+                            refill_addr_r <= {1'b1, {ADDR_UPPER_ZEROS{1'b0}}, req_tag, set_idx, {ADDR_LOWER_ZEROS{1'b0}}};
+                            state <= S_REFILL;
                         end
                     end
                 end
@@ -315,7 +417,7 @@ module dcache_ctrl(
                 end
 
                 S_WB_READ: begin
-                    wb_addr_r <= {1'b1, {ADDR_UPPER_ZEROS{1'b0}}, tag_ram[latched_set][latched_victim_way][TAG_WIDTH-1:0], latched_set, {ADDR_LOWER_ZEROS{1'b0}}};
+                    wb_addr_r <= {1'b1, {ADDR_UPPER_ZEROS{1'b0}}, latched_victim_tag, latched_set, {ADDR_LOWER_ZEROS{1'b0}}};
                     state <= S_WB_SEND;
                 end
 
@@ -323,7 +425,11 @@ module dcache_ctrl(
                     wb_req_r <= 1'b1;
                     if (wb_valid) begin
                         wb_req_r      <= 1'b0;
-                        tag_ram[latched_set][latched_victim_way][TAG_ENTRY_W-2] <= 1'b0; // clear dirty
+                        // Clear dirty bit in tag BRAM
+                        tag_bram_enb_r   <= 1'b1;
+                        tag_bram_web_r   <= (1 << latched_victim_way);
+                        tag_bram_addrb_r <= latched_set;
+                        tag_bram_dinb_r  <= wb_clear_tag_din;
                         refill_req_r  <= 1'b1;
                         refill_addr_r <= {1'b1, {ADDR_UPPER_ZEROS{1'b0}}, latched_tag, latched_set, {ADDR_LOWER_ZEROS{1'b0}}};
                         state <= S_REFILL;
@@ -336,56 +442,36 @@ module dcache_ctrl(
                         refill_req_r    <= 1'b0;
                         bypass_data     <= refill_word;
                         cpu_req_ready_r <= 1'b1;
-                        tag_ram[latched_set][latched_victim_way] <= {1'b1, latched_hwrite, latched_tag};
+                        // Write tag BRAM: set valid, dirty=latched_hwrite, tag
+                        tag_bram_enb_r   <= 1'b1;
+                        tag_bram_web_r   <= (1 << latched_victim_way);
+                        tag_bram_addrb_r <= latched_set;
+                        tag_bram_dinb_r  <= refill_tag_din;
                         plru_state[latched_set] <= plru_next_miss;
                         state <= S_IDLE;
                     end
                 end
 
                 S_FLUSH_SCAN: begin
-                    if (tag_ram[flush_set][flush_way][TAG_ENTRY_W-1] && tag_ram[flush_set][flush_way][TAG_ENTRY_W-2]) begin
+                    // Enable tag BRAM Port A for flush_set → output valid next cycle
+                    state <= S_FLUSH_CHECK;
+                end
+
+                S_FLUSH_CHECK: begin
+                    // Tag BRAM output valid for flush_set
+                    if (tag_r_flush[TAG_ENTRY_W-1] && tag_r_flush[TAG_ENTRY_W-2]) begin
+                        // Valid && Dirty → need writeback
                         latched_set        <= flush_set;
                         latched_victim_way <= flush_way;
+                        latched_victim_tag <= tag_r_flush[TAG_WIDTH-1:0];
                         state <= S_FLUSH_WB_RD;
                     end else begin
+                        // Not dirty, advance to next way/set
                         if (flush_way == NUM_WAYS - 1) begin
                             if (flush_set == NUM_SETS - 1) begin
-                                for (integer s = 0; s < NUM_SETS; s = s + 1) begin
-                                    for (integer w = 0; w < NUM_WAYS; w = w + 1) begin
-                                        tag_ram[s][w][TAG_ENTRY_W-1] <= 1'b0;
-                                    end
-                                end
-                                flush_done_r <= 1'b1;
-                                state <= S_IDLE;
-                            end else begin
-                                flush_set <= flush_set + 1'b1;
-                                flush_way <= {WAY_W{1'b0}};
-                            end
-                        end else begin
-                            flush_way <= flush_way + 1'b1;
-                        end
-                    end
-                end
-
-                S_FLUSH_WB_RD: begin
-                    wb_addr_r <= {1'b1, {ADDR_UPPER_ZEROS{1'b0}}, tag_ram[flush_set][flush_way][TAG_WIDTH-1:0], flush_set, {ADDR_LOWER_ZEROS{1'b0}}};
-                    state <= S_FLUSH_WB_SD;
-                end
-
-                S_FLUSH_WB_SD: begin
-                    wb_req_r <= 1'b1;
-                    if (wb_valid) begin
-                        wb_req_r <= 1'b0;
-                        tag_ram[flush_set][flush_way][TAG_ENTRY_W-2] <= 1'b0; // clear dirty
-                        if (flush_way == NUM_WAYS - 1) begin
-                            if (flush_set == NUM_SETS - 1) begin
-                                for (integer s = 0; s < NUM_SETS; s = s + 1) begin
-                                    for (integer w = 0; w < NUM_WAYS; w = w + 1) begin
-                                        tag_ram[s][w][TAG_ENTRY_W-1] <= 1'b0;
-                                    end
-                                end
-                                flush_done_r <= 1'b1;
-                                state <= S_IDLE;
+                                // All sets/ways scanned → invalidate all
+                                state <= S_FLUSH_INVALIDATE;
+                                invalidate_set <= {SET_IDX_W{1'b0}};
                             end else begin
                                 flush_set <= flush_set + 1'b1;
                                 flush_way <= {WAY_W{1'b0}};
@@ -393,8 +479,58 @@ module dcache_ctrl(
                             end
                         end else begin
                             flush_way <= flush_way + 1'b1;
+                            // Same set, next way — BRAM output still valid, stay in S_FLUSH_CHECK
+                        end
+                    end
+                end
+
+                S_FLUSH_WB_RD: begin
+                    wb_addr_r <= {1'b1, {ADDR_UPPER_ZEROS{1'b0}}, latched_victim_tag, latched_set, {ADDR_LOWER_ZEROS{1'b0}}};
+                    state <= S_FLUSH_WB_SD;
+                end
+
+                S_FLUSH_WB_SD: begin
+                    wb_req_r <= 1'b1;
+                    if (wb_valid) begin
+                        wb_req_r <= 1'b0;
+                        // Clear dirty bit in tag BRAM
+                        tag_bram_enb_r   <= 1'b1;
+                        tag_bram_web_r   <= (1 << latched_victim_way);
+                        tag_bram_addrb_r <= latched_set;
+                        tag_bram_dinb_r  <= wb_clear_tag_din;
+                        // Advance to next way/set
+                        if (latched_victim_way == NUM_WAYS - 1) begin
+                            if (latched_set == NUM_SETS - 1) begin
+                                // All done → invalidate all
+                                state <= S_FLUSH_INVALIDATE;
+                                invalidate_set <= {SET_IDX_W{1'b0}};
+                            end else begin
+                                flush_set <= latched_set + 1'b1;
+                                flush_way <= {WAY_W{1'b0}};
+                                state <= S_FLUSH_SCAN;
+                            end
+                        end else begin
+                            flush_set <= latched_set;
+                            flush_way <= latched_victim_way + 1'b1;
                             state <= S_FLUSH_SCAN;
                         end
+                    end
+                end
+
+                S_FLUSH_INVALIDATE: begin
+                    // Write one set per cycle with all zeros (clear all valid bits)
+                    tag_bram_enb_r   <= 1'b1;
+                    tag_bram_web_r   <= {TAG_BRAM_WEA{1'b1}};   // write all 4 ways
+                    tag_bram_addrb_r <= invalidate_set;
+                    tag_bram_dinb_r  <= {TAG_BRAM_W{1'b0}};     // all zeros
+                    if (invalidate_set == NUM_SETS - 1) begin
+                        for (integer s = 0; s < NUM_SETS; s = s + 1) begin
+                            plru_state[s] <= {NUM_WAYS-1{1'b0}};
+                        end
+                        flush_done_r <= 1'b1;
+                        state <= S_IDLE;
+                    end else begin
+                        invalidate_set <= invalidate_set + 1'b1;
                     end
                 end
 

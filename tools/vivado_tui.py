@@ -285,83 +285,41 @@ class SessionPanel(Vertical):
 
 
 # ---------------------------------------------------------------------------
-# TaskSelector — dropdown for task selection
-# ---------------------------------------------------------------------------
-class TaskSelector(Vertical):
-    """Task selection dropdown populated from TaskRegistry."""
-
-    DEFAULT_CSS = """
-    TaskSelector {
-        padding: 0 1;
-        height: auto;
-    }
-    TaskSelector > Label {
-        text-style: bold;
-        margin: 0 0 1 0;
-    }
-    TaskSelector > Select {
-        width: 100%;
-    }
-    """
-
-    selected_task: reactive[str | None] = reactive(None)
-
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
-
-    def compose(self) -> ComposeResult:
-        yield Label("Task")
-        yield Select(
-            options=[("(no tasks loaded)", None)],
-            value=None,
-            id="task-select",
-        )
-
-    def update_tasks(self, task_names: list[str]) -> None:
-        """Populate the dropdown with task names."""
-        select = self.query_one("#task-select", Select)
-        options = [(name, name) for name in task_names]
-        if not options:
-            options = [("(no tasks loaded)", None)]
-        select.set_options(options)
-        if task_names:
-            select.value = task_names[0]
-            self.selected_task = task_names[0]
-
-    def on_select_changed(self, event: Select.Changed) -> None:
-        """React to task selection change."""
-        if event.select.id == "task-select":
-            self.selected_task = event.value
-
-
-# ---------------------------------------------------------------------------
-# ControlPanel — action buttons
+# ControlPanel — compact toolbar: task selector + session label + action buttons
 # ---------------------------------------------------------------------------
 class ControlPanel(Vertical):
-    """Right panel with action buttons for common operations."""
+    """Compact toolbar combining task selector, session info, and action buttons
+    in a minimal vertical footprint (2 rows instead of 4+)."""
 
     DEFAULT_CSS = """
     ControlPanel {
         width: 1fr;
+        height: auto;
         border: solid blue;
         padding: 0 1;
     }
-    ControlPanel > .ctrl-title {
-        text-style: bold;
-        color: $text-primary;
-        padding: 0 0 1 0;
-    }
-    ControlPanel > .ctrl-session-label {
-        padding: 0 0 1 0;
-        color: $text-secondary;
-    }
-    ControlPanel > Horizontal {
+    ControlPanel > .toolbar-row {
         height: auto;
         margin: 0 0 1 0;
     }
-    ControlPanel > Horizontal > Button {
+    ControlPanel > .toolbar-row > Label {
         margin: 0 1 0 0;
-        min-width: 12;
+        text-style: bold;
+    }
+    ControlPanel > .toolbar-row > Select {
+        width: 20;
+        margin: 0 1 0 0;
+    }
+    ControlPanel > .toolbar-row > .ctrl-session-label {
+        margin: 0 1 0 0;
+        color: $text-secondary;
+    }
+    ControlPanel > .button-row {
+        height: auto;
+    }
+    ControlPanel > .button-row > Button {
+        margin: 0 1 0 0;
+        min-width: 9;
     }
     .btn-create { background: $success; }
     .btn-sim { background: $primary; }
@@ -375,16 +333,33 @@ class ControlPanel(Vertical):
         super().__init__(*args, **kwargs)
 
     def compose(self) -> ComposeResult:
-        yield Label("Control", classes="ctrl-title")
-        yield Label("Session: (none)", id="ctrl-session-name", classes="ctrl-session-label")
-        with Horizontal():
+        # Row 1: Task selector + session label (inline)
+        with Horizontal(classes="toolbar-row"):
+            yield Label("Task:")
+            yield Select(
+                options=[("(no tasks loaded)", None)],
+                value=None,
+                id="task-select",
+            )
+            yield Label("Session: (none)", id="ctrl-session-name", classes="ctrl-session-label")
+        # Row 2: All 6 action buttons in a single row
+        with Horizontal(classes="button-row"):
             yield Button("Create", id="btn-create", classes="btn-create")
             yield Button("Sim", id="btn-sim", classes="btn-sim")
             yield Button("Refresh", id="btn-refresh", classes="btn-refresh")
-        with Horizontal():
             yield Button("Bitstream", id="btn-bitstream", classes="btn-bitstream")
             yield Button("Program", id="btn-program", classes="btn-program")
             yield Button("Archive", id="btn-archive", classes="btn-archive")
+
+    def update_tasks(self, task_names: list[str]) -> None:
+        """Populate the dropdown with task names."""
+        select = self.query_one("#task-select", Select)
+        options = [(name, name) for name in task_names]
+        if not options:
+            options = [("(no tasks loaded)", None)]
+        select.set_options(options)
+        if task_names:
+            select.value = task_names[0]
 
     def set_session_name(self, name: str | None) -> None:
         """Update the session name label."""
@@ -410,9 +385,14 @@ class CommandInput(Vertical):
 
     DEFAULT_CSS = """
     CommandInput {
-        height: 3;
+        height: 5;
         border: solid yellow;
         padding: 0 1;
+    }
+    CommandInput > .cmd-prompt {
+        color: $accent;
+        text-style: bold;
+        height: 1;
     }
     CommandInput > Input {
         width: 100%;
@@ -425,7 +405,8 @@ class CommandInput(Vertical):
         self._completion_matches: list[str] = []
 
     def compose(self) -> ComposeResult:
-        yield Input(placeholder="> Enter TCL command (Tab to complete)...", id="tcl-input")
+        yield Label("TCL >", classes="cmd-prompt")
+        yield Input(placeholder="Enter TCL command (Tab to complete, Enter to execute)...", id="tcl-input")
 
     def on_key(self, event: Key) -> None:
         """Handle Tab key for completion."""
@@ -548,7 +529,7 @@ class VivadoTUI(App):
 
     #main-area {
         layout: horizontal;
-        height: 18;
+        height: 10;
     }
 
     #sessions-panel {
@@ -567,7 +548,7 @@ class VivadoTUI(App):
     }
 
     #command-area {
-        height: 3;
+        height: 5;
         border: solid yellow;
     }
 
@@ -609,7 +590,6 @@ class VivadoTUI(App):
         with Horizontal(id="main-area"):
             yield SessionPanel(id="sessions-panel")
             with Vertical(id="right-area"):
-                yield TaskSelector(id="task-selector")
                 yield ControlPanel(id="control-panel")
         yield CommandInput(id="command-area")
         yield OutputViewer(id="output-area")
@@ -644,7 +624,7 @@ class VivadoTUI(App):
 
             # Populate task selector
             task_names = self._task_registry.list_names()
-            task_sel = self.query_one("#task-selector", TaskSelector)
+            task_sel = self.query_one("#control-panel", ControlPanel)
             task_sel.update_tasks(task_names)
             if task_names:
                 self.current_task_name = task_names[0]

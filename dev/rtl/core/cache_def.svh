@@ -35,6 +35,11 @@
 `define ICACHE_TAG_ENTRY_WIDTH 8
 `define ICACHE_SET_IDX_WIDTH 3
 `define ICACHE_WAY_WIDTH    2
+`define ICACHE_TAG_BRAM_WIDTH      32
+`define ICACHE_TAG_BRAM_DEPTH      8
+`define ICACHE_TAG_BRAM_ADDR_WIDTH 3
+`define ICACHE_TAG_BRAM_WEA_WIDTH  4
+`define ICACHE_TAG_BRAM_BYTE_SIZE  8
 
 // --- D-Cache ---
 `define DCACHE_NUM_SETS    8
@@ -56,8 +61,13 @@
 `define DCACHE_TAG_ENTRY_WIDTH 9
 `define DCACHE_SET_IDX_WIDTH 3
 `define DCACHE_WAY_WIDTH    2
+`define DCACHE_TAG_BRAM_WIDTH      36
+`define DCACHE_TAG_BRAM_DEPTH      8
+`define DCACHE_TAG_BRAM_ADDR_WIDTH 3
+`define DCACHE_TAG_BRAM_WEA_WIDTH  4
+`define DCACHE_TAG_BRAM_BYTE_SIZE  9
 
 // --- Tag storage mode ---
-`define USE_TAG_BRAM 0
+`define USE_TAG_BRAM 1
 
 `endif // CACHE_DEF_SVH

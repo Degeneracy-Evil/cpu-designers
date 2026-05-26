@@ -34,14 +34,18 @@ module icache_ctrl(
     localparam TAG_ENTRY_W   = `ICACHE_TAG_ENTRY_WIDTH;
     localparam SET_IDX_W     = `ICACHE_SET_IDX_WIDTH;
     localparam WAY_W         = `ICACHE_WAY_WIDTH;
+    localparam TAG_BRAM_W    = `ICACHE_TAG_BRAM_WIDTH;
+    localparam TAG_BRAM_WEA  = `ICACHE_TAG_BRAM_WEA_WIDTH;
+    localparam TAG_BRAM_BS   = `ICACHE_TAG_BRAM_BYTE_SIZE;
     // Derived: address layout
     localparam ADDR_UPPER_ZEROS = 30 - `ICACHE_TAG_HI;
     localparam ADDR_LOWER_ZEROS = `ICACHE_SET_IDX_LO;
 
-    localparam S_IDLE       = 2'd0;
-    localparam S_READ       = 2'd1;
-    localparam S_REFILL    = 2'd2;
-    localparam S_INVALIDATE = 2'd3;
+    localparam S_IDLE       = 3'd0;
+    localparam S_TAG_READ   = 3'd1;
+    localparam S_READ       = 3'd2;
+    localparam S_REFILL     = 3'd3;
+    localparam S_INVALIDATE = 3'd4;
 
     wire is_mmio = ~cpu_req_addr[31];
 
@@ -49,15 +53,49 @@ module icache_ctrl(
     wire [SET_IDX_W-1:0]   set_idx  = cpu_req_addr[`ICACHE_SET_IDX_HI:`ICACHE_SET_IDX_LO];
     wire [SET_IDX_W-1:0]   word_off = cpu_req_addr[`ICACHE_WORD_OFF_HI:`ICACHE_WORD_OFF_LO];
 
-    reg [1:0] state;
+    reg [2:0] state;
 
-    reg [TAG_ENTRY_W-1:0] tag_ram [0:NUM_SETS-1][0:NUM_WAYS-1];
+    // --- PLRU state (kept as registers — too small for BRAM) ---
     reg [NUM_WAYS-2:0] plru_state [0:NUM_SETS-1];
 
-    wire [TAG_ENTRY_W-1:0] tag_r0 = tag_ram[set_idx][0];
-    wire [TAG_ENTRY_W-1:0] tag_r1 = tag_ram[set_idx][1];
-    wire [TAG_ENTRY_W-1:0] tag_r2 = tag_ram[set_idx][2];
-    wire [TAG_ENTRY_W-1:0] tag_r3 = tag_ram[set_idx][3];
+    // =========================================================================
+    // Tag BRAM (icachet) — 32-bit × 8 deep, Byte_Size=8, 4-bit WEA
+    // Each address = 1 set, data = 4 ways packed: {Way3, Way2, Way1, Way0}
+    //   Way N bits: [N*8 +: 8] = {V(1), tag(7)}
+    // =========================================================================
+    wire [TAG_BRAM_W-1:0] tag_bram_douta;
+    wire [TAG_BRAM_W-1:0] tag_bram_doutb;
+
+    // Port A: CPU read (enable in S_IDLE → output valid in S_TAG_READ)
+    wire tag_bram_ena = (state == S_IDLE) && cpu_req_valid && !cpu_req_ready_r && !is_mmio;
+
+    // Port B: Refill write / Invalidate write (registered, applied next cycle)
+    reg                          tag_bram_enb_r;
+    reg [TAG_BRAM_WEA-1:0]      tag_bram_web_r;
+    reg [SET_IDX_W-1:0]         tag_bram_addrb_r;
+    reg [TAG_BRAM_W-1:0]        tag_bram_dinb_r;
+
+    icachet u_icachet(
+        .clka   (clk),
+        .ena    (tag_bram_ena),
+        .wea    ({TAG_BRAM_WEA{1'b0}}),      // Port A: read only
+        .addra  (set_idx),                    // 3-bit set index
+        .dina   ({TAG_BRAM_W{1'b0}}),
+        .douta  (tag_bram_douta),
+
+        .clkb   (clk),
+        .enb    (tag_bram_enb_r),
+        .web    (tag_bram_web_r),
+        .addrb  (tag_bram_addrb_r),
+        .dinb   (tag_bram_dinb_r),
+        .doutb  (tag_bram_doutb)
+    );
+
+    // --- Tag comparison from BRAM Port A output (valid in S_TAG_READ) ---
+    wire [TAG_ENTRY_W-1:0] tag_r0 = tag_bram_douta[TAG_ENTRY_W*1-1:TAG_ENTRY_W*0];
+    wire [TAG_ENTRY_W-1:0] tag_r1 = tag_bram_douta[TAG_ENTRY_W*2-1:TAG_ENTRY_W*1];
+    wire [TAG_ENTRY_W-1:0] tag_r2 = tag_bram_douta[TAG_ENTRY_W*3-1:TAG_ENTRY_W*2];
+    wire [TAG_ENTRY_W-1:0] tag_r3 = tag_bram_douta[TAG_ENTRY_W*4-1:TAG_ENTRY_W*3];
 
     wire hit0 = tag_r0[TAG_ENTRY_W-1] && (tag_r0[TAG_WIDTH-1:0] == req_tag);
     wire hit1 = tag_r1[TAG_ENTRY_W-1] && (tag_r1[TAG_WIDTH-1:0] == req_tag);
@@ -96,6 +134,9 @@ module icache_ctrl(
     reg [WAY_W-1:0]      refill_way;
     reg [31:0] latched_addr;
 
+    // =========================================================================
+    // Data BRAM (icached) — 256-bit × 32 deep
+    // =========================================================================
     wire [BRAM_ADDR_W-1:0] bram_addra = {set_idx, hit_way};
     wire [BRAM_ADDR_W-1:0] bram_addrb = {latched_set, refill_way};
 
@@ -105,7 +146,8 @@ module icache_ctrl(
     reg cpu_req_ready_r;
     reg  invalidate_done_r;
 
-    wire bram_ena = (state == S_IDLE) && cpu_req_valid && !cpu_req_ready_r && !is_mmio;
+    // Data BRAM Port A: enable in S_TAG_READ on hit (hit_way now known)
+    wire bram_ena = (state == S_TAG_READ) && cache_hit;
     wire bram_enb = refill_valid && (state == S_REFILL);
 
     icached u_icached(
@@ -153,32 +195,44 @@ module icache_ctrl(
         .next_state (plru_next_refill)
     );
 
+    // --- Invalidate counter (multi-cycle: 1 BRAM write per set) ---
+    reg [SET_IDX_W-1:0] invalidate_set;
+
+    // --- Helper: pack a single way's tag entry into the BRAM line position ---
+    // new_entry is TAG_ENTRY_W bits wide; placed at refill_way * TAG_BRAM_BS offset
+    wire [TAG_ENTRY_W-1:0] refill_new_entry = {1'b1, latched_addr[`ICACHE_TAG_HI:`ICACHE_TAG_LO]};
+    wire [TAG_BRAM_W-1:0]  refill_tag_din   = ({TAG_BRAM_W{1'b0}} | {{(TAG_BRAM_W-TAG_ENTRY_W){1'b0}}, refill_new_entry}) << (refill_way * TAG_BRAM_BS);
+
     always @(posedge clk or posedge reset) begin
         if (reset) begin
-            state         <= S_IDLE;
-            refill_req_r  <= 1'b0;
-            refill_addr_r <= 32'b0;
-            latched_set   <= {SET_IDX_W{1'b0}};
-            refill_way    <= {WAY_W{1'b0}};
-            latched_addr  <= 32'b0;
-            bypass_data   <= 32'b0;
-            cpu_req_ready_r <= 1'b0;
+            state            <= S_IDLE;
+            refill_req_r     <= 1'b0;
+            refill_addr_r    <= 32'b0;
+            latched_set      <= {SET_IDX_W{1'b0}};
+            refill_way       <= {WAY_W{1'b0}};
+            latched_addr     <= 32'b0;
+            bypass_data      <= 32'b0;
+            cpu_req_ready_r  <= 1'b0;
             invalidate_done_r <= 1'b0;
+            invalidate_set   <= {SET_IDX_W{1'b0}};
+            tag_bram_enb_r   <= 1'b0;
+            tag_bram_web_r   <= {TAG_BRAM_WEA{1'b0}};
+            tag_bram_addrb_r <= {SET_IDX_W{1'b0}};
+            tag_bram_dinb_r  <= {TAG_BRAM_W{1'b0}};
             for (integer s = 0; s < NUM_SETS; s = s + 1) begin
                 plru_state[s] <= {NUM_WAYS-1{1'b0}};
-                for (integer w = 0; w < NUM_WAYS; w = w + 1) begin
-                    tag_ram[s][w] <= {TAG_ENTRY_W{1'b0}};
-                end
             end
         end else begin
-            cpu_req_ready_r <= 1'b0;
+            cpu_req_ready_r  <= 1'b0;
             invalidate_done_r <= 1'b0;
+            tag_bram_enb_r   <= 1'b0;  // default: no tag BRAM write
 
             case (state)
                 S_IDLE: begin
                     refill_req_r <= 1'b0;
                     if (invalidate_req) begin
                         state <= S_INVALIDATE;
+                        invalidate_set <= {SET_IDX_W{1'b0}};
                     end else if (cpu_req_valid && !cpu_req_ready_r) begin
                         if (is_mmio) begin
                             if (mmio_valid) begin
@@ -186,17 +240,19 @@ module icache_ctrl(
                                 cpu_req_ready_r <= 1'b1;
                             end
                         end else begin
-                            state <= S_READ;
+                            // Enable tag BRAM Port A (addra=set_idx already wired)
+                            // Output will be valid next cycle in S_TAG_READ
+                            state <= S_TAG_READ;
                         end
                     end
                 end
 
-                S_READ: begin
+                S_TAG_READ: begin
+                    // Tag BRAM Port A output is now valid
                     if (cache_hit) begin
-                        bypass_data     <= sel_word;
-                        cpu_req_ready_r <= 1'b1;
-                        plru_state[set_idx] <= plru_next;
-                        state <= S_IDLE;
+                        // Data BRAM Port A enabled this cycle (bram_ena above)
+                        // Data available next cycle in S_READ
+                        state <= S_READ;
                     end else begin
                         latched_set  <= set_idx;
                         latched_addr <= cpu_req_addr;
@@ -207,27 +263,46 @@ module icache_ctrl(
                     end
                 end
 
+                S_READ: begin
+                    // Data BRAM Port A output is now valid
+                    bypass_data     <= sel_word;
+                    cpu_req_ready_r <= 1'b1;
+                    plru_state[set_idx] <= plru_next;
+                    state <= S_IDLE;
+                end
+
                 S_REFILL: begin
                     refill_req_r <= 1'b1;
                     if (refill_valid) begin
                         refill_req_r    <= 1'b0;
                         bypass_data     <= sel_word;
                         cpu_req_ready_r <= 1'b1;
-                        tag_ram[latched_set][refill_way] <= {1'b1, latched_addr[`ICACHE_TAG_HI:`ICACHE_TAG_LO]};
+                        // Write tag BRAM Port B: update only the refilled way
+                        tag_bram_enb_r   <= 1'b1;
+                        tag_bram_web_r   <= (1 << refill_way);  // per-way byte write enable
+                        tag_bram_addrb_r <= latched_set;
+                        tag_bram_dinb_r  <= refill_tag_din;
                         plru_state[latched_set] <= plru_next_refill;
                         state <= S_IDLE;
                     end
                 end
 
                 S_INVALIDATE: begin
-                    for (integer s = 0; s < NUM_SETS; s = s + 1) begin
-                        plru_state[s] <= {NUM_WAYS-1{1'b0}};
-                        for (integer w = 0; w < NUM_WAYS; w = w + 1) begin
-                            tag_ram[s][w] <= {TAG_ENTRY_W{1'b0}};
+                    // Write one set per cycle with all zeros (clear all valid bits)
+                    tag_bram_enb_r   <= 1'b1;
+                    tag_bram_web_r   <= {TAG_BRAM_WEA{1'b1}};   // write all 4 ways
+                    tag_bram_addrb_r <= invalidate_set;
+                    tag_bram_dinb_r  <= {TAG_BRAM_W{1'b0}};     // all zeros
+                    if (invalidate_set == NUM_SETS - 1) begin
+                        // Last set written — done
+                        for (integer s = 0; s < NUM_SETS; s = s + 1) begin
+                            plru_state[s] <= {NUM_WAYS-1{1'b0}};
                         end
+                        invalidate_done_r <= 1'b1;
+                        state <= S_IDLE;
+                    end else begin
+                        invalidate_set <= invalidate_set + 1'b1;
                     end
-                    invalidate_done_r <= 1'b1;
-                    state <= S_IDLE;
                 end
 
                 default: state <= S_IDLE;

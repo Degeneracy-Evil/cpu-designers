@@ -95,7 +95,10 @@ def cache_data_to_bram(name: str, cfg: CacheConfig) -> BramConfig:
 
 
 def cache_tag_to_bram(name: str, cfg: CacheConfig, has_dirty: bool = False) -> BramConfig:
-    """Derive BRAM config for a cache *tag* array.
+    """Derive BRAM config for a cache *tag* array (packed: all ways per set).
+
+    Each BRAM address corresponds to one Set's all 4 Ways packed together.
+    This enables single-read parallel tag comparison for the entire set.
 
     Parameters
     ----------
@@ -106,16 +109,19 @@ def cache_tag_to_bram(name: str, cfg: CacheConfig, has_dirty: bool = False) -> B
     has_dirty:
         If true, tag entry includes a dirty bit (dcache).
     """
-    # Tag entry: valid(1) [+ dirty(1)] + tag(tag_width)
+    # Tag entry per way: valid(1) [+ dirty(1)] + tag(tag_width)
     extra_bits = 2 if has_dirty else 1
-    tag_entry_width = extra_bits + cfg.tag_width
-    depth = cfg.num_sets * cfg.num_ways
+    tag_entry_width = extra_bits + cfg.tag_width  # 8 for icache, 9 for dcache
+    # Packed: all ways in one BRAM line
+    packed_width = cfg.num_ways * tag_entry_width  # 32 for icache, 36 for dcache
+    # Depth = number of sets (one BRAM address per set)
+    depth = cfg.num_sets
     return BramConfig(
         name=name,
-        data_width=tag_entry_width,
+        data_width=packed_width,
         depth=depth,
-        byte_enable=False,
-        byte_size=8,  # unused when byte_enable=false
+        byte_enable=cfg.tag_bram_byte_enable,
+        byte_size=cfg.tag_bram_byte_size,
         register_output=False,
     )
 

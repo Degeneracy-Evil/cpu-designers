@@ -23,15 +23,12 @@ python -m tools.vivado_cli <args>
 ### 会话管理
 
 ```bash
-# 查看所有会话状态（含 staleness 检测）
-python -m tools.vivado_cli --status
-
-# 查看会话状态（JSON，agent 可解析）
-python -m tools.vivado_cli --status --format json
-
 # 清理旧会话
 python -m tools.vivado_cli --cleanup
 python -m tools.vivado_cli --cleanup-all
+
+# 重新生成 cache_def.svh（修改 vivado_config.yaml 后）
+python -m tools.vivado_cli --gen-config
 ```
 
 ### 仿真
@@ -187,7 +184,60 @@ python -m tools.vivado_cli -task fpga -program
 ## 配置文件
 
 - **tasks.yaml** — 任务定义（项目根目录）
-- **vivado_config.yaml** — 全局配置：资源限制、Vivado 路径、器件型号
+- **vivado_config.yaml** — 全局配置：资源限制、Vivado 路径、器件型号、**内存/Cache 参数**
+
+## 配置驱动的 IP 生成
+
+BRAM IP（Sram、icached、dcached）通过 `vivado_config.yaml` 的 `memory` 段动态生成，替代静态 XCI 导入。修改配置后，IP 和 RTL 常量自动同步。
+
+### 重新生成配置
+
+```bash
+# 编辑 vivado_config.yaml 后，重新生成 cache_def.svh：
+python -m tools.vivado_cli --gen-config
+
+# 或在 Python 中：
+from tools.vivado_core.operations import Operations
+ops.gen_config()  # → 返回 cache_def.svh 路径
+```
+
+### 配置示例
+
+```yaml
+memory:
+  sram:
+    data_width: 32        # SRAM 字宽
+    depth: 8192           # SRAM 深度（32KB）
+  icache:
+    num_sets: 8           # 组数
+    num_ways: 4           # 相联度
+    tag_width: 7          # 标记位宽
+    line_words: 8         # 每行字数（line_width = line_words × 32）
+  dcache:
+    num_sets: 8
+    num_ways: 4
+    tag_width: 7
+    line_words: 8
+  use_tag_bram: false     # true = 用 BRAM 存 tag；false = 寄存器阵列
+```
+
+### 生成链
+
+```
+vivado_config.yaml
+  ├─→ ip_gen.py        → create_ip TCL（Sram/icached/dcached BRAM 几何）
+  ├─→ cache_header_gen.py → cache_def.svh（`define 宏：地址切片、宽度常量）
+  └─→ operations.py    → _tcl_setup_ip() 在 create/refresh 时执行
+```
+
+### 关键文件
+
+| 文件 | 作用 |
+|------|------|
+| `tools/vivado_core/ip_gen.py` | BramConfig 数据类 + `create_ip` TCL 生成 |
+| `tools/vivado_core/cache_header_gen.py` | `cache_def.svh` 生成（地址切片推导） |
+| `tools/vivado_core/config.py` | `MemoryConfig` 数据类 + YAML 解析 |
+| `dev/rtl/core/cache_def.svh` | **自动生成**，勿手动编辑 |
 
 ## 与旧 vivado_do.tcl 的对照
 

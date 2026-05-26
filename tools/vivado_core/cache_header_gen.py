@@ -104,6 +104,32 @@ def _derive_addr_slices(cfg: CacheConfig, prefix: str) -> list[str]:
     return lines
 
 
+def _derive_tag_bram_defines(cfg: CacheConfig, prefix: str, has_dirty: bool) -> list[str]:
+    """Derive tag BRAM ``define`` macros for one cache (when use_tag_bram=true).
+
+    Tag BRAM packs all ways of a set into one BRAM line:
+      - data_width = num_ways * tag_entry_width
+      - depth = num_sets
+      - Byte write enable: 1 bit per way (byte_size = tag_entry_width)
+    """
+    extra_bits = 2 if has_dirty else 1
+    tag_entry_width = extra_bits + cfg.tag_width
+    packed_width = cfg.num_ways * tag_entry_width
+    depth = cfg.num_sets
+    wea_width = cfg.num_ways  # 1 WEA bit per way
+
+    lines: list[str] = []
+    p = prefix
+    lines.append(f"`define {p}_TAG_BRAM_WIDTH      {packed_width}")
+    lines.append(f"`define {p}_TAG_BRAM_DEPTH      {depth}")
+    lines.append(f"`define {p}_TAG_BRAM_ADDR_WIDTH {_clog2(depth)}")
+    lines.append(f"`define {p}_TAG_BRAM_WEA_WIDTH  {wea_width}")
+    # Per-way byte size within the packed BRAM line (matches Byte_Size in IP config)
+    lines.append(f"`define {p}_TAG_BRAM_BYTE_SIZE  {tag_entry_width}")
+
+    return lines
+
+
 # ---------------------------------------------------------------------------
 # SRAM defines
 # ---------------------------------------------------------------------------
@@ -156,11 +182,15 @@ def generate_cache_header(mem: MemoryConfig) -> str:
     # I-Cache
     lines.append("// --- I-Cache ---")
     lines.extend(_derive_addr_slices(mem.icache, "ICACHE"))
+    if mem.use_tag_bram:
+        lines.extend(_derive_tag_bram_defines(mem.icache, "ICACHE", has_dirty=False))
     lines.append("")
 
     # D-Cache
     lines.append("// --- D-Cache ---")
     lines.extend(_derive_addr_slices(mem.dcache, "DCACHE"))
+    if mem.use_tag_bram:
+        lines.extend(_derive_tag_bram_defines(mem.dcache, "DCACHE", has_dirty=True))
     lines.append("")
 
     # Tag BRAM flag

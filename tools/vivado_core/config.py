@@ -71,6 +71,12 @@ class CacheConfig:
     byte_size: int = 8
     """Byte size for write-enable granularity."""
 
+    tag_bram_byte_enable: bool = True
+    """Whether byte-write enable is active for tag BRAM (when use_tag_bram=true)."""
+
+    tag_bram_byte_size: int = 8
+    """Byte size for tag BRAM write-enable granularity (8 for icache, 9 for dcache)."""
+
 
 @dataclass(frozen=True)
 class MemoryConfig:
@@ -171,6 +177,8 @@ def load_config(path: Path | str | None = None, base_dir: Path | str | None = No
         line_words=icache_raw.get("line_words", 8),
         byte_enable=icache_raw.get("byte_enable", True),
         byte_size=icache_raw.get("byte_size", 8),
+        tag_bram_byte_enable=icache_raw.get("tag_bram_byte_enable", True),
+        tag_bram_byte_size=icache_raw.get("tag_bram_byte_size", 8),
     )
     dcache = CacheConfig(
         num_sets=dcache_raw.get("num_sets", 8),
@@ -179,6 +187,8 @@ def load_config(path: Path | str | None = None, base_dir: Path | str | None = No
         line_words=dcache_raw.get("line_words", 8),
         byte_enable=dcache_raw.get("byte_enable", True),
         byte_size=dcache_raw.get("byte_size", 8),
+        tag_bram_byte_enable=dcache_raw.get("tag_bram_byte_enable", True),
+        tag_bram_byte_size=dcache_raw.get("tag_bram_byte_size", 9),
     )
     memory = MemoryConfig(
         sram=sram,

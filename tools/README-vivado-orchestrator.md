@@ -11,14 +11,16 @@ vivado_core/          ← 核心库（无UI依赖）
 ├── session.py        会话管理（项目隔离 + Vivado 子进程）
 ├── sync.py           同步策略（预检 + 增量/全量刷新规划）
 ├── operations.py     高层操作（create/refresh/sim/bitstream/program/archive）
-├── config.py         全局配置（vivado_config.yaml）
+├── config.py         全局配置 + 内存/Cache 配置（vivado_config.yaml）
+├── ip_gen.py         配置驱动的 BRAM create_ip TCL 生成
+├── cache_header_gen.py  cache_def.svh 自动生成（地址切片推导）
 ├── exceptions.py     异常层次（13 个异常类）
 └── tcl/              参数化 TCL 模板（10 个文件）
 
 vivado_cli.py         ← CLI 前端（面向 agent/自动化）
 vivado_tui.py         ← TUI 前端（面向人类，需 textual）
 tasks.yaml            ← 任务定义（14 个任务）
-vivado_config.yaml    ← 全局配置（资源限制 + 路径）
+vivado_config.yaml    ← 全局配置（资源限制 + 路径 + 内存/Cache 参数）
 ```
 
 ## 核心概念
@@ -97,6 +99,9 @@ python -m tools.vivado_cli -task cpu_full -sim --filter pass_fail
 # 清理旧会话
 python -m tools.vivado_cli --cleanup
 python -m tools.vivado_cli --cleanup-all
+
+# 重新生成 cache_def.svh（修改 vivado_config.yaml 后）
+python -m tools.vivado_cli --gen-config
 ```
 
 ### TUI（面向人类）
@@ -126,6 +131,7 @@ python tools/vivado_tui.py
 | `--status` | 显示所有会话状态 |
 | `--cleanup` | 清理旧会话 |
 | `--cleanup-all` | 清理全部会话 |
+| `--gen-config` | 从 vivado_config.yaml 重新生成 cache_def.svh |
 | `--format text\|json` | 输出格式 |
 | `--filter PATTERN` | 输出筛选（error/pass_fail/progress/正则） |
 | `--config PATH` | 配置文件路径 |
@@ -176,7 +182,61 @@ limits:
 vivado_path: vivado.bat
 proj_name: simplecpu_bus
 device_part: xc7a200tfbg676-2
+
+# 内存/Cache 配置（修改后运行 --gen-config 同步 IP 和 RTL）
+memory:
+  sram:
+    data_width: 32
+    depth: 8192
+  icache:
+    num_sets: 8
+    num_ways: 4
+    tag_width: 7
+    line_words: 8
+  dcache:
+    num_sets: 8
+    num_ways: 4
+    tag_width: 7
+    line_words: 8
+  use_tag_bram: false
 ```
+
+## 配置驱动的 IP 生成
+
+BRAM IP（Sram、icached、dcached）通过 `vivado_config.yaml` 的 `memory` 段动态生成 `create_ip` TCL，替代静态 XCI 文件导入。同时自动生成 `dev/rtl/core/cache_def.svh`（`` `define`` 宏），使 IP 几何与 RTL 常量始终同步。
+
+### 工作流
+
+```bash
+# 1. 编辑 vivado_config.yaml（如将 icache num_sets 改为 16）
+# 2. 重新生成 cache_def.svh
+python -m tools.vivado_cli --gen-config
+# 3. 下次 -create 时，create_ip TCL 会使用新配置生成 BRAM IP
+```
+
+### 生成链
+
+```
+vivado_config.yaml
+  ├─→ ip_gen.py           → create_ip TCL（BRAM 几何参数）
+  ├─→ cache_header_gen.py → cache_def.svh（地址切片、宽度常量）
+  └─→ operations.py       → _tcl_setup_ip() 在 create/refresh 时执行
+```
+
+### 关键属性
+
+动态 `create_ip` 设置的 BRAM 属性（与原始 XCI 对齐）：
+
+| 属性 | 说明 |
+|------|------|
+| `Memory_Type` | True_Dual_Port_RAM |
+| `Write_Width_A/B`, `Read_Width_A/B` | 数据宽度 |
+| `Write_Depth_A` | 深度 |
+| `Operating_Mode_A/B` | WRITE_FIRST |
+| `Interface_Type` | Native |
+| `PRIM_type_to_Implement` | BRAM |
+| `Use_Byte_Write_Enable` | 按配置 |
+| `Byte_Size` | 8（仅 byte_enable=true 时） |
 
 ## 与旧 vivado_do.tcl 的关系
 

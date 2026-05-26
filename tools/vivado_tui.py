@@ -183,6 +183,8 @@ class SessionPanel(Vertical):
         min-width: 28;
         border: solid green;
         padding: 0 1;
+        height: 1fr;
+        overflow-y: auto;
     }
     SessionPanel > .session-title {
         text-style: bold;

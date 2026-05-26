@@ -35,13 +35,13 @@
 #   vivado_do -bitstream
 #
 # 可选 testbench:
-#   tb_simple_cpu_top     — CPU 全功能测试 (42 PASS, 需要 cpu_test.hex)
-#   tb_simple_cpu_compute — CPU 计算/访存测试 (42 PASS, 需要 cpu_test_compute.hex)
-#   tb_simple_cpu_trap    — CPU 异常/陷阱测试 (14 PASS, 需要 cpu_test_trap.hex)
-#   tb_cpu_test_fencei    — fence.i JIT 测试 (需要 cpu_test_fencei.hex)
-#   tb_cpu_test_access_fault — 访问错误异常测试 (需要 cpu_test_access_fault.hex)
-#   tb_uart_hello         — UART 发送测试 (12 PASS, 需要 uart_hello.hex)
-#   tb_led_marquee        — LED 走马灯测试 (16 PASS, 需要 led_marquee.hex)
+#   tb_simple_cpu_top     — CPU 全功能测试 (42 PASS, 需要 test/cpu_test.hex)
+#   tb_simple_cpu_compute — CPU 计算/访存测试 (42 PASS, 需要 test/cpu_test_compute.hex)
+#   tb_simple_cpu_trap    — CPU 异常/陷阱测试 (14 PASS, 需要 test/cpu_test_trap.hex)
+#   tb_cpu_test_fencei    — fence.i JIT 测试 (需要 test/cpu_test_fencei.hex)
+#   tb_cpu_test_access_fault — 访问错误异常测试 (需要 test/cpu_test_access_fault.hex)
+#   tb_uart_hello         — UART 发送测试 (12 PASS, 需要 app/uart_hello.hex)
+#   tb_led_marquee        — LED 走马灯测试 (16 PASS, 需要 app/led_marquee.hex)
 #   tb_ahb_bus            — AHB 总线测试 (3 PASS, 无需 hex)
 #   tb_apb_perips         — APB 外设测试 (10 PASS, 无需 hex)
 #   tb_alu_cpu_integration — ALU 集成测试
@@ -52,7 +52,7 @@
 #   - testbench 中的 $readmemh 使用相对路径，iverilog 可直接解析
 #   - xsim 工作目录为 ${proj_dir}/${proj_name}.sim/sim_1/behav/xsim/
 #     相对路径无法解析，需将 $readmemh 路径改为绝对路径
-#     例如: "<repo_root>/dev/program_source/cpu_test.hex"
+#     例如: "<repo_root>/dev/program_source/test/cpu_test.hex"
 # =============================================================================
 
 # ---------------------------------------------------------------------------
@@ -80,20 +80,21 @@ set sys_rtl_dir     "${dev_dir}/rtl"
 
 set tb_dir          "${dev_dir}/tb"
 set prog_dir        "${dev_dir}/program_source"
+# 子目录: test/ = CPU 验证测试程序, app/ = FPGA 演示应用程序
 set fpga_dir        "${dev_dir}/fpga"
 set ips_dir         "${base_dir}/Reference/newips"
 
 set tcl_dir         "${base_dir}/tools/tcl"
 
 array set tb_coe_map {
-    tb_simple_cpu_top     "cpu_test.coe"
-    tb_simple_cpu_compute "cpu_test_compute.coe"
-    tb_simple_cpu_trap    "cpu_test_trap.coe"
-    tb_cpu_test_fencei    "cpu_test_fencei.coe"
-    tb_cpu_test_access_fault "cpu_test_access_fault.coe"
-    tb_simple_cpu_priv    "cpu_test_priv.coe"
-    tb_uart_hello         "uart_hello.coe"
-    tb_led_marquee        "led_marquee.coe"
+    tb_simple_cpu_top     "test/cpu_test.coe"
+    tb_simple_cpu_compute "test/cpu_test_compute.coe"
+    tb_simple_cpu_trap    "test/cpu_test_trap.coe"
+    tb_cpu_test_fencei    "test/cpu_test_fencei.coe"
+    tb_cpu_test_access_fault "test/cpu_test_access_fault.coe"
+    tb_simple_cpu_priv    "test/cpu_test_priv.coe"
+    tb_uart_hello         "app/uart_hello.coe"
+    tb_led_marquee        "app/led_marquee.coe"
     tb_ahb_bus            ""
     tb_apb_perips         ""
     tb_alu_cpu_integration ""

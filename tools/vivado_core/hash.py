@@ -6,7 +6,7 @@ stale sessions can be detected and incremental refreshes planned.
 Layers:
 - **rtl**:  dev/rtl/**/*.sv + dev/rtl/**/*.svh + Reference/**/*.xci
 - **tb**:   dev/tb/**/*.sv
-- **coe**:  dev/program_source/**/*.coe + dev/program_source/**/*.hex
+- **coe**:  dev/program_source/test/**/*.coe + dev/program_source/test/**/*.hex + dev/program_source/app/**/*.coe + dev/program_source/app/**/*.hex
 - **fpga**: dev/fpga/**/*.xdc + dev/fpga/**/*.dcp + tools/tcl/**/*.tcl
 """
 from __future__ import annotations
@@ -42,8 +42,10 @@ class LayeredHash:
             "dev/tb/**/*.sv",
         ],
         "coe": [
-            "dev/program_source/**/*.coe",
-            "dev/program_source/**/*.hex",
+            "dev/program_source/test/**/*.coe",
+            "dev/program_source/test/**/*.hex",
+            "dev/program_source/app/**/*.coe",
+            "dev/program_source/app/**/*.hex",
         ],
         "fpga": [
             "dev/fpga/**/*.xdc",

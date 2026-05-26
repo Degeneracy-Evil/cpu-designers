@@ -29,7 +29,8 @@ class TaskConfig:
         Testbench module name (empty for FPGA-only tasks).
     coe:
         COE filename relative to ``dev/program_source/`` (empty if
-        the task does not need a program image).
+        the task does not need a program image).  May include a
+        subdirectory prefix such as ``test/`` or ``app/``.
     runtime:
         Simulation runtime string, e.g. ``"5ms"`` or ``"40ms"``.
     top:

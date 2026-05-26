@@ -83,21 +83,21 @@ set_property target_language Verilog [current_project]
 set_property simulator_language Mixed [current_project]
 
 # --- add RTL sources ---
-foreach f [glob -nocomplain -directory "{{alu_rtl_dir}}" *.sv] {{ import_files -norecurse $f }}
-foreach f [glob -nocomplain -directory "{{mu_rtl_dir}}" *.sv] {{ import_files -norecurse $f }}
-foreach f [glob -nocomplain -directory "{{cpu_core_dir}}" *.sv] {{ import_files -norecurse $f }}
-foreach f [glob -nocomplain -directory "{{ahb_dir}}" *.sv] {{ import_files -norecurse $f }}
-foreach f [glob -nocomplain -directory "{{ahb_dir}}" *.svh] {{
+foreach f [glob -nocomplain -directory "{alu_rtl_dir}" *.sv] {{ import_files -norecurse $f }}
+foreach f [glob -nocomplain -directory "{mu_rtl_dir}" *.sv] {{ import_files -norecurse $f }}
+foreach f [glob -nocomplain -directory "{cpu_core_dir}" *.sv] {{ import_files -norecurse $f }}
+foreach f [glob -nocomplain -directory "{ahb_dir}" *.sv] {{ import_files -norecurse $f }}
+foreach f [glob -nocomplain -directory "{ahb_dir}" *.svh] {{
     import_files -norecurse $f
     set_property file_type "Verilog Header" [get_files [file tail $f]]
 }}
-foreach f [glob -nocomplain -directory "{{apb_dir}}" *.sv] {{ import_files -norecurse $f }}
-foreach f [glob -nocomplain -directory "{{apb_dir}}" *.svh] {{
+foreach f [glob -nocomplain -directory "{apb_dir}" *.sv] {{ import_files -norecurse $f }}
+foreach f [glob -nocomplain -directory "{apb_dir}" *.svh] {{
     import_files -norecurse $f
     set_property file_type "Verilog Header" [get_files [file tail $f]]
 }}
-foreach f [glob -nocomplain -directory "{{apb_perips_dir}}" *.sv] {{ import_files -norecurse $f }}
-foreach f [glob -nocomplain -directory "{{apb_header_dir}}" *.svh] {{
+foreach f [glob -nocomplain -directory "{apb_perips_dir}" *.sv] {{ import_files -norecurse $f }}
+foreach f [glob -nocomplain -directory "{apb_header_dir}" *.svh] {{
     import_files -norecurse $f
     set_property file_type "Verilog Header" [get_files [file tail $f]]
 }}
@@ -110,15 +110,15 @@ update_compile_order -fileset sources_1
 
 # --- set include dirs ---
 set_property include_dirs [list \\
-    "{{alu_rtl_dir}}" \\
-    "{{mu_rtl_dir}}" \\
-    "{{cpu_core_dir}}" \\
-    "{{ahb_dir}}" \\
-    "{{ahb_ip_dir}}" \\
-    "{{apb_dir}}" \\
-    "{{apb_header_dir}}" \\
-    "{{apb_perips_dir}}" \\
-    "{{tb_dir}}" \\
+    "{alu_rtl_dir}" \\
+    "{mu_rtl_dir}" \\
+    "{cpu_core_dir}" \\
+    "{ahb_dir}" \\
+    "{ahb_ip_dir}" \\
+    "{apb_dir}" \\
+    "{apb_header_dir}" \\
+    "{apb_perips_dir}" \\
+    "{tb_dir}" \\
 ] [current_fileset]
 """
 

@@ -469,16 +469,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.status:
         _require_core()
         try:
-            from tools.vivado_core.hash import LayeredHash
             layered_hash = LayeredHash(project_root)
             session_mgr = SessionManager(project_root, config)  # type: ignore[call-arg]
             sessions = session_mgr.list_sessions()  # type: ignore[attr-defined]
             for s in sessions:
                 staleness = layered_hash.compute_staleness(s.meta.hashes)
                 s._stale_layers = [k for k, v in staleness.items() if v]
-        except Exception as e:
-            print(f"ERROR: {e}", file=sys.stderr)
-            return EXIT_SESSION
         except Exception as e:
             print(f"ERROR: Failed to list sessions: {e}", file=sys.stderr)
             return EXIT_SESSION

@@ -258,13 +258,13 @@ module cpu_trap_manager(
             exception_pc_r    <= 32'b0;
             exception_mtval_r <= 32'b0;
         end else begin
-            if (exception_valid) begin
+            if (trap_enter_valid || trap_return_valid) begin
+                exception_valid_r <= 1'b0;
+            end else if (exception_valid) begin
                 exception_valid_r <= 1'b1;
                 exception_cause_r <= exception_cause;
                 exception_pc_r    <= exception_pc;
                 exception_mtval_r <= exception_mtval;
-            end else if (trap_enter_valid || trap_return_valid) begin
-                exception_valid_r <= 1'b0;
             end
         end
     end

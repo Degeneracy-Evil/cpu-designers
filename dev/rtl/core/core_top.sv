@@ -113,6 +113,9 @@ module core_top(
     wire [31:0] mmu_inst_pf_vaddr;
     wire [31:0] mmu_data_pf_vaddr;
 
+    wire        mmu_inst_ready;
+    wire        mmu_data_ready;
+
     wire        ptw_i_bus_req;
     wire [31:0] ptw_i_bus_addr;
     wire        ptw_i_bus_we;
@@ -364,6 +367,8 @@ module core_top(
 
         .cpu_req_valid(if_valid),
         .cpu_req_addr(mmu_inst_paddr),
+        .cpu_req_vaddr(fetch_vaddr),
+        .mmu_ready(mmu_inst_ready),
         .cpu_req_data(instData_32_mux),
         .cpu_req_ready(inst_valid_mux),
 
@@ -487,6 +492,8 @@ module core_top(
 
         .cpu_req_valid(mem_en),
         .cpu_req_addr(mmu_data_paddr),
+        .cpu_req_vaddr(mem_dataAddr_32),
+        .mmu_ready(mmu_data_ready),
         .cpu_req_wdata(mem_writeData_32),
         .cpu_req_hwrite(mem_hwrite),
         .cpu_req_hsize(mem_hsize),
@@ -659,6 +666,7 @@ module core_top(
         .ptw_done(mmu_inst_walk_done),
         .ptw_fault(mmu_inst_walk_fault),
         .sfence_vma(sfence_vma_pulse),
+        .ready(mmu_inst_ready),
         .ptw_bus_req(ptw_i_bus_req),
         .ptw_bus_addr(ptw_i_bus_addr),
         .ptw_bus_we(ptw_i_bus_we),
@@ -689,6 +697,7 @@ module core_top(
         .ptw_done(mmu_data_walk_done),
         .ptw_fault(mmu_data_walk_fault),
         .sfence_vma(sfence_vma_pulse),
+        .ready(mmu_data_ready),
         .ptw_bus_req(ptw_d_bus_req),
         .ptw_bus_addr(ptw_d_bus_addr),
         .ptw_bus_we(ptw_d_bus_we),

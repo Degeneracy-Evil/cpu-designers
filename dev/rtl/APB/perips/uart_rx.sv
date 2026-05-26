@@ -63,31 +63,31 @@ begin
     case(state)
         S_IDLE:
             if(rx_negedge)
-                next_state <= S_START;
+                next_state = S_START;
             else
-                next_state <= S_IDLE;
+                next_state = S_IDLE;
         S_START:
             if(cycle_cnt == cycle_val - 1)
-                next_state <= S_REC_BYTE;
+                next_state = S_REC_BYTE;
             else
-                next_state <= S_START;
+                next_state = S_START;
         S_REC_BYTE:
             if(cycle_cnt == cycle_val - 1  && bit_cnt == 3'd7)
-                next_state <= S_STOP;
+                next_state = S_STOP;
             else
-                next_state <= S_REC_BYTE;
+                next_state = S_REC_BYTE;
         S_STOP:
             if(cycle_cnt == cycle_val/2 - 1)
-                next_state <= S_DATA;
+                next_state = S_DATA;
             else
-                next_state <= S_STOP;
+                next_state = S_STOP;
         S_DATA:
             if(i_rxDataReady_1)    //data receive complete
-                next_state <= S_IDLE;
+                next_state = S_IDLE;
             else
-                next_state <= S_DATA;
+                next_state = S_DATA;
         default:
-            next_state <= S_IDLE;
+            next_state = S_IDLE;
     endcase
 end
 

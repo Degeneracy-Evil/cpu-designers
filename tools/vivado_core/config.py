@@ -79,6 +79,29 @@ class CacheConfig:
 
 
 @dataclass(frozen=True)
+class TlbConfig:
+    """TLB geometry configuration (set-associative BRAM structure)."""
+
+    num_ways: int = 4
+    """Associativity (ways per set). ⚠ FIXED: do not change (tree_plru hardcoded)."""
+
+    num_sets: int = 4
+    """Number of TLB sets. Total entries = num_ways × num_sets."""
+
+    flag_byte_enable: bool = True
+    """Whether byte-write enable is active for flag BRAM."""
+
+    flag_byte_size: int = 8
+    """Byte size for flag BRAM write-enable granularity (8 → 16-bit WEA, 4 bits per 32-bit way)."""
+
+    data_byte_enable: bool = True
+    """Whether byte-write enable is active for data BRAM."""
+
+    data_byte_size: int = 8
+    """Byte size for data BRAM write-enable granularity (8 → 16-bit WEA, 4 bits per 32-bit way)."""
+
+
+@dataclass(frozen=True)
 class MemoryConfig:
     """Top-level memory/cache configuration."""
 
@@ -91,8 +114,14 @@ class MemoryConfig:
     dcache: CacheConfig = field(default_factory=CacheConfig)
     """D-cache configuration."""
 
+    tlb: TlbConfig = field(default_factory=TlbConfig)
+    """TLB configuration."""
+
     use_tag_bram: bool = False
     """If true, use BRAM IPs (icachet/dcachet) for tag storage; otherwise register arrays."""
+
+    use_tlb_bram: bool = False
+    """If true, use BRAM IPs (tlb_flag/tlb_data) for TLB storage; otherwise register array."""
 
 
 @dataclass(frozen=True)
@@ -163,6 +192,7 @@ def load_config(path: Path | str | None = None, base_dir: Path | str | None = No
     sram_raw: dict = mem_raw.get("sram", {}) or {}
     icache_raw: dict = mem_raw.get("icache", {}) or {}
     dcache_raw: dict = mem_raw.get("dcache", {}) or {}
+    tlb_raw: dict = mem_raw.get("tlb", {}) or {}
 
     sram = SramConfig(
         data_width=sram_raw.get("data_width", 32),
@@ -190,11 +220,21 @@ def load_config(path: Path | str | None = None, base_dir: Path | str | None = No
         tag_bram_byte_enable=dcache_raw.get("tag_bram_byte_enable", True),
         tag_bram_byte_size=dcache_raw.get("tag_bram_byte_size", 9),
     )
+    tlb = TlbConfig(
+        num_ways=tlb_raw.get("num_ways", 4),
+        num_sets=tlb_raw.get("num_sets", 4),
+        flag_byte_enable=tlb_raw.get("flag_byte_enable", True),
+        flag_byte_size=tlb_raw.get("flag_byte_size", 32),
+        data_byte_enable=tlb_raw.get("data_byte_enable", True),
+        data_byte_size=tlb_raw.get("data_byte_size", 32),
+    )
     memory = MemoryConfig(
         sram=sram,
         icache=icache,
         dcache=dcache,
+        tlb=tlb,
         use_tag_bram=mem_raw.get("use_tag_bram", False),
+        use_tlb_bram=mem_raw.get("use_tlb_bram", False),
     )
 
     return GlobalConfig(

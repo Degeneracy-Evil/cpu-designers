@@ -7,6 +7,8 @@ module icache_ctrl(
 
     input  wire        cpu_req_valid,
     input  wire [31:0] cpu_req_addr,
+    input  wire [31:0] cpu_req_vaddr,
+    input  wire        mmu_ready,
     output wire [31:0] cpu_req_data,
     output wire        cpu_req_ready,
 
@@ -47,11 +49,15 @@ module icache_ctrl(
     localparam S_REFILL     = 3'd3;
     localparam S_INVALIDATE = 3'd4;
 
-    wire is_mmio = ~cpu_req_addr[31];
+    // Use vaddr for MMIO check: paddr may be stale when mmu_ready=0
+    // (BRAM MMU latches inputs, so paddr uses latched_vaddr which is 0 after reset)
+    // Safe because VA[31]=PA[31] for all translated addresses in this system
+    wire is_mmio = ~cpu_req_vaddr[31];
 
+    // VIPT: use vaddr for set index (bits within page offset), paddr for tag
     wire [TAG_WIDTH-1:0]   req_tag  = cpu_req_addr[`ICACHE_TAG_HI:`ICACHE_TAG_LO];
-    wire [SET_IDX_W-1:0]   set_idx  = cpu_req_addr[`ICACHE_SET_IDX_HI:`ICACHE_SET_IDX_LO];
-    wire [SET_IDX_W-1:0]   word_off = cpu_req_addr[`ICACHE_WORD_OFF_HI:`ICACHE_WORD_OFF_LO];
+    wire [SET_IDX_W-1:0]   set_idx  = cpu_req_vaddr[`ICACHE_SET_IDX_HI:`ICACHE_SET_IDX_LO];
+    wire [SET_IDX_W-1:0]   word_off = cpu_req_vaddr[`ICACHE_WORD_OFF_HI:`ICACHE_WORD_OFF_LO];
 
     reg [2:0] state;
 
@@ -147,7 +153,8 @@ module icache_ctrl(
     reg  invalidate_done_r;
 
     // Data BRAM Port A: enable in S_TAG_READ on hit (hit_way now known)
-    wire bram_ena = (state == S_TAG_READ) && cache_hit;
+    // Gated by mmu_ready to avoid reading with stale paddr
+    wire bram_ena = (state == S_TAG_READ) && cache_hit && mmu_ready;
     wire bram_enb = refill_valid && (state == S_REFILL);
 
     icached u_icached(
@@ -181,7 +188,7 @@ module icache_ctrl(
     assign refill_req  = refill_req_r;
     assign refill_addr = refill_addr_r;
 
-    assign mmio_req  = is_mmio ? cpu_req_valid : 1'b0;
+    assign mmio_req  = is_mmio ? (cpu_req_valid && mmu_ready) : 1'b0;
     assign mmio_addr = cpu_req_addr;
 
     assign cpu_req_ready = cpu_req_ready_r;
@@ -249,7 +256,10 @@ module icache_ctrl(
 
                 S_TAG_READ: begin
                     // Tag BRAM Port A output is now valid
-                    if (cache_hit) begin
+                    // Wait for MMU ready (paddr valid) before tag comparison
+                    if (!mmu_ready) begin
+                        // Stay in S_TAG_READ until paddr is valid
+                    end else if (cache_hit) begin
                         // Data BRAM Port A enabled this cycle (bram_ena above)
                         // Data available next cycle in S_READ
                         state <= S_READ;

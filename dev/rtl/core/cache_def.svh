@@ -70,4 +70,27 @@
 // --- Tag storage mode ---
 `define USE_TAG_BRAM 1
 
+// --- TLB geometry ---
+`define TLB_NUM_WAYS           4
+`define TLB_NUM_SETS          4
+`define TLB_SET_IDX_WIDTH     2
+`define TLB_WAY_WIDTH         2
+
+`define TLB_FLAG_ENTRY_WIDTH  32
+`define TLB_FLAG_BRAM_WIDTH   128
+`define TLB_FLAG_BRAM_DEPTH   4
+`define TLB_FLAG_BRAM_ADDR_WIDTH 2
+`define TLB_FLAG_BRAM_WEA_WIDTH  16
+`define TLB_FLAG_BRAM_BYTE_SIZE  8
+
+`define TLB_DATA_ENTRY_WIDTH  32
+`define TLB_DATA_BRAM_WIDTH   128
+`define TLB_DATA_BRAM_DEPTH   4
+`define TLB_DATA_BRAM_ADDR_WIDTH 2
+`define TLB_DATA_BRAM_WEA_WIDTH  16
+`define TLB_DATA_BRAM_BYTE_SIZE  8
+
+// --- TLB storage mode ---
+`define USE_TLB_BRAM 1
+
 `endif // CACHE_DEF_SVH

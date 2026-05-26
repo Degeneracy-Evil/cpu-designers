@@ -8,6 +8,8 @@ module dcache_ctrl(
 
     input  wire        cpu_req_valid,
     input  wire [31:0] cpu_req_addr,
+    input  wire [31:0] cpu_req_vaddr,
+    input  wire        mmu_ready,
     input  wire [31:0] cpu_req_wdata,
     input  wire        cpu_req_hwrite,
     input  wire [2:0]  cpu_req_hsize,
@@ -66,11 +68,15 @@ module dcache_ctrl(
     localparam S_FLUSH_WB_SD      = 4'd9;
     localparam S_FLUSH_INVALIDATE = 4'd10;
 
-    wire is_mmio = ~cpu_req_addr[31];
+    // Use vaddr for MMIO check: paddr may be stale when mmu_ready=0
+    // (BRAM MMU latches inputs, so paddr uses latched_vaddr which is 0 after reset)
+    // Safe because VA[31]=PA[31] for all translated addresses in this system
+    wire is_mmio = ~cpu_req_vaddr[31];
 
+    // VIPT: use vaddr for set index (bits within page offset), paddr for tag
     wire [TAG_WIDTH-1:0]   req_tag  = cpu_req_addr[`DCACHE_TAG_HI:`DCACHE_TAG_LO];
-    wire [SET_IDX_W-1:0]   set_idx  = cpu_req_addr[`DCACHE_SET_IDX_HI:`DCACHE_SET_IDX_LO];
-    wire [SET_IDX_W-1:0]   word_off = cpu_req_addr[`DCACHE_WORD_OFF_HI:`DCACHE_WORD_OFF_LO];
+    wire [SET_IDX_W-1:0]   set_idx  = cpu_req_vaddr[`DCACHE_SET_IDX_HI:`DCACHE_SET_IDX_LO];
+    wire [SET_IDX_W-1:0]   word_off = cpu_req_vaddr[`DCACHE_WORD_OFF_HI:`DCACHE_WORD_OFF_LO];
 
     reg [3:0] state; // 状态机
 
@@ -211,8 +217,11 @@ module dcache_ctrl(
     reg cpu_req_ready_r;
 
     // Store hit / Load hit detected in S_TAG_READ (after tag comparison)
-    wire is_store_hit = (state == S_TAG_READ) && cache_hit && cpu_req_hwrite;
-    wire is_load_hit  = (state == S_TAG_READ) && cache_hit && !cpu_req_hwrite;
+    // MUST be gated by mmu_ready: the data BRAM Port A write is combinational,
+    // so without this gate, a store_hit with stale paddr (mmu_ready=0) would
+    // corrupt the data BRAM by writing to the wrong cache line.
+    wire is_store_hit = (state == S_TAG_READ) && cache_hit && cpu_req_hwrite && mmu_ready;
+    wire is_load_hit  = (state == S_TAG_READ) && cache_hit && !cpu_req_hwrite && mmu_ready;
 
     wire bram_ena = is_load_hit || is_store_hit;
     wire [WEA_WIDTH-1:0]  bram_wea  = is_store_hit ? store_full_wea : {WEA_WIDTH{1'b0}};
@@ -284,7 +293,7 @@ module dcache_ctrl(
 
     assign flush_done  = flush_done_r;
 
-    assign mmio_req    = (state == S_IDLE) && cpu_req_valid && is_mmio ? 1'b1 : 1'b0;
+    assign mmio_req    = (state == S_IDLE) && cpu_req_valid && is_mmio && mmu_ready ? 1'b1 : 1'b0;
     assign mmio_addr   = cpu_req_addr;
     assign mmio_wdata  = cpu_req_wdata;
     assign mmio_hwrite = cpu_req_hwrite;
@@ -374,7 +383,10 @@ module dcache_ctrl(
 
                 S_TAG_READ: begin
                     // Tag BRAM Port A output is now valid
-                    if (cache_hit) begin
+                    // Wait for MMU ready (paddr valid) before tag comparison
+                    if (!mmu_ready) begin
+                        // Stay in S_TAG_READ until paddr is valid
+                    end else if (cache_hit) begin
                         if (cpu_req_hwrite) begin
                             // Store hit: write data BRAM + set dirty in tag BRAM
                             tag_bram_enb_r   <= 1'b1;

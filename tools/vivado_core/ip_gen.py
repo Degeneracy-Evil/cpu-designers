@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .config import CacheConfig, MemoryConfig, SramConfig
+from .config import CacheConfig, MemoryConfig, SramConfig, TlbConfig
 
 
 # ---------------------------------------------------------------------------
@@ -126,6 +126,60 @@ def cache_tag_to_bram(name: str, cfg: CacheConfig, has_dirty: bool = False) -> B
     )
 
 
+def tlb_flag_to_bram(name: str, cfg: TlbConfig) -> BramConfig:
+    """Derive BRAM config for the TLB *flag* array (packed: all ways per set).
+
+    Each BRAM address corresponds to one Set's all 4 Ways packed together.
+    Per-way flag entry: V(1) + G(1) + ASID(9) + VPN(20) + mega(1) = 32 bits.
+    Packed width = num_ways × 32 = 128 bits. Depth = num_sets.
+
+    Parameters
+    ----------
+    name:
+        IP instance name (``"tlb_flag"``).
+    cfg:
+        TLB geometry configuration.
+    """
+    flag_entry_width = 1 + 1 + 9 + 20 + 1  # 32 bits per way
+    packed_width = cfg.num_ways * flag_entry_width  # 128 bits
+    depth = cfg.num_sets
+    return BramConfig(
+        name=name,
+        data_width=packed_width,
+        depth=depth,
+        byte_enable=cfg.flag_byte_enable,
+        byte_size=cfg.flag_byte_size,
+        register_output=False,
+    )
+
+
+def tlb_data_to_bram(name: str, cfg: TlbConfig) -> BramConfig:
+    """Derive BRAM config for the TLB *data* array (packed: all ways per set).
+
+    Each BRAM address corresponds to one Set's all 4 Ways packed together.
+    Per-way data entry: PPN(22) + R(1) + W(1) + X(1) + U(1) + A(1) + D(1) + pad(4) = 32 bits.
+    Packed width = num_ways × 32 = 128 bits. Depth = num_sets.
+
+    Parameters
+    ----------
+    name:
+        IP instance name (``"tlb_data"``).
+    cfg:
+        TLB geometry configuration.
+    """
+    data_entry_width = 22 + 1 + 1 + 1 + 1 + 1 + 1 + 4  # 32 bits per way (4 bits padding)
+    packed_width = cfg.num_ways * data_entry_width  # 128 bits
+    depth = cfg.num_sets
+    return BramConfig(
+        name=name,
+        data_width=packed_width,
+        depth=depth,
+        byte_enable=cfg.data_byte_enable,
+        byte_size=cfg.data_byte_size,
+        register_output=False,
+    )
+
+
 # ---------------------------------------------------------------------------
 # TCL generation
 # ---------------------------------------------------------------------------
@@ -238,5 +292,14 @@ def generate_all_ip_tcl(mem: MemoryConfig, ip_dir: str) -> tuple[str, list[str]]
         cfg_dct = cache_tag_to_bram("dcachet", mem.dcache, has_dirty=True)
         parts.append(generate_bram_create_ip_tcl(cfg_dct, ip_dir))
         names.append(cfg_dct.name)
+
+    # TLB BRAMs (optional)
+    if mem.use_tlb_bram:
+        cfg_tlb_flag = tlb_flag_to_bram("tlb_flag", mem.tlb)
+        parts.append(generate_bram_create_ip_tcl(cfg_tlb_flag, ip_dir))
+        names.append(cfg_tlb_flag.name)
+        cfg_tlb_data = tlb_data_to_bram("tlb_data", mem.tlb)
+        parts.append(generate_bram_create_ip_tcl(cfg_tlb_data, ip_dir))
+        names.append(cfg_tlb_data.name)
 
     return "\n".join(parts), names

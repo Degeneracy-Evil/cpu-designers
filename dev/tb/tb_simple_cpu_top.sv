@@ -173,7 +173,7 @@ module tb_simple_cpu_top;
         check_reg(5'd8,  32'h00005555);
         check_reg(5'd9,  32'h00005555);
         check_reg(5'd10, 32'h02000000);
-        check_reg(5'd11, 32'h000191aa);  // timing-dependent: x11 = mtime + 100000; tag BRAM adds S_TAG_READ latency
+        check_reg(5'd11, 32'h000191e1);  // timing-dependent: x11 = mtime + 100000; BRAM/MMIO latency shifts the sample point
         check_reg(5'd12, 32'h000186a0);
         check_reg(5'd13, 32'h00000000);
         check_reg(5'd14, 32'h00000000);

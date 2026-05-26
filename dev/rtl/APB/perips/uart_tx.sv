@@ -42,26 +42,26 @@ begin
     case(state)
         S_IDLE:
             if(i_txDataValid_1)
-                next_state <= S_START;
+                next_state = S_START;
             else
-                next_state <= S_IDLE;
+                next_state = S_IDLE;
         S_START:
             if(cycle_cnt == cycle_val - 1)
-                next_state <= S_SEND_BYTE;
+                next_state = S_SEND_BYTE;
             else
-                next_state <= S_START;
+                next_state = S_START;
         S_SEND_BYTE:
             if(cycle_cnt == cycle_val - 1  && bit_cnt == 3'd7)
-                next_state <= S_STOP;
+                next_state = S_STOP;
             else
-                next_state <= S_SEND_BYTE;
+                next_state = S_SEND_BYTE;
         S_STOP:
             if(cycle_cnt == cycle_val - 1)
-                next_state <= S_IDLE;
+                next_state = S_IDLE;
             else
-                next_state <= S_STOP;
+                next_state = S_STOP;
         default:
-            next_state <= S_IDLE;
+            next_state = S_IDLE;
     endcase
 end
 always@(posedge clk or negedge rst)

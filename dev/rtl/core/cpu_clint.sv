@@ -85,7 +85,7 @@ module cpu_clint(
 
     wire [31:0] s_interrupt_cause;
     assign s_interrupt_cause = (seie_bit && meip_bit) ? 32'h80000009 :
-                               (ssie_bit && msip_bit) ? 32'h80000001 :
+                               (ssie_bit && (csr_sip[1] | msip_bit)) ? 32'h80000001 :
                                (stie_bit && mtip_bit) ? 32'h80000005 :
                                32'h80000009;
 
@@ -96,7 +96,7 @@ module cpu_clint(
 
     wire [5:0] s_int_idx;
     assign s_int_idx = (seie_bit && meip_bit) ? 6'd9 :
-                       (ssie_bit && msip_bit) ? 6'd1 :
+                       (ssie_bit && (csr_sip[1] | msip_bit)) ? 6'd1 :
                        (stie_bit && mtip_bit) ? 6'd5 : 6'd9;
 
     wire m_int_delegated = m_interrupt_pending && csr_mideleg[m_int_idx];

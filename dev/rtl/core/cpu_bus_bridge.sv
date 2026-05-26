@@ -178,6 +178,8 @@ module cpu_bus_bridge(
             ptw_done_r            <= 1'b0;
             ptw_error_r           <= 1'b0;
             ptw_is_inst_r         <= 1'b0;
+            mmio_inst_served      <= 1'b0;
+            mmio_data_served      <= 1'b0;
         end else begin
             ahb_inst_valid_r      <= 1'b0;
             ahb_data_valid_r      <= 1'b0;

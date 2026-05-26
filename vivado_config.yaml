@@ -44,3 +44,14 @@ memory:
 
   # Tag storage: false = register arrays (current), true = BRAM IPs (icachet/dcachet)
   use_tag_bram: true
+
+  tlb:
+    num_ways: 4           # Associativity — ⚠ FIXED: do not change (tree_plru hardcoded)
+    num_sets: 4           # Number of TLB sets (total entries = num_ways × num_sets = 16)
+    flag_byte_enable: true   # Byte-write enable for flag BRAM
+    flag_byte_size: 8        # Byte size = 8 (WEA width = 128/8 = 16, 4 bits per 32-bit way)
+    data_byte_enable: true   # Byte-write enable for data BRAM
+    data_byte_size: 8        # Byte size = 8 (WEA width = 128/8 = 16, 4 bits per 32-bit way)
+
+  # TLB storage: false = register array (current), true = BRAM IPs (tlb_flag/tlb_data)
+  use_tlb_bram: true

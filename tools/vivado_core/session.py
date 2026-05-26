@@ -179,6 +179,10 @@ class Session:
             return False
         return self._process.poll() is None
 
+    def _project_xpr_path(self) -> Path:
+        """Return the session project's XPR path."""
+        return self.project_dir / f"{self._config.proj_name}.xpr"
+
     def start_vivado(self) -> None:
         """Spawn a Vivado TCL subprocess if one is not already running.
 
@@ -246,6 +250,14 @@ class Session:
 
         marker = f"__VIVADO_END_{uuid.uuid4().hex[:8]}__"
         marker_line = f'puts "{marker}"'
+        project_xpr = self._project_xpr_path().as_posix()
+        project_open = f"""\
+if {{ [catch {{current_project}} cur_proj] != 0 }} {{
+    if {{ [file exists \"{project_xpr}\"] }} {{
+        open_project \"{project_xpr}\"
+    }}
+}}
+"""
 
         with self._lock:
             self.meta.status = "busy"
@@ -257,6 +269,8 @@ class Session:
 
             start = time.monotonic()
 
+            # Restore the session project first so commands can rely on it.
+            self._process.stdin.write(project_open)
             # Write command + marker to stdin.
             self._process.stdin.write(cmd + "\n")
             self._process.stdin.write(marker_line + "\n")

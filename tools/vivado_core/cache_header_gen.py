@@ -18,7 +18,7 @@ from __future__ import annotations
 import math
 from pathlib import Path
 
-from .config import CacheConfig, MemoryConfig
+from .config import CacheConfig, MemoryConfig, TlbConfig
 
 
 # ---------------------------------------------------------------------------
@@ -130,6 +130,51 @@ def _derive_tag_bram_defines(cfg: CacheConfig, prefix: str, has_dirty: bool) -> 
     return lines
 
 
+def _derive_tlb_bram_defines(cfg: TlbConfig) -> list[str]:
+    """Derive TLB BRAM ``define`` macros (when use_tlb_bram=true).
+
+    TLB Flag BRAM: packed all ways per set.
+      - Per-way flag: V(1) + G(1) + ASID(9) + VPN(20) + mega(1) = 32 bits
+      - Packed width = num_ways × 32 = 128 bits
+      - Depth = num_sets
+
+    TLB Data BRAM: packed all ways per set.
+      - Per-way data: PPN(22) + R(1) + W(1) + X(1) + U(1) + A(1) + D(1) + pad(4) = 32 bits
+      - Packed width = num_ways × 32 = 128 bits
+      - Depth = num_sets
+    """
+    flag_entry_width = 1 + 1 + 9 + 20 + 1  # 32
+    data_entry_width = 22 + 1 + 1 + 1 + 1 + 1 + 1 + 4  # 32 (with 4-bit padding)
+    flag_packed_width = cfg.num_ways * flag_entry_width  # 128
+    data_packed_width = cfg.num_ways * data_entry_width  # 128
+    depth = cfg.num_sets
+    # WEA width = packed_width / byte_size (from config, not per-way entry width)
+    flag_wea_width = flag_packed_width // cfg.flag_byte_size
+    data_wea_width = data_packed_width // cfg.data_byte_size
+
+    lines: list[str] = []
+    lines.append(f"`define TLB_NUM_WAYS           {cfg.num_ways}")
+    lines.append(f"`define TLB_NUM_SETS          {cfg.num_sets}")
+    lines.append(f"`define TLB_SET_IDX_WIDTH     {_clog2(cfg.num_sets)}")
+    lines.append(f"`define TLB_WAY_WIDTH         {_clog2(cfg.num_ways)}")
+    lines.append(f"")
+    lines.append(f"`define TLB_FLAG_ENTRY_WIDTH  {flag_entry_width}")
+    lines.append(f"`define TLB_FLAG_BRAM_WIDTH   {flag_packed_width}")
+    lines.append(f"`define TLB_FLAG_BRAM_DEPTH   {depth}")
+    lines.append(f"`define TLB_FLAG_BRAM_ADDR_WIDTH {_clog2(depth)}")
+    lines.append(f"`define TLB_FLAG_BRAM_WEA_WIDTH  {flag_wea_width}")
+    lines.append(f"`define TLB_FLAG_BRAM_BYTE_SIZE  {cfg.flag_byte_size}")
+    lines.append(f"")
+    lines.append(f"`define TLB_DATA_ENTRY_WIDTH  {data_entry_width}")
+    lines.append(f"`define TLB_DATA_BRAM_WIDTH   {data_packed_width}")
+    lines.append(f"`define TLB_DATA_BRAM_DEPTH   {depth}")
+    lines.append(f"`define TLB_DATA_BRAM_ADDR_WIDTH {_clog2(depth)}")
+    lines.append(f"`define TLB_DATA_BRAM_WEA_WIDTH  {data_wea_width}")
+    lines.append(f"`define TLB_DATA_BRAM_BYTE_SIZE  {cfg.data_byte_size}")
+
+    return lines
+
+
 # ---------------------------------------------------------------------------
 # SRAM defines
 # ---------------------------------------------------------------------------
@@ -197,6 +242,18 @@ def generate_cache_header(mem: MemoryConfig) -> str:
     lines.append("// --- Tag storage mode ---")
     lines.append(f"`define USE_TAG_BRAM {1 if mem.use_tag_bram else 0}")
     lines.append("")
+
+    # TLB BRAM
+    # Always generate TLB geometry defines (needed for ifdef blocks in RTL)
+    lines.append("// --- TLB geometry ---")
+    lines.extend(_derive_tlb_bram_defines(mem.tlb))
+    lines.append("")
+
+    # TLB storage mode (only define when enabled, so ifdef works correctly)
+    if mem.use_tlb_bram:
+        lines.append("// --- TLB storage mode ---")
+        lines.append(f"`define USE_TLB_BRAM 1")
+        lines.append("")
 
     lines.append("`endif // CACHE_DEF_SVH")
     lines.append("")

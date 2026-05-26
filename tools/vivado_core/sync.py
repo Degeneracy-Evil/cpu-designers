@@ -141,10 +141,10 @@ class SyncPolicy:
 
         if staleness.get("coe", False) and operation in ("sim",):
             return PreflightResult(
-                ok=True,
-                reason="COE layer has changed; incremental refresh recommended",
-                fix="Run refresh (incremental, layers=['coe'])",
-                severity="warning",
+                ok=False,
+                reason="COE layer has changed; incremental refresh REQUIRED (otherwise sim will use obsolete firmware)",
+                fix="Run refresh before proceeding",
+                severity="error",
                 stale_layers=stale_layers,
             )
 

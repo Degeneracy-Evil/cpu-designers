@@ -6,6 +6,9 @@ If the file is absent, sensible defaults are used.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import math
+from dataclasses import fields
+
 from pathlib import Path
 
 import yaml
@@ -134,7 +137,7 @@ class GlobalConfig:
     vivado_path: str = "vivado.bat"
     """Path or name of the Vivado executable."""
 
-    proj_name: str = "simplecpu_bus"
+    proj_name: str = "simplecpu_soc"
     """Vivado project name (used as XPR base name)."""
 
     device_part: str = "xc7a200tfbg676-2"

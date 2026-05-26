@@ -10,7 +10,10 @@ from __future__ import annotations
 import shutil
 import subprocess
 import threading
+import threading
 import time
+import queue
+
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -201,7 +204,6 @@ class Session:
         try:
             self._process = subprocess.Popen(
                 [
-                    "cmd.exe", "/k",
                     self._config.vivado_path, "-mode", "tcl",
                 ],
                 stdin=subprocess.PIPE,
@@ -217,9 +219,21 @@ class Session:
                 returncode=None,
             ) from exc
 
+        
         self.meta.vivado_pid = self._process.pid
         self.meta.status = "idle"
         self.save_meta()
+        
+        self._stdout_q = queue.Queue()
+        def _reader():
+            while True:
+                line = self._process.stdout.readline()
+                if not line:
+                    break
+                self._stdout_q.put(line)
+        self._reader_thread = threading.Thread(target=_reader, daemon=True)
+        self._reader_thread.start()
+
 
     def execute(self, cmd: str, timeout: float = 60.0) -> ExecuteResult:
         """Execute a single TCL command in the Vivado subprocess.
@@ -246,7 +260,7 @@ class Session:
             If the command does not complete within *timeout*.
         """
         if not self.is_alive():
-            raise VivadoProcessError("Vivado process is not running")
+            self.start_vivado()
 
         marker = f"__VIVADO_END_{uuid.uuid4().hex[:8]}__"
         marker_line = f'puts "{marker}"'
@@ -281,24 +295,23 @@ if {{ [catch {{current_project}} cur_proj] != 0 }} {{
             timed_out = False
 
             while True:
-                elapsed = time.monotonic() - start
-                remaining = timeout - elapsed
+                remaining = timeout - (time.monotonic() - start)
                 if remaining <= 0:
                     timed_out = True
                     break
-
-                # readline blocks; we rely on the timeout to break out.
-                # In a production system a more robust approach would use
-                # select/poll, but for line-buffered Popen this is adequate.
-                line = self._process.stdout.readline()
+                try:
+                    line = self._stdout_q.get(timeout=remaining)
+                except queue.Empty:
+                    timed_out = True
+                    break
                 if not line:
-                    # EOF — process likely died.
                     break
 
                 stripped = line.rstrip("\n").rstrip("\r")
                 if stripped == marker:
                     break
                 output_lines.append(stripped)
+
 
             duration = time.monotonic() - start
             output = "\n".join(output_lines)
@@ -307,6 +320,7 @@ if {{ [catch {{current_project}} cur_proj] != 0 }} {{
             self.update_last_used()
 
             if timed_out:
+                self.stop_vivado()  # Force restart on next command (H6)
                 return ExecuteResult(
                     output=output,
                     success=False,
@@ -314,8 +328,7 @@ if {{ [catch {{current_project}} cur_proj] != 0 }} {{
                     duration=duration,
                 )
 
-            # Heuristic: Vivado errors often contain "ERROR:" in output.
-            success = "ERROR:" not in output
+            success = not any(line.startswith("ERROR:") for line in output_lines)
 
             return ExecuteResult(
                 output=output,

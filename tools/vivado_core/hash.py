@@ -35,6 +35,8 @@ class LayeredHash:
             "dev/rtl/**/*.sv",
             "dev/rtl/**/*.svh",
             "Reference/**/*.xci",
+            "vivado_config.yaml",
+            "tools/vivado_core/**/*.py",
         ],
         "tb": [
             "dev/tb/**/*.sv",
@@ -63,7 +65,7 @@ class LayeredHash:
         Returns
         -------
         dict[str, str]
-            Mapping ``{layer_name: hex_hash[:8]}``.
+            Mapping ``{layer_name: hex_hash[:16]}``.
         """
         return {layer: self.compute_single_layer(layer) for layer in self.LAYERS}
 
@@ -135,4 +137,4 @@ class LayeredHash:
             # Read file content (binary-safe for .dcp etc.).
             hasher.update(fpath.read_bytes())
 
-        return hasher.hexdigest()[:8]
+        return hasher.hexdigest()[:16]

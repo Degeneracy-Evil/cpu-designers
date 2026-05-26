@@ -360,9 +360,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "-bitstream", action="store_true", help="Generate bitstream"
     )
-    parser.add_argument(
-        "-hw-connect", action="store_true", help="Connect to hardware server"
-    )
+    
     parser.add_argument("-program", action="store_true", help="Program FPGA")
     parser.add_argument(
         "-archive", action="store_true", help="Export project archive"
@@ -471,9 +469,14 @@ def main(argv: list[str] | None = None) -> int:
     if args.status:
         _require_core()
         try:
+            from tools.vivado_core.hash import LayeredHash
+            layered_hash = LayeredHash(project_root)
             session_mgr = SessionManager(project_root, config)  # type: ignore[call-arg]
             sessions = session_mgr.list_sessions()  # type: ignore[attr-defined]
-        except VivadoCoreError as e:
+            for s in sessions:
+                staleness = layered_hash.compute_staleness(s.meta.hashes)
+                s._stale_layers = [k for k, v in staleness.items() if v]
+        except Exception as e:
             print(f"ERROR: {e}", file=sys.stderr)
             return EXIT_SESSION
         except Exception as e:
@@ -541,7 +544,7 @@ def main(argv: list[str] | None = None) -> int:
     # Operation flags require a task
     # =======================================================================
     has_operation = any(
-        [args.create, args.sim, args.refresh, args.bitstream, args.hw_connect, args.program, args.archive]
+        [args.create, args.sim, args.refresh, args.bitstream, args.program, args.archive]
     )
     if has_operation and not task_name:
         print(
@@ -666,19 +669,6 @@ def main(argv: list[str] | None = None) -> int:
         duration = time.monotonic() - t0
         results.append(
             _make_result("bitstream", session_name, task_name, success, output, duration, staleness_dict)
-        )
-
-    # -hw-connect
-    if args.hw_connect:
-        t0 = time.monotonic()
-        try:
-            res = ops.hw_connect(session)  # type: ignore[attr-defined]
-            output, success = res.output, res.success
-        except VivadoCoreError as e:
-            output, success = str(e), False
-        duration = time.monotonic() - t0
-        results.append(
-            _make_result("hw_connect", session_name, task_name, success, output, duration, None)
         )
 
     # -program

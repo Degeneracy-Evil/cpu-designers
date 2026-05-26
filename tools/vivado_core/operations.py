@@ -25,6 +25,16 @@ logger = logging.getLogger(__name__)
 # TCL path helper
 # ---------------------------------------------------------------------------
 
+def _tcl_escape(s: str) -> str:
+    """Escape a string for safe TCL interpolation."""
+    s = str(s)
+    s = s.replace('\\', '\\\\')
+    s = s.replace('"', '\\"')
+    s = s.replace('$', '\\$')
+    s = s.replace('[', '\\[')
+    s = s.replace(']', '\\]')
+    return s
+
 def _tcl_path(p: Path | str) -> str:
     """Convert a path to a TCL-safe forward-slash string.
 
@@ -32,7 +42,7 @@ def _tcl_path(p: Path | str) -> str:
     as escape characters (e.g. ``E:\\Xprogram`` -> ``E:Xprogram``).
     Forward slashes work correctly in TCL on all platforms.
     """
-    return Path(p).as_posix()
+    return _tcl_escape(Path(p).as_posix())
 
 
 # ---------------------------------------------------------------------------
@@ -68,26 +78,26 @@ if {{ [catch {{current_project}} cur_proj] == 0 }} {{
     puts "Closing existing project: $cur_proj"
     close_project
 }}
-create_project {proj_name} {proj_dir} -part {device_part} -force
+create_project "{proj_name}" "{proj_dir}" -part "{device_part}" -force
 set_property target_language Verilog [current_project]
 set_property simulator_language Mixed [current_project]
 
 # --- add RTL sources ---
-foreach f [glob -directory {alu_rtl_dir} *.sv] {{ import_files -norecurse $f }}
-foreach f [glob -directory {mu_rtl_dir} *.sv] {{ import_files -norecurse $f }}
-foreach f [glob -directory {cpu_core_dir} *.sv] {{ import_files -norecurse $f }}
-foreach f [glob -directory {ahb_dir} *.sv] {{ import_files -norecurse $f }}
-foreach f [glob -directory {ahb_dir} *.svh] {{
+foreach f [glob -nocomplain -directory "{{alu_rtl_dir}}" *.sv] {{ import_files -norecurse $f }}
+foreach f [glob -nocomplain -directory "{{mu_rtl_dir}}" *.sv] {{ import_files -norecurse $f }}
+foreach f [glob -nocomplain -directory "{{cpu_core_dir}}" *.sv] {{ import_files -norecurse $f }}
+foreach f [glob -nocomplain -directory "{{ahb_dir}}" *.sv] {{ import_files -norecurse $f }}
+foreach f [glob -nocomplain -directory "{{ahb_dir}}" *.svh] {{
     import_files -norecurse $f
     set_property file_type "Verilog Header" [get_files [file tail $f]]
 }}
-foreach f [glob -directory {apb_dir} *.sv] {{ import_files -norecurse $f }}
-foreach f [glob -directory {apb_dir} *.svh] {{
+foreach f [glob -nocomplain -directory "{{apb_dir}}" *.sv] {{ import_files -norecurse $f }}
+foreach f [glob -nocomplain -directory "{{apb_dir}}" *.svh] {{
     import_files -norecurse $f
     set_property file_type "Verilog Header" [get_files [file tail $f]]
 }}
-foreach f [glob -directory {apb_perips_dir} *.sv] {{ import_files -norecurse $f }}
-foreach f [glob -directory {apb_header_dir} *.svh] {{
+foreach f [glob -nocomplain -directory "{{apb_perips_dir}}" *.sv] {{ import_files -norecurse $f }}
+foreach f [glob -nocomplain -directory "{{apb_header_dir}}" *.svh] {{
     import_files -norecurse $f
     set_property file_type "Verilog Header" [get_files [file tail $f]]
 }}
@@ -100,15 +110,15 @@ update_compile_order -fileset sources_1
 
 # --- set include dirs ---
 set_property include_dirs [list \\
-    {alu_rtl_dir} \\
-    {mu_rtl_dir} \\
-    {cpu_core_dir} \\
-    {ahb_dir} \\
-    {ahb_ip_dir} \\
-    {apb_dir} \\
-    {apb_header_dir} \\
-    {apb_perips_dir} \\
-    {tb_dir} \\
+    "{{alu_rtl_dir}}" \\
+    "{{mu_rtl_dir}}" \\
+    "{{cpu_core_dir}}" \\
+    "{{ahb_dir}}" \\
+    "{{ahb_ip_dir}}" \\
+    "{{apb_dir}}" \\
+    "{{apb_header_dir}}" \\
+    "{{apb_perips_dir}}" \\
+    "{{tb_dir}}" \\
 ] [current_fileset]
 """
 
@@ -261,7 +271,7 @@ set_property xsim.simulate.log_all_objects true [get_filesets sim_1]
 launch_simulation -mode behavioral
 
 # --- read sim log ---
-set sim_log_file "{sim_log_dir}/xsim.log"
+set sim_log_file "{sim_log_dir}/simulate.log"
 if {{ [file exists $sim_log_file] }} {{
     set fp [open $sim_log_file r]
     set data [read $fp]
@@ -474,14 +484,15 @@ class Operations:
         coe_file = self._resolve_coe_path(task)
 
         if plan.full:
-            # Full rebuild: close -> delete -> create.
+            # Full rebuild: close -> cd up -> delete -> create.
             mem_config = self.session_mgr.config.memory
-            tcl_close = "catch { close_project }\n"
+            tcl_close = "catch { close_project }\ncd [file dirname " + proj_dir + "]\n"
             tcl_delete = f"file delete -force {proj_dir}\n"
             tcl_rebuild = "\n".join([
                 _tcl_create_project(proj_name, device_part, proj_dir, dev, base),
                 _tcl_setup_ip(proj_name, proj_dir, base, coe_file, mem_config),
                 _tcl_add_constrs(base),
+                _tcl_add_tb(dev, proj_dir, proj_name, task.tb, coe_file) if task.tb else "",
             ])
             tcl = tcl_close + tcl_delete + tcl_rebuild
         else:
@@ -627,11 +638,11 @@ class Operations:
 set_property top system_top [current_fileset]
 update_compile_order -fileset sources_1
 reset_run synth_1
-launch_runs synth_1 -jobs 14
+launch_runs synth_1 -jobs 20
 wait_on_run synth_1
-launch_runs impl_1 -jobs 14
+launch_runs impl_1 -jobs 20
 wait_on_run impl_1
-launch_runs impl_1 -to_step write_bitstream -jobs 14
+launch_runs impl_1 -to_step write_bitstream -jobs 20
 wait_on_run impl_1
 set bit_file "{proj_dir}/{proj_name}.runs/impl_1/system_top.bit"
 if {{ [file exists $bit_file] }} {{

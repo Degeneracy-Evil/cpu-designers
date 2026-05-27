@@ -1,0 +1,321 @@
+#!/usr/bin/env python3
+"""test_builder.py — 测试程序构建管理
+
+读取 dev/program_source/test/tests.yaml，调用 rv2coe.py 编译测试程序。
+
+用法:
+    python tools/test_builder.py                          # 构建全部
+    python tools/test_builder.py --category isa           # 仅构建 ISA 测试
+    python tools/test_builder.py --category mmu           # 仅构建 MMU 测试
+    python tools/test_builder.py --test isa/alu           # 构建单个测试
+    python tools/test_builder.py --clean                  # 清理产物
+    python tools/test_builder.py --list                   # 列出所有测试
+    python tools/test_builder.py --dry-run                # 仅打印命令不执行
+    python tools/test_builder.py --verbose                # 详细输出
+"""
+
+from __future__ import annotations
+
+import argparse
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+
+# ── 路径常量 ──
+
+# 项目根目录 (repo checkout root)
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+# dev/program_source/ 基目录
+PROG_SRC = REPO_ROOT / "dev" / "program_source"
+
+# 测试源码基目录
+TEST_SRC = PROG_SRC / "test"
+
+# tests.yaml 路径
+TESTS_YAML = TEST_SRC / "tests.yaml"
+
+# rv2coe.py 路径
+RV2COE = REPO_ROOT / "tools" / "rv2coe.py"
+
+
+# ── YAML 加载 ──
+
+def load_tests_yaml() -> dict[str, Any]:
+    """加载 tests.yaml 配置。"""
+    with open(TESTS_YAML, encoding="utf-8") as f:
+        return yaml.safe_load(f)
+
+
+# ── 测试发现 ──
+
+def discover_all_tests(config: dict) -> list[dict]:
+    """从 tests.yaml 解析所有测试条目。
+
+    Returns:
+        list of dicts, each with keys:
+            name: str         e.g. "isa/alu"
+            category: str     e.g. "isa"
+            src_file: Path    e.g. dev/program_source/test/isa/alu.s
+            framework: list[str]  framework files to include
+            arch: str
+            abi: str
+            linker_script: Path
+            depth: int
+    """
+    framework_defs = config.get("framework", {})
+    defaults = config.get("defaults", {})
+    categories = config.get("categories", {})
+
+    all_tests = []
+    for cat_name, cat_config in categories.items():
+        fw_name = cat_config.get("framework", "common")
+        if isinstance(fw_name, list):
+            # 直接指定的框架文件列表
+            fw_files = fw_name
+        else:
+            fw_files = framework_defs.get(fw_name, [])
+
+        test_names = cat_config.get("tests", [])
+        for test_name in test_names:
+            all_tests.append({
+                "name": test_name,
+                "category": cat_name,
+                "src_file": TEST_SRC / f"{test_name}.s",
+                "framework": [PROG_SRC / f for f in fw_files],
+                "arch": defaults.get("arch", "rv32im_zicsr_zifencei"),
+                "abi": defaults.get("abi", "ilp32"),
+                "linker_script": PROG_SRC / defaults.get("linker_script", "link.ld"),
+                "depth": defaults.get("depth", 8192),
+            })
+
+    return all_tests
+
+
+def filter_tests(
+    all_tests: list[dict],
+    category: str | None,
+    test_name: str | None,
+) -> list[dict]:
+    """按类别或测试名过滤。"""
+    if test_name is not None:
+        matched = [t for t in all_tests if t["name"] == test_name]
+        if not matched:
+            print(f"[ERROR] Test '{test_name}' not found in tests.yaml", file=sys.stderr)
+            sys.exit(1)
+        return matched
+
+    if category is not None:
+        matched = [t for t in all_tests if t["category"] == category]
+        if not matched:
+            print(f"[ERROR] Category '{category}' not found in tests.yaml", file=sys.stderr)
+            sys.exit(1)
+        return matched
+
+    return all_tests
+
+
+# ── 构建逻辑 ──
+
+def build_test(test: dict, verbose: bool, dry_run: bool) -> bool:
+    """构建单个测试程序。
+
+    Returns:
+        True if build succeeded (or dry_run), False otherwise.
+    """
+    name = test["name"]
+    src_file = test["src_file"]
+    hex_file = TEST_SRC / f"{name}.hex"
+    coe_file = TEST_SRC / f"{name}.coe"
+
+    # 检查源文件存在
+    if not src_file.exists():
+        print(f"[SKIP] {name}: source file not found: {src_file}")
+        return False
+
+    # 组装 rv2coe.py 命令
+    cmd = [
+        sys.executable,
+        str(RV2COE),
+    ]
+
+    # 添加框架文件
+    for fw_file in test["framework"]:
+        if fw_file.exists():
+            cmd.extend(["-i", str(fw_file)])
+        else:
+            print(f"[WARN] Framework file not found: {fw_file}", file=sys.stderr)
+
+    # 添加测试源文件
+    cmd.extend(["-i", str(src_file)])
+
+    # 链接脚本
+    linker = test["linker_script"]
+    if linker.exists():
+        cmd.extend(["--linker-script", str(linker)])
+
+    # 架构/ABI
+    cmd.extend(["--march", test["arch"], "--abi", test["abi"]])
+
+    # 输出文件: -o for COE, --hex for hex
+    cmd.extend(["-o", str(coe_file), "--hex", str(hex_file)])
+
+    # 深度
+    depth = test["depth"]
+    if depth > 0:
+        cmd.extend(["--depth", str(depth)])
+
+    if verbose:
+        cmd.append("-v")
+
+    if dry_run:
+        print(f"[DRY] {name}: {' '.join(cmd)}")
+        return True
+
+    # 确保输出目录存在
+    hex_file.parent.mkdir(parents=True, exist_ok=True)
+
+    print(f"[BUILD] {name} ...", end=" ", flush=True)
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+        )
+        if result.returncode == 0:
+            print("OK")
+            if verbose and result.stdout:
+                print(result.stdout)
+            return True
+        else:
+            print("FAIL")
+            print(f"  Command: {' '.join(cmd)}")
+            if result.stdout:
+                print(f"  stdout: {result.stdout}")
+            if result.stderr:
+                print(f"  stderr: {result.stderr}")
+            return False
+    except Exception as e:
+        print(f"ERROR: {e}")
+        return False
+
+
+def clean_tests(all_tests: list[dict]) -> None:
+    """清理所有测试产物 (.hex, .coe)。"""
+    removed = 0
+    for test in all_tests:
+        for ext in (".hex", ".coe"):
+            f = TEST_SRC / f"{test['name']}{ext}"
+            if f.exists():
+                f.unlink()
+                removed += 1
+    print(f"[CLEAN] Removed {removed} files")
+
+
+def list_tests(all_tests: list[dict]) -> None:
+    """列出所有测试。"""
+    # 按类别分组
+    by_category: dict[str, list[dict]] = {}
+    for t in all_tests:
+        by_category.setdefault(t["category"], []).append(t)
+
+    for cat, tests in sorted(by_category.items()):
+        print(f"\n[{cat}] ({len(tests)} tests)")
+        for t in tests:
+            exists = "OK" if t["src_file"].exists() else "MISS"
+            print(f"  {exists} {t['name']}")
+
+
+# ── 主入口 ──
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Build test programs for the embedded CPU project.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--category",
+        help="Build only tests in this category (isa, mmu, cache, ...)",
+    )
+    parser.add_argument(
+        "--test",
+        help="Build a single test by name (e.g. isa/alu)",
+    )
+    parser.add_argument(
+        "--clean",
+        action="store_true",
+        help="Remove all generated .hex/.coe files",
+    )
+    parser.add_argument(
+        "--list",
+        action="store_true",
+        help="List all registered tests",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print commands without executing",
+    )
+    parser.add_argument(
+        "-v", "--verbose",
+        action="store_true",
+        help="Verbose output",
+    )
+    args = parser.parse_args()
+
+    # 加载配置
+    if not TESTS_YAML.exists():
+        print(f"[ERROR] tests.yaml not found: {TESTS_YAML}", file=sys.stderr)
+        return 1
+
+    config = load_tests_yaml()
+    all_tests = discover_all_tests(config)
+
+    # --list
+    if args.list:
+        list_tests(all_tests)
+        return 0
+
+    # --clean
+    if args.clean:
+        clean_tests(all_tests)
+        return 0
+
+    # 过滤测试
+    selected = filter_tests(all_tests, args.category, args.test)
+
+    if not selected:
+        print("[ERROR] No tests selected", file=sys.stderr)
+        return 1
+
+    print(f"[INFO] Building {len(selected)} test(s) ...")
+
+    # 构建
+    ok = 0
+    fail = 0
+    skip = 0
+    for test in selected:
+        if not test["src_file"].exists():
+            print(f"[SKIP] {test['name']}: source not found")
+            skip += 1
+            continue
+        if build_test(test, args.verbose, args.dry_run):
+            ok += 1
+        else:
+            fail += 1
+
+    # 汇总
+    print(f"\n[SUMMARY] {ok} built, {fail} failed, {skip} skipped")
+    return 0 if fail == 0 else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

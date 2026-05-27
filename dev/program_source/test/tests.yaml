@@ -1,0 +1,114 @@
+# ============================================================
+# tests.yaml — 测试程序注册表
+# ============================================================
+#
+# 声明式定义所有测试程序及其依赖、构建参数。
+# test_builder.py 读取此文件驱动构建。
+#
+# 每个测试条目指定:
+#   - 所属类别 (categories 下的 key)
+#   - 源文件路径 (相对于 dev/program_source/test/)
+#   - 依赖的框架文件集合
+#   - 链接脚本
+#   - 架构/ABI
+#
+# ============================================================
+
+framework:
+  # 通用框架: 所有非 MMU 测试使用
+  common:
+    - framework/test_framework.s
+    - framework/trap_handlers.s
+
+  # MMU 框架: 额外包含页表工具和 PTE 常量
+  mmu:
+    - framework/test_framework.s
+    - framework/trap_handlers.s
+    - framework/page_table_utils.s
+
+  # 无框架: 集成测试保持原有结构
+  none: []
+
+defaults:
+  arch: rv32im_zicsr_zifencei
+  abi: ilp32
+  linker_script: link.ld
+  depth: 8192
+
+categories:
+  isa:
+    framework: common
+    tests:
+      - isa/alu
+      - isa/branch
+      - isa/memory
+      - isa/upper_imm
+      - isa/jump
+      - isa/csr
+      - isa/m_ext
+
+  exception:
+    framework: common
+    tests:
+      - exception/ecall
+      - exception/ebreak
+      - exception/illegal_inst
+      - exception/access_fault
+      - exception/timer_irq
+      - exception/interrupt_basic
+
+  privilege:
+    framework: mmu
+    tests:
+      - privilege/priv_transition
+      - privilege/delegation
+      - privilege/csr_access_priv
+
+  mmu:
+    framework: mmu
+    tests:
+      - mmu/tlb_basic
+      - mmu/tlb_replace
+      - mmu/tlb_flush
+      - mmu/tlb_asid
+      - mmu/tlb_megapage
+      - mmu/tlb_stress
+      - mmu/ptw_walk
+      - mmu/page_fault
+      - mmu/permission
+      - mmu/sv32_basic
+      - mmu/sv32_edge
+      - mmu/unified_mmu
+
+  cache:
+    framework: common
+    tests:
+      - cache/icache_basic
+      - cache/dcache_basic
+      - cache/dcache_dirty
+      - cache/fencei
+      - cache/cache_mmu_interact
+
+  mmio:
+    framework: common
+    tests:
+      - mmio/clint
+      - mmio/plic
+
+  regression:
+    framework: mmu
+    tests:
+      - regression/reg_tlb_fill_way
+      - regression/reg_ptw_fault_latch
+      - regression/reg_sfence_during_walk
+      - regression/reg_stale_paddr
+      - regression/reg_bare_no_miss
+      - regression/reg_mmio_ready
+      - regression/reg_pf_latch
+
+  integration:
+    framework: none
+    tests:
+      - integration/cpu_full
+      - integration/cpu_compute
+      - integration/cpu_trap

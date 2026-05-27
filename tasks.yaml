@@ -33,6 +33,66 @@ tasks:
     coe: test/cpu_test_priv.coe
     runtime: 20ms
 
+  isa_alu:
+    tb: tb_isa_alu
+    coe: test/isa/alu.coe
+    runtime: 5ms
+
+  isa_branch:
+    tb: tb_isa_branch
+    coe: test/isa/branch.coe
+    runtime: 5ms
+
+  isa_memory:
+    tb: tb_isa_memory
+    coe: test/isa/memory.coe
+    runtime: 5ms
+
+  isa_upper_imm:
+    tb: tb_isa_upper_imm
+    coe: test/isa/upper_imm.coe
+    runtime: 5ms
+
+  isa_jump:
+    tb: tb_isa_jump
+    coe: test/isa/jump.coe
+    runtime: 5ms
+
+  isa_csr:
+    tb: tb_isa_csr
+    coe: test/isa/csr.coe
+    runtime: 5ms
+
+  isa_m_ext:
+    tb: tb_isa_m_ext
+    coe: test/isa/m_ext.coe
+    runtime: 5ms
+
+  exception_ecall:
+    tb: tb_exception_ecall
+    coe: test/exception/ecall.coe
+    runtime: 5ms
+
+  exception_ebreak:
+    tb: tb_exception_ebreak
+    coe: test/exception/ebreak.coe
+    runtime: 5ms
+
+  exception_illegal_inst:
+    tb: tb_exception_illegal_inst
+    coe: test/exception/illegal_inst.coe
+    runtime: 5ms
+
+  exception_access_fault:
+    tb: tb_exception_access_fault
+    coe: test/exception/access_fault.coe
+    runtime: 5ms
+
+  exception_timer_irq:
+    tb: tb_exception_timer_irq
+    coe: test/exception/timer_irq.coe
+    runtime: 10ms
+
   uart_hello:
     tb: tb_uart_hello
     coe: app/uart_hello.coe

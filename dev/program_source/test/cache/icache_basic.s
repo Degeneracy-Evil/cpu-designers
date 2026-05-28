@@ -69,6 +69,9 @@ _ibf_target:
 # ── Sub-test 3: Repeated function call ──
 # Call same function twice — second call should hit in icache
 test_icache_repeated_call:
+    # Save return address (x1 from test_run)
+    add  x5, x1, x0            # save ra in t0 (caller-saved, not used by helper)
+
     # First call — likely icache miss → refill
     jal  x1, _irc_helper
     add  x12, x10, x0          # save first result
@@ -76,6 +79,9 @@ test_icache_repeated_call:
     # Second call — should hit in icache
     jal  x1, _irc_helper
     add  x13, x10, x0          # save second result
+
+    # Restore original return address
+    add  x1, x5, x0            # ra = original ra
 
     # Both should return same value (42)
     li   x11, 42

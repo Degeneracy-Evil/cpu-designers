@@ -1,6 +1,6 @@
 # 测试程序体系 — 实施进度
 
-> 创建日期: 2026-05-27 | 最后更新: 2026-05-28 | 计划: `dev/PLAN-test-system.md` | T4 仿真验证进行中 (2/11 PASS)
+> 创建日期: 2026-05-27 | 最后更新: 2026-05-28 | 计划: `dev/PLAN-test-system.md` | T5 完成 (7/7 ALL PASS), T4 仿真验证进行中 (2/11 PASS)
 
 ---
 
@@ -42,11 +42,11 @@
 | T2 | ISA 测试拆分 | ✅ 完成 | 7 | 107 | ALL PASS |
 | T3 | 异常/中断测试 | ✅ 完成 | 5 | 15 | ALL PASS |
 | T4 | MMU/TLB 测试 | 🔄 仿真验证中 | 11 | 62 | 2/11 PASS |
-| T5 | Cache + MMIO | ⬜ 未开始 | — | — | — |
+| T5 | Cache + MMIO | ✅ 完成 | 7 | 31 | ALL PASS |
 | T6 | 回归测试 | ⬜ 未开始 | — | — | — |
 | T7 | 统一 MMU 测试 | ⬜ 未开始 (需 Phase 3 RTL) | — | — | — |
 | T8 | 文档 + 集成 | ⬜ 未开始 | — | — | — |
-| **合计** | | | **24** | **204** | **T4 仿真验证中** |
+| **合计** | | | **31** | **235** | **T5 完成, T4 仿真验证中** |
 
 ---
 
@@ -403,6 +403,58 @@ python -m tools.vivado_cli -task mmu_sv32_basic -sim
 
 ---
 
+## Phase T5: Cache + MMIO ✅
+
+### 仿真结果 (2026-05-28)
+
+| 测试 | 子测试数 | 仿真结果 | 备注 |
+|------|---------|---------|------|
+| cache/icache_basic | 3 | ✅ ALL PASS | 修复 ra 冲突 bug |
+| cache/dcache_basic | 4 | ✅ ALL PASS | |
+| cache/dcache_dirty | 4 | ✅ ALL PASS | |
+| cache/fencei | 4 | ✅ ALL PASS | 修复 ra 冲突 bug |
+| cache/cache_mmu_interact | 6 | ✅ ALL PASS | 新实现, Sv32+dcache/icache 交互 |
+| mmio/clint | 4 | ✅ ALL PASS | |
+| mmio/plic | 4 | ✅ ALL PASS | |
+| **总计** | **31** | **ALL PASS** | |
+
+### 交付物
+
+| 文件 | 说明 |
+|------|------|
+| `test/cache/icache_basic.s` | I$ 基本测试: 顺序取指/分支/重复调用 (3 子测试) |
+| `test/cache/dcache_basic.s` | D$ 基本测试: store-load/同行/跨行/字节半字 (4 子测试) |
+| `test/cache/dcache_dirty.s` | D$ 写回测试: 刷新验证/覆写/多脏行/双刷新 (4 子测试) |
+| `test/cache/fencei.s` | FENCE.I 测试: SMC/刷新/多存储/多次 (4 子测试) |
+| `test/cache/cache_mmu_interact.s` | Cache+MMU 交互: S-mode SMC/跨页/多脏行/字节半字 (6 子测试) ★ 新实现 |
+| `test/mmio/clint.s` | CLINT 测试: mtime/mtimecmp/定时器中断 (4 子测试) |
+| `test/mmio/plic.s` | PLIC 测试: 优先级/阈值/使能/Claim (4 子测试) |
+| `dev/tb/tb_cache_*.sv` (5 个) | 对应 testbench |
+| `dev/tb/tb_mmio_*.sv` (2 个) | 对应 testbench |
+
+### T5 期间发现并修复的 Bug
+
+| Bug | 文件 | 描述 | 修复 |
+|-----|------|------|------|
+| ra (x1) 冲突: icache_basic | `test/cache/icache_basic.s:69` | `test_icache_repeated_call` 用 `jal x1, _irc_helper` clobber 了 test_run 保存在 x1 的返回地址 → `ret` 跳回错误地址 → 无限循环, pass=2/3, first_fail=0 | 用 x5 (t0) 保存/恢复 ra: `add x5,x1,x0` → jal → `add x1,x5,x0` |
+| ra (x1) 冲突: fencei | `test/cache/fencei.s:41` | `test_fencei_smc` 用 `jal x1, smc_fn` clobber 了 ra → 同上无限循环, pass=0/4 | 用 x5 保存/恢复 ra |
+| cache_mmu_interact 占位 | `test/cache/cache_mmu_interact.s` | 原为占位实现 (1 个 pass-through 子测试) | 重写为 6 个真实 Sv32+cache 交互子测试 |
+| SIM_CYCLES 不足 | `tb_cache_icache_basic.sv` | 50000 周期太短 | 增至 100000 |
+
+### 内存布局验证
+
+cache_mmu_interact 使用与 MMU 测试相同的页表布局:
+```
+0x80000000: .text.start (M-mode test functions)
+0x80001000: L1 page table (framework)
+0x80002000: L0 page table (framework)
+0x80003000+: S-mode code + data areas
+0x80007000: TEST_RESULT_BASE
+```
+页表与程序未冲突 ✅
+
+---
+
 ## 下一步 (2026-05-28 更新)
 
 ### 🔄 Phase T4 仿真验证进行中
@@ -420,7 +472,7 @@ Vivado Orchestrator 工作正常，无问题。
 | Phase | 描述 | 状态 |
 |-------|------|------|
 | T4.9 | MMU 仿真验证 | 🔄 进行中 (2/11 PASS) |
-| T5 | Cache + MMIO 测试 | ⬜ 未开始 |
+| T5 | Cache + MMIO 测试 | ✅ 完成 (7/7 ALL PASS) |
 | T6 | 回归测试 | ⬜ 未开始 |
 | T7 | 统一 MMU 测试 | ⬜ 未开始 (Phase 3 RTL 已完成, 可启动) |
 | T8 | 文档 + 集成 | ⬜ 未开始 |

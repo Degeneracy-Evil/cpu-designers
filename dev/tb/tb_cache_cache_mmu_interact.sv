@@ -2,7 +2,7 @@
 
 module tb_cache_cache_mmu_interact;
 
-    localparam integer EXPECTED_TOTAL = 1;
+    localparam integer EXPECTED_TOTAL = 6;
     localparam integer SIM_CYCLES    = 200000;
 
     reg clk;

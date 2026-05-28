@@ -38,6 +38,9 @@ end_loop:
 # ── Sub-test 1: FENCE.I enables self-modifying code ──
 # Write new instruction to smc_fn, FENCE.I, call smc_fn, verify new behavior
 test_fencei_smc:
+    # Save original return address (x1 from test_run)
+    add  x5, x1, x0            # save ra in t0
+
     # Overwrite smc_fn's first instruction: addi x10, x0, 1 (0x00100513)
     la   x11, smc_fn
     li   x12, 0x00100513
@@ -48,6 +51,9 @@ test_fencei_smc:
 
     # Call smc_fn — icache miss, fetch from SRAM, gets new instruction
     jal  x1, smc_fn           # x10 = return value from smc_fn
+
+    # Restore original return address
+    add  x1, x5, x0            # ra = original ra
 
     # Check: x10 should be 1 (new instruction)
     li   x11, 1

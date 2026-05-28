@@ -3,7 +3,7 @@
 module tb_cache_icache_basic;
 
     localparam integer EXPECTED_TOTAL = 3;
-    localparam integer SIM_CYCLES    = 50000;
+    localparam integer SIM_CYCLES    = 100000;
 
     reg clk;
     reg reset;

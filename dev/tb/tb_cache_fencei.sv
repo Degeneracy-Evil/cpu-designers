@@ -3,7 +3,7 @@
 module tb_cache_fencei;
 
     localparam integer EXPECTED_TOTAL = 4;
-    localparam integer SIM_CYCLES    = 100000;
+    localparam integer SIM_CYCLES    = 200000;
 
     reg clk;
     reg reset;

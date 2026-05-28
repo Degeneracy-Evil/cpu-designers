@@ -12,6 +12,7 @@ module ptw(
 
     input       [31:0] walk_vaddr,
     input              walk_req,
+    input              walk_abort,       // BUG-7: sfence_vma abort in-progress walk
     output             walk_done,
     output             walk_fault,
     output      [3:0]  walk_fault_cause,
@@ -177,6 +178,11 @@ module ptw(
             if (ptw_bus_done || ptw_bus_error)
                 bus_req_pending_r <= 1'b0;
 
+            // BUG-7: walk_abort (sfence_vma) forces PTW back to S_IDLE
+            if (walk_abort && state != S_IDLE) begin
+                state             <= S_IDLE;
+                bus_req_pending_r <= 1'b0;
+            end else
             case (state)
                 S_IDLE: begin
                     if (walk_req) begin

@@ -67,6 +67,7 @@ categories:
   mmu:
     framework: mmu
     tests:
+      - mmu/sv32_basic
       - mmu/tlb_basic
       - mmu/tlb_replace
       - mmu/tlb_flush
@@ -76,9 +77,7 @@ categories:
       - mmu/ptw_walk
       - mmu/page_fault
       - mmu/permission
-      - mmu/sv32_basic
       - mmu/sv32_edge
-      - mmu/unified_mmu
 
   cache:
     framework: common
@@ -87,6 +86,10 @@ categories:
       - cache/dcache_basic
       - cache/dcache_dirty
       - cache/fencei
+
+  cache_mmu:
+    framework: mmu
+    tests:
       - cache/cache_mmu_interact
 
   mmio:

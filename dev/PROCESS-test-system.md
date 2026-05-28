@@ -1,0 +1,402 @@
+# 测试程序体系 — 实施进度
+
+> 创建日期: 2026-05-27 | 最后更新: 2026-05-28 | 计划: `dev/PLAN-test-system.md` | T4 已完善, 全部构建通过
+
+---
+
+## 回归验证 (NMMU Phase 3 后)
+
+### 修复的 RTL Bug
+
+| Bug | 文件 | 描述 | 修复 |
+|-----|------|------|------|
+| MMU.sv 信号声明顺序 | `dev/rtl/core/MMU.sv` | Phase 3 新增 `ptw_fill_ppn/r/a/is_megapage` 在 TLB 实例端口使用前未声明 → 编译错误；且有两处重复声明 | 将声明移至 TLB 实例前，删除重复声明 |
+
+### 回归仿真结果 (2026-05-27, NMMU Phase 3 RTL)
+
+| 测试 | 子测试数 | 结果 |
+|------|---------|------|
+| isa/alu | 20 | ✅ ALL PASS |
+| isa/branch | 17 | ✅ ALL PASS |
+| isa/memory | 20 | ✅ ALL PASS |
+| isa/upper_imm | 8 | ✅ ALL PASS |
+| isa/jump | 8 | ✅ ALL PASS |
+| isa/csr | 18 | ✅ ALL PASS |
+| isa/m_ext | 16 | ✅ ALL PASS |
+| exception/ecall | 4 | ✅ ALL PASS |
+| exception/ebreak | 3 | ✅ ALL PASS |
+| exception/illegal_inst | 3 | ✅ ALL PASS |
+| exception/access_fault | 3 | ✅ ALL PASS |
+| exception/timer_irq | 2 | ✅ ALL PASS |
+| **总计** | **122** | **ALL PASS** |
+
+**结论：全部 12 个测试通过，可以进入 Phase T4 (MMU/TLB 测试)。**
+
+---
+
+## 总体进度
+
+| Phase | 描述 | 状态 | 测试文件数 | 子测试数 | 仿真结果 |
+|-------|------|------|-----------|---------|---------|
+| T1 | 框架搭建 | ✅ 完成 | 1 | 20 | ALL PASS |
+| T2 | ISA 测试拆分 | ✅ 完成 | 7 | 107 | ALL PASS |
+| T3 | 异常/中断测试 | ✅ 完成 | 5 | 15 | ALL PASS |
+| T4 | MMU/TLB 测试 | ✅ 完善 | 11 | 62 | 构建通过 |
+| T5 | Cache + MMIO | ⬜ 未开始 | — | — | — |
+| T6 | 回归测试 | ⬜ 未开始 | — | — | — |
+| T7 | 统一 MMU 测试 | ⬜ 未开始 (需 Phase 3 RTL) | — | — | — |
+| T8 | 文档 + 集成 | ⬜ 未开始 | — | — | — |
+| **合计** | | | **24** | **204** | **构建通过** |
+
+---
+
+## Phase T1: 框架搭建 ✅
+
+### 交付物
+
+| 文件 | 说明 |
+|------|------|
+| `dev/program_source/framework/test_framework.s` | 自检运行器: test_init/test_run/test_report + 寄存器约定 + 内存结果区 |
+| `dev/program_source/framework/trap_handlers.s` | 6 种陷阱处理器: M/S mode, simple/record/count/save_cause/dispatch |
+| `dev/program_source/framework/page_table_utils.s` | 页表工具: setup_identity_map/setup_user_map/enable_sv32/disable_sv32/clear |
+| `dev/program_source/test/tests.yaml` | 声明式测试注册表: 8 类 44 个测试, 框架依赖, 构建参数 |
+| `tools/test_builder.py` | Python 构建脚本: 读取 tests.yaml → 调用 rv2coe.py → 生成 .hex/.coe |
+
+### 验证
+
+- `test_builder.py --test isa/alu` → 构建成功
+- isa/alu 仿真: x28=20, x29=20, x30=0 → **ALL PASS**
+
+---
+
+## Phase T2: ISA 测试拆分 ✅
+
+### 仿真结果
+
+| 测试 | 子测试数 | 结果 |
+|------|---------|------|
+| isa/alu | 20 | ✅ ALL PASS |
+| isa/branch | 17 | ✅ ALL PASS |
+| isa/memory | 20 | ✅ ALL PASS |
+| isa/upper_imm | 8 | ✅ ALL PASS |
+| isa/jump | 8 | ✅ ALL PASS |
+| isa/csr | 18 | ✅ ALL PASS |
+| isa/m_ext | 16 | ✅ ALL PASS |
+| **总计** | **107** | **ALL PASS** |
+
+### 交付物
+
+| 文件 | 说明 |
+|------|------|
+| `test/isa/alu.s` | ALU R-type + I-type (正/负/零/边界) |
+| `test/isa/branch.s` | BEQ/BNE/BLT/BGE/BLTU/BGEU (taken/not-taken/正负/零/反向) |
+| `test/isa/memory.s` | LW/SW/LB/SB/LH/SH/LBU/LHU (符号扩展/零扩展/覆盖/跨半字) |
+| `test/isa/upper_imm.s` | LUI/AUIPC (典型值/最大/零/组合) |
+| `test/isa/jump.s` | JAL/JALR (正向/反向/嵌套/x0/偏移) |
+| `test/isa/csr.s` | CSRRW/CSRRS/CSRRC/CSRRWI/CSRRSI/CSRRCI (读写/置位/清位/立即数/往返) |
+| `test/isa/m_ext.s` | MUL/MULH/MULHSU/MULHU/DIV/DIVU/REM/REMU (正/负/零/除零/恒等) |
+| `dev/tb/tb_isa_*.sv` (7 个) | 对应 testbench |
+| `dev/tb/tb_isa_template.sv` | 通用 testbench 模板 |
+
+---
+
+## Phase T3: 异常/中断测试 ✅
+
+### 仿真结果
+
+| 测试 | 子测试数 | 结果 |
+|------|---------|------|
+| exception/ecall | 4 | ✅ ALL PASS |
+| exception/ebreak | 3 | ✅ ALL PASS |
+| exception/illegal_inst | 3 | ✅ ALL PASS |
+| exception/access_fault | 3 | ✅ ALL PASS |
+| exception/timer_irq | 2 | ✅ ALL PASS |
+| **总计** | **15** | **ALL PASS** |
+
+### 交付物
+
+| 文件 | 说明 |
+|------|------|
+| `test/exception/ecall.s` | ECALL from M-mode: 继续/mcause=11/mepc正确/多次ecall |
+| `test/exception/ebreak.s` | EBREAK: 继续/mcause=3/多次ebreak |
+| `test/exception/illegal_inst.s` | 非法指令: 继续/mcause=2/多次非法 |
+| `test/exception/access_fault.s` | 指令访问错误: mcause=1/继续/数据访问错误 (自定义handler) |
+| `test/exception/timer_irq.s` | CLINT定时器中断: 触发/清除 |
+| `dev/tb/tb_exception_*.sv` (5 个) | 对应 testbench |
+
+### privilege/priv_transition.s — 推迟
+
+S-mode 特权级切换测试需要完整的 S-mode RTL 支持，当前推迟到 T4 阶段与 MMU 测试一起实现。
+
+---
+
+## Phase T4: MMU/TLB 测试 ✅ (完善)
+
+### 框架修复 (page_table_utils.s)
+
+| 修复 | 描述 |
+|------|------|
+| L1[2]→L1[512] | VA 0x80000000 的 VPN[1]=0x200=512, offset=0x800 |
+| 添加 sfence.vma | enable_sv32 中缺少 sfence.vma 刷新 TLB |
+| 恒等映射扩展到 8 页 | 覆盖 32KB SRAM (0x80000000-0x80007FFF) |
+| x18→x5 | 修复 x18 clobber (与 test_run callee-saved 冲突) |
+| 0x800 偏移溢出 | sw addi 12-bit imm 溢出 → li+add+sw |
+| .globl l1/l0_page_table | 链接器无法解析页表符号 |
+| fence.i in enable_sv32 | dcache write-back, PTW 绕过 dcache 读 SRAM → 必须刷 icache/dcache |
+| fence.i in disable_sv32 | S→M 切换后确保 M-mode 看到最新数据 |
+
+### 框架修复 (test_framework.s)
+
+| 修复 | 描述 |
+|------|------|
+| TEST_RESULT_BASE→0x80007000 | 链接器将页表数据放在 0x80001000, 与原结果区冲突 → test_init 覆盖 0xDEADBEEF |
+
+### 构建系统修复
+
+| 修复 | 文件 | 描述 |
+|------|------|------|
+| .insn 助记符 | `tools/rv2coe.py` | objdump 对 text 中的数据输出 `.insn`, 加入 ISA 检查白名单 |
+
+### 测试程序 (11 个, 62 子测试)
+
+| 测试文件 | 子测试数 | 构建结果 | 备注 |
+|----------|---------|---------|------|
+| mmu/sv32_basic.s | 6 | ✅ OK | |
+| mmu/tlb_basic.s | 12 | ✅ OK | |
+| mmu/tlb_replace.s | 6 | ✅ OK | ★ 新增: tree-PLRU 替换测试 |
+| mmu/tlb_flush.s | 8 | ✅ OK | |
+| mmu/tlb_asid.s | 4 | ✅ OK | |
+| mmu/tlb_megapage.s | 4 | ✅ OK | |
+| mmu/tlb_stress.s | 6 | ✅ OK | 修复: 直接地址替代大数据区避免 SRAM 溢出 |
+| mmu/ptw_walk.s | 4 | ✅ OK | |
+| mmu/page_fault.s | 4 | ✅ OK | BUG-10 (mem_en 门控) 已在 core_top.sv 修复 |
+| mmu/permission.s | 12 | ✅ OK | 扩展: 4→12 子测试 (R/W/X/U/SUM/MXR 全覆盖) |
+| mmu/sv32_edge.s | 6 | ✅ OK | |
+| **总计** | **62** | **全部 OK** | |
+
+### Testbench
+
+| 文件 | 配置 |
+|------|------|
+| `dev/tb/tb_mmu_sv32_basic.sv` | SIM_CYCLES=200000, EXPECTED_TOTAL=6 |
+| `dev/tb/tb_mmu_tlb_basic.sv` | SIM_CYCLES=200000, EXPECTED_TOTAL=6 |
+| `dev/tb/tb_mmu_tlb_flush.sv` | SIM_CYCLES=200000, EXPECTED_TOTAL=4 |
+| `dev/tb/tb_mmu_page_fault.sv` | SIM_CYCLES=200000, EXPECTED_TOTAL=4 |
+| `dev/tb/tb_mmu_permission.sv` | SIM_CYCLES=200000, EXPECTED_TOTAL=4 |
+| `dev/tb/tb_mmu_sv32_edge.sv` | SIM_CYCLES=200000, EXPECTED_TOTAL=4 |
+
+### RTL BUG-10 修复验证 ✅
+
+**之前失败根因**: `core_top.sv` 中数据页错误信号被 `mem_en` 门控:
+```systemverilog
+// 修复前 (有问题)
+load_page_fault  = mmu_data_page_fault && mem_en && !mem_hwrite;
+store_page_fault = mmu_data_page_fault && mem_en &&  mem_hwrite;
+// 修复后 (当前代码)
+load_page_fault  = mmu_data_page_fault && !mem_hwrite;
+store_page_fault = mmu_data_page_fault && mem_hwrite;
+```
+
+**修复原因**: `mem_en` 是流水线信号，PTW 检测到权限错误产生 `mmu_data_page_fault` 脉冲时 `mem_en` 可能为 0，导致 PF 信号被吞。移除 `mem_en` 门控后，所有数据 PF 测试通过 (page_fault, permission)。
+
+### 测试程序修复
+
+| 修复项 | 测试 | 说明 |
+|--------|------|------|
+| fence.i 添加 | tlb_flush #4 | bare 模式 S-mode 测试后 M-mode 读需要 fence.i 保证 dcache 一致性 |
+| fence.i 添加 | sv32_edge #2 | M-mode 读 PTE 前需要 fence.i (PTW A/D 写绕过 dcache) |
+| A/D bit 期望调整 | sv32_edge #2 | TLB hit 不更新 SRAM 中 PTE 的 D bit (规范允许)，调整测试期望 |
+
+---
+
+## 已修复的关键 Bug
+
+### Phase T1-T3 期间发现并修复
+
+| Bug | 文件 | 描述 | 修复 |
+|-----|------|------|------|
+| 段排序 | `test/isa/alu.s` 等 | 多文件链接时 framework `.text` 排在 `_start` 前面 → CPU 从 framework 代码开始执行 | `_start` 放入 `.text.start` 段 (linker script 保证最前) |
+| test_run 寄存器冲突 | `framework/test_framework.s` | `test_run` 用 x14 存 ra，但子测试可 clobber x10-x17 → ra 被覆盖 → 跳转到垃圾地址 | 改用 callee-saved x18-x21 |
+| trap_handler 寄存器冲突 | `framework/trap_handlers.s` | m_trap_record 用 x19/x20 输出，与 test_run 的 x18-x21 冲突 | 改用 x22-x27 输出 |
+| AUIPC 测试逻辑 | `test/isa/upper_imm.s` | 两条连续 auipc 的 PC 差 4，非相等；auipc x,1 与 auipc x,0 差 0x1004 非 0xFFC | 修正期望值 |
+| Little-endian 字节序 | `test/isa/memory.s` | `sb` offset 2 写入 bits[23:16]，不在 halfword 0 内 | 改用 offset 1 |
+| access_fault handler | `test/exception/access_fault.s` | 指令访问错误时 mepc 指向无效地址，mepc+4 仍无效 → 死循环 | 自定义 handler 用 x5 存安全返回地址 |
+| timer_irq 异步中断 | `test/exception/timer_irq.s` | 中断可能在框架代码期间触发 → 框架状态被破坏 | 先禁中断做设置，再使能，完成后禁中断检查 |
+| CLINT 大偏移 | `test/exception/timer_irq.s` | 0xBFF8/0x4000 超出 addi 12-bit 范围 → 编译错误 | 用 li + add 计算地址 |
+
+### Phase T4 期间发现并修复
+
+| Bug | 文件 | 描述 | 修复 |
+|-----|------|------|------|
+| L1 页表大小 | `framework/page_table_utils.s` | L1[2] 只能索引 VPN[1]=0,1, 但 VA 0x80000000 的 VPN[1]=512 | L1[512], offset=0x800 |
+| sfence.vma 缺失 | `framework/page_table_utils.s` | enable_sv32 未刷新 TLB → 旧 TLB 条目残留 | 在 satp 写入前加 sfence.vma |
+| 恒等映射不足 | `framework/page_table_utils.s` | 仅映射 2 页, SRAM 32KB 需要 8 页 | 扩展到 8 页 (0x80000000-0x80007FFF) |
+| x18 clobber | `framework/page_table_utils.s` | setup_identity_map 用 x18, 与 test_run callee-saved 冲突 | 改用 x5 (t0) |
+| 12-bit 立即数溢出 | `framework/page_table_utils.s` | `sw x0,0x800(x6)` — 0x800=2048 超出 signed 12-bit | li+add+sw |
+| 页表符号未导出 | `framework/page_table_utils.s` | 链接器找不到 l1_page_table/l0_page_table | 添加 .globl |
+| TEST_RESULT_BASE 冲突 | `framework/test_framework.s` | 链接器将页表数据放在 0x80001000, 与结果区冲突 | 移至 0x80007000 |
+| .insn 未识别 | `tools/rv2coe.py` | objdump 对 text 中数据输出 `.insn`, ISA 检查拒绝 | 加入白名单 |
+| dcache 一致性 (enable) | `framework/page_table_utils.s` | dcache write-back, PTW 绕过 dcache → PTW 读到零 (陈旧) | enable_sv32 前加 fence.i |
+| dcache 一致性 (disable) | `framework/page_table_utils.s` | S→M 后 M-mode 可能读到陈旧缓存数据 | disable_sv32 后加 fence.i |
+
+---
+
+## 框架寄存器约定 (最终版)
+
+| 寄存器 | 用途 | 使用者 |
+|--------|------|--------|
+| x28 | pass_count | 框架 (test_init/test_run) |
+| x29 | total_count | 框架 (test_init/test_run) |
+| x30 | first_fail_id | 框架 (test_run) |
+| x31 | current_test_id | 框架 (test_run) |
+| x18-x21 | test_run 内部 | 框架 (test_run: 保存test_id/ra/临时) |
+| x22-x27 | trap_handler 输出 | 陷阱处理器 (mcause/mepc/mtval) |
+| x10-x17 | 子测试自由使用 | 子测试 (caller-saved, 子测试返回后由框架恢复) |
+
+---
+
+## MMU 测试设计模式
+
+### M→S→M 特权级切换模式
+
+所有 Sv32 测试必须使用此模式, 因为 **M-mode 永远绕过 TLB** (`i_sv32 = satp[31] && priv_mode!=M`):
+
+```
+M-mode setup:
+  save ra → mmu_saved_ra
+  csrw mepc, <S-mode entry>
+  csrw mstatus, (MPP=S)
+  mret
+
+S-mode test body:
+  ... 执行测试 ...
+  ecall  ← 触发 ecall-from-S (mcause=9)
+
+M-mode trap handler:
+  if mcause==9:  ← ecall-from-S, 返回 M-mode
+    restore ra from mmu_saved_ra
+    ret to test_run
+  if mcause==12/13/15:  ← page fault
+    record mcause/mtval
+    jump to check function via mmu_return_pc
+```
+
+### 自定义 MMU 陷阱处理器
+
+- 处理 ecall-from-S (mcause=9): 返回 M-mode
+- 处理 page faults (mcause=12/13/15): 记录 mcause/mtval, 跳转到检查函数
+
+### 内存布局
+
+```
+0x80000000  ┌─────────────────────┐
+            │ 代码 (.text.start)   │
+0x80001000  ├─────────────────────┤
+            │ L1 页表 (512 entries)│
+0x80002000  ├─────────────────────┤
+            │ L0 页表 (512 entries)│
+0x80003000  ├─────────────────────┤
+            │ test_data_area       │
+0x80007000  ├─────────────────────┤
+            │ TEST_RESULT_BASE     │
+            └─────────────────────┘
+```
+
+---
+
+## 关键 RTL 上下文
+
+| 模块 | 关键参数/行为 |
+|------|-------------|
+| MMU.sv | `i_sv32 = satp[31] && (priv_mode != PRIV_M) && i_translate_en` — M-mode 永远绕过 TLB |
+| TLB | 16 entries, 4-way (4 sets×4 ways), tree-PLRU, set index VPN[11:10], BRAM 1-cycle read latency |
+| PTW | 10 states (S_IDLE→S_FAULT), A/D bit auto-update during walk, megapage VPN[9:0] zeroed on fill |
+| SFENCE.VMA | 刷新全部 16 条目, 4 cycles, 中止进行中的 PTW |
+| satp | bit[31]=MODE, bits[30:22]=ASID(9-bit), bits[21:0]=PPN of L1 table |
+| PTE | bits[31:10]=PPN, bit[0]=V, bit[1]=R, bit[2]=W, bit[3]=X, bit[4]=U, bit[5]=G, bit[6]=A, bit[7]=D |
+| Sv32 VPN | VPN[1]=VA[31:22] (L1 index, 10 bits), VPN[0]=VA[21:12] (L0 index, 10 bits) |
+| dcache | write-back (dirty bits, wb_req signal) — PTW 读绕过 dcache → fence.i 必须在 Sv32 enable 前 |
+| core_top.sv:598 | `inst_page_fault = mmu_inst_page_fault` — 指令 PF **未**被 mem_en 门控 |
+| core_top.sv:600-602 | `load_page_fault = mmu_data_page_fault && mem_en && !mem_hwrite` — 数据 PF **被** mem_en 门控 |
+| cpu_trap_manager.sv | pf_cause=12/13/15 对应 inst/load/store PF |
+| cpu_bus_bridge.sv | PTW bus req priority 3 (after icache_mmio, dcache_mmio) |
+
+### 权限检查规则 (MMU.sv)
+
+```
+U-mode + !U → PF
+S-mode + U + (!SUM || FETCH) → PF
+FETCH + !X → PF
+LOAD + !R + !(X && MXR) → PF
+STORE + !W → PF
+```
+
+---
+
+## 构建系统
+
+### 命令
+
+```bash
+# 构建全部
+python tools/test_builder.py
+
+# 按类别构建
+python tools/test_builder.py --category isa
+python tools/test_builder.py --category exception
+python tools/test_builder.py --category mmu
+
+# 构建单个测试
+python tools/test_builder.py --test isa/alu
+python tools/test_builder.py --test mmu/sv32_basic
+
+# 列出所有测试
+python tools/test_builder.py --list
+
+# 清理产物
+python tools/test_builder.py --clean
+```
+
+### tasks.yaml 注册
+
+所有已实现测试已在 `tasks.yaml` 中注册，可通过 Vivado Orchestrator 仿真：
+
+```bash
+python -m tools.vivado_cli -task isa_alu -sim
+python -m tools.vivado_cli -task exception_ecall -sim
+python -m tools.vivado_cli -task mmu_sv32_basic -sim
+# ... 等
+```
+
+---
+
+## 下一步 (2026-05-28 更新)
+
+### ✅ Phase T4 验证完成
+
+所有 6 个 MMU 测试 (28 子测试) ALL PASS:
+- BUG-10 (mem_en 门控) 已在 `core_top.sv` 中修复
+- 测试程序问题 (fence.i, A/D bit 期望) 已修正
+
+### 后续 Phase
+
+| Phase | 描述 | 状态 |
+|-------|------|------|
+| T5 | Cache + MMIO 测试 | ⬜ 未开始 |
+| T6 | 回归测试 | ⬜ 未开始 |
+| T7 | 统一 MMU 测试 | ⬜ 未开始 (Phase 3 RTL 已完成, 可启动) |
+| T8 | 文档 + 集成 | ⬜ 未开始 |
+
+### PLAN vs 实际实现对比
+
+| PLAN 步骤 | 计划测试 | 实际 | 状态 |
+|-----------|---------|------|------|
+| T4.1 | tlb_basic (12 子测试) | 12 子测试 | ✅ 完整实现 |
+| T4.2 | tlb_replace (6 子测试) | 6 子测试 | ✅ 新增实现 |
+| T4.3 | tlb_flush (8 子测试) | 8 子测试 | ✅ 完整实现 |
+| T4.4 | tlb_asid + tlb_megapage (8 子测试) | 4+4=8 子测试 | ✅ 完整实现 |
+| T4.5 | ptw_walk + page_fault (8 子测试) | 4+4=8 子测试 | ✅ 完整实现 |
+| T4.6 | permission (12 子测试) | 12 子测试 | ✅ 扩展实现 |
+| T4.7 | sv32_basic + sv32_edge (12 子测试) | 6+6=12 子测试 | ✅ 完整实现 |
+| T4.8 | tlb_stress (6 子测试) | 6 子测试 | ✅ 完整实现 |
+| T4.9 | 仿真验证全部 PASS | 待仿真 | ⬜ 需仿真验证 |

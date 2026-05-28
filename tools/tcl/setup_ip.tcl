@@ -20,32 +20,63 @@ puts "========== Step 4: 导入 IP 并配置 Sram COE =========="
 
 set ip_xci_dir "${proj_dir}/${proj_name}.srcs/sources_1/ip"
 
+# --- Cache tag BRAMs ---
+import_files -norecurse "${ips_dir}/icachet.xci"
+import_files -norecurse "${ips_dir}/dcachet.xci"
+
+# --- Cache data BRAMs ---
 import_files -norecurse "${ips_dir}/icached.xci"
 import_files -norecurse "${ips_dir}/dcached.xci"
+
+# --- TLB BRAMs ---
+import_files -norecurse "${ips_dir}/tlb_flag.xci"
+import_files -norecurse "${ips_dir}/tlb_data.xci"
+
+# --- Main memory SRAM ---
 import_files -norecurse "${ips_dir}/Sram.xci"
 
 update_compile_order -fileset sources_1
 
-# ICache/DCache 数据 BRAM: 冷启动, 不加载 COE
-set ip_icached [get_ips -all icached]
-set ip_dcached [get_ips -all dcached]
-set ip_sram    [get_ips -all Sram]
+# Get IP handles
+set ip_icachet  [get_ips -all icachet]
+set ip_dcachet  [get_ips -all dcachet]
+set ip_icached  [get_ips -all icached]
+set ip_dcached  [get_ips -all dcached]
+set ip_tlb_flag [get_ips -all tlb_flag]
+set ip_tlb_data [get_ips -all tlb_data]
+set ip_sram     [get_ips -all Sram]
 
-if { $ip_icached eq "" } {
-    puts "ERROR: get_ips icached 返回空, 尝试刷新 IP..."
-    update_compile_order -fileset sources_1
-    set ip_icached [get_ips -all icached]
-    set ip_dcached [get_ips -all dcached]
-    set ip_sram    [get_ips -all Sram]
+# Verify all IPs found
+foreach {name handle} [list icachet $ip_icachet dcachet $ip_dcachet \
+    icached $ip_icached dcached $ip_dcached \
+    tlb_flag $ip_tlb_flag tlb_data $ip_tlb_data \
+    Sram $ip_sram] {
+    if { $handle eq "" } {
+        puts "WARNING: get_ips $name returned empty, refreshing..."
+        update_compile_order -fileset sources_1
+    }
 }
 
-set_property -dict [list \
-    CONFIG.Load_Init_File {false} \
-] $ip_icached
+# Re-fetch after refresh
+set ip_icachet  [get_ips -all icachet]
+set ip_dcachet  [get_ips -all dcachet]
+set ip_icached  [get_ips -all icached]
+set ip_dcached  [get_ips -all dcached]
+set ip_tlb_flag [get_ips -all tlb_flag]
+set ip_tlb_data [get_ips -all tlb_data]
+set ip_sram     [get_ips -all Sram]
 
-set_property -dict [list \
-    CONFIG.Load_Init_File {false} \
-] $ip_dcached
+# Cache tag BRAMs: cold start, no COE
+set_property -dict [list CONFIG.Load_Init_File {false}] $ip_icachet
+set_property -dict [list CONFIG.Load_Init_File {false}] $ip_dcachet
+
+# Cache data BRAMs: cold start, no COE
+set_property -dict [list CONFIG.Load_Init_File {false}] $ip_icached
+set_property -dict [list CONFIG.Load_Init_File {false}] $ip_dcached
+
+# TLB BRAMs: cold start, no COE
+set_property -dict [list CONFIG.Load_Init_File {false}] $ip_tlb_flag
+set_property -dict [list CONFIG.Load_Init_File {false}] $ip_tlb_data
 
 # Sram 主存: 用 COE 初始化程序 (icache_coe_file 复用为程序 COE)
 if { $icache_coe_file ne "" } {
@@ -64,16 +95,28 @@ if { $icache_coe_file ne "" } {
     puts "Sram IP 已配置 (无 COE 初始化)"
 }
 
+generate_target all $ip_icachet
+generate_target all $ip_dcachet
 generate_target all $ip_icached
 generate_target all $ip_dcached
+generate_target all $ip_tlb_flag
+generate_target all $ip_tlb_data
 generate_target all $ip_sram
 
+catch { config_ip_cache -export $ip_icachet }
+catch { config_ip_cache -export $ip_dcachet }
 catch { config_ip_cache -export $ip_icached }
 catch { config_ip_cache -export $ip_dcached }
+catch { config_ip_cache -export $ip_tlb_flag }
+catch { config_ip_cache -export $ip_tlb_data }
 catch { config_ip_cache -export $ip_sram }
 
+export_ip_user_files -of_objects $ip_icachet -no_script -sync -force -quiet
+export_ip_user_files -of_objects $ip_dcachet -no_script -sync -force -quiet
 export_ip_user_files -of_objects $ip_icached -no_script -sync -force -quiet
 export_ip_user_files -of_objects $ip_dcached -no_script -sync -force -quiet
+export_ip_user_files -of_objects $ip_tlb_flag -no_script -sync -force -quiet
+export_ip_user_files -of_objects $ip_tlb_data -no_script -sync -force -quiet
 export_ip_user_files -of_objects $ip_sram    -no_script -sync -force -quiet
 
 puts "IP 导入与配置完成"

@@ -395,7 +395,6 @@ def link_objs_to_elf(
     cmd: List[str] = [
         args.ld,
         "-m", "elf32lriscv",
-        f"-Ttext={args.text_base}",
         "--no-relax",
         "--build-id=none",
         f"-e,{args.entry}",
@@ -403,6 +402,8 @@ def link_objs_to_elf(
 
     if args.linker_script:
         cmd.extend(["-T", args.linker_script])
+    else:
+        cmd.append(f"-Ttext={args.text_base}")
 
     cmd.extend([str(p) for p in obj_paths])
     cmd.extend(["-o", str(elf_path)])
@@ -494,7 +495,7 @@ def check_isa_whitelist(args: argparse.Namespace, elf_path: Path) -> None:
             continue
 
         mnemonic = parts[2].strip().split()[0].lower()
-        if re.match(r"^(0x[0-9a-f]+|unknown|<unknown>|\.word|\.byte|\.half|\.short|\.long|\.dword|\.quad)$", mnemonic):
+        if re.match(r"^(0x[0-9a-f]+|unknown|<unknown>|\.insn|\.word|\.byte|\.half|\.short|\.long|\.dword|\.quad)$", mnemonic):
             continue
         if mnemonic not in allowed:
             addr = parts[0].strip().rstrip(":")

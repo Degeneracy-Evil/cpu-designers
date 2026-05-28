@@ -116,26 +116,14 @@ module core_top(
     wire        mmu_inst_ready;
     wire        mmu_data_ready;
 
-    wire        ptw_i_bus_req;
-    wire [31:0] ptw_i_bus_addr;
-    wire        ptw_i_bus_we;
-    wire [31:0] ptw_i_bus_wdata;
-    wire [31:0] ptw_i_bus_rdata;
-    wire        ptw_i_bus_done;
-    wire        ptw_i_bus_error;
-
-    wire        ptw_d_bus_req;
-    wire [31:0] ptw_d_bus_addr;
-    wire        ptw_d_bus_we;
-    wire [31:0] ptw_d_bus_wdata;
-    wire [31:0] ptw_d_bus_rdata;
-    wire        ptw_d_bus_done;
-    wire        ptw_d_bus_error;
-
-    wire        mmu_inst_walk_done;
-    wire        mmu_inst_walk_fault;
-    wire        mmu_data_walk_done;
-    wire        mmu_data_walk_fault;
+    // Single PTW bus (unified MMU)
+    wire        ptw_bus_req;
+    wire [31:0] ptw_bus_addr;
+    wire        ptw_bus_we;
+    wire [31:0] ptw_bus_wdata;
+    wire [31:0] ptw_bus_rdata;
+    wire        ptw_bus_done;
+    wire        ptw_bus_error;
 
     wire        sfence_vma_pulse;
 
@@ -609,9 +597,12 @@ module core_top(
         .mem_access_fault_pc(exe_pc),
         .inst_page_fault(mmu_inst_page_fault),
         .inst_page_fault_vaddr(mmu_inst_pf_vaddr),
-        .load_page_fault(mmu_data_page_fault && mem_en && !mem_hwrite),
+        // BUG-10 fix: 移除 mem_en 门控 — mem_en=0 时 MMU d-side 不翻译 (d_translate_en=mem_en),
+        // d_page_fault 不会产生，因此 mem_en 门控是冗余的。保留 mem_en 会在 PTW 完成
+        // 后 mem_en 已变 0 时吞掉 PF 信号。
+        .load_page_fault(mmu_data_page_fault && !mem_hwrite),
         .load_page_fault_vaddr(mmu_data_pf_vaddr),
-        .store_page_fault(mmu_data_page_fault && mem_en && mem_hwrite),
+        .store_page_fault(mmu_data_page_fault && mem_hwrite),
         .store_page_fault_vaddr(mmu_data_pf_vaddr),
         .mem_page_fault_pc(exe_pc),
         .cycle_en         (cycle_en),
@@ -648,63 +639,44 @@ module core_top(
         .csr_access_ok    (csr_access_ok)
     );
 
-    MMU u_mmu_inst(
+    // Unified MMU: single instance with dual i/d interfaces
+    MMU u_mmu(
         .clk(clk),
         .reset(reset),
-        .vaddr(fetch_vaddr),
-        .access_type(2'b00),
+        // i-side
+        .i_vaddr(fetch_vaddr),
+        .i_translate_en(1'b1),             // inst MMU always translates
+        .i_paddr(mmu_inst_paddr),
+        .i_miss(mmu_inst_miss),
+        .i_page_fault(mmu_inst_page_fault),
+        .i_pf_cause(mmu_inst_pf_cause),
+        .i_pf_vaddr(mmu_inst_pf_vaddr),
+        .i_ready(mmu_inst_ready),
+        // d-side
+        .d_vaddr(mem_dataAddr_32),
+        .d_access_type(mem_hwrite ? 2'b10 : 2'b01),
+        .d_translate_en(mem_en),           // data MMU only translates when address is valid
+        .d_paddr(mmu_data_paddr),
+        .d_miss(mmu_data_miss),
+        .d_page_fault(mmu_data_page_fault),
+        .d_pf_cause(mmu_data_pf_cause),
+        .d_pf_vaddr(mmu_data_pf_vaddr),
+        .d_ready(mmu_data_ready),
+        // shared CSR
         .priv_mode(priv_mode),
         .satp(csr_satp),
         .mstatus_sum(csr_mstatus[18]),
         .mstatus_mxr(csr_mstatus[19]),
-        .translate_en(1'b1),             // inst MMU always translates
-        .paddr(mmu_inst_paddr),
-        .miss(mmu_inst_miss),
-        .page_fault(mmu_inst_page_fault),
-        .page_fault_cause(mmu_inst_pf_cause),
-        .page_fault_vaddr(mmu_inst_pf_vaddr),
-        .ptw_done(mmu_inst_walk_done),
-        .ptw_fault(mmu_inst_walk_fault),
-        .sfence_vma(sfence_vma_pulse),
-        .ready(mmu_inst_ready),
-        .ptw_bus_req(ptw_i_bus_req),
-        .ptw_bus_addr(ptw_i_bus_addr),
-        .ptw_bus_we(ptw_i_bus_we),
-        .ptw_bus_wdata(ptw_i_bus_wdata),
-        .ptw_bus_rdata(ptw_i_bus_rdata),
-        .ptw_bus_done(ptw_i_bus_done),
-        .ptw_bus_error(ptw_i_bus_error)
-    );
-
-    wire [1:0] data_access_type;
-    assign data_access_type = mem_hwrite ? 2'b10 : 2'b01;
-
-    MMU u_mmu_data(
-        .clk(clk),
-        .reset(reset),
-        .vaddr(mem_dataAddr_32),
-        .access_type(data_access_type),
-        .priv_mode(priv_mode),
-        .satp(csr_satp),
-        .mstatus_sum(csr_mstatus[18]),
-        .mstatus_mxr(csr_mstatus[19]),
-        .translate_en(mem_en),   // data MMU only translates when address is valid (registered)
-        .paddr(mmu_data_paddr),
-        .miss(mmu_data_miss),
-        .page_fault(mmu_data_page_fault),
-        .page_fault_cause(mmu_data_pf_cause),
-        .page_fault_vaddr(mmu_data_pf_vaddr),
-        .ptw_done(mmu_data_walk_done),
-        .ptw_fault(mmu_data_walk_fault),
-        .sfence_vma(sfence_vma_pulse),
-        .ready(mmu_data_ready),
-        .ptw_bus_req(ptw_d_bus_req),
-        .ptw_bus_addr(ptw_d_bus_addr),
-        .ptw_bus_we(ptw_d_bus_we),
-        .ptw_bus_wdata(ptw_d_bus_wdata),
-        .ptw_bus_rdata(ptw_d_bus_rdata),
-        .ptw_bus_done(ptw_d_bus_done),
-        .ptw_bus_error(ptw_d_bus_error)
+        // single PTW bus
+        .ptw_bus_req(ptw_bus_req),
+        .ptw_bus_addr(ptw_bus_addr),
+        .ptw_bus_we(ptw_bus_we),
+        .ptw_bus_wdata(ptw_bus_wdata),
+        .ptw_bus_rdata(ptw_bus_rdata),
+        .ptw_bus_done(ptw_bus_done),
+        .ptw_bus_error(ptw_bus_error),
+        // flush
+        .sfence_vma(sfence_vma_pulse)
     );
 
     cpu_bus_bridge u_bus_bridge(
@@ -733,20 +705,13 @@ module core_top(
         .dcache_wb_addr     (dcache_wb_addr),
         .dcache_wb_data     (dcache_wb_data),
         .dcache_wb_valid    (dcache_wb_valid),
-        .ptw_i_req          (ptw_i_bus_req),
-        .ptw_i_addr         (ptw_i_bus_addr),
-        .ptw_i_we           (ptw_i_bus_we),
-        .ptw_i_wdata        (ptw_i_bus_wdata),
-        .ptw_i_rdata        (ptw_i_bus_rdata),
-        .ptw_i_done         (ptw_i_bus_done),
-        .ptw_i_error        (ptw_i_bus_error),
-        .ptw_d_req          (ptw_d_bus_req),
-        .ptw_d_addr         (ptw_d_bus_addr),
-        .ptw_d_we           (ptw_d_bus_we),
-        .ptw_d_wdata        (ptw_d_bus_wdata),
-        .ptw_d_rdata        (ptw_d_bus_rdata),
-        .ptw_d_done         (ptw_d_bus_done),
-        .ptw_d_error        (ptw_d_bus_error),
+        .ptw_req           (ptw_bus_req),
+        .ptw_addr          (ptw_bus_addr),
+        .ptw_we            (ptw_bus_we),
+        .ptw_wdata         (ptw_bus_wdata),
+        .ptw_rdata         (ptw_bus_rdata),
+        .ptw_done          (ptw_bus_done),
+        .ptw_error         (ptw_bus_error),
         .HADDR            (HADDR),
         .HTRANS           (HTRANS),
         .HWRITE           (HWRITE),

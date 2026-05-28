@@ -93,6 +93,71 @@ tasks:
     coe: test/exception/timer_irq.coe
     runtime: 10ms
 
+  mmu_sv32_basic:
+    tb: tb_mmu_sv32_basic
+    coe: test/mmu/sv32_basic.coe
+    runtime: 20ms
+
+  mmu_tlb_basic:
+    tb: tb_mmu_tlb_basic
+    coe: test/mmu/tlb_basic.coe
+    runtime: 20ms
+
+  mmu_tlb_flush:
+    tb: tb_mmu_tlb_flush
+    coe: test/mmu/tlb_flush.coe
+    runtime: 20ms
+
+  mmu_page_fault:
+    tb: tb_mmu_page_fault
+    coe: test/mmu/page_fault.coe
+    runtime: 20ms
+
+  mmu_permission:
+    tb: tb_mmu_permission
+    coe: test/mmu/permission.coe
+    runtime: 20ms
+
+  mmu_sv32_edge:
+    tb: tb_mmu_sv32_edge
+    coe: test/mmu/sv32_edge.coe
+    runtime: 20ms
+
+  cache_icache_basic:
+    tb: tb_cache_icache_basic
+    coe: test/cache/icache_basic.coe
+    runtime: 5ms
+
+  cache_dcache_basic:
+    tb: tb_cache_dcache_basic
+    coe: test/cache/dcache_basic.coe
+    runtime: 5ms
+
+  cache_dcache_dirty:
+    tb: tb_cache_dcache_dirty
+    coe: test/cache/dcache_dirty.coe
+    runtime: 5ms
+
+  cache_fencei:
+    tb: tb_cache_fencei
+    coe: test/cache/fencei.coe
+    runtime: 10ms
+
+  cache_mmu_interact:
+    tb: tb_cache_cache_mmu_interact
+    coe: test/cache/cache_mmu_interact.coe
+    runtime: 20ms
+
+  mmio_clint:
+    tb: tb_mmio_clint
+    coe: test/mmio/clint.coe
+    runtime: 10ms
+
+  mmio_plic:
+    tb: tb_mmio_plic
+    coe: test/mmio/plic.coe
+    runtime: 5ms
+
   uart_hello:
     tb: tb_uart_hello
     coe: app/uart_hello.coe

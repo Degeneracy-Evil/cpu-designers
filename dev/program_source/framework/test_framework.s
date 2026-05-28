@@ -17,7 +17,7 @@
 #   - 可自由使用: x10-x17 (caller-saved), x1 (ra)
 #   - 不得修改: x28-x31 (框架寄存器)
 #
-# 内存结果区 (0x80001000):
+# 内存结果区 (0x80007000):
 #   +0:  total_count
 #   +4:  pass_count
 #   +8:  first_fail_id
@@ -27,9 +27,12 @@
 #   ...
 #   +4*(N+3): test_N_result  (最多 240 个子测试)
 #
+# NOTE: 使用 0x80007000 (SRAM 最后 4KB 页) 避免与页表/测试数据冲突
+#       页表数据 .balign 4096 会被链接器放在 0x80001000 起始的区域
+#
 # ============================================================
 
-.equ TEST_RESULT_BASE, 0x80001000
+.equ TEST_RESULT_BASE, 0x80007000
 
 .section .text
 
@@ -43,7 +46,7 @@ test_init:
     li   x31, 0              # current_test_id = 0
 
     # 清零结果区头部 (16 字节)
-    lui  x10, 0x80001        # x10 = 0x80001000
+    lui  x10, 0x80007         # x10 = 0x80007000
     sw   x0, 0(x10)          # total_count = 0
     sw   x0, 4(x10)          # pass_count = 0
     sw   x0, 8(x10)          # first_fail_id = 0
@@ -76,9 +79,9 @@ test_run:
 
     # ── 写入结果区 ──
     # addr = TEST_RESULT_BASE + (test_id + 3) * 4
-    #      = 0x80001000 + test_id*4 + 12
+    #      = 0x80007000 + test_id*4 + 12
     # 使用 callee-saved x20/x21 避免被子测试 clobber
-    lui  x20, 0x80001         # x20 = 0x80001000
+    lui  x20, 0x80007         # x20 = 0x80007000
     addi x21, x18, 3          # x21 = test_id + 3
     slli x21, x21, 2          # x21 = (test_id + 3) * 4
     add  x20, x20, x21        # x20 = 结果区地址
@@ -107,7 +110,7 @@ _tr_ret:
 # 在所有子测试运行完毕后调用
 .globl test_report
 test_report:
-    lui  x10, 0x80001         # x10 = 0x80001000
+    lui  x10, 0x80007         # x10 = 0x80007000
     sw   x29, 0(x10)          # total_count
     sw   x28, 4(x10)          # pass_count
     sw   x30, 8(x10)          # first_fail_id

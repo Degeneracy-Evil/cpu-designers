@@ -1,6 +1,6 @@
 # 测试程序体系重构计划
 
-> 创建日期: 2026-05-26 | 状态: **规划中** | 关联: `dev/PLAN-nmmu.md` Phase 3-4
+> 创建日期: 2026-05-26 | 状态: **T1-T3 已完成, T4 暂缓** | 关联: `dev/PLAN-nmmu.md` Phase 3-4 | 进度: `dev/PROCESS-test-system.md`
 
 ---
 

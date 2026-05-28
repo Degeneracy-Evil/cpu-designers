@@ -207,17 +207,17 @@ test_09_miss_new_set:
     la x5, s_tlb_new_set; csrw mepc, x5; li x5, 0x880; csrw mstatus, x5; mret
 
 s_tlb_new_set:
-    li x14, 0x80000000         # set 0
+    li x14, 0x80005000         # set 1 (safe: above page tables+data)
     li x15, 0xAAAA0000
-    sw x15, 0(x14)             # write to set 0 page (fill)
-    li x14, 0x80002000         # set 2
+    sw x15, 0(x14)             # write to set 1 page (fill)
+    li x14, 0x80006000         # set 2 (safe: above page tables+data)
     li x15, 0xBBBB0000
     sw x15, 0(x14)             # write to set 2 page (fill)
-    li x14, 0x80000000
-    lw x15, 0(x14)             # read set 0 (hit)
+    li x14, 0x80005000
+    lw x15, 0(x14)             # read set 1 (hit)
     li x16, 0xAAAA0000
     bne x15, x16, 1f
-    li x14, 0x80002000
+    li x14, 0x80006000
     lw x15, 0(x14)             # read set 2 (hit)
     li x16, 0xBBBB0000
     bne x15, x16, 1f
@@ -233,31 +233,31 @@ test_10_multiple_miss_sequence:
     la x5, s_tlb_multi_miss; csrw mepc, x5; li x5, 0x880; csrw mstatus, x5; mret
 
 s_tlb_multi_miss:
-    li x14, 0x80000000
+    li x14, 0x80005000
     li x15, 0x11110000
-    sw x15, 0(x14)             # page 0 fill
-    li x14, 0x80001000
+    sw x15, 0(x14)             # page 5 fill (set 1)
+    li x14, 0x80006000
     li x15, 0x22220000
-    sw x15, 0(x14)             # page 1 fill
-    li x14, 0x80002000
-    li x15, 0x33330000
-    sw x15, 0(x14)             # page 2 fill
+    sw x15, 0(x14)             # page 6 fill (set 2)
     li x14, 0x80003000
+    li x15, 0x33330000
+    sw x15, 0(x14)             # page 3 fill (set 3)
+    li x14, 0x80004000
     li x15, 0x44440000
-    sw x15, 0(x14)             # page 3 fill
-    li x14, 0x80000000
+    sw x15, 0(x14)             # page 4 fill (set 0)
+    li x14, 0x80005000
     lw x15, 0(x14)
     li x16, 0x11110000
     bne x15, x16, 1f
-    li x14, 0x80001000
+    li x14, 0x80006000
     lw x15, 0(x14)
     li x16, 0x22220000
     bne x15, x16, 1f
-    li x14, 0x80002000
+    li x14, 0x80003000
     lw x15, 0(x14)
     li x16, 0x33330000
     bne x15, x16, 1f
-    li x14, 0x80003000
+    li x14, 0x80004000
     lw x15, 0(x14)
     li x16, 0x44440000
     bne x15, x16, 1f
@@ -287,7 +287,9 @@ s_tlb_wr_hit:
 test_12_bare_mode_passthrough:
     csrw satp, x0
     la x14, test_data_area
-    lw x15, 0(x14)
+    li x15, 0xDEADBEEF
+    sw x15, 0(x14)             # restore original value
+    lw x15, 0(x14)             # read back in bare mode
     li x16, 0xDEADBEEF
     bne x15, x16, 1f; li x10, 1; j 2f
 1:  li x10, 0
@@ -322,17 +324,18 @@ _mth_ecall_post:
 
 # ============================================================
 # Data areas (2 page-aligned regions for multi-page testing)
+# Reduced from 1023 fill words to 1 to avoid SRAM overflow
 # ============================================================
 .section .text
 .balign 4096
 test_data_area:
     .word 0xDEADBEEF
-    .fill 1023, 4, 0
+    .word 0
 
 .balign 4096
 test_data_area2:
     .word 0xCAFEBABE
-    .fill 1023, 4, 0
+    .word 0
 
 .balign 4
 mmu_saved_ra:    .word 0

@@ -1,6 +1,6 @@
 # 测试程序体系 — 实施进度
 
-> 创建日期: 2026-05-27 | 最后更新: 2026-05-28 | 计划: `dev/PLAN-test-system.md` | T4 已完善, 全部构建通过
+> 创建日期: 2026-05-27 | 最后更新: 2026-05-28 | 计划: `dev/PLAN-test-system.md` | T4 仿真验证进行中 (2/11 PASS)
 
 ---
 
@@ -41,12 +41,12 @@
 | T1 | 框架搭建 | ✅ 完成 | 1 | 20 | ALL PASS |
 | T2 | ISA 测试拆分 | ✅ 完成 | 7 | 107 | ALL PASS |
 | T3 | 异常/中断测试 | ✅ 完成 | 5 | 15 | ALL PASS |
-| T4 | MMU/TLB 测试 | ✅ 完善 | 11 | 62 | 构建通过 |
+| T4 | MMU/TLB 测试 | 🔄 仿真验证中 | 11 | 62 | 2/11 PASS |
 | T5 | Cache + MMIO | ⬜ 未开始 | — | — | — |
 | T6 | 回归测试 | ⬜ 未开始 | — | — | — |
 | T7 | 统一 MMU 测试 | ⬜ 未开始 (需 Phase 3 RTL) | — | — | — |
 | T8 | 文档 + 集成 | ⬜ 未开始 | — | — | — |
-| **合计** | | | **24** | **204** | **构建通过** |
+| **合计** | | | **24** | **204** | **T4 仿真验证中** |
 
 ---
 
@@ -130,7 +130,7 @@ S-mode 特权级切换测试需要完整的 S-mode RTL 支持，当前推迟到 
 
 ---
 
-## Phase T4: MMU/TLB 测试 ✅ (完善)
+## Phase T4: MMU/TLB 测试 🔄 (仿真验证中)
 
 ### 框架修复 (page_table_utils.s)
 
@@ -176,14 +176,19 @@ S-mode 特权级切换测试需要完整的 S-mode RTL 支持，当前推迟到 
 
 ### Testbench
 
-| 文件 | 配置 |
-|------|------|
-| `dev/tb/tb_mmu_sv32_basic.sv` | SIM_CYCLES=200000, EXPECTED_TOTAL=6 |
-| `dev/tb/tb_mmu_tlb_basic.sv` | SIM_CYCLES=200000, EXPECTED_TOTAL=6 |
-| `dev/tb/tb_mmu_tlb_flush.sv` | SIM_CYCLES=200000, EXPECTED_TOTAL=4 |
-| `dev/tb/tb_mmu_page_fault.sv` | SIM_CYCLES=200000, EXPECTED_TOTAL=4 |
-| `dev/tb/tb_mmu_permission.sv` | SIM_CYCLES=200000, EXPECTED_TOTAL=4 |
-| `dev/tb/tb_mmu_sv32_edge.sv` | SIM_CYCLES=200000, EXPECTED_TOTAL=4 |
+| 文件 | 配置 | 备注 |
+|------|------|------|
+| `dev/tb/tb_mmu_sv32_basic.sv` | SIM_CYCLES=200000, EXPECTED_TOTAL=6 | |
+| `dev/tb/tb_mmu_tlb_basic.sv` | SIM_CYCLES=200000, EXPECTED_TOTAL=12 | 修复: 6→12 |
+| `dev/tb/tb_mmu_tlb_replace.sv` | SIM_CYCLES=200000, EXPECTED_TOTAL=6 | |
+| `dev/tb/tb_mmu_tlb_flush.sv` | SIM_CYCLES=200000, EXPECTED_TOTAL=8 | 修复: 4→8 |
+| `dev/tb/tb_mmu_tlb_asid.sv` | SIM_CYCLES=200000, EXPECTED_TOTAL=4 | |
+| `dev/tb/tb_mmu_tlb_megapage.sv` | SIM_CYCLES=200000, EXPECTED_TOTAL=4 | |
+| `dev/tb/tb_mmu_tlb_stress.sv` | SIM_CYCLES=200000, EXPECTED_TOTAL=6 | |
+| `dev/tb/tb_mmu_ptw_walk.sv` | SIM_CYCLES=200000, EXPECTED_TOTAL=4 | |
+| `dev/tb/tb_mmu_page_fault.sv` | SIM_CYCLES=200000, EXPECTED_TOTAL=4 | |
+| `dev/tb/tb_mmu_permission.sv` | SIM_CYCLES=200000, EXPECTED_TOTAL=12 | 修复: 4→12 |
+| `dev/tb/tb_mmu_sv32_edge.sv` | SIM_CYCLES=200000, EXPECTED_TOTAL=6 | 修复: 4→6 |
 
 ### RTL BUG-10 修复验证 ✅
 
@@ -206,6 +211,34 @@ store_page_fault = mmu_data_page_fault && mem_hwrite;
 | fence.i 添加 | tlb_flush #4 | bare 模式 S-mode 测试后 M-mode 读需要 fence.i 保证 dcache 一致性 |
 | fence.i 添加 | sv32_edge #2 | M-mode 读 PTE 前需要 fence.i (PTW A/D 写绕过 dcache) |
 | A/D bit 期望调整 | sv32_edge #2 | TLB hit 不更新 SRAM 中 PTE 的 D bit (规范允许)，调整测试期望 |
+
+### T4.9 仿真验证 (2026-05-28, 使用 Vivado Orchestrator)
+
+#### 仿真结果
+
+| 测试 | 子测试数 | 仿真结果 | 备注 |
+|------|---------|---------|------|
+| mmu/sv32_basic | 6 | ✅ ALL PASS | |
+| mmu/tlb_basic | 12 | ✅ ALL PASS | 修复 3 个 bug 后通过 (见下方) |
+| mmu/tlb_replace | 6 | ⬜ 待仿真 | |
+| mmu/tlb_flush | 8 | ⬜ 待仿真 | |
+| mmu/tlb_asid | 4 | ⬜ 待仿真 | |
+| mmu/tlb_megapage | 4 | ⬜ 待仿真 | |
+| mmu/tlb_stress | 6 | ⬜ 待仿真 | |
+| mmu/ptw_walk | 4 | ⬜ 待仿真 | |
+| mmu/page_fault | 4 | ⬜ 待仿真 | |
+| mmu/permission | 12 | ⬜ 待仿真 | |
+| mmu/sv32_edge | 6 | ⬜ 待仿真 | |
+
+#### 仿真期间发现并修复的 Bug
+
+| Bug | 文件 | 描述 | 修复 |
+|-----|------|------|------|
+| Testbench EXPECTED_TOTAL 错误 | `tb_mmu_tlb_basic.sv` 等 4 个 | 子测试数扩展后 testbench 未同步更新 → pass_count 检查失败 | tlb_basic: 6→12, tlb_flush: 4→8, permission: 4→12, sv32_edge: 4→6 |
+| SRAM 溢出 | `test/mmu/tlb_basic.s` | 两个 4KB 数据区 (test_data_area + test_data_area2 各 .fill 1023) + 页表 8KB + 代码超 32KB SRAM | 缩减数据区为 .word + .word 0 (仅 8 字节, .balign 4096 保证页对齐) |
+| 页表地址冲突 | `test/mmu/tlb_basic.s` | test_09/test_10 写入 0x80000000/0x80001000/0x80002000, 覆盖代码和页表 → TLB 查找崩溃 | 改用安全地址 0x80003000-0x80006000 (页表上方) |
+| test_12 数据踩踏 | `test/mmu/tlb_basic.s` | test_11 向 test_data_area 写入 0x12345678, test_12 仍期望 0xDEADBEEF | test_12 先写回 0xDEADBEEF 再读取验证 |
+| tasks.yaml 缺失注册 | `tasks.yaml` | 5 个 MMU 任务 (tlb_replace/tlb_asid/tlb_megapage/tlb_stress/ptw_walk) 未注册 | 补注册到 tasks.yaml |
 
 ---
 
@@ -372,16 +405,21 @@ python -m tools.vivado_cli -task mmu_sv32_basic -sim
 
 ## 下一步 (2026-05-28 更新)
 
-### ✅ Phase T4 验证完成
+### 🔄 Phase T4 仿真验证进行中
 
-所有 6 个 MMU 测试 (28 子测试) ALL PASS:
-- BUG-10 (mem_en 门控) 已在 `core_top.sv` 中修复
-- 测试程序问题 (fence.i, A/D bit 期望) 已修正
+已完成 2/11 MMU 测试仿真:
+- mmu/sv32_basic: ✅ ALL PASS (6/6)
+- mmu/tlb_basic: ✅ ALL PASS (12/12) — 修复 3 个 bug 后通过
+
+待仿真 9 个: tlb_replace, tlb_flush, tlb_asid, tlb_megapage, tlb_stress, ptw_walk, page_fault, permission, sv32_edge
+
+Vivado Orchestrator 工作正常，无问题。
 
 ### 后续 Phase
 
 | Phase | 描述 | 状态 |
 |-------|------|------|
+| T4.9 | MMU 仿真验证 | 🔄 进行中 (2/11 PASS) |
 | T5 | Cache + MMIO 测试 | ⬜ 未开始 |
 | T6 | 回归测试 | ⬜ 未开始 |
 | T7 | 统一 MMU 测试 | ⬜ 未开始 (Phase 3 RTL 已完成, 可启动) |
@@ -391,12 +429,12 @@ python -m tools.vivado_cli -task mmu_sv32_basic -sim
 
 | PLAN 步骤 | 计划测试 | 实际 | 状态 |
 |-----------|---------|------|------|
-| T4.1 | tlb_basic (12 子测试) | 12 子测试 | ✅ 完整实现 |
-| T4.2 | tlb_replace (6 子测试) | 6 子测试 | ✅ 新增实现 |
-| T4.3 | tlb_flush (8 子测试) | 8 子测试 | ✅ 完整实现 |
-| T4.4 | tlb_asid + tlb_megapage (8 子测试) | 4+4=8 子测试 | ✅ 完整实现 |
-| T4.5 | ptw_walk + page_fault (8 子测试) | 4+4=8 子测试 | ✅ 完整实现 |
-| T4.6 | permission (12 子测试) | 12 子测试 | ✅ 扩展实现 |
-| T4.7 | sv32_basic + sv32_edge (12 子测试) | 6+6=12 子测试 | ✅ 完整实现 |
-| T4.8 | tlb_stress (6 子测试) | 6 子测试 | ✅ 完整实现 |
-| T4.9 | 仿真验证全部 PASS | 待仿真 | ⬜ 需仿真验证 |
+| T4.1 | tlb_basic (12 子测试) | 12 子测试 | ✅ 完整实现 + 仿真 PASS |
+| T4.2 | tlb_replace (6 子测试) | 6 子测试 | ✅ 新增实现, ⬜ 待仿真 |
+| T4.3 | tlb_flush (8 子测试) | 8 子测试 | ✅ 完整实现, ⬜ 待仿真 |
+| T4.4 | tlb_asid + tlb_megapage (8 子测试) | 4+4=8 子测试 | ✅ 完整实现, ⬜ 待仿真 |
+| T4.5 | ptw_walk + page_fault (8 子测试) | 4+4=8 子测试 | ✅ 完整实现, ⬜ 待仿真 |
+| T4.6 | permission (12 子测试) | 12 子测试 | ✅ 扩展实现, ⬜ 待仿真 |
+| T4.7 | sv32_basic + sv32_edge (12 子测试) | 6+6=12 子测试 | sv32_basic ✅ PASS, sv32_edge ⬜ 待仿真 |
+| T4.8 | tlb_stress (6 子测试) | 6 子测试 | ✅ 完整实现, ⬜ 待仿真 |
+| T4.9 | 仿真验证全部 PASS | 2/11 PASS | 🔄 进行中 |

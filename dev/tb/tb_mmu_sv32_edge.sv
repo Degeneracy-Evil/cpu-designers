@@ -2,7 +2,7 @@
 
 module tb_mmu_sv32_edge;
 
-    localparam integer EXPECTED_TOTAL = 4;
+    localparam integer EXPECTED_TOTAL = 6;
     localparam integer SIM_CYCLES    = 200000;
 
     reg clk;

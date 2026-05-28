@@ -2,7 +2,7 @@
 
 module tb_mmu_tlb_basic;
 
-    localparam integer EXPECTED_TOTAL = 6;
+    localparam integer EXPECTED_TOTAL = 12;
     localparam integer SIM_CYCLES    = 200000;
 
     reg clk;

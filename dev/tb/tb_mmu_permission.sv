@@ -2,7 +2,7 @@
 
 module tb_mmu_permission;
 
-    localparam integer EXPECTED_TOTAL = 4;
+    localparam integer EXPECTED_TOTAL = 12;
     localparam integer SIM_CYCLES    = 200000;
 
     reg clk;

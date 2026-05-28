@@ -118,6 +118,31 @@ tasks:
     coe: test/mmu/permission.coe
     runtime: 20ms
 
+  mmu_tlb_replace:
+    tb: tb_mmu_tlb_replace
+    coe: test/mmu/tlb_replace.coe
+    runtime: 20ms
+
+  mmu_tlb_asid:
+    tb: tb_mmu_tlb_asid
+    coe: test/mmu/tlb_asid.coe
+    runtime: 20ms
+
+  mmu_tlb_megapage:
+    tb: tb_mmu_tlb_megapage
+    coe: test/mmu/tlb_megapage.coe
+    runtime: 20ms
+
+  mmu_tlb_stress:
+    tb: tb_mmu_tlb_stress
+    coe: test/mmu/tlb_stress.coe
+    runtime: 20ms
+
+  mmu_ptw_walk:
+    tb: tb_mmu_ptw_walk
+    coe: test/mmu/ptw_walk.coe
+    runtime: 20ms
+
   mmu_sv32_edge:
     tb: tb_mmu_sv32_edge
     coe: test/mmu/sv32_edge.coe

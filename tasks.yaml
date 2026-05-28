@@ -183,6 +183,41 @@ tasks:
     coe: test/mmio/plic.coe
     runtime: 5ms
 
+  reg_tlb_fill_way:
+    tb: tb_regression_reg_tlb_fill_way
+    coe: test/regression/reg_tlb_fill_way.coe
+    runtime: 20ms
+
+  reg_ptw_fault_latch:
+    tb: tb_regression_reg_ptw_fault_latch
+    coe: test/regression/reg_ptw_fault_latch.coe
+    runtime: 20ms
+
+  reg_sfence_during_walk:
+    tb: tb_regression_reg_sfence_during_walk
+    coe: test/regression/reg_sfence_during_walk.coe
+    runtime: 20ms
+
+  reg_stale_paddr:
+    tb: tb_regression_reg_stale_paddr
+    coe: test/regression/reg_stale_paddr.coe
+    runtime: 20ms
+
+  reg_bare_no_miss:
+    tb: tb_regression_reg_bare_no_miss
+    coe: test/regression/reg_bare_no_miss.coe
+    runtime: 10ms
+
+  reg_mmio_ready:
+    tb: tb_regression_reg_mmio_ready
+    coe: test/regression/reg_mmio_ready.coe
+    runtime: 10ms
+
+  reg_pf_latch:
+    tb: tb_regression_reg_pf_latch
+    coe: test/regression/reg_pf_latch.coe
+    runtime: 20ms
+
   uart_hello:
     tb: tb_uart_hello
     coe: app/uart_hello.coe

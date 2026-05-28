@@ -106,8 +106,12 @@ categories:
       - regression/reg_sfence_during_walk
       - regression/reg_stale_paddr
       - regression/reg_bare_no_miss
-      - regression/reg_mmio_ready
       - regression/reg_pf_latch
+
+  regression_common:
+    framework: common
+    tests:
+      - regression/reg_mmio_ready
 
   integration:
     framework: none

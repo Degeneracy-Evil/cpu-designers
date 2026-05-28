@@ -1,6 +1,6 @@
 # 测试程序体系 — 实施进度
 
-> 创建日期: 2026-05-27 | 最后更新: 2026-05-28 | 计划: `dev/PLAN-test-system.md` | T5 完成 (7/7 ALL PASS), T4 仿真验证进行中 (2/11 PASS)
+> 创建日期: 2026-05-27 | 最后更新: 2026-05-28 | 计划: `dev/PLAN-test-system.md` | T6 完成 (7/7 ALL PASS)
 
 ---
 
@@ -30,7 +30,7 @@
 | exception/timer_irq | 2 | ✅ ALL PASS |
 | **总计** | **122** | **ALL PASS** |
 
-**结论：全部 12 个测试通过，可以进入 Phase T4 (MMU/TLB 测试)。**
+**结论：全部 12 个基础测试通过，后续 Phases 进展：T4 MMU 仿真验证中 (2/11)，T5 Cache+MMIO ✅，T6 回归 ✅。**
 
 ---
 
@@ -43,10 +43,10 @@
 | T3 | 异常/中断测试 | ✅ 完成 | 5 | 15 | ALL PASS |
 | T4 | MMU/TLB 测试 | 🔄 仿真验证中 | 11 | 62 | 2/11 PASS |
 | T5 | Cache + MMIO | ✅ 完成 | 7 | 31 | ALL PASS |
-| T6 | 回归测试 | ⬜ 未开始 | — | — | — |
+| T6 | 回归测试 | ✅ 完成 | 7 | 21 | ALL PASS |
 | T7 | 统一 MMU 测试 | ⬜ 未开始 (需 Phase 3 RTL) | — | — | — |
 | T8 | 文档 + 集成 | ⬜ 未开始 | — | — | — |
-| **合计** | | | **31** | **235** | **T5 完成, T4 仿真验证中** |
+| **合计** | | | **38** | **256** | **T6 完成** |
 
 ---
 
@@ -455,7 +455,51 @@ cache_mmu_interact 使用与 MMU 测试相同的页表布局:
 
 ---
 
+## Phase T6: 回归测试 ✅
+
+### 仿真结果 (2026-05-28)
+
+| 测试 | 子测试数 | 仿真结果 | 备注 |
+|------|---------|---------|------|
+| regression/reg_tlb_fill_way | 3 | ✅ ALL PASS | TLB fill 正确 way 验证 |
+| regression/reg_ptw_fault_latch | 4 | ✅ ALL PASS | PTW fault 锁存 + cause 验证 |
+| regression/reg_sfence_during_walk | 2 | ✅ ALL PASS | SFENCE+Sv32 不死锁 |
+| regression/reg_stale_paddr | 2 | ✅ ALL PASS | 快速页切换无数据污染 |
+| regression/reg_bare_no_miss | 3 | ✅ ALL PASS | Bare 模式不触发 TLB miss |
+| regression/reg_mmio_ready | 4 | ✅ ALL PASS | CLINT 读写正确, 无偏移错误 |
+| regression/reg_pf_latch | 3 | ✅ ALL PASS | PF 检测 (load PF + store PF) |
+| **总计** | **21** | **ALL PASS** | |
+
+### T6 期间发现并修复的 Bug
+
+| Bug | 文件 | 描述 | 修复 |
+|-----|------|------|------|
+| x5 clobber | `reg_bare_no_miss.s` | `setup_identity_map` 使用 x5 作为 PTE 属性临时寄存器, `test_bare_after_sv32` 用 x5 保存 ra → ra 被覆盖 | 改用 x6 保存 ra |
+| mcause=11 未处理 | `reg_ptw_fault_latch/reg_sfence/reg_stale/reg_pf.s` | s_pf_check 在 M-mode 运行, ecall 触发 mcause=11, trap handler 仅处理 9/8 导致落入 PF 分支 | 添加 `li x5, 11; beq` 处理 ecall-from-M |
+| SRAM 溢出 | `reg_tlb_fill_way.s` v1 | 4 个 `.balign 4096` 数据区 + 页表 8KB 溢出 32KB SRAM | 缩减为 2 个页对齐数据区 |
+| 页表页冲突 | `reg_tlb_fill_way.s` v1 | 测试数据写入页表页 (0x80001xxx, 0x80002xxx) 与活跃 L1/L0 冲突 | 改为仅使用数据页 3-7 (0x80003xxx+) |
+
+### 交付物
+
+| 文件 | 说明 |
+|------|------|
+| `test/regression/reg_tlb_fill_way.s` | TLB fill way 验证: Sv32 多页填充+重读 (3 子测试) |
+| `test/regression/reg_ptw_fault_latch.s` | PTW fault 锁存: 无效 PTE→PF, 指令 PF, 存储 PF (4 子测试) |
+| `test/regression/reg_sfence_during_walk.s` | SFENCE+Sv32: sfence 后访问, 多页序列 (2 子测试) |
+| `test/regression/reg_stale_paddr.s` | Stale paddr: 多页填充验证, 跨页重读 (2 子测试) |
+| `test/regression/reg_bare_no_miss.s` | Bare 模式: 基本/禁用后/多地址访问 (3 子测试) |
+| `test/regression/reg_mmio_ready.s` | MMIO: mtime/mtimecmp/一致性/递增 (4 子测试) |
+| `test/regression/reg_pf_latch.s` | PF 锁存: load PF, 恢复后访问, store PF (3 子测试) |
+| `dev/tb/tb_regression_*.sv` (7 个) | 对应 testbench |
+
+---
+
 ## 下一步 (2026-05-28 更新)
+
+### ✅ Phase T5 + T6 已完成
+
+T5 (Cache + MMIO): 7 测试 31 子测试 ALL PASS
+T6 (回归测试): 7 测试 21 子测试 ALL PASS
 
 ### 🔄 Phase T4 仿真验证进行中
 
@@ -473,7 +517,7 @@ Vivado Orchestrator 工作正常，无问题。
 |-------|------|------|
 | T4.9 | MMU 仿真验证 | 🔄 进行中 (2/11 PASS) |
 | T5 | Cache + MMIO 测试 | ✅ 完成 (7/7 ALL PASS) |
-| T6 | 回归测试 | ⬜ 未开始 |
+| T6 | 回归测试 | ✅ 完成 (7/7 ALL PASS) |
 | T7 | 统一 MMU 测试 | ⬜ 未开始 (Phase 3 RTL 已完成, 可启动) |
 | T8 | 文档 + 集成 | ⬜ 未开始 |
 

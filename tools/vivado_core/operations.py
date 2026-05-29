@@ -58,7 +58,7 @@ def _tcl_create_project(
 ) -> str:
     """Generate TCL for project creation + RTL import + include dirs.
 
-    This mirrors the logic in ``tools/tcl/create_proj.tcl`` but with
+    This mirrors the logic in ``tools/vivado_core/tcl/_create.tcl`` but with
     all paths parameterised.
     """
     alu_rtl_dir = f"{dev_dir}/rtl/ALU"
@@ -185,7 +185,7 @@ update_compile_order -fileset sources_1
 def _tcl_add_constrs(base_dir: str) -> str:
     """Generate TCL for adding DCP and constraint files.
 
-    Mirrors ``tools/tcl/add_constrs.tcl``.
+    Mirrors ``tools/vivado_core/tcl/_add_constrs.tcl``.
     """
     fpga_dir = f"{base_dir}/dev/fpga"
     return f"""\
@@ -204,7 +204,7 @@ def _tcl_add_tb(
 ) -> str:
     """Generate TCL for adding testbench and updating COE.
 
-    Mirrors ``tools/tcl/add_tb.tcl``.
+    Mirrors ``tools/vivado_core/tcl/_add_tb.tcl``.
     """
     tb_dir = f"{dev_dir}/tb"
     ip_xci_dir = f"{proj_dir}/{proj_name}.srcs/sources_1/ip"
@@ -256,7 +256,7 @@ def _tcl_run_sim(
 ) -> str:
     """Generate TCL for launching simulation and reading the log.
 
-    Mirrors ``tools/tcl/run_sim.tcl``.
+    Mirrors ``tools/vivado_core/tcl/_run_sim.tcl``.
     """
     sim_log_dir = f"{proj_dir}/{proj_name}.sim/sim_1/behav/xsim"
     return f"""\

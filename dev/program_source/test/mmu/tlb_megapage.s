@@ -238,12 +238,12 @@ _mth_ecall_post:
 .balign 4096
 test_data_area:
     .word 0xDEADBEEF
-    .fill 1023, 4, 0
+    .word 0
 
 .balign 4096
 test_data_area2:
     .word 0xCAFEBABE
-    .fill 1023, 4, 0
+    .word 0
 
 .balign 4
 mmu_saved_ra:    .word 0

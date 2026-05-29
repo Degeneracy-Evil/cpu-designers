@@ -7,7 +7,7 @@ Layers:
 - **rtl**:  dev/rtl/**/*.sv + dev/rtl/**/*.svh + Reference/**/*.xci
 - **tb**:   dev/tb/**/*.sv
 - **coe**:  dev/program_source/test/**/*.coe + dev/program_source/test/**/*.hex + dev/program_source/app/**/*.coe + dev/program_source/app/**/*.hex
-- **fpga**: dev/fpga/**/*.xdc + dev/fpga/**/*.dcp + tools/tcl/**/*.tcl
+  - **fpga**: dev/fpga/**/*.xdc + dev/fpga/**/*.dcp + tools/vivado_core/tcl/**/*.tcl
 """
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ class LayeredHash:
         Project root directory (the repo checkout root).
     """
 
-    LAYERS: tuple[str, ...] = ("rtl", "tb", "coe", "fpga")
+    LAYERS: tuple[str, ...] = ("rtl", "tb", "src", "coe", "fpga")
 
     HASH_GLOBS: dict[str, list[str]] = {
         "rtl": [
@@ -41,6 +41,15 @@ class LayeredHash:
         "tb": [
             "dev/tb/**/*.sv",
         ],
+        "src": [
+            "dev/program_source/**/*.s",
+            "dev/program_source/**/*.S",
+            "dev/program_source/**/*.c",
+            "dev/program_source/**/*.ld",
+            "dev/program_source/test/tests.yaml",
+            "tools/test_builder.py",
+            "tools/rv2coe.py",
+        ],
         "coe": [
             "dev/program_source/test/**/*.coe",
             "dev/program_source/test/**/*.hex",
@@ -50,7 +59,7 @@ class LayeredHash:
         "fpga": [
             "dev/fpga/**/*.xdc",
             "dev/fpga/**/*.dcp",
-            "tools/tcl/**/*.tcl",
+            "tools/vivado_core/tcl/**/*.tcl",
         ],
     }
 

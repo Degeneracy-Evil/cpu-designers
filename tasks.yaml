@@ -148,6 +148,11 @@ tasks:
     coe: test/mmu/sv32_edge.coe
     runtime: 20ms
 
+  mmu_unified_mmu:
+    tb: tb_mmu_unified_mmu
+    coe: test/mmu/unified_mmu.coe
+    runtime: 60ms
+
   cache_icache_basic:
     tb: tb_cache_icache_basic
     coe: test/cache/icache_basic.coe

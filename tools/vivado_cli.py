@@ -80,6 +80,15 @@ try:
         TaskRegistry,
         VivadoCoreError,
     )
+    from tools.vivado_core.batch import (
+        BatchExecutor,
+        BatchResult,
+        BatchSpec,
+        BatchTask,
+        TaskResult,
+        expand_batch_spec,
+        load_batch_plan,
+    )
 
     _HAS_CORE = True
 except ImportError:
@@ -101,6 +110,21 @@ except ImportError:
         pass
 
     class Operations:  # type: ignore[no-redef]
+        pass
+
+    class BatchExecutor:  # type: ignore[no-redef]
+        pass
+
+    class BatchSpec:  # type: ignore[no-redef]
+        pass
+
+    class BatchTask:  # type: ignore[no-redef]
+        pass
+
+    class BatchResult:  # type: ignore[no-redef]
+        pass
+
+    class TaskResult:  # type: ignore[no-redef]
         pass
 
 
@@ -380,14 +404,34 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--cleanup",
         action="store_true",
-        help="Remove oldest sessions to stay within limit",
+        help="Remove oldest sessions to stay within limit (keeps max_sessions - 1)",
     )
     parser.add_argument(
-        "--cleanup-all", action="store_true", help="Remove ALL sessions"
+        "--cleanup-all", action="store_true", help="Remove ALL sessions completely"
     )
     parser.add_argument(
         "--gen-config", action="store_true",
         help="Regenerate cache_def.svh from vivado_config.yaml memory section",
+    )
+
+    # Batch execution
+    parser.add_argument(
+        "-batch", metavar="TASKS",
+        help="Comma-separated task names or glob patterns for batch execution",
+    )
+    parser.add_argument(
+        "-batch-plan", metavar="FILE",
+        help="YAML file defining batch execution plan",
+    )
+    parser.add_argument(
+        "--max-parallel", type=int, default=None,
+        help="Max parallel sessions (default: min(len(tasks), max_concurrent))",
+    )
+    parser.add_argument(
+        "--on-error",
+        choices=["continue", "fail-fast", "stop-accepting"],
+        default="continue",
+        help="Error handling strategy for batch mode",
     )
 
     # Output control
@@ -413,6 +457,79 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     return parser
+
+
+def format_batch_result_text(result: Any) -> str:
+    """Format batch result as human-readable text.
+
+    Parameters
+    ----------
+    result:
+        :class:`BatchResult` object.
+
+    Returns
+    -------
+    str
+    """
+    lines: list[str] = []
+    lines.append("=" * 60)
+    lines.append("BATCH RESULT")
+    lines.append("=" * 60)
+    lines.append(f"Total    : {result.total}")
+    lines.append(f"Succeeded: {result.succeeded}")
+    lines.append(f"Failed   : {result.failed}")
+    lines.append(f"Skipped  : {result.skipped}")
+    lines.append(f"Duration : {result.duration:.1f}s")
+    lines.append("-" * 60)
+    for tr in result.results:
+        status = "PASS" if tr.success else "FAIL"
+        if tr.error and tr.error.startswith("Skipped:"):
+            status = "SKIP"
+        elif tr.error and tr.error.startswith("Cancelled"):
+            status = "SKIP"
+        lines.append(f"  {tr.task_name:<20s} {status:<6s} {tr.duration:.1f}s  session={tr.session_name}")
+        if tr.error and status != "PASS":
+            lines.append(f"    Error: {tr.error}")
+        for op in tr.operations:
+            op_status = "OK" if op.get("success") else "FAIL"
+            op_dur = op.get("duration", 0.0)
+            lines.append(f"    {op['operation']:<12s} {op_status:<5s} {op_dur:.1f}s")
+    lines.append("=" * 60)
+    return "\n".join(lines)
+
+
+def format_batch_result_json(result: Any) -> str:
+    """Format batch result as JSON.
+
+    Parameters
+    ----------
+    result:
+        :class:`BatchResult` object.
+
+    Returns
+    -------
+    str
+    """
+    data = {
+        "total": result.total,
+        "succeeded": result.succeeded,
+        "failed": result.failed,
+        "skipped": result.skipped,
+        "duration": round(result.duration, 3),
+        "exit_code": result.exit_code,
+        "results": [
+            {
+                "task_name": tr.task_name,
+                "session_name": tr.session_name,
+                "success": tr.success,
+                "duration": round(tr.duration, 3),
+                "error": tr.error,
+                "operations": tr.operations,
+            }
+            for tr in result.results
+        ],
+    }
+    return json.dumps(data, indent=2, ensure_ascii=False)
 
 
 # ---------------------------------------------------------------------------
@@ -464,6 +581,118 @@ def main(argv: list[str] | None = None) -> int:
     session_name: str | None = args.session or task_name
 
     # =======================================================================
+    # Batch execution path
+    # =======================================================================
+    if getattr(args, "batch", None) or getattr(args, "batch_plan", None):
+        _require_core()
+
+        # --- Instantiate core components ---
+        try:
+            task_registry = TaskRegistry(tasks_path)  # type: ignore[call-arg]
+            task_registry.load()  # type: ignore[attr-defined]
+            session_mgr = SessionManager(project_root, config)  # type: ignore[call-arg]
+            layered_hash = LayeredHash(project_root)  # type: ignore[call-arg]
+            sync = SyncPolicy(layered_hash)  # type: ignore[call-arg]
+        except VivadoCoreError as e:
+            print(f"ERROR: Core initialization failed: {e}", file=sys.stderr)
+            return EXIT_GENERAL
+
+        # --- Build BatchSpec ---
+        if getattr(args, "batch_plan", None):
+            # Load from YAML file
+            try:
+                batch_spec = load_batch_plan(Path(args.batch_plan))  # type: ignore[attr-defined]
+            except (FileNotFoundError, ValueError) as e:
+                print(f"ERROR: Invalid batch plan: {e}", file=sys.stderr)
+                return EXIT_CONFIG
+            # Expand pattern markers if present
+            expanded_tasks: list[Any] = []
+            for bt in batch_spec.tasks:
+                if bt.task_name.startswith("__pattern__:"):
+                    pattern = bt.task_name.split(":", 1)[1]
+                    names = expand_batch_spec(pattern, task_registry.list_names())  # type: ignore[attr-defined]
+                    expanded_tasks.extend(BatchTask(task_name=n) for n in names)
+                else:
+                    expanded_tasks.append(bt)
+            batch_spec.tasks = expanded_tasks
+        else:
+            # Build from -batch argument
+            try:
+                task_names = expand_batch_spec(
+                    args.batch, task_registry.list_names()  # type: ignore[attr-defined]
+                )
+            except VivadoCoreError as e:
+                print(f"ERROR: {e}", file=sys.stderr)
+                return EXIT_CONFIG
+            batch_tasks = [BatchTask(task_name=n) for n in task_names]
+
+            # Determine operations from flags
+            operations: list[str] = []
+            if args.create:
+                operations.append("create")
+            if args.refresh:
+                operations.append("refresh")
+            if args.sim:
+                operations.append("sim")
+            if args.bitstream:
+                operations.append("bitstream")
+            if args.program:
+                operations.append("program")
+            if args.archive:
+                operations.append("archive")
+            if not operations:
+                operations = ["create", "sim"]
+
+            # Determine max_parallel
+            max_parallel = len(batch_tasks)
+            max_concurrent = config.limits.max_concurrent
+            if args.max_parallel is not None:
+                max_parallel = min(max_parallel, args.max_parallel)
+            max_parallel = min(max_parallel, max_concurrent)
+
+            # Parse refresh layers
+            refresh_layers: list[str] | None = None
+            if args.layers:
+                refresh_layers = [l.strip() for l in args.layers.split(",")]
+
+            batch_spec = BatchSpec(
+                tasks=batch_tasks,
+                max_parallel=max_parallel,
+                on_error=args.on_error,
+                operations=operations,
+                refresh_layers=refresh_layers,
+                runtime_override=args.runtime,
+            )
+
+        # --- Validate batch tasks ---
+        for bt in batch_spec.tasks:
+            if bt.task_name not in task_registry:  # type: ignore[attr-defined]
+                print(
+                    f"ERROR: Unknown task '{bt.task_name}' in batch. "
+                    f"Available: {', '.join(sorted(task_registry.list_names()))}",  # type: ignore[attr-defined]
+                    file=sys.stderr,
+                )
+                return EXIT_CONFIG
+
+        # --- Execute batch ---
+        try:
+            executor = BatchExecutor(
+                session_mgr, task_registry, sync, layered_hash, config  # type: ignore[call-arg]
+            )
+            batch_result = executor.execute(batch_spec)
+        except VivadoCoreError as e:
+            print(f"ERROR: Batch execution failed: {e}", file=sys.stderr)
+            return EXIT_GENERAL
+
+        # --- Output results ---
+        if args.format == "json":
+            print(format_batch_result_json(batch_result))
+        else:
+            print(format_batch_result_text(batch_result))
+
+        return batch_result.exit_code
+
+    # =======================================================================
     # --status: show all sessions
     # =======================================================================
     if args.status:
@@ -493,8 +722,12 @@ def main(argv: list[str] | None = None) -> int:
         try:
             session_mgr = SessionManager(project_root, config)  # type: ignore[call-arg]
             if args.cleanup_all:
+                # --cleanup-all: Remove absolutely all existing sessions.
                 removed = session_mgr.cleanup(keep=0)  # type: ignore[attr-defined]
             else:
+                # --cleanup: Retain (max_sessions - 1) sessions, removing only the oldest ones.
+                # This ensures there is space to create exactly 1 new session before hitting the limit.
+                # Note: It does NOT wipe all idle sessions. Use --cleanup-all for a full wipe.
                 keep = config.limits.max_sessions - 1
                 removed = session_mgr.cleanup(keep=max(keep, 0))  # type: ignore[attr-defined]
         except VivadoCoreError as e:

@@ -5,12 +5,32 @@ description: |
   Use this skill when running simulations, generating bitstreams, programming FPGAs,
   managing Vivado sessions, checking staleness, or refreshing projects.
   Replaces the old vivado_do.tcl with a Python-based system supporting parallel sessions,
-  layered hash staleness detection, and incremental (layer-specific) refresh.
+  layered hash staleness detection, incremental (layer-specific) refresh, and batch
+  execution for running multiple tasks in parallel from a single command.
 ---
 
 # Vivado Orchestrator
 
-Python 驱动的 Vivado 自动化系统，替代 `vivado_do.tcl`。
+Python 驱动的 Vivado 自动化系统，替代 `vivado_do.tcl`。支持**会话隔离并行**、**分层哈希增量刷新**、**批处理模式**。
+
+## 架构
+
+```
+vivado_core/
+├── session.py    会话管理 + Semaphore 并发门控
+├── operations.py 高层操作 (create/refresh/sim/bitstream/program/archive)
+├── batch.py      批处理执行 (ThreadPoolExecutor + 进度追踪 + 失败策略)
+├── sync.py       预检 + 增量/全量刷新规划
+├── hash.py       分层哈希 (rtl/tb/coe/fpga)
+├── tasks.py      任务配置 (tasks.yaml)
+├── config.py     全局配置 + 内存/Cache 配置
+├── ip_gen.py     BRAM create_ip TCL 生成
+├── cache_header_gen.py  cache_def.svh 自动生成
+└── exceptions.py 异常层次
+
+vivado_cli.py     CLI 前端 (含批处理)
+vivado_tui.py     TUI 前端
+```
 
 ## 核心命令
 
@@ -23,8 +43,11 @@ python -m tools.vivado_cli <args>
 ### 会话管理
 
 ```bash
-# 清理旧会话
+# 保留 (max_sessions - 1) 个最近使用的会话，仅清理最老的，腾出一个创建新会话的空间
+# 不会清空全部空闲会话！如果批量运行(batch)后产生大量旧会话，需要用 --cleanup-all
 python -m tools.vivado_cli --cleanup
+
+# 彻底清理全部会话（包括空闲、报错的会话）
 python -m tools.vivado_cli --cleanup-all
 
 # 重新生成 cache_def.svh（修改 vivado_config.yaml 后）
@@ -89,7 +112,20 @@ python -m tools.vivado_cli -task cpu_full -archive
 | `cpu_fencei` | tb_cpu_test_fencei | fence.i JIT 测试 (5ms) |
 | `cpu_access_fault` | tb_cpu_test_access_fault | 访问错误异常 (3ms) |
 | `cpu_priv` | tb_simple_cpu_priv | 特权级测试 (20ms) |
+| `isa_alu` | tb_isa_alu | ISA ALU 测试 (5ms) |
+| `isa_branch` | tb_isa_branch | ISA 分支测试 (5ms) |
+| `isa_memory` | tb_isa_memory | ISA 访存测试 (5ms) |
+| `isa_upper_imm` | tb_isa_upper_imm | ISA 上立即数测试 (5ms) |
+| `isa_jump` | tb_isa_jump | ISA 跳转测试 (5ms) |
+| `isa_csr` | tb_isa_csr | ISA CSR 测试 (5ms) |
+| `isa_m_ext` | tb_isa_m_ext | ISA 乘除扩展测试 (5ms) |
+| `exception_*` | (5 个) | 异常测试 (5-10ms) |
+| `mmu_*` | (10 个) | MMU/TLB 测试 (20ms) |
+| `cache_*` | (5 个) | Cache 测试 (5-20ms) |
+| `mmio_*` | (2 个) | MMIO 测试 (5-10ms) |
+| `reg_*` | (6 个) | 回归测试 (10-20ms) |
 | `uart_hello` | tb_uart_hello | UART 发送测试 (40ms) |
+| `uart_echo` | tb_uart_echo | UART 回显测试 (100ms) |
 | `led_marquee` | tb_led_marquee | LED 走马灯 (2s) |
 | `ahb_bus` | tb_ahb_bus | AHB 总线测试 (5000ns) |
 | `apb_perips` | tb_apb_perips | APB 外设测试 (2000ns) |
@@ -97,6 +133,8 @@ python -m tools.vivado_cli -task cpu_full -archive
 | `mu_unit` | tb_mu_unit | 乘除法器测试 (5000ns) |
 | `divider` | tb_non_restoring_divider | 除法器测试 (5000ns) |
 | `fpga` | — | FPGA bitstream (top: system_top) |
+
+> 通配符速查：`isa_*`(7), `exception_*`(5), `mmu_*`(11), `cache_*`(5), `mmio_*`(2), `reg_*`(7), `cpu_*`(6)
 
 ## 分层哈希与增量刷新
 
@@ -126,6 +164,19 @@ python -m tools.vivado_cli -task cpu_full -sim --filter pass_fail
 # 自定义正则
 python -m tools.vivado_cli -task cpu_full -sim --filter "PASS.*x1"
 ```
+
+## 批处理参数
+
+| 参数 | 说明 |
+|------|------|
+| `-batch TASKS` | 逗号分隔任务名或通配符（如 `isa_*`、`cpu_*,uart_hello`） |
+| `-batch-plan FILE` | YAML 批处理计划文件 |
+| `--max-parallel N` | 最大并行会话数（默认=min(任务数, max_concurrent)） |
+| `--on-error STRATEGY` | `continue`（默认）/ `fail-fast`（首败即停）/ `stop-accepting`（停提交等完成） |
+
+### 并发门控
+
+`SessionManager` 使用 `threading.Semaphore(max_concurrent)` 原子控制 Vivado 进程并发数，`Session.start_vivado()` 时 acquire，`stop_vivado()` 时 release。批处理模式下 `ThreadPoolExecutor` 的 `max_workers` 由 `min(len(tasks), max_concurrent, --max-parallel)` 决定。
 
 ## TUI 界面
 
@@ -172,6 +223,64 @@ python -m tools.vivado_cli -task cpu_full -create -sim
 
 # 终端 2（同时）
 python -m tools.vivado_cli -task uart_hello -create -sim
+```
+
+### 4'. 批处理模式（一条命令并行多任务）
+
+```bash
+# 并行仿真所有 CPU 测试
+python -m tools.vivado_cli -batch "cpu_full,cpu_compute,cpu_trap" -create -sim
+
+# 用通配符匹配任务组
+python -m tools.vivado_cli -batch "isa_*" -create -sim
+
+# 混合精确名 + 通配符
+python -m tools.vivado_cli -batch "cpu_*,uart_hello" -create -sim
+
+# 控制并行度（最多 2 个 Vivado 进程）
+python -m tools.vivado_cli -batch "isa_*" -create -sim --max-parallel 2
+
+# 从 YAML 文件读取批处理计划
+python -m tools.vivado_cli -batch-plan regression.yaml
+
+# 失败策略：首败即停
+python -m tools.vivado_cli -batch "cpu_*" -sim --on-error fail-fast
+
+# 失败策略：不再提交新任务，但等待已运行的完成
+python -m tools.vivado_cli -batch "cpu_*" -sim --on-error stop-accepting
+
+# JSON 输出（CI/CD 友好）
+python -m tools.vivado_cli -batch "isa_*" -create -sim --format json
+
+# 并行增量刷新 + 重仿真
+python -m tools.vivado_cli -batch "cpu_*" -refresh --layers coe
+python -m tools.vivado_cli -batch "cpu_*" -sim
+```
+
+#### 批处理计划 YAML 格式
+
+```yaml
+# regression.yaml
+max_parallel: 3
+on_error: continue
+operations: [create, sim]
+tasks:
+  - task: cpu_full
+    runtime: 5ms
+  - task: cpu_compute
+  - task: cpu_trap
+  - task: cpu_fencei
+  - task: cpu_access_fault
+  - task: cpu_priv
+    runtime: 20ms
+```
+
+或用通配符：
+
+```yaml
+max_parallel: 3
+operations: [create, sim]
+task_pattern: "isa_*"
 ```
 
 ### 5. 生成 bitstream 并下载

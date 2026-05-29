@@ -120,13 +120,21 @@ class Session:
         Global configuration (used for ``vivado_path`` etc.).
     """
 
-    def __init__(self, name: str, project_dir: Path, config: GlobalConfig) -> None:
+    def __init__(
+        self,
+        name: str,
+        project_dir: Path,
+        config: GlobalConfig,
+        concurrent_sem: threading.Semaphore | None = None,
+    ) -> None:
         self.name = name
         self.project_dir = project_dir
         self.meta_path = project_dir / ".session.yaml"
         self._config = config
+        self._concurrent_sem = concurrent_sem
         self._process: subprocess.Popen[str] | None = None
         self._lock = threading.Lock()
+        self._sem_held: bool = False  # track whether we acquired the semaphore
         self.meta = SessionMeta(name=name, task="")
 
     # ------------------------------------------------------------------
@@ -197,9 +205,21 @@ class Session:
         ------
         VivadoProcessError
             If the subprocess fails to start.
+        ConcurrentLimitError
+            If the concurrent Vivado process limit would be exceeded.
         """
         if self.is_alive():
             return
+
+        # Acquire the concurrent-process semaphore (blocks if at limit).
+        if self._concurrent_sem is not None and not self._sem_held:
+            if not self._concurrent_sem.acquire(timeout=0):
+                from .exceptions import ConcurrentLimitError
+                raise ConcurrentLimitError(
+                    self._concurrent_sem._value if hasattr(self._concurrent_sem, '_value') else -1,
+                    self._config.limits.max_concurrent,
+                )
+            self._sem_held = True
 
         try:
             self._process = subprocess.Popen(
@@ -214,6 +234,10 @@ class Session:
                 bufsize=1,  # line-buffered
             )
         except OSError as exc:
+            # Release semaphore on failure to start.
+            if self._concurrent_sem is not None and self._sem_held:
+                self._concurrent_sem.release()
+                self._sem_held = False
             raise VivadoProcessError(
                 f"Failed to start Vivado: {exc}",
                 returncode=None,
@@ -346,7 +370,9 @@ if {{ [catch {{current_project}} cur_proj] != 0 }} {{
         if self._process is None:
             return
 
-        if self.is_alive():
+        was_alive = self.is_alive()
+
+        if was_alive:
             try:
                 assert self._process.stdin is not None
                 self._process.stdin.write("quit\n")
@@ -363,6 +389,11 @@ if {{ [catch {{current_project}} cur_proj] != 0 }} {{
         self.meta.vivado_pid = None
         self.meta.status = "idle"
         self.save_meta()
+
+        # Release the concurrent-process semaphore.
+        if self._concurrent_sem is not None and self._sem_held:
+            self._concurrent_sem.release()
+            self._sem_held = False
 
     # ------------------------------------------------------------------
     # Utility
@@ -406,6 +437,10 @@ class SessionManager:
         self._sessions_dir = self.base_dir / "project"
         self._idle_watcher: threading.Thread | None = None
         self._watcher_stop = threading.Event()
+        # Semaphore for atomic concurrent Vivado process limiting.
+        # Replaces the racy running_count() filesystem scan for
+        # admission control in batch/multi-threaded scenarios.
+        self._concurrent_sem = threading.Semaphore(config.limits.max_concurrent)
 
     # ------------------------------------------------------------------
     # CRUD
@@ -423,6 +458,7 @@ class SessionManager:
                     name=child.name,
                     project_dir=child,
                     config=self.config,
+                    concurrent_sem=self._concurrent_sem,
                 )
                 sess.load_meta()
                 sessions.append(sess)
@@ -441,7 +477,8 @@ class SessionManager:
         if not (sess_dir / ".session.yaml").is_file():
             raise SessionNotFoundError(name)
 
-        sess = Session(name=name, project_dir=sess_dir, config=self.config)
+        sess = Session(name=name, project_dir=sess_dir, config=self.config,
+                       concurrent_sem=self._concurrent_sem)
         sess.load_meta()
         return sess
 
@@ -529,7 +566,8 @@ class SessionManager:
         sess_dir = self._sessions_dir / session_name
         sess_dir.mkdir(parents=True, exist_ok=True)
 
-        sess = Session(name=session_name, project_dir=sess_dir, config=self.config)
+        sess = Session(name=session_name, project_dir=sess_dir, config=self.config,
+                       concurrent_sem=self._concurrent_sem)
         sess.meta.task = task_name
         sess.save_meta()
 
@@ -573,10 +611,17 @@ class SessionManager:
     def cleanup(self, keep: int = 3) -> list[str]:
         """Remove the oldest sessions, keeping the *keep* most recent.
 
+        For example, if max_sessions is 5 and `--cleanup` is called,
+        `keep` will be 4. This means the 4 most recently used sessions
+        will remain untouched, and only sessions beyond that are removed,
+        guaranteeing there is space to create exactly 1 new session without
+        exceeding the limit. It does *not* clear all idle sessions.
+        To wipe everything, `keep=0` is used by `--cleanup-all`.
+
         Parameters
         ----------
         keep:
-            Number of most-recently-used sessions to retain.
+            Number of most-recently-used sessions to retain. Default is 3.
 
         Returns
         -------

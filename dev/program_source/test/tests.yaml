@@ -78,6 +78,7 @@ categories:
       - mmu/page_fault
       - mmu/permission
       - mmu/sv32_edge
+      - mmu/unified_mmu
 
   cache:
     framework: common

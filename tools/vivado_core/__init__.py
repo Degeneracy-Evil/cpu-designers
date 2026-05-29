@@ -65,6 +65,18 @@ from .sync import PreflightResult, RefreshPlan, SyncPolicy
 # Task definitions
 from .tasks import TaskConfig, TaskRegistry
 
+# Batch execution
+from .batch import (
+    BatchExecutor,
+    BatchResult,
+    BatchSpec,
+    BatchTask,
+    ProgressTracker,
+    TaskResult,
+    expand_batch_spec,
+    load_batch_plan,
+)
+
 __all__ = [
     # config
     "GlobalConfig",
@@ -100,4 +112,13 @@ __all__ = [
     # tasks
     "TaskConfig",
     "TaskRegistry",
+    # batch
+    "BatchExecutor",
+    "BatchResult",
+    "BatchSpec",
+    "BatchTask",
+    "ProgressTracker",
+    "TaskResult",
+    "expand_batch_spec",
+    "load_batch_plan",
 ]

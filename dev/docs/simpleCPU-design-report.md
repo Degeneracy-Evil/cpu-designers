@@ -1,6 +1,6 @@
 # SimpleCPU 设计报告
 
-> 生成日期: 2026-05-20 | 项目路径: `dev/rtl/`
+> 生成日期: 2026-05-29 | 项目路径: `dev/rtl/`
 
 ---
 
@@ -17,8 +17,10 @@
 | 数据位宽 | 32-bit |
 | 特权模式 | M/S/U 三级特权模式，支持陷阱委托（medeleg/mideleg） |
 | 地址空间 | 32-bit，Sv32 页表虚拟内存（MMU + TLB + PTW） |
-| 存储架构 | 哈佛结构（icache / dcache 分离），4 路组相联，Tree-PLRU 替换 |
+| 存储架构 | 哈佛结构（icache / dcache 分离），4 路组相联，Tree-PLRU 替换，VIPT |
 | 缓存策略 | 写回（write-back）+ 写分配（write-allocate），脏行驱逐写回主存 |
+| 标签存储 | BRAM IP（icachet 32-bit×8 / dcachet 36-bit×8），配置驱动 |
+| TLB 架构 | 4 路 × 4 组组相联（16 项），BRAM IP（tlb_flag 128-bit×4 / tlb_data 128-bit×4），Tree-PLRU 替换 |
 | 总线接口 | AHB-Lite Master，支持 INCR8 突发传输 |
 | 中断/异常 | 支持 Trap 进入/返回（mret/sret）、CLINT 定时器中断、PLIC 外部中断 |
 | 特权指令 | SRET、SFENCE.VMA 指令支持 |
@@ -77,19 +79,24 @@ system_top
 │   │   │   └── cpu_clint
 │   │   └── cpu_csr_interface
 │   │       └── cpu_csr
-│   ├── icache_ctrl       ← 指令缓存控制器（4路组相联）
-│   │   ├── tree_plru     ← Tree-PLRU 替换策略
-│   │   └── icached       ← ICache 数据 BRAM IP（256bit×32）
-│   ├── dcache_ctrl       ← 数据缓存控制器（4路组相联，写回+写分配）
-│   │   ├── tree_plru     ← Tree-PLRU 替换策略
-│   │   ├── dcached       ← DCache 数据 BRAM IP（256bit×32）
-│   │   └── dtag          ← DCache 标签 BRAM IP（9bit×32）
+│   ├── icache_ctrl       ← 指令缓存控制器（4路组相联，VIPT）
+│   │   ├── icachet       ← ICache 标签 BRAM IP（32-bit×8，byte_size=8）
+│   │   ├── icached       ← ICache 数据 BRAM IP（256-bit×32，byte_enable）
+│   │   └── tree_plru     ← Tree-PLRU 替换策略
+│   ├── dcache_ctrl       ← 数据缓存控制器（4路组相联，写回+写分配，VIPT）
+│   │   ├── dcachet       ← DCache 标签 BRAM IP（36-bit×8，byte_size=9）
+│   │   ├── dcached       ← DCache 数据 BRAM IP（256-bit×32，byte_enable）
+│   │   └── tree_plru     ← Tree-PLRU 替换策略
 │   ├── MMU (×2)          ← Sv32 虚拟内存（TLB + PTW 页表漫游）
-│   │   ├── tlb           ← TLB（16 项，全相联）
+│   │   ├── tlb           ← TLB（4路×4组=16项，BRAM存储，Tree-PLRU替换）
+│   │   │   ├── tlb_flag  ← TLB 标志 BRAM IP（128-bit×4）
+│   │   │   ├── tlb_data  ← TLB 数据 BRAM IP（128-bit×4）
+│   │   │   └── tree_plru ← Tree-PLRU 替换策略（每组）
 │   │   └── ptw           ← 页表漫游器（Sv32 二级页表）
 │   └── cpu_bus_bridge    ← AHB-Lite 总线桥接（MMIO + INCR8 突发）
 ├── ahb_lite_bus          ← AHB-Lite 总线
 │   ├── ahb_sram_slave    ← SRAM 从设备（32KB BRAM IP）
+│   ├── ahb_default_slave ← 默认从设备（未映射地址返回 ERROR）
 │   ├── ahb_clint         ← CLINT（mtime/mtimecmp/msip）
 │   ├── ahb_plic          ← PLIC（8-source，src[1]=Timer, src[2]=UART, src[3]=SPI, src[4]=GPIO）
 │   └── ahb_lite_to_apb → apb_bus → apb_perips
@@ -401,63 +408,87 @@ CSR 写掩码：mstatus 仅允许写 MPP[12:11]、SPP[8]、MPIE[7]、SPIE[5]、M
 - 替换时从根到叶按 bit 方向行走，定位受害路
 - 优先选择无效路（invalid way first），仅当所有路有效时使用 PLRU
 
-### 5.3 标签存储
+### 5.3 标签存储（BRAM IP）
 
-标签使用寄存器数组（非 BRAM），实现单周期 4 路并行比较：
+标签使用 BRAM IP 存储（`use_tag_bram: true`），每组 4 路标签打包为一个 BRAM 字，通过 Port A 读取后在下一周期进行 4 路并行比较：
 
-| 缓存 | 标签格式 | 位宽 | 说明 |
-|------|----------|------|------|
-| ICache | `{valid, tag[6:0]}` | 8-bit | 无脏位（指令缓存只读） |
-| DCache | `{valid, dirty, tag[6:0]}` | 9-bit | dirty 位标识写回需求 |
+| 缓存 | 标签 BRAM | BRAM 配置 | 每路标签格式 | 说明 |
+|------|-----------|-----------|-------------|------|
+| ICache | `icachet` | 32-bit × 8，True Dual Port，Byte_Enable，Byte_Size=8 | `{V(1), tag[6:0]}` = 8-bit | 无脏位（指令缓存只读） |
+| DCache | `dcachet` | 36-bit × 8，True Dual Port，Byte_Enable，Byte_Size=9 | `{V(1), D(1), tag[6:0]}` = 9-bit | dirty 位标识写回需求 |
 
-- 每组 4 路标签寄存器，共 8 组 × 4 路 = 32 个标签项
-- 命中判定：`valid && (tag == addr[14:8])`，4 路并行，1 周期出结果
+- BRAM 地址 = set_idx（3-bit），每个地址包含一组 4 路标签
+- ICache 标签 BRAM 字：`{Way3[7:0], Way2[7:0], Way1[7:0], Way0[7:0]}` = 32-bit
+- DCache 标签 BRAM 字：`{Way3[8:0], Way2[8:0], Way1[8:0], Way0[8:0]}` = 36-bit
+- Port A：CPU 读（S_IDLE 使能，S_TAG_READ 出结果）
+- Port B：Refill 写 / Dirty 更新 / Invalidate 写
+- 命中判定：`valid && (tag == paddr[14:8])`，4 路并行，BRAM 读延迟 1 周期
+- Byte-write enable 支持单路标签更新（Refill/Dirty 置位时仅写目标路）
 
 ### 5.4 数据存储（BRAM IP）
 
 | BRAM | 配置 | 端口 A | 端口 B |
 |------|------|--------|--------|
-| icached | 256-bit × 32，True Dual Port，WRITE_FIRST | CPU 读 | Refill 写 |
-| dcached | 256-bit × 32，True Dual Port，WRITE_FIRST | CPU 读/写 | Refill 写 / Victim 读 |
-| dtag | 9-bit × 32，True Dual Port，WRITE_FIRST | CPU 读/写 | Refill 写 |
+| icached | 256-bit × 32，True Dual Port，WRITE_FIRST，Byte_Enable | CPU 读 | Refill 写 |
+| dcached | 256-bit × 32，True Dual Port，WRITE_FIRST，Byte_Enable | CPU 读/写 | Refill 写 / Victim 读 |
+| icachet | 32-bit × 8，True Dual Port，Byte_Enable，Byte_Size=8 | CPU 读 | Refill 写 / Invalidate 写 |
+| dcachet | 36-bit × 8，True Dual Port，Byte_Enable，Byte_Size=9 | CPU 读 / Flush 扫描 | Refill 写 / Dirty 更新 / Invalidate 写 |
+| tlb_flag | 128-bit × 4，True Dual Port，Byte_Enable，Byte_Size=8 | i-side 查找 | d-side 查找 / Fill 写 / Flush 写 |
+| tlb_data | 128-bit × 4，True Dual Port，Byte_Enable，Byte_Size=8 | i-side 查找 | d-side 查找 / Fill 写 / Flush 写 |
 
-BRAM 地址映射：`bram_addr = {set_idx[2:0], way[1:0]}`，5-bit 寻址 32 项。
+数据 BRAM 地址映射：`bram_addr = {set_idx[2:0], way[1:0]}`，5-bit 寻址 32 项。
+标签 BRAM 地址映射：`bram_addr = set_idx[2:0]`，3-bit 寻址 8 项（每组 4 路打包为 1 字）。
+TLB BRAM 地址映射：`bram_addr = set_idx[1:0]`，2-bit 寻址 4 项（每组 4 路打包为 1 字）。
 
 **BRAM 读延迟差异**：
 
 - 仿真：BRAM 行为模型提供组合输出（0-cycle 延迟）
 - 硬件：`READ_LATENCY=1`，寄存输出（1-cycle 延迟）
+- 标签/TLB BRAM：ICache/DCache 控制器新增 `S_TAG_READ` 状态等待 BRAM 输出；TLB 查找结果延迟 1 周期有效
 - 仿真通过不代表硬件时序正确，综合时需关注
 
 ### 5.5 指令缓存控制器 (`icache_ctrl`)
 
+ICache 采用 VIPT（Virtually-Indexed Physically-Tagged）策略：使用虚拟地址的页内偏移位作为 set index（与物理地址相同），物理地址的 tag 位进行标签比较。这避免了 MMU 翻译延迟对缓存查找的影响。
+
 ICache FSM 状态转换：
 
 ```
-S_IDLE → S_READ (BRAM 使能，锁存请求)
-S_READ → hit:  返回数据，更新 PLRU，回 S_IDLE
-S_READ → miss: 锁存 set/addr/victim，发 refill_req，进 S_REFILL
-S_REFILL:      保持 refill_req，等 refill_valid，写 BRAM PortB，
-               更新标签+PLRU，旁路返回数据，回 S_IDLE
+S_IDLE → S_TAG_READ (BRAM 使能，锁存请求，等待标签 BRAM 输出)
+S_TAG_READ → hit:  使能数据 BRAM，进 S_READ
+S_TAG_READ → miss: 锁存 set/addr/victim，发 refill_req，进 S_REFILL
+S_READ:          返回数据 BRAM 输出，更新 PLRU，回 S_IDLE
+S_REFILL:        保持 refill_req，等 refill_valid，写 BRAM PortB，
+                 更新标签+PLRU，旁路返回数据，回 S_IDLE
+S_INVALIDATE:    逐组写零标签 BRAM，完成后回 S_IDLE
 ```
 
-- MMIO 旁路：`addr[31]==0` 时直接发 AHB 请求，不经过缓存
-- 标签比较在 S_READ 完成，命中时 1 周期返回（仿真）或 2 周期（硬件）
+- MMIO 旁路：`vaddr[31]==0` 时直接发 AHB 请求，不经过缓存（使用虚拟地址判断，因为物理地址可能在 MMU 未就绪时无效）
+- 标签比较在 S_TAG_READ 完成（BRAM 1-cycle 延迟后），命中时进 S_READ 读数据 BRAM
 - 缺失时向 `cpu_bus_bridge` 发 INCR8 读突发请求，8 拍填充整行
+- 数据 BRAM 读使能门控 `mmu_ready`，避免使用过时物理地址
 
 ### 5.6 数据缓存控制器 (`dcache_ctrl`)
+
+DCache 同样采用 VIPT 策略，使用虚拟地址的页内偏移位作为 set index，物理地址的 tag 位进行标签比较。
 
 DCache FSM 状态转换：
 
 ```
-S_IDLE → store hit:  写 BRAM PortA，置 dirty，更新 PLRU，ready=1
-S_IDLE → load hit:   进 S_READ_HIT
-S_IDLE → miss:       锁存请求，若 victim dirty → S_WB_READ，否则 → S_REFILL
-S_READ_HIT:          返回 BRAM 数据，更新 PLRU，回 S_IDLE
-S_WB_READ:           使能 BRAM PortB 读，重构 WB 地址，进 S_WB_SEND
+S_IDLE → S_TAG_READ (标签 BRAM 使能，锁存请求，等待 BRAM 输出)
+S_TAG_READ → store hit:  写数据 BRAM PortA，置 dirty（通过标签 BRAM PortB byte-write），更新 PLRU，ready=1
+S_TAG_READ → load hit:   进 S_READ_HIT
+S_TAG_READ → miss:       锁存请求，若 victim dirty → S_WB_READ，否则 → S_REFILL
+S_READ_HIT:          返回数据 BRAM 输出，更新 PLRU，回 S_IDLE
+S_WB_READ:           使能数据 BRAM PortB 读，重构 WB 地址，进 S_WB_SEND
 S_WB_SEND:           保持 wb_req，等 wb_valid，清 dirty，发 refill_req，进 S_REFILL
 S_REFILL:            保持 refill_req，等 refill_valid，写 BRAM PortB
                      （store miss 时合并写入数据），更新标签+PLRU，旁路返回，回 S_IDLE
+S_FLUSH_SCAN:        逐组扫描标签 BRAM，检查脏行
+S_FLUSH_CHECK:       检查当前组各路脏位，若有脏行 → S_FLUSH_WB_RD
+S_FLUSH_WB_RD:       读出脏行数据 BRAM，进 S_FLUSH_WB_SD
+S_FLUSH_WB_SD:       发写回请求，等 wb_valid，继续扫描下一脏行或下一组
+S_FLUSH_INVALIDATE:  写零标签 BRAM，使所有路无效
 ```
 
 **写策略**：
@@ -503,11 +534,18 @@ S_WB_ADDR/S_WB_DATA:          INCR8 写突发，每拍移出 wb_shift_reg[31:0]
 
 - 容量：32KB（32-bit × 8192 字）
 - 实现：Xilinx BRAM IP 核（True Dual Port，WRITE_FIRST）
-- 写使能：1-bit（Sram IP 仅支持整字写）
+- 写使能：1-bit（Sram IP 仅支持整字写，`byte_enable: false`）
 - 基地址：`0x8000_0000`（地址译码 `HADDR[31:24] == 8'h80`）
 - 支持 INCR8 突发读写，1 等待状态
 
-### 5.9 MMU（Sv32 虚拟内存）
+### 5.9 AHB 默认从设备 (`ahb_default_slave`)
+
+- 功能：响应未映射地址空间的 AHB 传输请求
+- 行为：任何传输返回 ERROR 响应（`HRESP=1`），两拍完成（地址拍 + 错误拍）
+- 用途：防止总线无响应挂死，符合 AHB-Lite 协议要求
+- 状态机：`error_phase` 标记错误响应的第二拍
+
+### 5.10 MMU（Sv32 虚拟内存）
 
 CPU 包含两个 MMU 实例：指令 MMU（inst MMU）和数据 MMU（data MMU），各自拥有独立的 TLB 和 PTW。
 
@@ -543,13 +581,22 @@ Sv32 采用二级页表结构，虚拟地址 32-bit 分解如下：
 
 **TLB（`tlb.sv`）**：
 
-- 16 项全相联结构
-- ASID 感知：每项存储 ASID，匹配时需 ASID 一致或 G=1（全局项）
-- 每个MMU独立拥有一个TLB实例（inst TLB / data TLB）
-- 查找：虚拟地址 VPN 与 TLB 项比较，ASID 与 satp.ASID 匹配
-- 命中：直接输出物理地址 + PTE 权限位
-- 缺失：触发 PTW 页表漫游
-- 驱逐：SFENCE.VMA 刷新全部项（或指定 ASID/VPN 范围）
+TLB 采用 BRAM-based 4 路 × 4 组组相联结构（`use_tlb_bram: true`），共 16 项，使用 Tree-PLRU 替换策略：
+
+- **双端口 BRAM**：Port A = i-side 查找，Port B = d-side 查找 / Fill 写
+- **Flag BRAM（tlb_flag）**：128-bit × 4 deep，每路 32-bit 标志项
+  - 标志项格式：`{V(1), G(1), ASID(9), VPN(20), mega(1)}`
+- **Data BRAM（tlb_data）**：128-bit × 4 deep，每路 32-bit 数据项
+  - 数据项格式：`{PPN(22), R(1), W(1), X(1), U(1), A(1), D(1), pad(4)}`
+- **组索引**：`set_idx = VPN[SET_IDX_W+9:10]`（使用 VPN 高位，确保 megapage 的 VPN[9:0] 差异映射到同一组，无需复制）
+- **ASID 感知**：每项存储 ASID，匹配时需 ASID 一致或 G=1（全局项）
+- **查找**：BRAM 读延迟 1 周期，结果在 `lookup_valid` 信号有效时可用
+- **命中**：`valid && vpn_match && (global || asid_match)`，4 路并行比较
+- **Megapage 匹配**：仅比较 VPN[19:10]（高 10 位），VPN[9:0] 忽略
+- **缺失**：触发 PTW 页表漫游
+- **驱逐**：SFENCE.VMA 刷新全部项（逐组写零 BRAM，S_FLUSH 状态机）
+- **Shadow valid bits**：寄存器阵列跟踪各路有效状态，用于 Fill 时选择受害路（无效路优先）
+- **Fill 优先**：Port B 上 Fill 写优先于 d-side 查找，保证 TLB 填充不被阻塞
 
 **PTW 状态机（`ptw.sv`）**：
 
@@ -599,7 +646,7 @@ PTW 在页表漫游过程中自动管理访问位（A）和脏位（D）：
 1. 刷新 dcache：写回所有脏行（writeback dirty lines）
 2. 失效 icache：使所有标签 valid=0
 
-### 5.10 总线桥接 PTW 路径 (`cpu_bus_bridge`)
+### 5.11 总线桥接 PTW 路径 (`cpu_bus_bridge`)
 
 `cpu_bus_bridge` 除了处理 Cache Refill/Writeback 和 MMIO 请求外，还负责 PTW 的读写请求。PTW 请求旁路 dcache，直接通过 AHB 总线访问 BRAM 中的页表数据。
 
@@ -624,14 +671,55 @@ PTW 优先级高于 Cache Writeback 和 Refill，确保页表漫游不会被缓�
 2. PTW 状态机进入 S_FAULT
 3. 产生页错误异常，由陷阱管理器处理
 
+### 5.12 配置驱动的存储几何 (`cache_def.svh`)
+
+所有 Cache/TLB 几何参数由 `vivado_config.yaml` 的 `memory` 段统一定义，通过自动生成链保持 IP 与 RTL 同步：
+
+```
+vivado_config.yaml
+  ├─→ ip_gen.py           → create_ip TCL（BRAM 几何参数：Sram/icached/dcached/icachet/dcachet/tlb_flag/tlb_data）
+  ├─→ cache_header_gen.py → cache_def.svh（`define 宏：地址切片、宽度常量、存储模式）
+  └─→ operations.py       → _tcl_setup_ip() 在 create/refresh 时执行
+```
+
+**`cache_def.svh`** 为自动生成文件（勿手动编辑），包含：
+
+- SRAM 参数：`SRAM_DATA_WIDTH`、`SRAM_DEPTH`、`SRAM_ADDR_WIDTH`
+- ICache/DCache 参数：`NUM_SETS`、`NUM_WAYS`、`TAG_WIDTH`、`LINE_WORDS`、`LINE_WIDTH`、`DEPTH`、`ADDR_WIDTH`、`WEA_WIDTH`
+- 地址切片：`WORD_OFF_LO/HI`、`SET_IDX_LO/HI`、`TAG_LO/HI`
+- 标签 BRAM 参数：`TAG_ENTRY_WIDTH`、`TAG_BRAM_WIDTH/DEPTH/ADDR_WIDTH/WEA_WIDTH/BYTE_SIZE`
+- TLB 参数：`TLB_NUM_WAYS`、`TLB_NUM_SETS`、`TLB_SET_IDX_WIDTH`、`TLB_WAY_WIDTH`
+- TLB BRAM 参数：`TLB_FLAG/DATA_ENTRY_WIDTH`、`TLB_FLAG/DATA_BRAM_WIDTH/DEPTH/ADDR_WIDTH/WEA_WIDTH/BYTE_SIZE`
+- 存储模式：`USE_TAG_BRAM`、`USE_TLB_BRAM`
+
+修改 `vivado_config.yaml` 后运行 `python -m tools.vivado_cli --gen-config` 即可重新生成 `cache_def.svh`。
+
+**可配置项**（`vivado_config.yaml` memory 段）：
+
+| 参数 | 当前值 | 说明 |
+|------|--------|------|
+| `sram.data_width` | 32 | SRAM 字宽 |
+| `sram.depth` | 8192 | SRAM 深度（32KB） |
+| `sram.byte_enable` | false | SRAM 字节写使能（当前关闭） |
+| `icache/dcache.num_sets` | 8 | 组数 |
+| `icache/dcache.num_ways` | 4 | 相联度（⚠ tree_plru 硬编码，勿改） |
+| `icache/dcache.tag_width` | 7 | 标签位宽（⚠ tree_plru 硬编码，勿改） |
+| `icache/dcache.line_words` | 8 | 每行字数 |
+| `icache/dcache.byte_enable` | true | 数据 BRAM 字节写使能 |
+| `use_tag_bram` | true | 标签存储模式：true=BRAM IP，false=寄存器阵列 |
+| `tlb.num_ways` | 4 | TLB 相联度（⚠ tree_plru 硬编码，勿改） |
+| `tlb.num_sets` | 4 | TLB 组数（总项数 = ways × sets = 16） |
+| `use_tlb_bram` | true | TLB 存储模式：true=BRAM IP，false=寄存器阵列 |
+
 ---
 
 ## 6. 总线与外设
 
 ### 6.1 AHB-Lite 总线 (`ahb_lite_bus`)
 
-- 4 个从设备：SRAM、CLINT、PLIC、APB Bridge
+- 5 个从设备：SRAM、Default Slave、CLINT、PLIC、APB Bridge
 - 地址译码：按 `HADDR[31:24]` 选择从设备
+- Default Slave：未映射地址返回 ERROR 响应，防止总线挂死
 - 多路复用器回读数据与响应
 - 参数化：地址宽度、数据宽度、从设备数、SRAM 深度、等待状态数
 
@@ -728,17 +816,23 @@ PTW 优先级高于 Cache Writeback 和 Refill，确保页表漫游不会被缓�
 
 ### 8.3 仿真环境
 
-- 仿真器：Vivado XSim 2018.3（行为级仿真）
-- 自动化脚本：`vivado_do.tcl`（工程创建/刷新/仿真/综合/实现/下载一体化）
+- 仿真器：Vivado XSim（行为级仿真）
+- 自动化工具：Vivado Orchestrator（Python 驱动，替代 `vivado_do.tcl`）
+  - 会话隔离并行：不同任务可同时运行独立 Vivado 进程
+  - 分层哈希增量刷新：RTL/TB/COE/FPGA 四层独立检测，仅 COE 变更时秒级刷新
+  - 批处理模式：`-batch "isa_*"` 一条命令并行仿真多任务
+  - 配置驱动 IP 生成：`vivado_config.yaml` → `cache_def.svh` + BRAM create_ip TCL
 - 程序加载：`$readmemh` 在 elaboration 阶段将 hex 文件加载至 Sram BRAM IP
-- hex 文件由 `tools/rv2coe.py` 从 RISC-V 汇编源码编译生成（`--base-addr 0x80000000`）
+- hex/coe 文件由 `tools/rv2coe.py` 从 RISC-V 汇编源码编译生成（`--base-addr 0x80000000`）
 - BRAM 行为模型：0-cycle 读延迟，不精确模拟碰撞行为
 
 ### 8.4 已知限制
 
-- **BRAM 读延迟**：仿真中 BRAM 行为模型为组合输出（0-cycle），硬件中为寄存输出（1-cycle），仿真通过不代表硬件时序正确
+- **BRAM 读延迟**：仿真中 BRAM 行为模型为组合输出（0-cycle），硬件中为寄存输出（1-cycle），仿真通过不代表硬件时序正确。Cache/TLB 控制器已新增 S_TAG_READ 等状态处理 BRAM 延迟
 - **SRAM 地址空间**：SRAM 从设备仅 32KB（8192 字），地址范围 `0x8000_0000` ~ `0x8000_7FFC`
 - **Cache 容量**：ICache/DCache 各 1KB（8 组 × 4 路 × 32 字节），大工作集程序可能频繁缺失
+- **TLB 容量**：4 路 × 4 组 = 16 项，大工作集或频繁上下文切换可能 TLB 抖动
+- **SRAM 字节写**：当前 `byte_enable: false`，SRAM 仅支持整字写，不支持 SB/SH 直写（需经 DCache 写分配）
 
 ---
 
@@ -764,11 +858,12 @@ PTW 优先级高于 Cache Writeback 和 Refill，确保页表漫游不会被缓�
 | `dev/rtl/core/` | `cpu_clint.sv` | 核心本地中断控制器 |
 | `dev/rtl/core/` | `cpu_csr_interface.sv` | CSR 读写接口 |
 | `dev/rtl/core/` | `cpu_csr.sv` | CSR 寄存器文件 |
-| `dev/rtl/core/` | `icache_ctrl.sv` | 指令缓存控制器（4路组相联，Tree-PLRU） |
-| `dev/rtl/core/` | `dcache_ctrl.sv` | 数据缓存控制器（4路组相联，写回+写分配） |
+| `dev/rtl/core/` | `cache_def.svh` | Cache/TLB 几何常量（**自动生成**，勿手动编辑） |
+| `dev/rtl/core/` | `icache_ctrl.sv` | 指令缓存控制器（4路组相联，VIPT，Tree-PLRU） |
+| `dev/rtl/core/` | `dcache_ctrl.sv` | 数据缓存控制器（4路组相联，写回+写分配，VIPT） |
 | `dev/rtl/core/` | `tree_plru.sv` | Tree-PLRU 替换策略（4路，3-bit 状态） |
 | `dev/rtl/core/` | `MMU.sv` | Sv32 虚拟内存（TLB + PTW） |
-| `dev/rtl/core/` | `tlb.sv` | TLB（16项全相联，ASID感知） |
+| `dev/rtl/core/` | `tlb.sv` | TLB（4路×4组=16项，BRAM存储，ASID感知，Tree-PLRU） |
 | `dev/rtl/core/` | `ptw.sv` | Sv32 页表漫游器 |
 | `dev/rtl/core/` | `cpu_bus_bridge.sv` | AHB-Lite 总线桥接（MMIO + INCR8 突发） |
 | `dev/rtl/ALU/` | `alu_32bit.sv` | 32-bit ALU 顶层 |
@@ -787,6 +882,7 @@ PTW 优先级高于 Cache Writeback 和 Refill，确保页表漫游不会被缓�
 | `dev/rtl/AHB-lite/` | `ahb_decoder.sv` | 地址译码器 |
 | `dev/rtl/AHB-lite/` | `ahb_mux.sv` | 数据多路复用 |
 | `dev/rtl/AHB-lite/` | `ahb_sram_slave.sv` | SRAM 从设备（32KB，INCR8 突发） |
+| `dev/rtl/AHB-lite/` | `ahb_default_slave.sv` | 默认从设备（未映射地址返回 ERROR） |
 | `dev/rtl/AHB-lite/` | `ahb_clint.sv` | CLINT 从设备 |
 | `dev/rtl/AHB-lite/` | `ahb_plic.sv` | PLIC 从设备 |
 | `dev/rtl/APB/` | `ahb_lite_to_apb.sv` | AHB→APB 桥 |
@@ -802,6 +898,18 @@ PTW 优先级高于 Cache Writeback 和 Refill，确保页表漫游不会被缓�
 | `dev/rtl/APB/perips/` | `timer.sv` | 定时器 |
 | `dev/rtl/APB/perips/` | `spi.sv` | SPI（主模式，传输完成中断） |
 | `dev/rtl/APB/perips/` | `sync_fifo.sv` | 参数化同步 FIFO |
+
+**BRAM IP 核**（由 `vivado_config.yaml` 配置驱动，`ip_gen.py` 动态生成 create_ip TCL）：
+
+| BRAM IP | 配置 | 用途 |
+|---------|------|------|
+| `Sram` | 32-bit × 8192，True Dual Port | SRAM 主存储器（32KB） |
+| `icached` | 256-bit × 32，True Dual Port，Byte_Enable | ICache 数据存储 |
+| `dcached` | 256-bit × 32，True Dual Port，Byte_Enable | DCache 数据存储 |
+| `icachet` | 32-bit × 8，True Dual Port，Byte_Enable(Byte_Size=8) | ICache 标签存储 |
+| `dcachet` | 36-bit × 8，True Dual Port，Byte_Enable(Byte_Size=9) | DCache 标签存储 |
+| `tlb_flag` | 128-bit × 4，True Dual Port，Byte_Enable(Byte_Size=8) | TLB 标志存储 |
+| `tlb_data` | 128-bit × 4，True Dual Port，Byte_Enable(Byte_Size=8) | TLB 数据存储 |
 
 ### 9.2 Testbench 文件
 
@@ -831,68 +939,25 @@ PTW 优先级高于 Cache Writeback 和 Refill，确保页表漫游不会被缓�
 6. **非恢复余数除法器**：32 周期迭代 + 修正阶段，处理除零/溢出/符号
 7. **完整陷阱处理**：支持 11 种异常 + 3 种中断，符合 RISC-V 特权规范
 8. **M/S/U 三级特权模式**：支持陷阱委托（medeleg/mideleg），S-mode 独立陷阱向量与 CSR
-9. **Sv32 二级页表虚拟内存**：硬件页表漫游（PTW），16 项全相联 TLB，ASID 感知
+9. **Sv32 二级页表虚拟内存**：硬件页表漫游（PTW），16 项 4 路×4 组组相联 TLB，ASID 感知
 10. **SRET/SFENCE.VMA/fence.i 指令**：S-mode 陷阱返回、TLB 刷新、icache 失效 + dcache 写回
 11. **硬件管理 A/D 位**：PTW 自动写回 PTE 的访问位和脏位
-12. **4 路组相联缓存**：ICache/DCache 各 1KB（8 组 × 4 路 × 32B 行），寄存器标签并行比较
-13. **Tree-PLRU 替换**：3-bit 状态编码，无效路优先，近似 LRU 替换策略
+12. **4 路组相联缓存**：ICache/DCache 各 1KB（8 组 × 4 路 × 32B 行），BRAM 标签存储
+13. **Tree-PLRU 替换**：3-bit 状态编码，无效路优先，近似 LRU 替换策略（Cache 和 TLB 均使用）
 14. **写回 + 写分配**：Store 命中仅写 BRAM + 置 dirty，缺失先 Refill 再合并写入，脏行驱逐写回主存
 15. **INCR8 突发传输**：Cache Refill/Writeback 使用 AHB INCR8 突发，8 拍传输整行 256-bit 数据
-16. **MMIO 旁路**：`addr[31]==0` 直接走 AHB 总线，不经过缓存，保证外设访问强序
-17. **AHB-Lite + APB 双总线**：高速设备挂 AHB，低速外设挂 APB，通过桥接互联
-18. **总线桥优先级**：MMIO > PTW > Writeback > IRefill > DRefill，防止饿死与脏行堆积
-19. **数据 MMU translate_en 门控**：mem_en 同步控制 Sv32 翻译使能，消除组合信号竞争
-20. **外设中断路由**：UART/SPI/GPIO 中断输出经 PLIC 路由至 CPU（src[2]=UART, src[3]=SPI, src[4]=GPIO）
-21. **UART TX/RX FIFO**：各 16 字节同步 FIFO 缓冲，支持连续收发不丢数据
-22. **UART 可配波特率**：BAUD 寄存器运行时设置分频系数，0 回退默认 115200
-23. **GPIO 引脚变化中断**：逐引脚中断使能掩码 + 写 1 清除挂起状态
-24. **SPI 传输完成中断**：CTRL[4] 中断使能，传输完成置挂起，写 STATUS 清除
-25. **CLINT 可写 msip**：msip 寄存器（偏移 0x10）支持软件中断，符合 RISC-V CLINT 规范
-
----
-
-## 11. Bug 修复记录
-
-### Bug 12: hw_trap_is_enter 门控 epc/cause/tval 写入
-
-**问题**：陷阱 CSR（mepc/mcause/mtval/sepc/scause/stval）在非陷阱周期被误写，导致 CSR 值被覆盖为错误数据。
-
-**修复**：引入 `hw_trap_is_enter` 信号，仅当陷阱进入时有效。epc/cause/tval 的写入以 `hw_trap_is_enter` 为门控条件，确保仅在合法陷阱进入时更新。
-
-### Bug 13: mem_data_access 门控数据 MMU miss/page_fault
-
-**问题**：数据 MMU 的 TLB 缺失和页错误信号在非访存周期被错误触发，因为 MMU 的虚拟地址输入在非访存时为无效值。
-
-**修复**：使用 `mem_data_access` 信号门控数据 MMU 的 miss 和 page_fault 输出，仅当实际发生访存操作时才允许这些信号传播。
-
-### Bug 14: MMU translate_en 输入门控 sv32_enabled
-
-**问题**：数据 MMU 的 `sv32_enabled` 信号在非访存周期仍为活跃，导致 MMU 在不需要翻译时仍尝试翻译无效地址，产生虚假的 TLB 缺失或页错误。
-
-**修复**：MMU 增加 `translate_en` 输入，数据 MMU 的 `translate_en` 由 `mem_en` 驱动。仅当 `translate_en=1` 时 MMU 才执行 Sv32 翻译，否则直接输出虚拟地址（恒等映射）。
-
-### Bug 15: mem_data_access → mem_en 消除组合信号竞争
-
-**问题**：`mem_data_access` 作为组合信号直接驱动数据 MMU 的翻译使能，形成从 MMU 输出（page_fault/miss）到 MMU 输入（translate_en）的组合环路，导致仿真中出现 X 态传播和不确定行为。
-
-**修复**：将 `mem_data_access` 替换为寄存信号 `mem_en`（在 FSM 状态转换时锁存），打断组合环路。`mem_en` 在 STATE_MEM 入口置 1，在 STATE_MEM 出口清 0，确保数据 MMU 的翻译使能是时序信号而非组合信号。
-
-### Bug 16: AHB-Lite HTRANS 未在 MMIO/PTW 数据拍撤回 IDLE（导致外设重复写入）
-
-**问题**：在 `cpu_bus_bridge` 的 `S_MMIO_ADDR` 和 `S_PTW_ADDR` 状态中，当转移到数据拍（`S_MMIO_DATA`/`S_PTW_DATA`）时，`htrans_r` 保持为 NONSEQ（2'b10）。根据 AHB-Lite 协议，非流水传输的数据拍期间 HTRANS 必须为 IDLE。保持 NONSEQ 导致 AHB-to-APB 桥将其解释为新的流水传输，对外设（如 UART TX FIFO）产生虚假的重复 APB 写操作，每次 MMIO 写被执行 2 次。
-
-**修复**：在 `S_MMIO_ADDR` 和 `S_PTW_ADDR` 转移到数据拍的 else 分支中，添加 `htrans_r <= AHB_TRANS_IDLE`，确保数据拍期间 HTRANS 为 IDLE，消除虚假流水传输。
-
-### Bug 17: dcache_mmio_req 完成后未屏蔽导致重复发起 MMIO 传输
-
-**问题**：MMIO 传输完成后，`ahb_data_valid_r` 是一个单周期脉冲，仅在一个时钟周期有效。但 `dcache_mmio_req` 在 CPU 流水线完全推进前会保持高电平若干额外周期。当总线桥接回到 `S_IDLE` 时，它看到 `dcache_mmio_req` 仍为高，于是重新发起相同的 MMIO 传输，导致每次 MMIO 写被重复执行。
-
-**修复**：引入 `mmio_inst_served` 和 `mmio_data_served` 标志位。当 MMIO 传输在 `S_MMIO_DATA` 完成时置 1；当对应的 `*_mmio_req` 信号拉低时清 0。在 `S_IDLE` 的仲裁条件中添加 `!mmio_inst_served` / `!mmio_data_served` 保护，防止已完成的请求被重复发起。
-
-### Bug 16+17 联合效果
-
-两个 Bug 叠加导致每次 MMIO 写操作被执行 4 次（Bug 16 贡献 2×，Bug 17 贡献 2×）。对于幂等外设（如 SRAM、Timer 计数器），重复写入无可见影响。但对于非幂等外设（如 UART TX FIFO），每次写入推入一个新字节，4 次重复写入导致同一字节被推入 FIFO 4 次，表现为每个字符重复发送 4 次。
-
-### 经验教训
-
-**Vivado 工程 RTL 同步**：修改 `dev/rtl/` 下的源文件后，Vivado 工程中引用的 RTL 文件不会自动更新。必须在 Vivado 中执行 `update_compile_order -fileset sources_1` 或通过 `vivado_do.tcl` 的 `create`/`sim` 步骤重新加载，否则仿真仍运行旧版 RTL，导致 bug 修复无法生效。
+16. **MMIO 旁路**：`vaddr[31]==0` 直接走 AHB 总线，不经过缓存，保证外设访问强序
+17. **VIPT（Virtually-Indexed Physically-Tagged）**：Cache 使用虚拟地址的页内偏移位索引，物理地址标签比较，避免 MMU 翻译延迟
+18. **BRAM-based 标签存储**：Tag 使用 BRAM IP（icachet/dcachet），byte-write enable 支持单路更新，S_TAG_READ 状态处理 1-cycle 读延迟
+19. **BRAM-based TLB**：4 路×4 组组相联，tlb_flag/tlb_data 双 BRAM，双端口（i-side/d-side），Tree-PLRU 替换
+20. **AHB-Lite + APB 双总线**：高速设备挂 AHB，低速外设挂 APB，通过桥接互联
+21. **AHB Default Slave**：未映射地址返回 ERROR 响应，防止总线挂死
+22. **总线桥优先级**：MMIO > PTW > Writeback > IRefill > DRefill，防止饿死与脏行堆积
+23. **数据 MMU translate_en 门控**：mem_en 同步控制 Sv32 翻译使能，消除组合信号竞争
+24. **配置驱动存储几何**：`vivado_config.yaml` → `cache_def.svh` + BRAM create_ip TCL，IP 与 RTL 常量自动同步
+25. **外设中断路由**：UART/SPI/GPIO 中断输出经 PLIC 路由至 CPU（src[2]=UART, src[3]=SPI, src[4]=GPIO）
+26. **UART TX/RX FIFO**：各 16 字节同步 FIFO 缓冲，支持连续收发不丢数据
+27. **UART 可配波特率**：BAUD 寄存器运行时设置分频系数，0 回退默认 115200
+28. **GPIO 引脚变化中断**：逐引脚中断使能掩码 + 写 1 清除挂起状态
+29. **SPI 传输完成中断**：CTRL[4] 中断使能，传输完成置挂起，写 STATUS 清除
+30. **CLINT 可写 msip**：msip 寄存器（偏移 0x10）支持软件中断，符合 RISC-V CLINT 规范

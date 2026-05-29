@@ -35,7 +35,7 @@ try:
         Header,
         Input,
         Label,
-        RichLog,
+        TextArea,
         Select,
         Static,
     )
@@ -464,8 +464,9 @@ class OutputViewer(Vertical):
     OutputViewer > .output-title-bar > Button {
         dock: right;
         min-width: 8;
+        margin-left: 1;
     }
-    OutputViewer > RichLog {
+    OutputViewer > TextArea {
         height: 1fr;
         scrollbar-size: 1 1;
     }
@@ -477,38 +478,38 @@ class OutputViewer(Vertical):
     def compose(self) -> ComposeResult:
         with Horizontal(classes="output-title-bar"):
             yield Label("Output")
+            yield Button("Copy", id="btn-copy-output", variant="default")
             yield Button("Clear", id="btn-clear-output", variant="default")
-        yield RichLog(id="vivado-output", highlight=True, markup=True)
+        yield TextArea(id="vivado-output", read_only=True)
 
     def write(self, text: str) -> None:
         """Append text to the output viewer."""
         try:
-            log = self.query_one("#vivado-output", RichLog)
-            log.write(text)
+            log = self.query_one("#vivado-output", TextArea)
+            log.move_cursor(log.document.end)
+            log.insert(text + "\n")
         except Exception:
             pass
 
     def write_error(self, text: str) -> None:
-        """Append error text (styled red) to the output viewer."""
+        """Append error text to the output viewer."""
         try:
-            log = self.query_one("#vivado-output", RichLog)
-            log.write(f"[bold red]{text}[/bold red]")
+            self.write(f"ERROR: {text}")
         except Exception:
             pass
 
     def write_warning(self, text: str) -> None:
-        """Append warning text (styled yellow) to the output viewer."""
+        """Append warning text to the output viewer."""
         try:
-            log = self.query_one("#vivado-output", RichLog)
-            log.write(f"[bold yellow]{text}[/bold yellow]")
+            self.write(f"WARNING: {text}")
         except Exception:
             pass
 
     def clear_output(self) -> None:
         """Clear the output viewer."""
         try:
-            log = self.query_one("#vivado-output", RichLog)
-            log.clear()
+            log = self.query_one("#vivado-output", TextArea)
+            log.text = ""
         except Exception:
             pass
 
@@ -982,6 +983,9 @@ class VivadoTUI(App):
         if event.button.id == "btn-clear-output":
             self.action_clear_output()
             return
+        if event.button.id == "btn-copy-output":
+            self.action_copy_output()
+            return
 
         session = self._resolve_session()
         if not session:
@@ -1028,6 +1032,17 @@ class VivadoTUI(App):
         try:
             viewer = self.query_one("#output-area", OutputViewer)
             viewer.clear_output()
+        except Exception:
+            pass
+
+    def action_copy_output(self) -> None:
+        """Copy output to clipboard."""
+        try:
+            ta = self.query_one("#vivado-output", TextArea)
+            text_to_copy = ta.selected_text or ta.text
+            if text_to_copy:
+                self.copy_to_clipboard(text_to_copy)
+                self._output_write("--- Copied to clipboard ---")
         except Exception:
             pass
 

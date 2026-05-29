@@ -5,33 +5,18 @@
 tasks:
   cpu_full:
     tb: tb_simple_cpu_top
-    coe: test/cpu_test.coe
+    coe: test/integration/cpu_full.coe
     runtime: 5ms
 
   cpu_compute:
     tb: tb_simple_cpu_compute
-    coe: test/cpu_test_compute.coe
+    coe: test/integration/cpu_compute.coe
     runtime: 5ms
 
   cpu_trap:
     tb: tb_simple_cpu_trap
-    coe: test/cpu_test_trap.coe
+    coe: test/integration/cpu_trap.coe
     runtime: 3ms
-
-  cpu_fencei:
-    tb: tb_cpu_test_fencei
-    coe: test/cpu_test_fencei.coe
-    runtime: 5ms
-
-  cpu_access_fault:
-    tb: tb_cpu_test_access_fault
-    coe: test/cpu_test_access_fault.coe
-    runtime: 3ms
-
-  cpu_priv:
-    tb: tb_simple_cpu_priv
-    coe: test/cpu_test_priv.coe
-    runtime: 20ms
 
   isa_alu:
     tb: tb_isa_alu
@@ -91,6 +76,26 @@ tasks:
   exception_timer_irq:
     tb: tb_exception_timer_irq
     coe: test/exception/timer_irq.coe
+    runtime: 10ms
+
+  exception_interrupt_basic:
+    tb: tb_exception_interrupt_basic
+    coe: test/exception/interrupt_basic.coe
+    runtime: 10ms
+
+  privilege_priv_transition:
+    tb: tb_privilege_priv_transition
+    coe: test/privilege/priv_transition.coe
+    runtime: 20ms
+
+  privilege_delegation:
+    tb: tb_privilege_delegation
+    coe: test/privilege/delegation.coe
+    runtime: 20ms
+
+  privilege_csr_access_priv:
+    tb: tb_privilege_csr_access_priv
+    coe: test/privilege/csr_access_priv.coe
     runtime: 10ms
 
   mmu_sv32_basic:

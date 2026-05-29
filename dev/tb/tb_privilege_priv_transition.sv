@@ -1,6 +1,13 @@
 `timescale 1ns / 1ps
 
-module tb_simple_cpu_priv;
+// ============================================================
+// tb_privilege_priv_transition.sv — M↔S↔U privilege transition testbench
+// ============================================================
+
+module tb_privilege_priv_transition;
+
+    localparam integer EXPECTED_TOTAL = 11;
+    localparam integer SIM_CYCLES    = 200000;
 
     reg clk;
     reg reset;
@@ -119,49 +126,33 @@ module tb_simple_cpu_priv;
         forever #5 clk = ~clk;
     end
 
-    task check_reg;
-        input [4:0] addr;
-        input [31:0] expected;
-        begin
-            rf_addr = addr;
-            #1;
-            if (rf_data === expected) begin
-                pass_count = pass_count + 1;
-                $display("PASS reg x%0d = 0x%08h", addr, rf_data);
-            end else begin
-                fail_count = fail_count + 1;
-                $display("FAIL reg x%0d expected=0x%08h got=0x%08h", addr, expected, rf_data);
-            end
-        end
-    endtask
+    // ── Debug: trace privilege transitions ──
+    integer cycle_cnt;
+    integer trap_count;
 
-    reg [1:0] prev_priv;
-    integer trace_count;
-    reg [31:0] prev_wb_pc;
-    reg sv32_active;
-    reg [31:0] prev_x28;
-    reg [31:0] prev_x29;
+    initial begin
+        cycle_cnt = 0;
+        trap_count = 0;
+        @(negedge reset);
+        forever begin
+            @(posedge clk);
+            cycle_cnt = cycle_cnt + 1;
 
-    always @(posedge clk) begin
-        if (trace_count > 0) begin
-            if (dut.u_regfile.rf[28] !== prev_x28 || dut.u_regfile.rf[29] !== prev_x29) begin
-                $display("[%0t] COUNTER: x28=%0d x29=%0d x10=0x%08h priv=%b pc=0x%08h inst=0x%08h",
-                    $time, dut.u_regfile.rf[28], dut.u_regfile.rf[29],
-                    dut.u_regfile.rf[10],
-                    dut.priv_mode, wb_pc, wb_inst);
+            // Detect trap entry (print first 8)
+            if (dut.trap_enter_valid && cycle_cnt > 100) begin
+                trap_count = trap_count + 1;
+                if (trap_count <= 8) begin
+                    $display("[t=%0d] >>> TRAP #%0d: exe_pc=0x%08h mstatus=0x%08h priv=%0d",
+                        cycle_cnt, trap_count, exe_pc, dut.csr_mstatus, dut.priv_mode);
+                end
             end
-            prev_x28 = dut.u_regfile.rf[28];
-            prev_x29 = dut.u_regfile.rf[29];
-            if (dut.priv_mode !== prev_priv) begin
-                $display("[%0t] PRIV_CHANGE: %b->%b pc=0x%08h mcause=0x%08h scause=0x%08h sepc=0x%08h", 
-                    $time, prev_priv, dut.priv_mode, wb_pc, 
-                    dut.u_trap_csr.u_csr_if.u_csr.r_mcause,
-                    dut.u_trap_csr.u_csr_if.u_csr.r_scause,
-                    dut.u_trap_csr.u_csr_if.u_csr.r_sepc);
+
+            // Detect mret/sret execution
+            if ((dut.dec_is_mret || dut.dec_is_sret) && cycle_cnt > 100 && cycle_cnt <= 10000) begin
+                $display("[t=%0d] >>> %s: exe_pc=0x%08h mstatus=0x%08h priv=%0d",
+                    cycle_cnt, dut.dec_is_mret ? "MRET" : "SRET",
+                    exe_pc, dut.csr_mstatus, dut.priv_mode);
             end
-            prev_priv = dut.priv_mode;
-            prev_wb_pc = wb_pc;
-            trace_count = trace_count + 1;
         end
     end
 
@@ -170,37 +161,59 @@ module tb_simple_cpu_priv;
         fail_count = 0;
         rf_addr = 5'd0;
         reset = 1'b1;
-        trace_count = 0;
-        prev_priv = 2'b11;
-        prev_wb_pc = 32'h0;
-        sv32_active = 1'b0;
-        prev_x28 = 32'h0;
-        prev_x29 = 32'h0;
 
         repeat (5) @(posedge clk);
         reset = 1'b0;
-        trace_count = 1;
 
-        repeat (2000000) @(posedge clk);
+        repeat (SIM_CYCLES) @(posedge clk);
 
-        check_reg(5'd28, 32'h0000000A);
-        check_reg(5'd29, 32'h0000000A);
-        check_reg(5'd20, 32'h00000001);
+        $display("");
+        $display("--- Privilege PRIV_TRANSITION Results ---");
 
-        rf_addr = 5'd24; #1; $display("DEBUG x24(mcause/scause) = 0x%08h", rf_data);
-        rf_addr = 5'd25; #1; $display("DEBUG x25(mepc/sepc)    = 0x%08h", rf_data);
-        rf_addr = 5'd10; #1; $display("DEBUG x10             = 0x%08h", rf_data);
-        rf_addr = 5'd11; #1; $display("DEBUG x11             = 0x%08h", rf_data);
-        $display("DEBUG if_pc = 0x%08h  wb_pc = 0x%08h", if_pc, wb_pc);
+        rf_addr = 5'd28; #1;
+        $display("  x28 (pass_count)    = %0d", rf_data);
 
-        $display("========================================");
-        $display("privilege test summary");
-        $display("pass=%0d fail=%0d", pass_count, fail_count);
-        if (fail_count == 0) begin
-            $display("ALL TESTS PASSED");
+        rf_addr = 5'd29; #1;
+        $display("  x29 (total_count)   = %0d", rf_data);
+
+        rf_addr = 5'd30; #1;
+        $display("  x30 (first_fail_id) = %0d", rf_data);
+
+        $display("");
+        $display("  [DEBUG] Final CPU state:");
+        $display("    if_pc  = 0x%08h", if_pc);
+        $display("    exe_pc = 0x%08h", exe_pc);
+        $display("    priv   = %0d", dut.priv_mode);
+        $display("    mstatus= 0x%08h", dut.csr_mstatus);
+
+        $display("");
+
+        rf_addr = 5'd28; #1;
+        if (rf_data === EXPECTED_TOTAL) begin
+            pass_count = pass_count + 1;
+            $display("  PASS pass_count = %0d", EXPECTED_TOTAL);
         end else begin
-            $display("TEST FAILED");
+            fail_count = fail_count + 1;
+            $display("  FAIL pass_count expected=%0d got=%0d", EXPECTED_TOTAL, rf_data);
         end
+
+        rf_addr = 5'd30; #1;
+        if (rf_data === 32'd0) begin
+            pass_count = pass_count + 1;
+            $display("  PASS first_fail_id = 0 (no failures)");
+        end else begin
+            fail_count = fail_count + 1;
+            $display("  FAIL first_fail_id = %0d (test %0d failed)", rf_data, rf_data);
+        end
+
+        $display("");
+        $display("========================================");
+        $display("Privilege PRIV_TRANSITION summary");
+        $display("pass=%0d fail=%0d", pass_count, fail_count);
+        if (fail_count == 0)
+            $display("ALL TESTS PASSED");
+        else
+            $display("TEST FAILED");
         $display("========================================");
         $finish;
     end

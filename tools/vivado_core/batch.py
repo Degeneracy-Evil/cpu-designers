@@ -551,6 +551,14 @@ class BatchExecutor:
         duration = time.monotonic() - t0
         tracker.on_complete(batch_task.task_name, all_success, duration)
 
+        # Batch mode explicit resource cleanup:
+        # Stop Vivado to release the concurrent semaphore and drop running_count(),
+        # allowing subsequent tasks in the batch to acquire a concurrency slot.
+        try:
+            session.stop_vivado()
+        except Exception as e:
+            logger.warning("Failed to stop Vivado for session %s: %s", session_name, e)
+
         return TaskResult(
             task_name=batch_task.task_name,
             session_name=session_name,

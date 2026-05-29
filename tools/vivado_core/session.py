@@ -546,14 +546,17 @@ class SessionManager:
         """
         # --- Resource guards ---
         existing = self.list_sessions()
+        # Auto-evict oldest sessions if at capacity (LRU cache behavior)
         if len(existing) >= self.config.limits.max_sessions:
-            raise SessionLimitError(
-                len(existing), self.config.limits.max_sessions
-            )
-        if self.running_count() >= self.config.limits.max_concurrent:
-            raise ConcurrentLimitError(
-                self.running_count(), self.config.limits.max_concurrent
-            )
+            self.cleanup(keep=max(self.config.limits.max_sessions - 1, 0))
+            existing = self.list_sessions()
+            if len(existing) >= self.config.limits.max_sessions:
+                raise SessionLimitError(
+                    len(existing), self.config.limits.max_sessions
+                )
+        # Note: We rely on _concurrent_sem inside Session.start_vivado() 
+        # to restrict actual Vivado process concurrency. Checking 
+        # running_count() here blocks queuing new sessions in batch mode.
         current_mb = self.total_disk_mb()
         if current_mb >= self.config.limits.max_disk_gb * 1024:
             raise DiskLimitError(current_mb, self.config.limits.max_disk_gb)

@@ -1,6 +1,13 @@
 `timescale 1ns / 1ps
 
-module tb_cpu_test_fencei;
+// ============================================================
+// tb_privilege_csr_access_priv.sv — CSR privilege access control testbench
+// ============================================================
+
+module tb_privilege_csr_access_priv;
+
+    localparam integer EXPECTED_TOTAL = 4;
+    localparam integer SIM_CYCLES    = 50000;
 
     reg clk;
     reg reset;
@@ -115,42 +122,9 @@ module tb_cpu_test_fencei;
     );
 
     initial begin
-    end
-
-    initial begin
         clk = 1'b0;
         forever #5 clk = ~clk;
     end
-
-    task check_reg;
-        input [4:0] addr;
-        input [31:0] expected;
-        begin
-            rf_addr = addr;
-            #1;
-            if (rf_data === expected) begin
-                pass_count = pass_count + 1;
-                $display("PASS reg x%0d = 0x%08h", addr, rf_data);
-            end else begin
-                fail_count = fail_count + 1;
-                $display("FAIL reg x%0d expected=0x%08h got=0x%08h", addr, expected, rf_data);
-            end
-        end
-    endtask
-
-    task check_mem_word;
-        input [31:0] addr;
-        input [31:0] expected;
-        begin
-`ifdef XILINX_SIMULATOR
-            $display("SKIP mem[0x%08h] check (BRAM IP internal)", addr);
-            pass_count = pass_count + 1;
-`else
-            $display("SKIP mem[0x%08h] check (BRAM IP, use Vivado)", addr);
-            pass_count = pass_count + 1;
-`endif
-        end
-    endtask
 
     initial begin
         pass_count = 0;
@@ -161,28 +135,48 @@ module tb_cpu_test_fencei;
         repeat (5) @(posedge clk);
         reset = 1'b0;
 
-        repeat (120000) @(posedge clk);
+        repeat (SIM_CYCLES) @(posedge clk);
 
-        check_reg(5'd10, 32'h000000FF);
-        check_reg(5'd11, 32'hDEADBEEF);
-        check_reg(5'd12, 32'h12345678);
-        check_reg(5'd13, 32'hABCDEF01);
-        check_reg(5'd14, 32'hDEADBEEF);
-        check_reg(5'd15, 32'h0000CAFE);
-        check_reg(5'd16, 32'h00000042);
+        $display("");
+        $display("--- Privilege CSR_ACCESS_PRIV Results ---");
 
-        check_mem_word(32'd0, 32'hDEADBEEF);
-        check_mem_word(32'd4, 32'h12345678);
-        check_mem_word(32'd8, 32'hABCDEF01);
+        rf_addr = 5'd28; #1;
+        $display("  x28 (pass_count)    = %0d", rf_data);
 
-        $display("========================================");
-        $display("fence.i JIT test summary");
-        $display("pass=%0d fail=%0d", pass_count, fail_count);
-        if (fail_count == 0) begin
-            $display("ALL TESTS PASSED");
+        rf_addr = 5'd29; #1;
+        $display("  x29 (total_count)   = %0d", rf_data);
+
+        rf_addr = 5'd30; #1;
+        $display("  x30 (first_fail_id) = %0d", rf_data);
+
+        $display("");
+
+        rf_addr = 5'd28; #1;
+        if (rf_data === EXPECTED_TOTAL) begin
+            pass_count = pass_count + 1;
+            $display("  PASS pass_count = %0d", EXPECTED_TOTAL);
         end else begin
-            $display("TEST FAILED");
+            fail_count = fail_count + 1;
+            $display("  FAIL pass_count expected=%0d got=%0d", EXPECTED_TOTAL, rf_data);
         end
+
+        rf_addr = 5'd30; #1;
+        if (rf_data === 32'd0) begin
+            pass_count = pass_count + 1;
+            $display("  PASS first_fail_id = 0 (no failures)");
+        end else begin
+            fail_count = fail_count + 1;
+            $display("  FAIL first_fail_id = %0d (test %0d failed)", rf_data, rf_data);
+        end
+
+        $display("");
+        $display("========================================");
+        $display("Privilege CSR_ACCESS_PRIV summary");
+        $display("pass=%0d fail=%0d", pass_count, fail_count);
+        if (fail_count == 0)
+            $display("ALL TESTS PASSED");
+        else
+            $display("TEST FAILED");
         $display("========================================");
         $finish;
     end

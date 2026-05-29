@@ -1,6 +1,13 @@
 `timescale 1ns / 1ps
 
-module tb_cpu_test_access_fault;
+// ============================================================
+// tb_privilege_delegation.sv — Exception/interrupt delegation testbench
+// ============================================================
+
+module tb_privilege_delegation;
+
+    localparam integer EXPECTED_TOTAL = 6;
+    localparam integer SIM_CYCLES    = 200000;
 
     reg clk;
     reg reset;
@@ -115,42 +122,9 @@ module tb_cpu_test_access_fault;
     );
 
     initial begin
-    end
-
-    initial begin
         clk = 1'b0;
         forever #5 clk = ~clk;
     end
-
-    task check_reg;
-        input [4:0] addr;
-        input [31:0] expected;
-        begin
-            rf_addr = addr;
-            #1;
-            if (rf_data === expected) begin
-                pass_count = pass_count + 1;
-                $display("PASS reg x%0d = 0x%08h", addr, rf_data);
-            end else begin
-                fail_count = fail_count + 1;
-                $display("FAIL reg x%0d expected=0x%08h got=0x%08h", addr, expected, rf_data);
-            end
-        end
-    endtask
-
-    task check_mem_word;
-        input [31:0] addr;
-        input [31:0] expected;
-        begin
-`ifdef XILINX_SIMULATOR
-            $display("SKIP mem[0x%08h] check (BRAM IP internal)", addr);
-            pass_count = pass_count + 1;
-`else
-            $display("SKIP mem[0x%08h] check (BRAM IP, use Vivado)", addr);
-            pass_count = pass_count + 1;
-`endif
-        end
-    endtask
 
     initial begin
         pass_count = 0;
@@ -161,25 +135,55 @@ module tb_cpu_test_access_fault;
         repeat (5) @(posedge clk);
         reset = 1'b0;
 
-        repeat (50000) @(posedge clk);
+        repeat (SIM_CYCLES) @(posedge clk);
 
-        check_reg(5'd1,  32'h00000003);
-        check_reg(5'd2,  32'h0000002A);
-        check_reg(5'd19, 32'h00000001);
-        check_reg(5'd21, 32'h40000000);
+        $display("");
+        $display("--- Privilege DELEGATION Results ---");
 
-        check_mem_word(32'h48, 32'h00000005);
-        check_mem_word(32'h4C, 32'h00000007);
-        check_mem_word(32'h50, 32'h00000001);
+        rf_addr = 5'd28; #1;
+        $display("  x28 (pass_count)    = %0d", rf_data);
 
-        $display("========================================");
-        $display("access fault test summary");
-        $display("pass=%0d fail=%0d", pass_count, fail_count);
-        if (fail_count == 0) begin
-            $display("ALL TESTS PASSED");
+        rf_addr = 5'd29; #1;
+        $display("  x29 (total_count)   = %0d", rf_data);
+
+        rf_addr = 5'd30; #1;
+        $display("  x30 (first_fail_id) = %0d", rf_data);
+
+        $display("");
+        $display("  [DEBUG] Final CPU state:");
+        $display("    if_pc  = 0x%08h", if_pc);
+        $display("    exe_pc = 0x%08h", exe_pc);
+        $display("    priv   = %0d", dut.priv_mode);
+        $display("    mstatus= 0x%08h", dut.csr_mstatus);
+
+        $display("");
+
+        rf_addr = 5'd28; #1;
+        if (rf_data === EXPECTED_TOTAL) begin
+            pass_count = pass_count + 1;
+            $display("  PASS pass_count = %0d", EXPECTED_TOTAL);
         end else begin
-            $display("TEST FAILED");
+            fail_count = fail_count + 1;
+            $display("  FAIL pass_count expected=%0d got=%0d", EXPECTED_TOTAL, rf_data);
         end
+
+        rf_addr = 5'd30; #1;
+        if (rf_data === 32'd0) begin
+            pass_count = pass_count + 1;
+            $display("  PASS first_fail_id = 0 (no failures)");
+        end else begin
+            fail_count = fail_count + 1;
+            $display("  FAIL first_fail_id = %0d (test %0d failed)", rf_data, rf_data);
+        end
+
+        $display("");
+        $display("========================================");
+        $display("Privilege DELEGATION summary");
+        $display("pass=%0d fail=%0d", pass_count, fail_count);
+        if (fail_count == 0)
+            $display("ALL TESTS PASSED");
+        else
+            $display("TEST FAILED");
         $display("========================================");
         $finish;
     end

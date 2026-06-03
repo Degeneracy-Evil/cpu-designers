@@ -1,0 +1,39 @@
+graph TD
+    subgraph CLINT["CLINT 核心本地中断器"]
+        MTIME["mtime<br/>自由运行计数器"]
+        MTIMECMP["mtimecmp<br/>比较寄存器"]
+        MSIPREG["msip<br/>软件中断位"]
+    end
+
+    subgraph PLIC["PLIC 平台级中断控制器"]
+        PRIO["优先级寄存器<br/>prio[1]~prio[7]"]
+        PEND["挂起位"]
+        EN["使能位"]
+        THRESH["阈值"]
+        CLAIM["Claim/Complete<br/>握手"]
+    end
+
+    subgraph CORE["CPU 核心"]
+        CLINT_MOD["cpu_clint<br/>中断仲裁"]
+        TRAP_MGR["cpu_trap_manager<br/>异常检测与优先级"]
+        CSR["cpu_csr<br/>CSR寄存器"]
+        CTRL["cpu_controller<br/>流水线FSM"]
+    end
+
+    MTIME -->|"mtime ≥ mtimecmp"| MTIP["mtip"]
+    MTIMECMP --> MTIP
+    MSIPREG -->|"bit 0"| MSIPOUT["msip"]
+
+    PRIO --> ARB["优先级仲裁"]
+    PEND --> ARB
+    EN --> ARB
+    THRESH --> ARB
+    ARB --> EIP["eip"]
+
+    MTIP --> CLINT_MOD
+    MSIPOUT --> CLINT_MOD
+    EIP -->|"ext_meip"| CLINT_MOD
+    TRAP_MGR -->|"exception_valid"| CLINT_MOD
+    CLINT_MOD -->|"trap_enter"| CTRL
+    CTRL -->|"TRAP_ENTER"| CSR
+    CSR -->|"mepc→PC<br/>mtvec→PC"| CTRL

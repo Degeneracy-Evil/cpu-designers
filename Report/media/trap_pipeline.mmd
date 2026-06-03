@@ -1,0 +1,26 @@
+flowchart TD
+    FETCH["取指阶段"] -->|"指令访问错误(1)<br/>指令页错误(12)"| TM["cpu_trap_manager<br/>异常收集与优先级排序"]
+    DECODE["译码阶段"] -->|"非法指令(2)<br/>ECALL(8/9/11)<br/>EBREAK(3)"| TM
+    EXEC["执行阶段"] -->|"分支未对齐(0)"| TM
+    MEM["访存阶段"] -->|"加载未对齐(4)/访问错误(5)/页错误(13)<br/>存储未对齐(6)/访问错误(7)/页错误(15)"| TM
+
+    TM --> EXC{"异常有效?"}
+    EXC -->|"是：同步异常优先"| ENTER["trap_enter"]
+    EXC -->|"否"| INT{"中断挂起?<br/>MIE∧(MSIP∨MTIP∨MEIP)"}
+    INT -->|"是"| ENTER
+    INT -->|"否"| CONTINUE["继续执行"]
+
+    ENTER --> DELEG{"medeleg/mideleg<br/>委托?"}
+    DELEG -->|"否"| MTRAP["M态陷阱"]
+    DELEG -->|"是"| STRAP["S态陷阱"]
+
+    MTRAP --> CSRW["CSR硬件写入<br/>mepc←PC, mcause←cause<br/>mtval←fault_val<br/>MPP←priv, MPIE←MIE, MIE←0"]
+    STRAP --> CSRW2["CSR硬件写入<br/>sepc←PC, scause←cause<br/>stval←fault_val<br/>SPP←priv, SPIE←SIE, SIE←0"]
+
+    CSRW --> JUMP["PC←mtvec, priv←M"]
+    CSRW2 --> JUMP2["PC←stvec, priv←S"]
+
+    MRET["MRET"] --> MRESTORE["MIE←MPIE, MPIE←1, MPP←U"]
+    MRESTORE --> MRET_PC["PC←mepc, priv←MPP"]
+    SRET["SRET"] --> SRESTORE["SIE←SPIE, SPIE←1, SPP←0"]
+    SRESTORE --> SRET_PC["PC←sepc, priv←SPP"]

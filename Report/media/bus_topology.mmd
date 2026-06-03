@@ -1,0 +1,37 @@
+graph LR
+    subgraph Master["主设备"]
+        BRIDGE["cpu_bus_bridge<br/>(AHB Master)"]
+    end
+    subgraph Bus["AHB-Lite 互连"]
+        DEC["地址解码器"]
+        MUX["响应多路选择器"]
+    end
+    subgraph Slaves["从设备"]
+        SRAM["ahb_sram_slave<br/>主存 0x8000_0000"]
+        PLIC["ahb_plic<br/>PLIC 0x0C00_0000"]
+        CLINT["ahb_clint<br/>CLINT 0x0200_0000"]
+        APB["AHB-to-APB 桥<br/>0x1000_0000"]
+        DEF["default_slave<br/>(错误响应)"]
+    end
+    subgraph Peripherals["APB 外设"]
+        UART["UART"]
+        GPIO["GPIO"]
+        TIMER["Timer"]
+        SPI["SPI"]
+    end
+    BRIDGE -->|"HADDR/HTRANS/<br/>HBURST/HWRITE"| DEC
+    DEC --> SRAM
+    DEC --> PLIC
+    DEC --> CLINT
+    DEC --> APB
+    DEC --> DEF
+    SRAM --> MUX
+    PLIC --> MUX
+    CLINT --> MUX
+    APB --> MUX
+    DEF --> MUX
+    MUX -->|"HRDATA/HREADY/<br/>HRESP"| BRIDGE
+    APB --> UART
+    APB --> GPIO
+    APB --> TIMER
+    APB --> SPI

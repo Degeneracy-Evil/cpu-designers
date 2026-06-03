@@ -1,0 +1,26 @@
+stateDiagram-v2
+    [*] --> S_IDLE
+
+    S_IDLE --> S_MMIO_ADDR : MMIO请求
+    S_IDLE --> S_IREFILL_ADDR : icache refill
+    S_IDLE --> S_DREFILL_ADDR : dcache refill
+    S_IDLE --> S_WB_ADDR : dcache写回
+    S_IDLE --> S_PTW_ADDR : PTW页表漫步
+
+    S_MMIO_ADDR --> S_MMIO_DATA : NONSEQ
+    S_MMIO_DATA --> S_IDLE : HREADY
+
+    S_IREFILL_ADDR --> S_IREFILL_DATA : NONSEQ·INCR8
+    S_IREFILL_DATA --> S_IREFILL_DATA : SEQ beat&lt;7
+    S_IREFILL_DATA --> S_IDLE : last_beat
+
+    S_DREFILL_ADDR --> S_DREFILL_DATA : NONSEQ·INCR8
+    S_DREFILL_DATA --> S_DREFILL_DATA : SEQ beat&lt;7
+    S_DREFILL_DATA --> S_IDLE : last_beat
+
+    S_WB_ADDR --> S_WB_DATA : NONSEQ·INCR8
+    S_WB_DATA --> S_WB_DATA : SEQ beat&lt;7
+    S_WB_DATA --> S_IDLE : last_beat
+
+    S_PTW_ADDR --> S_PTW_DATA : NONSEQ
+    S_PTW_DATA --> S_IDLE : HREADY

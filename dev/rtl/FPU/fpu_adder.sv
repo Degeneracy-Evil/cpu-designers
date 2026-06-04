@@ -91,7 +91,11 @@ module fpu_adder(
     wire        sign_b   = swap ? s1_sign : s2_sign;
 
     // Result sign for effective subtract
-    wire        res_sign_sub = sign_a;  // larger magnitude determines sign
+    // Must use effective sign of the larger magnitude operand, not original sign.
+    // When swap=1, the larger operand is src2 with effective sign eff_sign2.
+    // When swap=0, the larger operand is src1 with sign s1_sign.
+    wire        eff_sign_a  = swap ? eff_sign2 : s1_sign;
+    wire        res_sign_sub = eff_sign_a;
 
     // Result sign for effective add
     wire        res_sign_add = s1_sign;  // both have same effective sign

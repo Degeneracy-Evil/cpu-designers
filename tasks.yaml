@@ -273,5 +273,29 @@ tasks:
     tb: tb_non_restoring_divider
     runtime: 5000ns
 
+  fpu_adder:
+    tb: tb_fpu_adder
+    runtime: 10us
+
+  fpu_multiplier:
+    tb: tb_fpu_multiplier
+    runtime: 10us
+
+  fpu_divider:
+    tb: tb_fpu_divider
+    runtime: 50us
+
+  fpu_sqrt:
+    tb: tb_fpu_sqrt
+    runtime: 50us
+
+  fpu_cvt:
+    tb: tb_fpu_cvt
+    runtime: 10us
+
+  fpu_unit:
+    tb: tb_fpu_unit
+    runtime: 50us
+
   fpga:
     top: system_top

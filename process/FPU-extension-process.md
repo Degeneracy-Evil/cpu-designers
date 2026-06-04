@@ -13,7 +13,7 @@
 | Phase 3 | 指令译码 + 数据通路集成 | ✅ 完成 | 2026-06-04 |
 | Phase 4 | 浮点指令 ISA 测试 | ✅ 完成 | 2026-06-04 |
 | Phase 5 | 浮点异常/舍入测试 | ✅ 完成 | 2026-06-04 |
-| Phase 6 | FPU 单元测试 | ⬜ 未开始 | |
+| Phase 6 | FPU 单元测试 | ✅ 完成 | 2026-06-05 |
 | Phase 7 | 计算器应用 | ⬜ 未开始 | |
 | Phase 8 | 计算器测试 | ⬜ 未开始 | |
 
@@ -86,12 +86,14 @@
 
 | 步骤 | 内容 | 状态 | 备注 |
 |------|------|------|------|
-| 6.1 | tb_fpu_adder.sv | ⬜ | |
-| 6.2 | tb_fpu_multiplier.sv | ⬜ | |
-| 6.3 | tb_fpu_divider.sv | ⬜ | |
-| 6.4 | tb_fpu_sqrt.sv | ⬜ | |
-| 6.5 | tb_fpu_cvt.sv | ⬜ | |
-| 6.6 | tb_fpu_unit.sv | ⬜ | |
+| 6.1 | tb_fpu_adder.sv | ✅ | 30/30 PASS: FADD/FSUB 正常/特殊/溢出/下溢/5种舍入 |
+| 6.2 | tb_fpu_multiplier.sv | ✅ | 13/13 PASS: FMUL 正常/符号/NaN/Inf/溢出/下溢/舍入 |
+| 6.3 | tb_fpu_divider.sv | ✅ | 12/12 PASS: FDIV 正常/符号/除零/NaN/Inf/溢出/下溢 |
+| 6.4 | tb_fpu_sqrt.sv | ✅ | 22/22 PASS: FSQRT 正常/负数/NaN/Inf/次正规/5种舍入 |
+| 6.5 | tb_fpu_cvt.sv | ✅ | 20/20 PASS: FCVT.W.S/FCVT.WU.S/FCVT.S.W/FCVT.S.WU |
+| 6.6 | tb_fpu_unit.sv | ✅ | 24/24 PASS: 全20种FPU操作+握手+flush |
+| 6.7 | tasks.yaml 注册 | ✅ | 6 个 fpu_* 任务 |
+| 6.8 | BUG 12/13 修复后 ISA 回归 | ✅ | isa_f_ext 26/26, isa_f_ext_special 24/24 |
 
 ## Phase 7: 计算器应用
 
@@ -127,6 +129,14 @@
 | 2026-06-04 | isa_f_ext_special (BUG 9 修复前) | 11/24 pass | CSRR fflags 被判非法指令 |
 | 2026-06-04 | isa_f_ext_special (BUG 9+10+11 全部修复) | **24/24 pass** | **ALL TESTS PASSED** ✅ |
 | 2026-06-04 | isa_f_ext (Phase 5 修复后回归) | **26/26 pass** | 基础测试无回归 ✅ |
+| 2026-06-05 | tb_fpu_adder | **30/30 pass** | FADD/FSUB 单元测试 ✅ |
+| 2026-06-05 | tb_fpu_multiplier | **13/13 pass** | FMUL 单元测试 ✅ |
+| 2026-06-05 | tb_fpu_divider | **12/12 pass** | FDIV 单元测试 ✅ |
+| 2026-06-05 | tb_fpu_sqrt | **22/22 pass** | FSQRT 单元测试 ✅ |
+| 2026-06-05 | tb_fpu_cvt | **20/20 pass** | FCVT 全4种转换单元测试 ✅ |
+| 2026-06-05 | tb_fpu_unit | **24/24 pass** | FPU 顶层握手+全操作单元测试 ✅ |
+| 2026-06-05 | isa_f_ext (BUG 12/13 修复后回归) | **26/26 pass** | 无回归 ✅ |
+| 2026-06-05 | isa_f_ext_special (BUG 12/13 修复后回归) | **24/24 pass** | 无回归 ✅ |
 
 ---
 
@@ -144,6 +154,8 @@
 | 2026-06-04 | BUG 9: F-ext CSR 地址未加入 is_m_csr | cpu_decode.sv | fflags(0x001)/frm(0x002)/fcsr(0x003) 未加入 is_m_csr 判断, CSRR/CSRW 这些 CSR 被判为非法指令并 trap | ✅ 已修复 |
 | 2026-06-04 | BUG 10: fflags_wen 未用 wb_valid 门控 | core_top.sv | fflags_wen 条件从 `(wb_fflags!=0)` 改为 `wb_valid&&(wb_fflags!=0)`; 旧代码在 FPU 写回后 ~31 周期残留 mem_wb_bus_r 导致假写 | ✅ 已修复 |
 | 2026-06-04 | BUG 11: f_abs_int 位宽不足 | fpu_cvt.sv | f_abs_int 从 24→32 位, f_abs_rounded 从 25→33 位; 旧代码左移路径截断大浮点数, FCVT.W.S(2^31) 结果为 0 | ✅ 已修复 |
+| 2026-06-05 | BUG 12: FSUB 符号错误 | fpu_adder.sv | res_sign_sub 使用原始符号而非有效符号; 当 \|src2\|>\|src1\| 且 is_sub=1 时结果符号错误; 修复: eff_sign_a = swap ? eff_sign2 : s1_sign; res_sign_sub = eff_sign_a | ✅ 已修复 |
+| 2026-06-05 | BUG 13: FCVT.W.S 溢出误判 | fpu_cvt.sv | 有符号 int 溢出检测将 -2^31 (0x80000000) 误判为溢出; 修复: 改为 f_sign ? (abs > 0x80000000) : (abs > 0x7FFFFFFF) | ✅ 已修复 |
 
 ---
 
@@ -164,3 +176,6 @@
 | 2026-06-04 | F-ext CSR 地址判别? | 加入 is_m_csr | fflags/frm/fcsr 未加入 is_m_csr, CSRR/CSRW 被判非法指令 |
 | 2026-06-04 | fflags_wen 门控? | 加 wb_valid 条件 | 防止写回后残留 mem_wb_bus_r 触发假 fflags 写 |
 | 2026-06-04 | f_abs_int 位宽? | 24→32 位 | 左移路径截断大浮点数, FCVT.W.S(2^31) 结果为 0 |
+| 2026-06-05 | FSUB 结果符号? | 使用有效符号而非原始符号 | 当 \|src2\|>\|src1\| 且 is_sub=1 时, swap=1, 需用 eff_sign_a 而非 s1_sign |
+| 2026-06-05 | FCVT.W.S 有符号溢出检测? | 正负不同阈值 | -2^31 是合法 int32 值, 不应判溢出; 改为 mux: sign ? (abs>0x80000000) : (abs>0x7FFFFFFF) |
+| 2026-06-05 | fpu_unit 握手时序? | req_valid/result_got 保持 2 个上升沿 | XSim 竞争条件: 1 周期保持可能导致采不到信号 |

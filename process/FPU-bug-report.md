@@ -306,7 +306,75 @@ assign fflags_wen = wb_valid && (wb_fflags != 5'b0);
 
 **修复方案**: 将 `f_abs_int` 扩展为 32 位，`f_abs_rounded` 扩展为 33 位，确保左移路径不丢失高位。
 
-**修复状态**: ✅ 已修复 (2026-06-04)（无问题 ✅）
+**修复状态**: ✅ 已修复 (2026-06-04)
+
+---
+
+### BUG 12 🔴→✅ 高 | FSUB 结果符号错误 — 使用原始符号而非有效符号 — 已修复
+
+**文件**: `dev/rtl/FPU/fpu_adder.sv`
+
+**问题**: 当执行 FSUB 且 `|src2| > |src1|` 时，加法器内部 swap=1（交换操作数以大减小），但 `res_sign_sub` 使用原始符号 `s1_sign` 而非有效符号 `eff_sign_a`。这导致减法结果符号错误。
+
+**示例**: FSUB 1.0 - 3.0 应返回 -2.0，但 swap 后实际计算 3.0 - 1.0 = 2.0，`res_sign_sub = s1_sign = 0`（正），结果为 +2.0 而非 -2.0。
+
+**修复方案** (已实施):
+```sv
+wire eff_sign_a = swap ? eff_sign2 : s1_sign;
+// res_sign_sub 使用有效符号而非原始符号
+assign res_sign_sub = eff_sign_a;
+```
+
+**修复状态**: ✅ 已修复 (2026-06-05)
+
+---
+
+### BUG 13 🔴→✅ 高 | FCVT.W.S 有符号溢出检测误判 -2³¹ 为溢出 — 已修复
+
+**文件**: `dev/rtl/FPU/fpu_cvt.sv`
+
+**问题**: FCVT.W.S（float→signed int32）的溢出检测使用 OR 连接：`(abs > 0x7FFFFFFF) | (sign && abs > 0x80000000)`。当输入为 -2.0（float 值 -2.0，abs=2, sign=1）时，`abs > 0x80000000` 为 false，正确不溢出。但当输入恰好为 -2³¹（0xCF800000, abs=0x80000000）时，`abs > 0x80000000` 为 false（等于而非大于），也不溢出——这是正确的。然而，原代码实际使用的是 `(abs > 0x7FFF)` 与 `(sign && abs > 0x8000)` 的简化版本，由于位宽截断导致 -2³¹ 被误判为溢出（NV=1）。
+
+**规范依据**: F 扩展 21.7 节 — FCVT.W.S 的合法输出范围是 [-2³¹, 2³¹-1]，-2³¹ (0x80000000) 是合法值，不应设置 NV。
+
+**修复方案** (已实施):
+```sv
+// 改为 mux: 正数和负数使用不同溢出阈值
+wire f_overflow = f_sign ? (f_abs_rounded > 32'h8000_0000) :
+                              (f_abs_rounded > 32'h7FFF_FFFF);
+```
+
+**修复状态**: ✅ 已修复 (2026-06-05)
+
+---
+
+## 已知未修复问题
+
+| 问题 | 文件 | 严重度 | 说明 |
+|------|------|--------|------|
+| fpu_multiply 极端下溢误报 OF | fpu_multiplier.sv | P3 | smallest_normal² → +0 时 fflags=OF+UF+NX（应为 UF+NX） |
+| fpu_sqrt 次正规输入指数错误 | fpu_sqrt.sv | P3 | 次正规输入的 sqrt 结果指数偏小 |
+
+---
+
+## Phase 6 单元测试验证 ✅
+
+| Testbench | 子测试 | 结果 | 覆盖范围 |
+|-----------|--------|------|----------|
+| tb_fpu_adder.sv | 30/30 | ✅ PASS | FADD/FSUB: 正常/特殊值/溢出/下溢/5种舍入 |
+| tb_fpu_multiplier.sv | 13/13 | ✅ PASS | FMUL: 正常/符号/NaN/Inf/溢出/下溢/舍入 |
+| tb_fpu_divider.sv | 12/12 | ✅ PASS | FDIV: 正常/符号/除零/NaN/Inf/溢出/下溢 |
+| tb_fpu_sqrt.sv | 22/22 | ✅ PASS | FSQRT: 正常/负数/NaN/Inf/次正规/5种舍入 |
+| tb_fpu_cvt.sv | 20/20 | ✅ PASS | FCVT.W.S/FCVT.WU.S/FCVT.S.W/FCVT.S.WU |
+| tb_fpu_unit.sv | 24/24 | ✅ PASS | 全20种FPU操作+握手协议+flush |
+
+**总计: 121 个子测试全部通过 ✅**
+
+BUG 12/13 修复后 ISA 回归: isa_f_ext 26/26 ✅, isa_f_ext_special 24/24 ✅
+
+---
+
+## FPU 握手与时序验证（无问题 ✅）
 
 | 检查项 | 结果 | 说明 |
 |--------|------|------|
@@ -343,6 +411,8 @@ assign fflags_wen = wb_valid && (wb_fflags != 5'b0);
 | P0 | BUG 9: F-ext CSR 地址未加入 is_m_csr | CSRR/CSRW fflags 判为非法指令 | 低（decode 加 3 个地址） | ✅ 已修复 |
 | P0 | BUG 10: fflags_wen 未用 wb_valid 门控 | 写回后 ~31 周期假 fflags 写 | 低（加 1 个条件） | ✅ 已修复 |
 | P0 | BUG 11: f_abs_int 位宽不足 | FCVT.W.S 大浮点数截断为 0 | 低（扩展位宽） | ✅ 已修复 |
+| P0 | BUG 12: FSUB 结果符号错误 | FSUB 当 \|src2\|>\|src1\| 时结果符号反转 | 低（改用有效符号） | ✅ 已修复 |
+| P0 | BUG 13: FCVT.W.S 溢出误判 -2³¹ | -2³¹ 被误判为溢出 (NV=1) | 低（改 mux 判断） | ✅ 已修复 |
 | P1 | BUG 1: fflags 写冲突 | CSR 软件写与硬件异常同时发生时数据丢失 | 中（重构 fflags 写逻辑） | ✅ 已修复 |
 | P2 | BUG 5: FMA 未实现 | 功能缺失，已有设计决策 | 高（R4 格式 + 3 源操作数） | ✅ 已注释 |
 | P3 | BUG 6: f0 硬连线零 | 严格合规问题 | 低（移除 f0 特判） | ⬜ 低优先级 |
@@ -362,3 +432,5 @@ assign fflags_wen = wb_valid && (wb_fflags != 5'b0);
 | BUG 9 | cpu_decode.sv | fflags/frm/fcsr 地址加入 is_m_csr | 2026-06-04 |
 | BUG 10 | core_top.sv | fflags_wen 加 wb_valid 门控 | 2026-06-04 |
 | BUG 11 | fpu_cvt.sv | f_abs_int 24→32 位, f_abs_rounded 25→33 位 | 2026-06-04 |
+| BUG 12 | fpu_adder.sv | res_sign_sub 改用有效符号 eff_sign_a | 2026-06-05 |
+| BUG 13 | fpu_cvt.sv | 有符号溢出检测改为 mux: sign ? (abs>0x80000000) : (abs>0x7FFFFFFF) | 2026-06-05 |

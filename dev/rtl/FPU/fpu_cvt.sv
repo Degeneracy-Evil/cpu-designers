@@ -179,8 +179,13 @@ module fpu_cvt(
     wire [31:0] f_signed_res = f_sign ? f_neg_int : f_pos_int;
 
     // Overflow detection for signed int32
-    wire f_ovf_w  = f_rnd_overflow | (f_abs_rounded[31:0] > 32'h7FFFFFFF) |
-                    (f_sign && (f_abs_rounded[31:0] > 32'h80000000));
+    // Overflow detection for signed int32:
+    //   Positive: overflow if abs > INT_MAX (0x7FFFFFFF)
+    //   Negative: overflow if abs > |INT_MIN| (0x80000000), i.e. abs >= 0x80000001
+    //   -2^31 (abs=0x80000000) is NOT overflow — it is exactly representable
+    wire f_ovf_w  = f_rnd_overflow |
+                    (f_sign ? (f_abs_rounded[31:0] > 32'h80000000) :
+                              (f_abs_rounded[31:0] > 32'h7FFFFFFF));
     // Overflow detection for unsigned int32
     wire f_ovf_wu = f_rnd_overflow | (f_abs_rounded[31:0] > 32'hFFFFFFFF) | f_sign;
 

@@ -149,8 +149,8 @@ module fpu_cvt(
     wire        f_rnd      = f_val_shr[30];            // round
     wire        f_stk      = |f_val_shr[29:0];        // sticky
 
-    // Select shifted result
-    wire [23:0] f_abs_int  = f_large ? f_val_shl[23:0] : f_int_part;
+    // Select shifted result (32-bit to handle large values from left-shift)
+    wire [31:0] f_abs_int  = f_large ? f_val_shl : {8'b0, f_int_part};
     wire        f_guard    = f_large ? 1'b0 : f_grd;
     wire        f_round    = f_large ? 1'b0 : f_rnd;
     wire        f_sticky   = f_large ? 1'b0 : f_stk;
@@ -170,19 +170,19 @@ module fpu_cvt(
                        (rm_r == 3'b011) ? fi_rup :
                                            fi_rmm;
 
-    wire [24:0] f_abs_rounded = {1'b0, f_abs_int} + fi_round_up;
-    wire        f_rnd_overflow = f_abs_rounded[24];
+    wire [32:0] f_abs_rounded = {1'b0, f_abs_int} + fi_round_up;
+    wire        f_rnd_overflow = f_abs_rounded[32];
 
     // Signed int result
-    wire [31:0] f_pos_int  = f_abs_rounded[23:0];
-    wire [31:0] f_neg_int  = -f_abs_rounded[23:0];  // two's complement
+    wire [31:0] f_pos_int  = f_abs_rounded[31:0];
+    wire [31:0] f_neg_int  = -f_abs_rounded[31:0];  // two's complement
     wire [31:0] f_signed_res = f_sign ? f_neg_int : f_pos_int;
 
     // Overflow detection for signed int32
-    wire f_ovf_w  = f_rnd_overflow | (f_abs_rounded[23:0] > 32'h7FFFFFFF) |
-                    (f_sign && (f_abs_rounded[23:0] > 32'h80000000));
+    wire f_ovf_w  = f_rnd_overflow | (f_abs_rounded[31:0] > 32'h7FFFFFFF) |
+                    (f_sign && (f_abs_rounded[31:0] > 32'h80000000));
     // Overflow detection for unsigned int32
-    wire f_ovf_wu = f_rnd_overflow | (f_abs_rounded[23:0] > 32'hFFFFFFFF) | f_sign;
+    wire f_ovf_wu = f_rnd_overflow | (f_abs_rounded[31:0] > 32'hFFFFFFFF) | f_sign;
 
     // Saturated results
     wire [31:0] sat_w  = f_sign ? 32'h80000000 : 32'h7FFFFFFF;

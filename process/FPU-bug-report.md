@@ -1,7 +1,7 @@
 # FPU 扩展代码审查 — BUG 报告
 
 > 审查日期: 2026-06-04 | 依据: `dev/docs/IS/21-F扩展-单精度浮点.md` | 审查范围: git diff 修改部分
-> 修复日期: 2026-06-04 | ISA 测试验证: 2026-06-04 (26/26 pass)
+> 修复日期: 2026-06-04 | ISA 测试验证: 2026-06-04 (f_ext 26/26, f_ext_special 24/24)
 
 ---
 
@@ -264,7 +264,49 @@ assign alu_src2 = ... is_load ? imm_i :
 
 ---
 
-## 时序审查（无问题 ✅）
+### BUG 9 🔴→✅ 高 | F-ext CSR 地址未加入 is_m_csr — 已修复
+
+**文件**: `dev/rtl/core/cpu_decode.sv`
+
+**问题**: fflags(0x001)、frm(0x002)、fcsr(0x003) 未加入 `is_m_csr` 判断函数。导致 `CSRR x10, fflags` 和 `CSRW fflags, x0` 被判定为非法指令并触发 trap，CPU 无法读写浮点异常标志 CSR。
+
+**规范依据**: F 扩展 21.2 节 — fflags/frm/fcsr 是标准浮点 CSR，机器模式必须可访问。
+
+**修复方案**: 将 fflags/frm/fcsr 地址加入 `is_m_csr()` 函数。
+
+**修复状态**: ✅ 已修复 (2026-06-04)
+
+---
+
+### BUG 10 🔴→✅ 高 | fflags_wen 未用 wb_valid 门控 — 已修复
+
+**文件**: `dev/rtl/core/core_top.sv`
+
+**问题代码**:
+```sv
+assign fflags_wen = (wb_fflags != 5'b0);  // 无 wb_valid 门控
+```
+
+**问题**: `fflags_wen` 仅检查 `wb_fflags != 0`，未检查 `wb_valid`。FPU 写回完成后，`mem_wb_bus_r` 保持旧值约 31 周期（直到下一条指令的写回），期间 `wb_fflags` 仍为非零旧值，导致 CSR 模块在非写回周期收到假 `fflags_wen` 脉冲，重复 OR 累加已写入的异常标志。
+
+**修复方案**:
+```sv
+assign fflags_wen = wb_valid && (wb_fflags != 5'b0);
+```
+
+**修复状态**: ✅ 已修复 (2026-06-04)
+
+---
+
+### BUG 11 🔴→✅ 高 | f_abs_int 位宽不足导致 FCVT.W.S 大数截断 — 已修复
+
+**文件**: `dev/rtl/FPU/fpu_cvt.sv`
+
+**问题**: `f_abs_int` 仅 24 位，`f_abs_rounded` 仅 25 位。float→int 转换的左移路径（exp≥150 时）将浮点值左移到整数范围，但 24 位宽度无法容纳 32 位整数结果。例如 FCVT.W.S(2^31) 应返回 INT_MAX=0x7FFFFFFF，实际返回 0（bit 31 被截断丢失）。
+
+**修复方案**: 将 `f_abs_int` 扩展为 32 位，`f_abs_rounded` 扩展为 33 位，确保左移路径不丢失高位。
+
+**修复状态**: ✅ 已修复 (2026-06-04)（无问题 ✅）
 
 | 检查项 | 结果 | 说明 |
 |--------|------|------|
@@ -298,6 +340,9 @@ assign alu_src2 = ... is_load ? imm_i :
 | P0 | BUG 3+4: FMV.W.X / FCVT.S.W 源操作数错误 | 整数→浮点转换指令完全错误 | 中（加 mux + 确认 rs1_value 可用） | ✅ 已修复 |
 | P0 | BUG 7: FCVT.S.W i_mant_overflow 恒为 1 | 所有 int→float 结果为正确值 2 倍 | 低（扩展加法位宽） | ✅ 已修复 |
 | P0 | BUG 8: FLW/FSW 地址恒为 0 | 所有浮点 load/store 访问地址 0 | 低（decode 加 2 行） | ✅ 已修复 |
+| P0 | BUG 9: F-ext CSR 地址未加入 is_m_csr | CSRR/CSRW fflags 判为非法指令 | 低（decode 加 3 个地址） | ✅ 已修复 |
+| P0 | BUG 10: fflags_wen 未用 wb_valid 门控 | 写回后 ~31 周期假 fflags 写 | 低（加 1 个条件） | ✅ 已修复 |
+| P0 | BUG 11: f_abs_int 位宽不足 | FCVT.W.S 大浮点数截断为 0 | 低（扩展位宽） | ✅ 已修复 |
 | P1 | BUG 1: fflags 写冲突 | CSR 软件写与硬件异常同时发生时数据丢失 | 中（重构 fflags 写逻辑） | ✅ 已修复 |
 | P2 | BUG 5: FMA 未实现 | 功能缺失，已有设计决策 | 高（R4 格式 + 3 源操作数） | ✅ 已注释 |
 | P3 | BUG 6: f0 硬连线零 | 严格合规问题 | 低（移除 f0 特判） | ⬜ 低优先级 |
@@ -314,3 +359,6 @@ assign alu_src2 = ... is_load ? imm_i :
 | BUG 5 | cpu_decode.sv | 添加 FMA 未实现的设计决策注释 | 2026-06-04 |
 | BUG 7 | fpu_cvt.sv | 24→25 位加法, i_mant_overflow = i_mant_wide[24] | 2026-06-04 |
 | BUG 8 | cpu_decode.sv | alu_src2 增加 is_flw→imm_i, is_fsw→imm_s; alu_control ADD 路径增加 is_flw|is_fsw | 2026-06-04 |
+| BUG 9 | cpu_decode.sv | fflags/frm/fcsr 地址加入 is_m_csr | 2026-06-04 |
+| BUG 10 | core_top.sv | fflags_wen 加 wb_valid 门控 | 2026-06-04 |
+| BUG 11 | fpu_cvt.sv | f_abs_int 24→32 位, f_abs_rounded 25→33 位 | 2026-06-04 |

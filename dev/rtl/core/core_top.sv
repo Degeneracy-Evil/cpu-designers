@@ -685,7 +685,7 @@ module core_top(
         .csr_fflags       (),
         .csr_frm          (csr_frm),
         .fflags_wdata     (wb_fflags),
-        .fflags_wen       (wb_fflags != 5'b0)
+        .fflags_wen       (wb_valid && (wb_fflags != 5'b0))
     );
 
     // Unified MMU: single instance with dual i/d interfaces

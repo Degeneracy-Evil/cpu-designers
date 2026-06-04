@@ -53,6 +53,7 @@ categories:
     abi: ilp32
     tests:
       - isa/f_ext
+      - isa/f_ext_special
 
   exception:
     framework: common

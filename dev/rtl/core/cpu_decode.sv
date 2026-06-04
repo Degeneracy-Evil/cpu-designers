@@ -384,9 +384,13 @@ module cpu_decode(
 
   assign id_done = id_valid;
 
-  localparam CSR_SSTATUS    = 12'h100;
-  localparam CSR_SIE        = 12'h104;
-  localparam CSR_STVEC      = 12'h105;
+   localparam CSR_FFLAGS     = 12'h001;
+   localparam CSR_FRM        = 12'h002;
+   localparam CSR_FCSR       = 12'h003;
+
+   localparam CSR_SSTATUS    = 12'h100;
+   localparam CSR_SIE        = 12'h104;
+   localparam CSR_STVEC      = 12'h105;
   localparam CSR_SCOUNTEREN = 12'h106;
   localparam CSR_SSCRATCH   = 12'h140;
   localparam CSR_SEPC       = 12'h141;
@@ -429,22 +433,24 @@ module cpu_decode(
       end
   endfunction
 
-  function is_m_csr;
-      input [11:0] addr;
-      begin
-          is_m_csr = (addr == CSR_MSTATUS)    || (addr == CSR_MISA)       ||
-                     (addr == CSR_MEDELEG)   || (addr == CSR_MIDELEG)    ||
-                     (addr == CSR_MIE)       || (addr == CSR_MTVEC)      ||
-                     (addr == CSR_MCOUNTEREN)|| (addr == CSR_MSTATUSH)   ||
-                     (addr == CSR_MSCRATCH)  || (addr == CSR_MEPC)       ||
-                     (addr == CSR_MCAUSE)    || (addr == CSR_MTVAL)      ||
-                     (addr == CSR_MIP)       || (addr == CSR_MCYCLE)     ||
-                     (addr == CSR_MINSTRET)  || (addr == CSR_MCYCLEH)   ||
-                     (addr == CSR_MINSTRETH) || (addr == CSR_MVENDORID) ||
-                     (addr == CSR_MARCHID)   || (addr == CSR_MIMPID)    ||
-                     (addr == CSR_MHARTID)   || (addr == CSR_MCONFIGPTR);
-      end
-  endfunction
+   function is_m_csr;
+       input [11:0] addr;
+       begin
+           is_m_csr = (addr == CSR_FFLAGS)    || (addr == CSR_FRM)        ||
+                      (addr == CSR_FCSR)      ||
+                      (addr == CSR_MSTATUS)    || (addr == CSR_MISA)       ||
+                      (addr == CSR_MEDELEG)   || (addr == CSR_MIDELEG)    ||
+                      (addr == CSR_MIE)       || (addr == CSR_MTVEC)      ||
+                      (addr == CSR_MCOUNTEREN)|| (addr == CSR_MSTATUSH)   ||
+                      (addr == CSR_MSCRATCH)  || (addr == CSR_MEPC)       ||
+                      (addr == CSR_MCAUSE)    || (addr == CSR_MTVAL)      ||
+                      (addr == CSR_MIP)       || (addr == CSR_MCYCLE)     ||
+                      (addr == CSR_MINSTRET)  || (addr == CSR_MCYCLEH)   ||
+                      (addr == CSR_MINSTRETH) || (addr == CSR_MVENDORID) ||
+                      (addr == CSR_MARCHID)   || (addr == CSR_MIMPID)    ||
+                      (addr == CSR_MHARTID)   || (addr == CSR_MCONFIGPTR);
+       end
+   endfunction
 
   assign dec_csr_addr_valid = is_s_csr(csr_addr) || is_m_csr(csr_addr);
 

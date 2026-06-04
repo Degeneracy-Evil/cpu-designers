@@ -12,7 +12,7 @@
 | Phase 2 | 浮点运算单元 (FPU 子模块) | ✅ 完成 | 2026-06-03 |
 | Phase 3 | 指令译码 + 数据通路集成 | ✅ 完成 | 2026-06-04 |
 | Phase 4 | 浮点指令 ISA 测试 | ✅ 完成 | 2026-06-04 |
-| Phase 5 | 浮点异常/舍入测试 | ⬜ 未开始 | |
+| Phase 5 | 浮点异常/舍入测试 | ✅ 完成 | 2026-06-04 |
 | Phase 6 | FPU 单元测试 | ⬜ 未开始 | |
 | Phase 7 | 计算器应用 | ⬜ 未开始 | |
 | Phase 8 | 计算器测试 | ⬜ 未开始 | |
@@ -77,10 +77,10 @@
 
 | 步骤 | 内容 | 状态 | 备注 |
 |------|------|------|------|
-| 5.1 | f_ext_special.s | ⬜ | |
-| 5.2 | tests.yaml 注册 | ⬜ | |
-| 5.3 | tb_isa_f_ext_special.sv | ⬜ | |
-| 5.4 | tasks.yaml 任务 | ⬜ | |
+| 5.1 | f_ext_special.s | ✅ | 24 子测试: fflags(NV/DZ/OF/UF/NX) + 舍入模式(RTZ/RDN/RUP/RMM/DYN) + 边界 |
+| 5.2 | tests.yaml 注册 | ✅ | isa_f 类别下注册 |
+| 5.3 | tb_isa_f_ext_special.sv | ✅ | 100000 周期, x28/x29/x30 框架 |
+| 5.4 | tasks.yaml 任务 | ✅ | isa_f_ext_special 任务 |
 
 ## Phase 6: FPU 单元测试
 
@@ -124,6 +124,9 @@
 | 2026-06-04 | isa_f_ext (BUG 7 修复前) | 22/26 pass | first_fail_id=17 (FCVT.S.W) |
 | 2026-06-04 | isa_f_ext (BUG 7 修复后) | 24/26 pass | first_fail_id=21 (FLW), FCVT 恢复正确 |
 | 2026-06-04 | isa_f_ext (BUG 7+8 全部修复) | **26/26 pass** | **ALL TESTS PASSED** ✅ |
+| 2026-06-04 | isa_f_ext_special (BUG 9 修复前) | 11/24 pass | CSRR fflags 被判非法指令 |
+| 2026-06-04 | isa_f_ext_special (BUG 9+10+11 全部修复) | **24/24 pass** | **ALL TESTS PASSED** ✅ |
+| 2026-06-04 | isa_f_ext (Phase 5 修复后回归) | **26/26 pass** | 基础测试无回归 ✅ |
 
 ---
 
@@ -138,6 +141,9 @@
 | 2026-06-04 | BUG 6: f0 硬连线零 | fpu_regfile.sv | 保持现状 (设计选择), 严格合规可后续修复 | ⬜ 低优先级 |
 | 2026-06-04 | BUG 7: FCVT.S.W i_mant_overflow 恒为 1 | fpu_cvt.sv | 将 24 位加法扩展为 25 位, 用 bit[24] 作为真正的进位输出; 旧代码 `{1'b1,i_frac_r}+round_up` 的 bit[23] 始终为 1 (隐含前导 1), 导致指数恒 +1, 结果为正确值的 2 倍 | ✅ 已修复 |
 | 2026-06-04 | BUG 8: FLW/FSW 地址计算错误 | cpu_decode.sv | alu_src2 增加 `is_flw→imm_i, is_fsw→imm_s`; alu_control ADD 路径增加 `is_flw|is_fsw`; 旧代码 FLW/FSW 未包含在 ALU 路径中, alu_control=0 导致 ALU 输出全零, 地址恒为 0 | ✅ 已修复 |
+| 2026-06-04 | BUG 9: F-ext CSR 地址未加入 is_m_csr | cpu_decode.sv | fflags(0x001)/frm(0x002)/fcsr(0x003) 未加入 is_m_csr 判断, CSRR/CSRW 这些 CSR 被判为非法指令并 trap | ✅ 已修复 |
+| 2026-06-04 | BUG 10: fflags_wen 未用 wb_valid 门控 | core_top.sv | fflags_wen 条件从 `(wb_fflags!=0)` 改为 `wb_valid&&(wb_fflags!=0)`; 旧代码在 FPU 写回后 ~31 周期残留 mem_wb_bus_r 导致假写 | ✅ 已修复 |
+| 2026-06-04 | BUG 11: f_abs_int 位宽不足 | fpu_cvt.sv | f_abs_int 从 24→32 位, f_abs_rounded 从 25→33 位; 旧代码左移路径截断大浮点数, FCVT.W.S(2^31) 结果为 0 | ✅ 已修复 |
 
 ---
 
@@ -155,3 +161,6 @@
 | 2026-06-04 | int→float 指令源操作数? | execute 阶段 mux 选择 | FMV.W.X/FCVT.S.W/WU 读整数 rs1, 其余读浮点 frs1 |
 | 2026-06-04 | FCVT.S.W i_mant_overflow 恒为 1? | 扩展为 25 位加法 | `{1'b1,i_frac_r}` 的 bit[23] 是隐含前导 1, 恒为 1; 扩展到 25 位后 bit[24] 才是真正的进位输出 |
 | 2026-06-04 | FLW/FSW 地址计算? | 加入 ALU 路径 | FLW/FSW 未包含在 alu_src2/alu_control 中, 导致 ALU 输出全零, 地址恒为 0 |
+| 2026-06-04 | F-ext CSR 地址判别? | 加入 is_m_csr | fflags/frm/fcsr 未加入 is_m_csr, CSRR/CSRW 被判非法指令 |
+| 2026-06-04 | fflags_wen 门控? | 加 wb_valid 条件 | 防止写回后残留 mem_wb_bus_r 触发假 fflags 写 |
+| 2026-06-04 | f_abs_int 位宽? | 24→32 位 | 左移路径截断大浮点数, FCVT.W.S(2^31) 结果为 0 |

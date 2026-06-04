@@ -11,7 +11,7 @@ module cpu_decode(
     output             illegal_inst,
     output             dec_is_branch,
     output             dec_need_exe,
-    output     [319:0] id_exe_bus,
+    output     [333:0] id_exe_bus,
 
     output     [31:0]  id_pc,
     output     [31:0]  id_inst,
@@ -47,6 +47,13 @@ module cpu_decode(
   localparam OPCODE_OP     = 7'b0110011;
   localparam OPCODE_FENCE  = 7'b0001111;
   localparam OPCODE_SYSTEM = 7'b1110011;
+  localparam OPCODE_LOAD_FP  = 7'b0000111;  // FLW
+  localparam OPCODE_STORE_FP = 7'b0100111;  // FSW
+  localparam OPCODE_OP_FP    = 7'b1010011;  // FADD.S/FSUB.S/FMUL.S/FDIV.S/...
+  // NOTE: FMA instructions (FMADD.S/FMSUB.S/FNMSUB.S/FNMADD.S) use opcodes
+  // 1000011/1000111/1001011/1001111 (R4 format). These are intentionally NOT
+  // implemented — R4 format decode is complex and hardware area is large.
+  // They will be decoded as illegal_inst. See process/FPU-extension-process.md.
 
   wire [31:0] pc_plus4;
   wire [31:0] pc;
@@ -179,6 +186,31 @@ module cpu_decode(
   assign inst_rem    = (opcode == OPCODE_OP) && (funct3 == 3'b110) && (funct7 == 7'b0000001);
   assign inst_remu   = (opcode == OPCODE_OP) && (funct3 == 3'b111) && (funct7 == 7'b0000001);
 
+  // FPU instruction matches
+  wire inst_flw = (opcode == OPCODE_LOAD_FP) && (funct3 == 3'b010);
+  wire inst_fsw = (opcode == OPCODE_STORE_FP) && (funct3 == 3'b010);
+
+  wire inst_fadd_s  = (opcode == OPCODE_OP_FP) && (funct7 == 7'b0000000);
+  wire inst_fsub_s  = (opcode == OPCODE_OP_FP) && (funct7 == 7'b0000100);
+  wire inst_fmul_s  = (opcode == OPCODE_OP_FP) && (funct7 == 7'b0001000);
+  wire inst_fdiv_s  = (opcode == OPCODE_OP_FP) && (funct7 == 7'b0001100);
+  wire inst_fsqrt_s = (opcode == OPCODE_OP_FP) && (funct7 == 7'b0101100) && (rs2 == 5'd0);
+  wire inst_fsgnj_s  = (opcode == OPCODE_OP_FP) && (funct7 == 7'b0010000) && (funct3 == 3'b000);
+  wire inst_fsgnjn_s = (opcode == OPCODE_OP_FP) && (funct7 == 7'b0010000) && (funct3 == 3'b001);
+  wire inst_fsgnjx_s = (opcode == OPCODE_OP_FP) && (funct7 == 7'b0010000) && (funct3 == 3'b010);
+  wire inst_fmin_s   = (opcode == OPCODE_OP_FP) && (funct7 == 7'b0010100) && (funct3 == 3'b000);
+  wire inst_fmax_s   = (opcode == OPCODE_OP_FP) && (funct7 == 7'b0010100) && (funct3 == 3'b001);
+  wire inst_fcvt_w_s  = (opcode == OPCODE_OP_FP) && (funct7 == 7'b1100000) && (rs2 == 5'd0);
+  wire inst_fcvt_wu_s = (opcode == OPCODE_OP_FP) && (funct7 == 7'b1100000) && (rs2 == 5'd1);
+  wire inst_fcvt_s_w  = (opcode == OPCODE_OP_FP) && (funct7 == 7'b1101000) && (rs2 == 5'd0);
+  wire inst_fcvt_s_wu = (opcode == OPCODE_OP_FP) && (funct7 == 7'b1101000) && (rs2 == 5'd1);
+  wire inst_feq_s     = (opcode == OPCODE_OP_FP) && (funct7 == 7'b1010000) && (funct3 == 3'b010);
+  wire inst_flt_s     = (opcode == OPCODE_OP_FP) && (funct7 == 7'b1010000) && (funct3 == 3'b001);
+  wire inst_fle_s     = (opcode == OPCODE_OP_FP) && (funct7 == 7'b1010000) && (funct3 == 3'b000);
+  wire inst_fclass_s  = (opcode == OPCODE_OP_FP) && (funct7 == 7'b1110000) && (funct3 == 3'b001) && (rs2 == 5'd0);
+  wire inst_fmv_x_w   = (opcode == OPCODE_OP_FP) && (funct7 == 7'b1110000) && (funct3 == 3'b000) && (rs2 == 5'd0);
+  wire inst_fmv_w_x   = (opcode == OPCODE_OP_FP) && (funct7 == 7'b1111000) && (funct3 == 3'b000) && (rs2 == 5'd0);
+
   wire inst_ecall;
   wire inst_ebreak;
   wire inst_wfi;
@@ -245,12 +277,49 @@ module cpu_decode(
   assign is_sfence_vma = inst_sfence_vma;
   assign is_system_trap = is_ecall | is_ebreak;
 
+  wire is_fpu = inst_fadd_s | inst_fsub_s | inst_fmul_s | inst_fdiv_s | inst_fsqrt_s |
+                inst_fmin_s | inst_fmax_s | inst_fsgnj_s | inst_fsgnjn_s | inst_fsgnjx_s |
+                inst_feq_s | inst_flt_s | inst_fle_s | inst_fclass_s |
+                inst_fmv_x_w | inst_fmv_w_x |
+                inst_fcvt_w_s | inst_fcvt_wu_s | inst_fcvt_s_w | inst_fcvt_s_wu;
+  wire is_flw = inst_flw;
+  wire is_fsw = inst_fsw;
+
+  wire [6:0] fpu_funct;
+  assign fpu_funct = inst_fadd_s   ? 7'd0  :
+                     inst_fsub_s   ? 7'd1  :
+                     inst_fmul_s   ? 7'd2  :
+                     inst_fdiv_s   ? 7'd3  :
+                     inst_fsqrt_s  ? 7'd4  :
+                     inst_fmin_s   ? 7'd5  :
+                     inst_fmax_s   ? 7'd6  :
+                     inst_fsgnj_s  ? 7'd7  :
+                     inst_fsgnjn_s ? 7'd8  :
+                     inst_fsgnjx_s ? 7'd9  :
+                     inst_feq_s    ? 7'd10 :
+                     inst_flt_s    ? 7'd11 :
+                     inst_fle_s    ? 7'd12 :
+                     inst_fclass_s ? 7'd13 :
+                     inst_fmv_x_w  ? 7'd14 :
+                     inst_fmv_w_x  ? 7'd15 :
+                     inst_fcvt_w_s ? 7'd16 :
+                     inst_fcvt_wu_s? 7'd17 :
+                     inst_fcvt_s_w ? 7'd18 :
+                     inst_fcvt_s_wu? 7'd19 :
+                     7'd0;
+
+  wire [2:0] fpu_rm = funct3;  // DYN (111) resolved in execute using CSR frm
+
+  wire fpu_rd_is_int = inst_feq_s | inst_flt_s | inst_fle_s | inst_fclass_s |
+                       inst_fmv_x_w | inst_fcvt_w_s | inst_fcvt_wu_s;
+
   wire use_fixed_wb;
   assign use_fixed_wb = inst_lui;
 
   wire valid_inst;
   assign valid_inst = is_branch | is_load | is_store | is_jal_like | is_alu | is_mu |
-                      is_csr | is_system_trap | is_mret | is_sret | is_nop_like | is_fencei | is_sfence_vma;
+                      is_csr | is_system_trap | is_mret | is_sret | is_nop_like | is_fencei | is_sfence_vma |
+                      is_fpu | is_flw | is_fsw;
 
   wire [31:0] alu_src1;
   wire [31:0] alu_src2;
@@ -267,12 +336,14 @@ module cpu_decode(
          (inst_addi | inst_slti | inst_sltiu | inst_xori | inst_ori | inst_andi) ? imm_i :
          shift_op_i ? {27'b0, inst[24:20]} :
           is_load ? imm_i :
-         (is_store) ? imm_s :
-         rs2_value;
+          is_flw ? imm_i :
+          (is_store) ? imm_s :
+          is_fsw ? imm_s :
+          rs2_value;
 
   wire [15:0] alu_control;
   assign alu_control = inst_lui ? 16'b0000_0000_0000_0010 :
-         (inst_add | inst_addi | inst_auipc | is_load | is_store | inst_jal | inst_jalr | is_branch) ? 16'b0001_0000_0000_0000 :
+         (inst_add | inst_addi | inst_auipc | is_load | is_store | inst_jal | inst_jalr | is_branch | is_flw | is_fsw) ? 16'b0001_0000_0000_0000 :
          inst_sub ? 16'b0000_1000_0000_0000 :
          (inst_slt | inst_slti) ? 16'b0000_0100_0000_0000 :
          (inst_sltu | inst_sltiu) ? 16'b0000_0010_0000_0000 :
@@ -285,7 +356,7 @@ module cpu_decode(
          16'b0;
 
   wire wb_we;
-   assign wb_we = valid_inst && (is_alu | is_jal_like | is_csr | is_mu);
+   assign wb_we = valid_inst && (is_alu | is_jal_like | is_csr | is_mu | is_fpu | is_flw);
 
   wire [2:0] mem_size;
   assign mem_size = (inst_lb | inst_lbu | inst_sb) ? 3'b000 :
@@ -457,7 +528,13 @@ module cpu_decode(
            csr_funct3,
            csr_uimm,
            pc,
-           inst
+           inst,
+           is_fpu,
+           is_flw,
+           is_fsw,
+           fpu_funct,
+           fpu_rm,
+           fpu_rd_is_int
          };
 
   assign id_pc = pc;

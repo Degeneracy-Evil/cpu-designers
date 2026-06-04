@@ -52,11 +52,21 @@ module cpu_csr(
     output      [31:0] csr_sip,
     output      [31:0] csr_satp,
     output      [31:0] csr_mcounteren,
-    output      [31:0] csr_scounteren
+    output      [31:0] csr_scounteren,
+
+    output      [4:0]  csr_fflags,
+    output      [2:0]  csr_frm,
+
+    input       [4:0]  fflags_wdata,
+    input              fflags_wen
 );
     localparam PRIV_U = 2'b00;
     localparam PRIV_S = 2'b01;
     localparam PRIV_M = 2'b11;
+
+    localparam ADDR_FFLAGS      = 12'h001;
+    localparam ADDR_FRM        = 12'h002;
+    localparam ADDR_FCSR       = 12'h003;
 
     localparam ADDR_SSTATUS     = 12'h100;
     localparam ADDR_SIE         = 12'h104;
@@ -116,6 +126,9 @@ module cpu_csr(
     reg [31:0] r_satp;
     reg [31:0] r_scounteren;
 
+    reg [4:0]  r_fflags;
+    reg [2:0]  r_frm;
+
     wire [31:0] w_mip_hw;
     assign w_mip_hw = {20'b0, ext_meip, 3'b0, ext_mtip, 3'b0, ext_msip, 3'b0};
 
@@ -157,7 +170,9 @@ module cpu_csr(
     function is_m_csr;
         input [11:0] addr;
         begin
-            is_m_csr = (addr == ADDR_MSTATUS)    || (addr == ADDR_MISA)       ||
+            is_m_csr = (addr == ADDR_FFLAGS)    || (addr == ADDR_FRM)        ||
+                       (addr == ADDR_FCSR)      ||
+                       (addr == ADDR_MSTATUS)    || (addr == ADDR_MISA)       ||
                        (addr == ADDR_MEDELEG)   || (addr == ADDR_MIDELEG)    ||
                        (addr == ADDR_MIE)       || (addr == ADDR_MTVEC)      ||
                        (addr == ADDR_MCOUNTEREN)|| (addr == ADDR_MSTATUSH)   ||
@@ -241,6 +256,17 @@ module cpu_csr(
     wire [31:0] sip_wmask;
     assign sip_wmask = {31'd0, sw_csr_wdata[1]};
 
+    // Merged fflags write logic: resolves conflict between software CSR write
+    // and hardware OR-accumulate. When both occur in the same cycle, the
+    // software value is written first, then hardware flags are OR-accumulated
+    // on top of it (per F extension spec 21.2).
+    wire [4:0] fflags_sw_new;
+    wire       fflags_sw_wen;
+    assign fflags_sw_new = (sw_csr_addr == ADDR_FFLAGS) ? sw_csr_wdata[4:0] :
+                           (sw_csr_addr == ADDR_FCSR)   ? sw_csr_wdata[4:0] : r_fflags;
+    assign fflags_sw_wen = sw_csr_wen && (sw_csr_addr == ADDR_FFLAGS ||
+                                          sw_csr_addr == ADDR_FCSR);
+
     always @(posedge clk or posedge reset) begin
         if (reset) begin
             r_mstatus   <= 32'h00001800;
@@ -265,6 +291,8 @@ module cpu_csr(
             r_sip       <= 32'b0;
             r_satp      <= 32'b0;
             r_scounteren<= 32'b0;
+            r_fflags    <= 5'b0;
+            r_frm       <= 3'b0;
         end else begin
             r_mip <= w_mip_hw;
 
@@ -326,15 +354,31 @@ module cpu_csr(
                     ADDR_SIP:        r_sip       <= sip_wmask;
                     ADDR_SATP:       r_satp      <= sw_csr_wdata;
                     ADDR_SCOUNTEREN: r_scounteren<= sw_csr_wdata;
+                    ADDR_FFLAGS: ;  // fflags handled by merged logic below
+                    ADDR_FRM:        r_frm       <= sw_csr_wdata[2:0];
+                    ADDR_FCSR:       r_frm       <= sw_csr_wdata[7:5];  // fflags handled by merged logic below
                     default: ;
                 endcase
             end
+
+            // Merged fflags write: software write + hardware OR-accumulate
+            // When both occur simultaneously, software value is applied first,
+            // then hardware flags are OR-accumulated on the new value.
+            if (fflags_sw_wen && fflags_wen)
+                r_fflags <= fflags_sw_new | fflags_wdata;
+            else if (fflags_sw_wen)
+                r_fflags <= fflags_sw_new;
+            else if (fflags_wen)
+                r_fflags <= r_fflags | fflags_wdata;
         end
     end
 
     reg [31:0] sw_csr_rdata_r;
     always @(*) begin
         case (sw_csr_addr)
+            ADDR_FFLAGS:      sw_csr_rdata_r = {27'b0, r_fflags};
+            ADDR_FRM:         sw_csr_rdata_r = {29'b0, r_frm};
+            ADDR_FCSR:        sw_csr_rdata_r = {24'b0, r_frm, r_fflags};
             ADDR_SSTATUS:     sw_csr_rdata_r = w_sstatus;
             ADDR_SIE:         sw_csr_rdata_r = r_sie;
             ADDR_STVEC:       sw_csr_rdata_r = r_stvec;
@@ -347,7 +391,7 @@ module cpu_csr(
             ADDR_SATP:        sw_csr_rdata_r = r_satp;
 
             ADDR_MSTATUS:     sw_csr_rdata_r = {sd_bit, r_mstatus[30:0]};
-            ADDR_MISA:        sw_csr_rdata_r = 32'h40141100;
+            ADDR_MISA:        sw_csr_rdata_r = 32'h40141120;
             ADDR_MEDELEG:     sw_csr_rdata_r = r_medeleg;
             ADDR_MIDELEG:     sw_csr_rdata_r = r_mideleg;
             ADDR_MIE:         sw_csr_rdata_r = r_mie;
@@ -394,5 +438,8 @@ module cpu_csr(
     assign csr_satp      = r_satp;
     assign csr_mcounteren= r_mcounteren;
     assign csr_scounteren= r_scounteren;
+
+    assign csr_fflags    = r_fflags;
+    assign csr_frm       = r_frm;
 
 endmodule

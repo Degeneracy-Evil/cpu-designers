@@ -20,7 +20,7 @@ module cpu_trap_csr(
     input  [31:0] mem_misalign_addr,
     input  [31:0] mem_pc,
 
-    input  [319:0] id_exe_bus_r,
+    input  [333:0] id_exe_bus_r,
 
     input         csr_valid,
     input         trap_enter_valid,
@@ -59,7 +59,7 @@ module cpu_trap_csr(
     output        exception_at_decode,
     output        trap_pending,
     output [31:0] csr_read_data,
-    output [167:0] csr_wb_bus,
+    output [176:0] csr_wb_bus,
     output [31:0] trap_pc,
     output [31:0] csr_pc_plus4,
     output [1:0]  target_priv,
@@ -89,7 +89,13 @@ module cpu_trap_csr(
     output [31:0] csr_mcounteren,
     output [31:0] csr_scounteren,
 
-    output        csr_access_ok
+    output        csr_access_ok,
+
+    output [4:0]  csr_fflags,
+    output [2:0]  csr_frm,
+
+    input  [4:0]  fflags_wdata,
+    input         fflags_wen
 );
 
     wire        hw_csr_wen;
@@ -218,7 +224,11 @@ module cpu_trap_csr(
         .csr_satp         (csr_satp),
         .csr_mcounteren   (csr_mcounteren),
         .csr_scounteren   (csr_scounteren),
-        .csr_access_ok    (csr_access_ok)
+        .csr_access_ok    (csr_access_ok),
+        .csr_fflags       (csr_fflags),
+        .csr_frm          (csr_frm),
+        .fflags_wdata     (fflags_wdata),
+        .fflags_wen       (fflags_wen)
     );
 
 endmodule

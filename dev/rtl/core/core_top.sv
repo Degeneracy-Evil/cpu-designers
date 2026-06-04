@@ -89,14 +89,14 @@ module core_top(
     wire [31:0] exe_misalign_target;
 
     wire [95:0]  if_id_bus;
-    wire [319:0] id_exe_bus;
-    wire [206:0] exe_mem_bus;
-    wire [167:0] mem_wb_bus;
+    wire [333:0] id_exe_bus;
+    wire [215:0] exe_mem_bus;
+    wire [176:0] mem_wb_bus;
 
     reg [95:0]  if_id_bus_r;
-    reg [319:0] id_exe_bus_r;
-    reg [206:0] exe_mem_bus_r;
-    reg [167:0] mem_wb_bus_r;
+    reg [333:0] id_exe_bus_r;
+    reg [215:0] exe_mem_bus_r;
+    reg [176:0] mem_wb_bus_r;
 
     wire mem_en;
 
@@ -137,28 +137,47 @@ module core_top(
     wire [31:0] rf_wdata;
     wire wb_is_jal_like;
 
+    // Float register file
+    wire [4:0]  frs1_addr;
+    wire [4:0]  frs2_addr;
+    wire [31:0] frs1_value;
+    wire [31:0] frs2_value;
+    wire        fp_wen;
+    wire [4:0]  fp_waddr;
+    wire [31:0] fp_wdata;
+    wire [31:0] fp_dbg_data;
+
+    // FPU CSR signals
+    wire [4:0]  wb_fflags;
+    wire [2:0]  csr_frm;
+
     wire [31:0] id_pc_plus4;
     wire [31:0] exe_pc_plus4;
     wire [31:0] wb_pc_plus4;
 
     assign id_pc_plus4  = if_id_bus_r[95:64];
-    assign exe_pc_plus4 = id_exe_bus_r[319:288];
-    assign wb_pc_plus4  = mem_wb_bus_r[167:136];
+    assign exe_pc_plus4 = id_exe_bus_r[333:302];
+    assign wb_pc_plus4  = mem_wb_bus_r[176:145];
 
     wire [31:0] actual_rf_wdata;
     assign actual_rf_wdata = wb_is_jal_like ? wb_pc_plus4 : rf_wdata;
 
-    wire [167:0] exe_wb_bus;
+    wire [176:0] exe_wb_bus;
     assign exe_wb_bus = {
-        exe_mem_bus[206:175],
-        exe_mem_bus[173],
-        exe_mem_bus[170],
-        exe_mem_bus[169] & exe_mem_bus[174],
-        exe_mem_bus[168:164],
-        exe_mem_bus[163:132],
-        exe_mem_bus[95:64],
-        exe_mem_bus[63:32],
-        exe_mem_bus[31:0]
+        exe_mem_bus[215:184],   // pc_plus4
+        exe_mem_bus[182],       // is_jal_like
+        exe_mem_bus[179],       // is_csr
+        exe_mem_bus[178] & exe_mem_bus[183],  // wb_we = wb_we && result_ok
+        exe_mem_bus[177:173],   // wb_rd
+        exe_mem_bus[172:141],   // result_reg (alu_result)
+        exe_mem_bus[104:73],    // csr_rdata
+        exe_mem_bus[72:41],     // pc
+        exe_mem_bus[40:9],      // inst
+        exe_mem_bus[8],         // is_fpu
+        exe_mem_bus[7],         // is_flw
+        exe_mem_bus[6],         // is_fsw
+        exe_mem_bus[5],         // fpu_rd_is_int
+        exe_mem_bus[4:0]        // fpu_fflags
     };
 
     wire mem_misalign_load;
@@ -171,7 +190,7 @@ module core_top(
     wire exception_at_decode;
     wire trap_pending;
     wire [31:0] csr_read_data;
-    wire [167:0] csr_wb_bus;
+    wire [176:0] csr_wb_bus;
     wire [31:0] trap_csr_pc;
     wire [31:0] csr_pc_plus4_out;
     wire [1:0]  target_priv;
@@ -216,9 +235,9 @@ module core_top(
             pc <= 32'h80000000;
             priv_mode <= PRIV_M;
             if_id_bus_r <= 96'b0;
-            id_exe_bus_r <= 320'b0;
-            exe_mem_bus_r <= 207'b0;
-            mem_wb_bus_r <= 168'b0;
+            id_exe_bus_r <= 334'b0;
+            exe_mem_bus_r <= 216'b0;
+            mem_wb_bus_r <= 177'b0;
         end else begin
             if (if_done) begin
                 if_id_bus_r <= if_id_bus;
@@ -419,12 +438,19 @@ module core_top(
         .csr_mstatus(csr_mstatus)
     );
 
+    // Float register addresses: same as integer rs1/rs2 for FPU instructions
+    assign frs1_addr = rs1_addr;
+    assign frs2_addr = rs2_addr;
+
     cpu_execute u_execute(
         .clk(clk),
         .reset(reset),
         .exe_valid(exe_valid),
         .id_exe_bus_r(id_exe_bus_r),
         .csr_rdata(csr_read_data),
+        .csr_frm(csr_frm),
+        .frs1_value(frs1_value),
+        .frs2_value(frs2_value),
         .exe_done(exe_done),
         .exe_mem_bus(exe_mem_bus),
         .exe_branch_taken(exe_branch_taken),
@@ -515,6 +541,7 @@ module core_top(
         .reset(reset),
         .mem_valid(mem_valid),
         .exe_mem_bus_r(exe_mem_bus_r),
+        .frs2_value(frs2_value),
         .mem_en(mem_en),
         .mem_hwrite(mem_hwrite),
         .mem_hsize(mem_hsize),
@@ -542,7 +569,11 @@ module core_top(
         .wb_is_jal_like(wb_is_jal_like),
         .wb_pc_plus4(wb_pc_plus4),
         .wb_pc(wb_pc),
-        .wb_inst(wb_inst)
+        .wb_inst(wb_inst),
+        .fp_wen(fp_wen),
+        .fp_waddr(fp_waddr),
+        .fp_wdata(fp_wdata),
+        .wb_fflags(wb_fflags)
     );
 
     cpu_regfile u_regfile(
@@ -557,6 +588,20 @@ module core_top(
         .rdata2(rs2_value),
         .dbg_raddr(rf_addr),
         .dbg_rdata(rf_data)
+    );
+
+    fpu_regfile u_fregfile(
+        .clk(clk),
+        .reset(reset),
+        .wen(fp_wen),
+        .raddr1(frs1_addr),
+        .raddr2(frs2_addr),
+        .waddr(fp_waddr),
+        .wdata(fp_wdata),
+        .rdata1(frs1_value),
+        .rdata2(frs2_value),
+        .dbg_faddr(rf_addr),
+        .dbg_fdata(fp_dbg_data)
     );
 
     cpu_trap_csr u_trap_csr(
@@ -636,7 +681,11 @@ module core_top(
         .csr_satp         (csr_satp),
         .csr_mcounteren   (csr_mcounteren),
         .csr_scounteren   (csr_scounteren),
-        .csr_access_ok    (csr_access_ok)
+        .csr_access_ok    (csr_access_ok),
+        .csr_fflags       (),
+        .csr_frm          (csr_frm),
+        .fflags_wdata     (wb_fflags),
+        .fflags_wen       (wb_fflags != 5'b0)
     );
 
     // Unified MMU: single instance with dual i/d interfaces

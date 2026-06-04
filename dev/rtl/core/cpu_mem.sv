@@ -5,7 +5,8 @@ module cpu_mem(
         input              clk,
         input              reset,
         input              mem_valid,
-        input      [206:0] exe_mem_bus_r,
+        input      [215:0] exe_mem_bus_r,
+        input      [31:0]  frs2_value,    // float register rs2 for FSW
         output             mem_en,
         output             mem_hwrite,
         output      [2:0]  mem_hsize,
@@ -14,7 +15,7 @@ module cpu_mem(
         input      [31:0]  readData_32,
         input              data_valid,
         output             mem_done,
-        output     [167:0] mem_wb_bus,
+        output     [176:0] mem_wb_bus,
 
         output     [31:0]  mem_pc,
         output     [31:0]  mem_inst,
@@ -44,6 +45,11 @@ module cpu_mem(
     wire [31:0] pc_plus4;
     wire [31:0] pc;
     wire [31:0] inst;
+    wire        is_fpu;
+    wire        is_flw;
+    wire        is_fsw;
+    wire        fpu_rd_is_int;
+    wire [4:0]  fpu_fflags;
 
     assign {
             pc_plus4,
@@ -60,7 +66,12 @@ module cpu_mem(
             store_data,
             csr_rdata,
             pc,
-            inst
+            inst,
+            is_fpu,
+            is_flw,
+            is_fsw,
+            fpu_rd_is_int,
+            fpu_fflags
         } = exe_mem_bus_r;
 
     reg [1:0] mem_state;
@@ -103,8 +114,8 @@ module cpu_mem(
            (mem_size == 3'b010 && alu_result[1:0] != 2'b00);
     wire misalign_load;
     wire misalign_store;
-    assign misalign_load  = is_load  && misalign_addr;
-    assign misalign_store = is_store && misalign_addr;
+    assign misalign_load  = (is_load | is_flw)  && misalign_addr;
+    assign misalign_store = (is_store | is_fsw) && misalign_addr;
 
     always @(posedge clk or posedge reset) begin
         if (reset) begin
@@ -141,7 +152,7 @@ module cpu_mem(
                         mem_unsigned_reg <= mem_unsigned;
                         wb_rd_reg <= wb_rd;
                         wb_we_reg <= wb_we && valid_inst;
-                        if (!valid_inst || (!is_load && !is_store)) begin
+                        if (!valid_inst || (!is_load && !is_store && !is_flw && !is_fsw)) begin
                             wb_data_reg <= alu_result;
                             hwrite_reg <= 1'b0;
                             hsize_reg <= `AHB_SIZE_WORD;
@@ -154,7 +165,7 @@ module cpu_mem(
                             hsize_reg <= `AHB_SIZE_WORD;
                             done_reg <= 1'b1;
                         end
-                        else if (is_load) begin
+                        else if (is_load || is_flw) begin
                             dataAddr_32_reg <= alu_result;
                             hwrite_reg <= 1'b0;
                             hsize_reg <= `AHB_SIZE_WORD;
@@ -166,27 +177,34 @@ module cpu_mem(
                             dataAddr_32_reg <= alu_result;
                             hwrite_reg <= 1'b1;
                             mem_en_reg <= 1'b1;
-                            case (mem_size)
-                                3'b000: begin
-                                    hsize_reg <= `AHB_SIZE_BYTE;
-                                    writeData_32_reg <= {4{store_data[7:0]}};
-                                end
-                                3'b001: begin
-                                    hsize_reg <= `AHB_SIZE_HWORD;
-                                    case (alu_result[1:0])
-                                        2'b00: begin
-                                            writeData_32_reg <= {16'b0, store_data[15:0]};
-                                        end
-                                        default: begin
-                                            writeData_32_reg <= {store_data[15:0], 16'b0};
-                                        end
-                                    endcase
-                                end
-                                default: begin
-                                    hsize_reg <= `AHB_SIZE_WORD;
-                                    writeData_32_reg <= store_data;
-                                end
-                            endcase
+                            // For FSW: use frs2_value as store data, always word size
+                            if (is_fsw) begin
+                                hsize_reg <= `AHB_SIZE_WORD;
+                                writeData_32_reg <= frs2_value;
+                            end
+                            else begin
+                                case (mem_size)
+                                    3'b000: begin
+                                        hsize_reg <= `AHB_SIZE_BYTE;
+                                        writeData_32_reg <= {4{store_data[7:0]}};
+                                    end
+                                    3'b001: begin
+                                        hsize_reg <= `AHB_SIZE_HWORD;
+                                        case (alu_result[1:0])
+                                            2'b00: begin
+                                                writeData_32_reg <= {16'b0, store_data[15:0]};
+                                            end
+                                            default: begin
+                                                writeData_32_reg <= {store_data[15:0], 16'b0};
+                                            end
+                                        endcase
+                                    end
+                                    default: begin
+                                        hsize_reg <= `AHB_SIZE_WORD;
+                                        writeData_32_reg <= store_data;
+                                    end
+                                endcase
+                            end
                             mem_state <= MEM_WRITE;
                         end
                     end
@@ -232,13 +250,18 @@ module cpu_mem(
                          wb_data_reg,
                          csr_rdata,
                          pc,
-                         inst};
+                         inst,
+                         is_fpu,
+                         is_flw,
+                         is_fsw,
+                         fpu_rd_is_int,
+                         fpu_fflags};
     assign mem_pc = pc;
     assign mem_inst = inst;
 
     assign mem_misalign_load  = is_load  && misalign_addr;
     assign mem_misalign_store = is_store && misalign_addr;
     assign mem_misalign_addr  = alu_result;
-    assign mem_data_access    = is_load || is_store;
+    assign mem_data_access    = is_load || is_store || is_flw || is_fsw;
 
 endmodule

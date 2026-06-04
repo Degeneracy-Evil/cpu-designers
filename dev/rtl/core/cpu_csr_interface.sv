@@ -4,7 +4,7 @@ module cpu_csr_interface(
     input         clk,
     input         reset,
 
-    input  [319:0] id_exe_bus_r,
+    input  [333:0] id_exe_bus_r,
     input  [11:0]  dec_csr_addr,
     input          csr_valid,
 
@@ -29,8 +29,11 @@ module cpu_csr_interface(
     input         cycle_en,
     input         inst_retire,
 
+    input  [4:0]  fflags_wdata,
+    input         fflags_wen,
+
     output [31:0] csr_read_data,
-    output [167:0] csr_wb_bus,
+    output [176:0] csr_wb_bus,
     output [31:0] csr_pc_plus4,
 
     output [31:0] csr_mstatus,
@@ -52,7 +55,9 @@ module cpu_csr_interface(
     output [31:0] csr_mcounteren,
     output [31:0] csr_scounteren,
 
-    output        csr_access_ok
+    output        csr_access_ok,
+    output [4:0]  csr_fflags,
+    output [2:0]  csr_frm
 );
 
     wire [2:0] csr_funct3_bus;
@@ -64,14 +69,14 @@ module cpu_csr_interface(
     wire [31:0] csr_pc_bus;
     wire [31:0] csr_inst_bus;
 
-    assign csr_funct3_bus   = id_exe_bus_r[71:69];
-    assign csr_uimm_bus    = id_exe_bus_r[68:64];
-    assign csr_rs1_bus     = id_exe_bus_r[19:15];
-    assign csr_rs1_val_bus = id_exe_bus_r[154:123];
-    assign csr_rd_bus      = id_exe_bus_r[279:275];
-    assign csr_pc_plus4_bus= id_exe_bus_r[319:288];
-    assign csr_pc_bus      = id_exe_bus_r[63:32];
-    assign csr_inst_bus    = id_exe_bus_r[31:0];
+    assign csr_funct3_bus   = id_exe_bus_r[85:83];
+    assign csr_uimm_bus    = id_exe_bus_r[82:78];
+    assign csr_rs1_bus     = id_exe_bus_r[33:29];
+    assign csr_rs1_val_bus = id_exe_bus_r[168:137];
+    assign csr_rd_bus      = id_exe_bus_r[293:289];
+    assign csr_pc_plus4_bus= id_exe_bus_r[333:302];
+    assign csr_pc_bus      = id_exe_bus_r[77:46];
+    assign csr_inst_bus    = id_exe_bus_r[45:14];
 
     assign csr_pc_plus4 = csr_pc_plus4_bus;
 
@@ -96,7 +101,7 @@ module cpu_csr_interface(
     assign csr_sw_wen   = csr_valid && !csr_no_write;
     assign csr_sw_wdata = csr_new_val;
 
-    assign csr_wb_bus = {csr_pc_plus4_bus, 1'b0, 1'b1, 1'b1, csr_rd_bus, csr_read_data, csr_read_data, csr_pc_bus, csr_inst_bus};
+    assign csr_wb_bus = {csr_pc_plus4_bus, 1'b0, 1'b1, 1'b1, csr_rd_bus, csr_read_data, csr_read_data, csr_pc_bus, csr_inst_bus, 1'b0, 1'b0, 1'b0, 1'b0, 5'b0};
 
     wire [31:0] csr_mscratch;
     wire [31:0] csr_mcause;
@@ -148,7 +153,11 @@ module cpu_csr_interface(
         .csr_sip(csr_sip),
         .csr_satp(csr_satp),
         .csr_mcounteren(csr_mcounteren),
-        .csr_scounteren(csr_scounteren)
+        .csr_scounteren(csr_scounteren),
+        .fflags_wdata(fflags_wdata),
+        .fflags_wen(fflags_wen),
+        .csr_fflags(csr_fflags),
+        .csr_frm(csr_frm)
     );
 
 endmodule

@@ -63,6 +63,7 @@ def _tcl_create_project(
     """
     alu_rtl_dir = f"{dev_dir}/rtl/ALU"
     mu_rtl_dir = f"{dev_dir}/rtl/MU"
+    fpu_rtl_dir = f"{dev_dir}/rtl/FPU"
     cpu_core_dir = f"{dev_dir}/rtl/core"
     ahb_dir = f"{dev_dir}/rtl/AHB-lite"
     ahb_ip_dir = f"{dev_dir}/rtl/AHB-lite/ip"
@@ -85,6 +86,7 @@ set_property simulator_language Mixed [current_project]
 # --- add RTL sources ---
 foreach f [glob -nocomplain -directory "{alu_rtl_dir}" *.sv] {{ import_files -norecurse $f }}
 foreach f [glob -nocomplain -directory "{mu_rtl_dir}" *.sv] {{ import_files -norecurse $f }}
+foreach f [glob -nocomplain -directory "{fpu_rtl_dir}" *.sv] {{ import_files -norecurse $f }}
 foreach f [glob -nocomplain -directory "{cpu_core_dir}" *.sv] {{ import_files -norecurse $f }}
 foreach f [glob -nocomplain -directory "{ahb_dir}" *.sv] {{ import_files -norecurse $f }}
 foreach f [glob -nocomplain -directory "{ahb_dir}" *.svh] {{
@@ -112,6 +114,7 @@ update_compile_order -fileset sources_1
 set_property include_dirs [list \\
     "{alu_rtl_dir}" \\
     "{mu_rtl_dir}" \\
+    "{fpu_rtl_dir}" \\
     "{cpu_core_dir}" \\
     "{ahb_dir}" \\
     "{ahb_ip_dir}" \\

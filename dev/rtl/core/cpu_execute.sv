@@ -4,10 +4,13 @@ module cpu_execute(
     input              clk,
     input              reset,
     input              exe_valid,
-    input      [319:0] id_exe_bus_r,
+    input      [333:0] id_exe_bus_r,
     input      [31:0]  csr_rdata,
+    input      [2:0]   csr_frm,        // CSR frm for DYN rounding mode
+    input      [31:0]  frs1_value,     // float register rs1 value
+    input      [31:0]  frs2_value,     // float register rs2 value
     output             exe_done,
-    output     [206:0] exe_mem_bus,
+    output     [215:0] exe_mem_bus,
     output             exe_branch_taken,
     output     [31:0]  exe_branch_target,
     output             exe_is_ctrl_flow,
@@ -56,6 +59,12 @@ module cpu_execute(
     wire [31:0] pc_plus4;
     wire [31:0] pc;
     wire [31:0] inst;
+    wire        is_fpu;
+    wire        is_flw;
+    wire        is_fsw;
+    wire [6:0]  fpu_funct;
+    wire [2:0]  fpu_rm;
+    wire        fpu_rd_is_int;
 
     assign {
         pc_plus4,
@@ -87,7 +96,13 @@ module cpu_execute(
         csr_funct3,
         csr_uimm,
         pc,
-        inst
+        inst,
+        is_fpu,
+        is_flw,
+        is_fsw,
+        fpu_funct,
+        fpu_rm,
+        fpu_rd_is_int
     } = id_exe_bus_r;
 
     wire is_jalr;
@@ -136,6 +151,48 @@ module cpu_execute(
         .div_by_zero(mu_div_by_zero)
     );
 
+    // ===================================================================
+    // FPU unit (mirrors MU handshake pattern)
+    // ===================================================================
+    wire [31:0] fpu_result;
+    wire        fpu_busy_w;
+    wire        fpu_ready_w;
+    wire        fpu_result_valid;
+    wire [4:0]  fpu_fflags;
+    wire        fpu_rd_is_int_result;
+
+    reg fpu_req_valid;
+    reg fpu_result_got;
+    reg fpu_active;
+
+    // Resolve DYN rounding mode: if rm==3'b111, use CSR frm
+    wire [2:0] fpu_rm_resolved = (fpu_rm == 3'b111) ? csr_frm : fpu_rm;
+
+    // Int→float instructions (FMV.W.X, FCVT.S.W, FCVT.S.WU) read integer rs1
+    // instead of float frs1. fpu_funct encoding: 15=FMV.W.X, 18=FCVT.S.W, 19=FCVT.S.WU
+    wire fpu_src_is_int = (fpu_funct == 7'd15) ||  // FMV.W.X
+                          (fpu_funct == 7'd18) ||  // FCVT.S.W
+                          (fpu_funct == 7'd19);    // FCVT.S.WU
+    wire [31:0] fpu_src1_mux = fpu_src_is_int ? rs1_value : frs1_value;
+
+    fpu_unit u_fpu(
+        .clk(clk),
+        .reset(reset),
+        .fpu_funct(fpu_funct),
+        .fpu_rm(fpu_rm_resolved),
+        .src1(fpu_src1_mux),
+        .src2(frs2_value),
+        .req_valid(fpu_req_valid),
+        .flush(1'b0),
+        .result_got(fpu_result_got),
+        .result(fpu_result),
+        .fpu_busy(fpu_busy_w),
+        .fpu_ready(fpu_ready_w),
+        .result_valid(fpu_result_valid),
+        .fflags(fpu_fflags),
+        .rd_is_int(fpu_rd_is_int_result)
+    );
+
     reg [31:0] result_reg;
     reg        result_ok;
     reg        done_reg;
@@ -148,6 +205,9 @@ module cpu_execute(
             mu_req_valid <= 1'b0;
             mu_result_got <= 1'b0;
             mu_active <= 1'b0;
+            fpu_req_valid <= 1'b0;
+            fpu_result_got <= 1'b0;
+            fpu_active <= 1'b0;
             exe_seen_valid <= 1'b0;
             result_reg <= 32'b0;
             result_ok <= 1'b0;
@@ -157,12 +217,13 @@ module cpu_execute(
         end else begin
             done_reg <= 1'b0;
             mu_result_got <= 1'b0;
+            fpu_result_got <= 1'b0;
 
             if (!exe_valid) begin
                 exe_seen_valid <= 1'b0;
             end
 
-            if (!mu_active && exe_valid && !exe_seen_valid) begin
+            if (!mu_active && !fpu_active && exe_valid && !exe_seen_valid) begin
                 exe_seen_valid <= 1'b1;
                 if (use_fixed_wb) begin
                     result_reg <= wb_fixed_data;
@@ -173,6 +234,9 @@ module cpu_execute(
                 end else if (is_mu) begin
                     mu_req_valid <= 1'b1;
                     mu_active <= 1'b1;
+                end else if (is_fpu) begin
+                    fpu_req_valid <= 1'b1;
+                    fpu_active <= 1'b1;
                 end else begin
                     result_reg <= alu_result;
                     result_ok <= valid_inst;
@@ -195,6 +259,22 @@ module cpu_execute(
                     mu_req_valid <= 1'b0;
                     branch_target_reg <= is_jalr ? (mu_result & 32'hffff_fffe) : mu_result;
                     branch_taken_reg <= is_branch ? branch_cond_true : is_jal_like;
+                end
+            end
+
+            if (fpu_active) begin
+                if (fpu_req_valid && fpu_ready_w) begin
+                    fpu_req_valid <= 1'b0;
+                end
+                if (fpu_result_valid) begin
+                    fpu_result_got <= 1'b1;
+                    result_reg <= fpu_result;
+                    result_ok <= valid_inst;
+                    done_reg <= 1'b1;
+                    fpu_active <= 1'b0;
+                    fpu_req_valid <= 1'b0;
+                    branch_target_reg <= 32'b0;
+                    branch_taken_reg <= 1'b0;
                 end
             end
         end
@@ -221,7 +301,7 @@ module cpu_execute(
     assign exe_branch_target = branch_target_reg;
     assign exe_is_ctrl_flow = is_branch | is_jal_like;
     assign exe_is_branch = is_branch;
-    assign exe_need_mem  = is_load | is_store;
+    assign exe_need_mem  = is_load | is_store | is_flw | is_fsw;
 
     assign exe_csr_wen    = is_csr && !csr_no_write;
     assign exe_csr_waddr  = csr_addr;
@@ -246,7 +326,12 @@ module cpu_execute(
         rs2_value,
         csr_rdata,
         pc,
-        inst
+        inst,
+        is_fpu,
+        is_flw,
+        is_fsw,
+        fpu_rd_is_int,
+        fpu_fflags
     };
 
     assign exe_pc = pc;

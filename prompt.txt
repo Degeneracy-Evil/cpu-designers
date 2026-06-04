@@ -1,4 +1,4 @@
-根据dev\PLAN-test-system.md，完成T4阶段，注意页表位置和程序位置不要冲突了、内存总量只有32k，以及不要用sub agent，不稳定
+根据dev\PLAN-test-system.md，完成T4阶段，注意页表位置和程序位置不要冲突了、内存总量只有32k，以及
 
 注意会话上限是5，全部清理要用-clearup-all，顺便记录vivado-orchestrator的问题并汇报
 
@@ -9,3 +9,5 @@
 资料：项目报告：dev\docs\simpleCPU-design-report.md，测试程序编码规则和框架描述：dev\program_source\test-system.md
 
 拟定计划并输出
+
+不要用sub agent，根据以往使用经验，速度不如直接搜索或执行

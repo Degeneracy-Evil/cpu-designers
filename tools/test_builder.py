@@ -107,8 +107,8 @@ def discover_all_tests(config: dict) -> list[dict]:
                 "category": cat_name,
                 "src_file": TEST_SRC / f"{test_name}.s",
                 "framework": [PROG_SRC / f for f in fw_files],
-                "arch": defaults.get("arch", "rv32im_zicsr_zifencei"),
-                "abi": defaults.get("abi", "ilp32"),
+                "arch": cat_config.get("arch", defaults.get("arch", "rv32im_zicsr_zifencei")),
+                "abi": cat_config.get("abi", defaults.get("abi", "ilp32")),
                 "linker_script": PROG_SRC / defaults.get("linker_script", "link.ld"),
                 "depth": defaults.get("depth", 8192),
             })

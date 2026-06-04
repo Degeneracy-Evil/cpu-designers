@@ -47,6 +47,13 @@ categories:
       - isa/csr
       - isa/m_ext
 
+  isa_f:
+    framework: common
+    arch: rv32imf_zicsr_zifencei
+    abi: ilp32
+    tests:
+      - isa/f_ext
+
   exception:
     framework: common
     tests:

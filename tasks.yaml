@@ -53,6 +53,11 @@ tasks:
     coe: test/isa/m_ext.coe
     runtime: 5ms
 
+  isa_f_ext:
+    tb: tb_isa_f_ext
+    coe: test/isa/f_ext.coe
+    runtime: 10ms
+
   exception_ecall:
     tb: tb_exception_ecall
     coe: test/exception/ecall.coe

@@ -6,7 +6,8 @@
 #   device_part     — FPGA part (e.g. "xc7a200tfbg676-2")
 #   proj_dir        — Project directory (absolute path)
 #   alu_rtl_dir     — ALU RTL directory
-#   mu_rtl_dir      — MU RTL directory
+#   mu_rtl_dir     — MU RTL directory
+#   fpu_rtl_dir    — FPU RTL directory
 #   cpu_core_dir    — CPU core RTL directory
 #   ahb_dir         — AHB-Lite RTL directory
 #   ahb_ip_dir      — AHB-Lite IP directory
@@ -20,7 +21,7 @@
 # ---------------------------------------------------------------------------
 # 变量检查
 # ---------------------------------------------------------------------------
-foreach _var {proj_name device_part proj_dir alu_rtl_dir mu_rtl_dir cpu_core_dir \
+foreach _var {proj_name device_part proj_dir alu_rtl_dir mu_rtl_dir fpu_rtl_dir cpu_core_dir \
               ahb_dir ahb_ip_dir apb_dir apb_header_dir apb_perips_dir sys_rtl_dir tb_dir} {
     if { ![info exists $_var] } {
         puts "ERROR: _create.tcl — 缺少必需变量: $_var"
@@ -68,6 +69,15 @@ if { [catch {
     }
 } err] } {
     puts "WARNING: 添加 MU RTL 失败: $err"
+}
+
+# FPU
+if { [catch {
+    foreach f [glob -directory $fpu_rtl_dir *.sv] {
+        import_files -norecurse $f
+    }
+} err] } {
+    puts "WARNING: 添加 FPU RTL 失败: $err"
 }
 
 # CPU Core
@@ -141,6 +151,7 @@ puts "========== Step 3: 设置 include 目录 =========="
 set_property include_dirs [list \
     $alu_rtl_dir \
     $mu_rtl_dir \
+    $fpu_rtl_dir \
     $cpu_core_dir \
     $ahb_dir \
     $ahb_ip_dir \

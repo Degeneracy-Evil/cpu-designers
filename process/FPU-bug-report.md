@@ -1,7 +1,7 @@
 # FPU 扩展代码审查 — BUG 报告
 
 > 审查日期: 2026-06-04 | 依据: `dev/docs/IS/21-F扩展-单精度浮点.md` | 审查范围: git diff 修改部分
-> 修复日期: 2026-06-04 | ISA 测试验证: 2026-06-04 (f_ext 26/26, f_ext_special 24/24)
+> 修复日期: 2026-06-05 | ISA 测试验证: 2026-06-05 (f_ext 26/26, f_ext_special 24/24, calculator 5/5)
 
 ---
 
@@ -434,3 +434,79 @@ BUG 12/13 修复后 ISA 回归: isa_f_ext 26/26 ✅, isa_f_ext_special 24/24 ✅
 | BUG 11 | fpu_cvt.sv | f_abs_int 24→32 位, f_abs_rounded 25→33 位 | 2026-06-04 |
 | BUG 12 | fpu_adder.sv | res_sign_sub 改用有效符号 eff_sign_a | 2026-06-05 |
 | BUG 13 | fpu_cvt.sv | 有符号溢出检测改为 mux: sign ? (abs>0x80000000) : (abs>0x7FFFFFFF) | 2026-06-05 |
+| BUG 14 | tools/rv2coe.py | 统一输出改用 elf_all_to_bin() 包含 .text+.rodata+.data | 2026-06-05 |
+| BUG 15 | tb_calculator.sv | 移除表达式尾部 8'h0, 调整 EXPRx_LEN | 2026-06-05 |
+
+---
+
+## BUG 14: rv2coe.py .rodata 段缺失
+
+**发现日期**: 2026-06-05
+**影响**: C 程序中所有字符串常量 (uart_puts, printf 等) 产生零输出
+**严重性**: 高 — 完全阻断 C 程序的字符串输出功能
+
+### 现象
+
+- `uart_putc('H')` 正常输出 1 字节
+- `uart_puts("Hi")` 输出 0 字节
+- 汇编程序 (uart_hello.s) 正常 — 字符串在 .text 段
+
+### 根因
+
+`rv2coe.py` 的统一输出路径 (`-o`) 使用 `elf_text_to_bin()` 提取 ELF，该函数仅包含 `--only-section=.text`。C 编译器将字符串常量放入 `.rodata` 段，该段未被包含在 COE 文件中。
+
+CPU 从 BRAM 读取 .rodata 地址时得到全零 (未初始化内存)，`while (*s)` 立即退出，`uart_puts` 返回而不输出任何字符。
+
+### 修复
+
+新增 `elf_all_to_bin()` 函数，使用 `objcopy -O binary` (无 `--only-section` 过滤) 提取所有可加载段。统一输出路径改用此函数。
+
+```python
+def elf_all_to_bin(args, elf_path, bin_path):
+    run_cmd([args.objcopy, "-O", "binary", str(elf_path), str(bin_path)], args.verbose)
+```
+
+### 验证
+
+- calc_debug6.coe: 170→171 words (多了 1 word 的 "Hi\0" 字符串数据)
+- calculator.coe: 1712→1766 words (多了 54 words 的 .rodata)
+- uart_puts("Hi") → 2 字节 "Hi" ✅
+
+---
+
+## BUG 15: tb_calculator 表达式 NUL 污染
+
+**发现日期**: 2026-06-05
+**影响**: 5 个测试表达式中 3 个被跳过 (乘法、减法、sqrt)
+**严重性**: 中 — 不影响 RTL 正确性，仅影响 testbench 刺激
+
+### 现象
+
+calculator 仿真结果:
+- 1+2=3 ✅, 3*4=12 ❌, 10-3=7 ❌, 8/2=4 ✅, sqrt(4)=2 ❌
+
+规律: 每隔一个表达式失败，加法和除法通过但乘法和减法失败。
+
+### 根因
+
+testbench 表达式数组含尾部 NUL 终止符:
+
+```systemverilog
+expr0[0]="1"; expr0[1]="+"; expr0[2]="2"; expr0[3]="\n"; expr0[4]=8'h0;  // ← NUL
+localparam EXPR0_LEN = 5;  // ← 包含 NUL 在内
+```
+
+TX 引擎按 `EXPRx_LEN` 发送字节，将 NUL (0x00) 作为第 5 个字节发送到 UART RX。`gets()` 在 `\n` 处 break，NUL 残留在 RX 缓冲区。下次 `gets()` 首字符读到 `\0`，加入缓冲区: `buf[0]='\0'`。calculator 的 `if (input_buf[0]=='\0') continue;` 判定为空行并跳过。
+
+### 修复
+
+移除表达式数组中的尾部 `8'h0`，将 `EXPRx_LEN` 减 1:
+
+```systemverilog
+expr0[0]="1"; expr0[1]="+"; expr0[2]="2"; expr0[3]="\n";
+localparam EXPR0_LEN = 4;  // 仅含有效字符 + newline
+```
+
+### 验证
+
+5/5 ALL TESTS PASSED: 1+2=3, 3*4=12, 10-3=7, 8/2=4, sqrt(4)=2 ✅

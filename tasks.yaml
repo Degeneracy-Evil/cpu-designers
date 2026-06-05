@@ -297,5 +297,10 @@ tasks:
     tb: tb_fpu_unit
     runtime: 50us
 
+  calculator:
+    tb: tb_calculator
+    coe: app/calculator.coe
+    runtime: 100ms
+
   fpga:
     top: system_top

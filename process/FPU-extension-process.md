@@ -14,8 +14,8 @@
 | Phase 4 | 浮点指令 ISA 测试 | ✅ 完成 | 2026-06-04 |
 | Phase 5 | 浮点异常/舍入测试 | ✅ 完成 | 2026-06-04 |
 | Phase 6 | FPU 单元测试 | ✅ 完成 | 2026-06-05 |
-| Phase 7 | 计算器应用 | ⬜ 未开始 | |
-| Phase 8 | 计算器测试 | ⬜ 未开始 | |
+| Phase 7 | 计算器应用 | ✅ 完成 | 2026-06-05 |
+| Phase 8 | 计算器测试 | ✅ 完成 | 2026-06-05 |
 
 ---
 
@@ -99,21 +99,23 @@
 
 | 步骤 | 内容 | 状态 | 备注 |
 |------|------|------|------|
-| 7.1 | stdio.c | ⬜ | |
-| 7.2 | stdio.h | ⬜ | |
-| 7.3 | ftoa.c | ⬜ | |
-| 7.4 | atof.c | ⬜ | |
-| 7.5 | math.c | ⬜ | |
-| 7.6 | math.h | ⬜ | |
-| 7.7 | calculator.c | ⬜ | |
-| 7.8 | calculator.s (如需) | ⬜ | |
+| 7.1 | lib/include/stdio.h | ✅ | printf(%d/%s/%c), print_float(), gets(), ftoa(), atof() 声明 |
+| 7.2 | lib/stdio.c | ✅ | printf 用 __builtin_va_list; print_float 调用 ftoa; gets 带回显+退格 |
+| 7.3 | lib/ftoa.c | ✅ | FMV.X.W 提取 IEEE754 位; 处理 NaN/Inf/零/符号/整数/小数部分 |
+| 7.4 | lib/atof.c | ✅ | 解析符号+整数+小数+指数部分; 编译器生成 FPU 指令 |
+| 7.5 | lib/include/math.h | ✅ | PI 常量; sqrtf/fabsf/powf/sinf/cosf 声明 |
+| 7.6 | lib/math.c | ✅ | sqrtf 用 FSQRT.S 内联 asm; powf 整数指数循环; sinf/cosf Taylor 7 项 |
+| 7.7 | app/calculator.c | ✅ | 递归下降解析器 (expr→term→factor); 支持 +,-,*,/,(),sqrt(),neg() |
+| 7.8 | rv2coe.py .rodata 修复 | ✅ | 统一输出改用 elf_all_to_bin() 包含 .text+.rodata+.data |
 
 ## Phase 8: 计算器测试
 
 | 步骤 | 内容 | 状态 | 备注 |
 |------|------|------|------|
-| 8.1 | tb_calculator.sv | ⬜ | |
-| 8.2 | tasks.yaml 任务 | ⬜ | |
+| 8.1 | tb_calculator.sv | ✅ | UART TX 引擎 (5 表达式+启动延迟) + RX 解码器 + 结果搜索 |
+| 8.2 | tasks.yaml 任务 | ✅ | calculator 任务, runtime=100ms |
+| 8.3 | tb NUL 污染修复 | ✅ | 移除表达式数组尾部 8'h0, 调整 EXPRx_LEN |
+| 8.4 | 仿真验证 | ✅ | 5/5 ALL TESTS PASSED: 1+2=3, 3*4=12, 10-3=7, 8/2=4, sqrt(4)=2 |
 
 ---
 
@@ -137,6 +139,9 @@
 | 2026-06-05 | tb_fpu_unit | **24/24 pass** | FPU 顶层握手+全操作单元测试 ✅ |
 | 2026-06-05 | isa_f_ext (BUG 12/13 修复后回归) | **26/26 pass** | 无回归 ✅ |
 | 2026-06-05 | isa_f_ext_special (BUG 12/13 修复后回归) | **24/24 pass** | 无回归 ✅ |
+| 2026-06-05 | calculator (rv2coe .rodata 修复前) | 0 bytes | uart_puts 读到全零 (字符串在 .rodata, 未包含在 COE) |
+| 2026-06-05 | calculator (rv2coe .rodata 修复后, NUL 修复前) | 2/5 pass | NUL 污染: expr 尾部 8'h0 残留 RX 缓冲区, gets() 首字符为 \0 |
+| 2026-06-05 | calculator (全部修复后) | **5/5 ALL TESTS PASSED** | 1+2=3, 3*4=12, 10-3=7, 8/2=4, sqrt(4)=2 ✅ |
 
 ---
 
@@ -156,6 +161,8 @@
 | 2026-06-04 | BUG 11: f_abs_int 位宽不足 | fpu_cvt.sv | f_abs_int 从 24→32 位, f_abs_rounded 从 25→33 位; 旧代码左移路径截断大浮点数, FCVT.W.S(2^31) 结果为 0 | ✅ 已修复 |
 | 2026-06-05 | BUG 12: FSUB 符号错误 | fpu_adder.sv | res_sign_sub 使用原始符号而非有效符号; 当 \|src2\|>\|src1\| 且 is_sub=1 时结果符号错误; 修复: eff_sign_a = swap ? eff_sign2 : s1_sign; res_sign_sub = eff_sign_a | ✅ 已修复 |
 | 2026-06-05 | BUG 13: FCVT.W.S 溢出误判 | fpu_cvt.sv | 有符号 int 溢出检测将 -2^31 (0x80000000) 误判为溢出; 修复: 改为 f_sign ? (abs > 0x80000000) : (abs > 0x7FFFFFFF) | ✅ 已修复 |
+| 2026-06-05 | BUG 14: rv2coe.py .rodata 缺失 | tools/rv2coe.py | 统一输出 (-o) 仅提取 .text 段, 字符串常量 (.rodata) 未包含在 COE; CPU 读到全零, uart_puts 立即返回; 修复: 新增 elf_all_to_bin() 使用无 --only-section 的 objcopy | ✅ 已修复 |
+| 2026-06-05 | BUG 15: tb_calculator NUL 污染 | tb_calculator.sv | 表达式数组含尾部 8'h0, TX 引擎将其作为有效字节发送; 残留在 UART RX 缓冲区, 下次 gets() 首字符为 \0 触发 continue 跳过; 修复: 移除尾部 NUL, 调整 EXPRx_LEN | ✅ 已修复 |
 
 ---
 
@@ -179,3 +186,6 @@
 | 2026-06-05 | FSUB 结果符号? | 使用有效符号而非原始符号 | 当 \|src2\|>\|src1\| 且 is_sub=1 时, swap=1, 需用 eff_sign_a 而非 s1_sign |
 | 2026-06-05 | FCVT.W.S 有符号溢出检测? | 正负不同阈值 | -2^31 是合法 int32 值, 不应判溢出; 改为 mux: sign ? (abs>0x80000000) : (abs>0x7FFFFFFF) |
 | 2026-06-05 | fpu_unit 握手时序? | req_valid/result_got 保持 2 个上升沿 | XSim 竞争条件: 1 周期保持可能导致采不到信号 |
+| 2026-06-05 | printf 是否支持 %f? | 不支持, 用 print_float() | float 在可变参数中提升为 double (C 标准), 但无 D 扩展; print_float() 直接调用 ftoa() 避免 double 提升 |
+| 2026-06-05 | rv2coe 统一输出段范围? | 包含所有可加载段 | CPU 单 BRAM 需同时包含 .text 和 .rodata; 旧版仅提取 .text 导致字符串常量丢失 |
+| 2026-06-05 | testbench 表达式是否含 NUL? | 不含, 仅 newline 终止 | TX 引擎按 EXPRx_LEN 发送字节; 尾部 NUL 会被发送并残留在 RX 缓冲区, 污染下次 gets() 读取 |

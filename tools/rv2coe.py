@@ -518,6 +518,18 @@ def elf_text_to_bin(args: argparse.Namespace, elf_path: Path, bin_path: Path) ->
     )
 
 
+def elf_all_to_bin(args: argparse.Namespace, elf_path: Path, bin_path: Path) -> None:
+    """Extract all loadable sections (.text + .rodata + .data + .sdata) into one flat binary.
+
+    Needed for unified COE output because the CPU's single BRAM must contain
+    both code and read-only data (string literals, const arrays, etc.).
+    """
+    run_cmd(
+        [args.objcopy, "-O", "binary", str(elf_path), str(bin_path)],
+        args.verbose,
+    )
+
+
 def elf_data_to_bin(args: argparse.Namespace, elf_path: Path, bin_path: Path) -> None:
     run_cmd(
         [
@@ -617,14 +629,17 @@ def main() -> int:
 
         elf_path = tmp_root / "prog.elf"
         inst_bin_path = tmp_root / "prog.inst.bin"
+        unified_bin_path = tmp_root / "prog.unified.bin"
         data_bin_path = tmp_root / "prog.data.bin"
 
         compile_to_elf(args, src_paths, src_kinds, elf_path, tmp_root)
         if args.check_isa:
             check_isa_whitelist(args, elf_path)
 
-        if has_unified or has_inst:
+        if has_inst:
             elf_text_to_bin(args, elf_path, inst_bin_path)
+        if has_unified:
+            elf_all_to_bin(args, elf_path, unified_bin_path)
         if has_data:
             elf_data_to_bin(args, elf_path, data_bin_path)
 
@@ -633,7 +648,7 @@ def main() -> int:
 
         if has_unified:
             output_path = Path(args.output).resolve()
-            words = bin_to_words(inst_bin_path)
+            words = bin_to_words(unified_bin_path)
             words = apply_depth(words, args.depth)
             write_coe(words, output_path)
             print(f"[INFO] Input : {input_desc}")

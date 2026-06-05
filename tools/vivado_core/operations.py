@@ -146,7 +146,7 @@ def _tcl_setup_ip(
     ip_dir = f"{proj_dir}/{proj_name}.srcs/sources_1/ip"
 
     # --- Dynamic IP creation from config (create + set_property only) ---
-    ip_tcl, ip_names = generate_all_ip_tcl(mem_config, ip_dir)
+    ip_tcl, ip_names = generate_all_ip_tcl(mem_config, ip_dir, base_dir)
 
     # Generate targets for non-Sram IPs immediately.
     gen_others = "\n".join(_tcl_generate_target(n) for n in ip_names if n != "Sram")
@@ -177,12 +177,11 @@ puts "Sram IP configured (no COE init)\""""
 update_compile_order -fileset sources_1
 {ip_tcl}
 
-# --- Generate targets for cache BRAMs ---
+# --- Generate targets for all non-Sram IPs (cache BRAMs + DDR3 IPs) ---
 {gen_others}
 
 # --- Sram COE configuration + generate target ---
-{sram_block}
-"""
+{sram_block}"""
 
 
 def _tcl_add_constrs(base_dir: str) -> str:

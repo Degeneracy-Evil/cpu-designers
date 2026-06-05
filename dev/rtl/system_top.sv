@@ -28,11 +28,47 @@ module system_top(
     inout         ct_int,
     inout         ct_sda,
     output        ct_scl,
-    output        ct_rstn
+    output        ct_rstn,
+
+    // DDR3 SDRAM pins
+    output [12:0] ddr3_addr,
+    output [2:0]  ddr3_ba,
+    output        ddr3_ras_n,
+    output        ddr3_cas_n,
+    output        ddr3_we_n,
+    output        ddr3_reset_n,
+    output [0:0]  ddr3_ck_p,
+    output [0:0]  ddr3_ck_n,
+    output [0:0]  ddr3_cke,
+    output [1:0]  ddr3_dm,
+    inout  [15:0] ddr3_dq,
+    inout  [1:0]  ddr3_dqs_p,
+    inout  [1:0]  ddr3_dqs_n,
+    output [0:0]  ddr3_odt
 );
 
     wire reset;
     assign reset = ~resetn;
+
+    // Clocking Wizard: 100MHz in → 100MHz clk_system + 200MHz clk_ddr_ref
+    wire clk_system;     // 100MHz system clock (from clk_wiz or MIG ui_clk)
+    wire clk_ddr_ref;    // 200MHz DDR reference clock
+    wire clk_wiz_locked; // Clocking Wizard locked
+
+    clk_wiz_0 u_clk_wiz_0 (
+        .clk_in1  (clk),          // 100MHz external crystal
+        .clk_out1 (clk_system),   // 100MHz (backup, not used when DDR3 active)
+        .clk_out2 (clk_ddr_ref),  // 200MHz → MIG clk_ref_i
+        .reset    (~resetn),      // Active-high reset
+        .locked   (clk_wiz_locked)
+    );
+
+    // MIG status wires
+    wire mig_init_calib_complete;
+    wire mig_ui_clk;           // MIG 100MHz output = system clock
+    wire mig_ui_clk_sync_rst;
+    wire mig_mmcm_locked;
+    wire mig_aresetn;
 
     wire [31:0] cpu_HADDR;
     wire [1:0]  cpu_HTRANS;
@@ -71,7 +107,7 @@ module system_top(
     wire [31:0] display_state;
 
     core_top cpu(
-        .clk          (clk           ),
+        .clk          (mig_ui_clk   ),
         .reset        (reset         ),
         .rf_addr      (rf_addr       ),
         .rf_data      (rf_data       ),
@@ -106,14 +142,14 @@ module system_top(
     ahb_lite_bus #(
         .ADDR_WIDTH  (32),
         .DATA_WIDTH  (32),
-        .SLAVE_NUM   (4),
+        .SLAVE_NUM   (6),
         .MEM_DEPTH   (8192),
         .WAIT_STATES (0),
         .GPIO_NUM    (16),
         .UART_FREQ   (100)
     ) u_ahb_lite_bus (
-        .HCLK       (clk),
-        .HRESETn    (resetn),
+        .HCLK       (mig_ui_clk),
+        .HRESETn    (mig_aresetn),
         .HADDR      (cpu_HADDR),
         .HTRANS     (cpu_HTRANS),
         .HWRITE     (cpu_HWRITE),
@@ -140,7 +176,28 @@ module system_top(
         .o_spiSs    (spi_ss),
         .o_spiClk   (spi_clk),
         .o_gpioCtrl (gpio_ctrl_out_wire),
-        .o_gpioData (gpio_data_out_wire)
+        .o_gpioData (gpio_data_out_wire),
+        .mig_sys_clk_i  (clk),              // 100MHz external crystal → MIG sys_clk_i
+        .mig_clk_ref_i  (clk_ddr_ref),      // 200MHz from clk_wiz → MIG clk_ref_i
+        .mig_sys_rst    (~resetn),          // Active-high reset → MIG sys_rst
+        .init_calib_complete(mig_init_calib_complete),
+        .ui_clk         (mig_ui_clk),
+        .mmcm_locked    (mig_mmcm_locked),
+        .aresetn        (mig_aresetn),
+        .ddr3_addr      (ddr3_addr),
+        .ddr3_ba        (ddr3_ba),
+        .ddr3_ras_n     (ddr3_ras_n),
+        .ddr3_cas_n     (ddr3_cas_n),
+        .ddr3_we_n      (ddr3_we_n),
+        .ddr3_reset_n   (ddr3_reset_n),
+        .ddr3_ck_p      (ddr3_ck_p),
+        .ddr3_ck_n      (ddr3_ck_n),
+        .ddr3_cke       (ddr3_cke),
+        .ddr3_dm        (ddr3_dm),
+        .ddr3_dq        (ddr3_dq),
+        .ddr3_dqs_p     (ddr3_dqs_p),
+        .ddr3_dqs_n     (ddr3_dqs_n),
+        .ddr3_odt       (ddr3_odt)
     );
 
     reg         display_valid;
@@ -151,7 +208,7 @@ module system_top(
     wire [31:0] input_value;
 
     lcd_module lcd_module(
-        .clk            (clk           ),
+        .clk            (mig_ui_clk   ),
         .resetn         (resetn        ),
         .display_valid  (display_valid ),
         .display_name   (display_name  ),
@@ -178,7 +235,7 @@ module system_top(
     assign gpio_ctrl_out = gpio_ctrl_out_wire[15:0];
     assign gpio_data_out = gpio_data_out_wire[15:0];
 
-    always @(posedge clk or posedge reset) begin
+    always @(posedge mig_ui_clk or posedge reset) begin
         if (reset) begin
             display_valid  <= 1'b0;
             display_name   <= 40'b0;

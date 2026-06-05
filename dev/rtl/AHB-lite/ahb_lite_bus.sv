@@ -4,7 +4,7 @@
 module ahb_lite_bus #(
     parameter ADDR_WIDTH  = `AHB_ADDR_WIDTH,
     parameter DATA_WIDTH  = `AHB_DATA_WIDTH,
-    parameter SLAVE_NUM   = 5,
+    parameter SLAVE_NUM   = 6,
     parameter MEM_DEPTH   = 8192,
     parameter WAIT_STATES = 0,
     parameter GPIO_NUM    = 16,
@@ -42,24 +42,49 @@ module ahb_lite_bus #(
     output wire                    o_spiClk,
 
     output wire [DATA_WIDTH-1:0]   o_gpioCtrl,
-    output wire [DATA_WIDTH-1:0]   o_gpioData
+    output wire [DATA_WIDTH-1:0]   o_gpioData,
+
+    // DDR3 / MIG ports
+    input  wire                    mig_sys_clk_i,
+    input  wire                    mig_clk_ref_i,
+    input  wire                    mig_sys_rst,
+    output wire                    init_calib_complete,
+    output wire                    ui_clk,
+    output wire                    mmcm_locked,
+    output wire                    aresetn,
+    output wire [12:0]             ddr3_addr,
+    output wire [2:0]              ddr3_ba,
+    output wire                    ddr3_ras_n,
+    output wire                    ddr3_cas_n,
+    output wire                    ddr3_we_n,
+    output wire                    ddr3_reset_n,
+    output wire [0:0]              ddr3_ck_p,
+    output wire [0:0]              ddr3_ck_n,
+    output wire [0:0]              ddr3_cke,
+    output wire [1:0]              ddr3_dm,
+    inout  wire [15:0]             ddr3_dq,
+    inout  wire [1:0]              ddr3_dqs_p,
+    inout  wire [1:0]              ddr3_dqs_n,
+    output wire [0:0]              ddr3_odt
 );
 
     wire [SLAVE_NUM-1:0]   slave_HSELx;
 
-    wire [DATA_WIDTH-1:0]  sram_HRDATA;
+    wire [DATA_WIDTH-1:0]  bootrom_HRDATA;
     wire [DATA_WIDTH-1:0]  plic_HRDATA;
     wire [DATA_WIDTH-1:0]  clint_HRDATA;
     wire [DATA_WIDTH-1:0]  bridge_HRDATA;
+    wire [DATA_WIDTH-1:0]  ddr3_HRDATA;
     wire [DATA_WIDTH*SLAVE_NUM-1:0] slave_HRDATA;
     wire [SLAVE_NUM-1:0]   slave_HREADYOUT;
     wire [SLAVE_NUM-1:0]   slave_HRESP;
 
-    assign slave_HSELx[0] = (HADDR[31:24] == 8'h80);
-    assign slave_HSELx[1] = (HADDR[31:24] == 8'h0C);
-    assign slave_HSELx[2] = (HADDR[31:24] == 8'h02);
-    assign slave_HSELx[3] = (HADDR[31:24] == 8'h10);
-    assign slave_HSELx[4] = ~(slave_HSELx[0] | slave_HSELx[1] | slave_HSELx[2] | slave_HSELx[3]);
+    assign slave_HSELx[0] = (HADDR[31:28] == 4'h8);
+    assign slave_HSELx[1] = (HADDR[31:24] == 8'hFC);
+    assign slave_HSELx[2] = (HADDR[31:24] == 8'h0C);
+    assign slave_HSELx[3] = (HADDR[31:24] == 8'h02);
+    assign slave_HSELx[4] = (HADDR[31:24] == 8'h10);
+    assign slave_HSELx[5] = ~(slave_HSELx[0] | slave_HSELx[1] | slave_HSELx[2] | slave_HSELx[3] | slave_HSELx[4]);
 
     // Latch HSELx when HREADY=1 for correct pipelined data phase selection.
     // Per AHB-Lite spec, the mux must use the HSELx from the address phase,
@@ -87,15 +112,60 @@ module ahb_lite_bus #(
         .HRESP          (HRESP)
     );
 
-    ahb_sram_slave #(
+    ddr3_bridge_wrapper u_ddr3_bridge_wrapper (
+        .HCLK                (HCLK),
+        .HRESETn             (HRESETn),
+        .HSEL                (slave_HSELx[0]),
+        .HADDR               (HADDR),
+        .HTRANS              (HTRANS),
+        .HWRITE              (HWRITE),
+        .HSIZE               (HSIZE),
+        .HBURST              (HBURST),
+        .HPROT               (HPROT),
+        .HWDATA              (HWDATA),
+        .HREADY              (HREADY),
+        .HREADYOUT           (slave_HREADYOUT[0]),
+        .HRESP               (slave_HRESP[0]),
+        .HRDATA              (ddr3_HRDATA),
+        .mig_sys_clk_i       (mig_sys_clk_i),
+        .mig_clk_ref_i       (mig_clk_ref_i),
+        .mig_sys_rst         (mig_sys_rst),
+        .init_calib_complete (init_calib_complete),
+        .ui_clk              (ui_clk),
+        .ui_clk_sync_rst     (),
+        .mmcm_locked         (mmcm_locked),
+        .aresetn             (aresetn),
+        .app_sr_req          (1'b0),
+        .app_ref_req         (1'b0),
+        .app_zq_req          (1'b0),
+        .app_sr_active       (),
+        .app_ref_ack         (),
+        .app_zq_ack          (),
+        .ddr3_addr           (ddr3_addr),
+        .ddr3_ba             (ddr3_ba),
+        .ddr3_ras_n          (ddr3_ras_n),
+        .ddr3_cas_n          (ddr3_cas_n),
+        .ddr3_we_n           (ddr3_we_n),
+        .ddr3_reset_n        (ddr3_reset_n),
+        .ddr3_ck_p           (ddr3_ck_p),
+        .ddr3_ck_n           (ddr3_ck_n),
+        .ddr3_cke            (ddr3_cke),
+        .ddr3_dm             (ddr3_dm),
+        .ddr3_dq             (ddr3_dq),
+        .ddr3_dqs_p          (ddr3_dqs_p),
+        .ddr3_dqs_n          (ddr3_dqs_n),
+        .ddr3_odt            (ddr3_odt)
+    );
+
+    ahb_bootrom_slave #(
         .ADDR_WIDTH  (ADDR_WIDTH),
         .DATA_WIDTH  (DATA_WIDTH),
         .MEM_DEPTH   (MEM_DEPTH),
         .WAIT_STATES (WAIT_STATES)
-    ) u_ahb_sram_slave (
+    ) u_ahb_bootrom_slave (
         .HCLK      (HCLK),
         .HRESETn   (HRESETn),
-        .HSEL      (slave_HSELx[0]),
+        .HSEL      (slave_HSELx[1]),
         .HADDR     (HADDR),
         .HTRANS    (HTRANS),
         .HWRITE    (HWRITE),
@@ -104,9 +174,9 @@ module ahb_lite_bus #(
         .HPROT     (HPROT),
         .HWDATA    (HWDATA),
         .HREADY    (HREADY),
-        .HREADYOUT (slave_HREADYOUT[0]),
-        .HRESP     (slave_HRESP[0]),
-        .HRDATA    (sram_HRDATA)
+        .HREADYOUT (slave_HREADYOUT[1]),
+        .HRESP     (slave_HRESP[1]),
+        .HRDATA    (bootrom_HRDATA)
     );
 
     wire [7:0] plic_src_irq;
@@ -124,23 +194,6 @@ module ahb_lite_bus #(
     ) u_ahb_plic (
         .HCLK      (HCLK),
         .HRESETn   (HRESETn),
-        .HSEL      (slave_HSELx[1]),
-        .HADDR     (HADDR),
-        .HTRANS    (HTRANS),
-        .HWRITE    (HWRITE),
-        .HSIZE     (HSIZE),
-        .HWDATA    (HWDATA),
-        .HREADY    (HREADY),
-        .HREADYOUT (slave_HREADYOUT[1]),
-        .HRESP     (slave_HRESP[1]),
-        .HRDATA    (plic_HRDATA),
-        .src_irq   (plic_src_irq),
-        .o_eip     (o_plic_eip)
-    );
-
-    ahb_clint u_ahb_clint (
-        .HCLK      (HCLK),
-        .HRESETn   (HRESETn),
         .HSEL      (slave_HSELx[2]),
         .HADDR     (HADDR),
         .HTRANS    (HTRANS),
@@ -150,6 +203,23 @@ module ahb_lite_bus #(
         .HREADY    (HREADY),
         .HREADYOUT (slave_HREADYOUT[2]),
         .HRESP     (slave_HRESP[2]),
+        .HRDATA    (plic_HRDATA),
+        .src_irq   (plic_src_irq),
+        .o_eip     (o_plic_eip)
+    );
+
+    ahb_clint u_ahb_clint (
+        .HCLK      (HCLK),
+        .HRESETn   (HRESETn),
+        .HSEL      (slave_HSELx[3]),
+        .HADDR     (HADDR),
+        .HTRANS    (HTRANS),
+        .HWRITE    (HWRITE),
+        .HSIZE     (HSIZE),
+        .HWDATA    (HWDATA),
+        .HREADY    (HREADY),
+        .HREADYOUT (slave_HREADYOUT[3]),
+        .HRESP     (slave_HRESP[3]),
         .HRDATA    (clint_HRDATA),
         .o_mtip    (o_clint_mtip),
         .o_msip    (o_clint_msip)
@@ -188,10 +258,10 @@ module ahb_lite_bus #(
         .HBURST    (HBURST),
         .HPROT     (HPROT),
         .HWDATA    (HWDATA),
-        .HSEL      (slave_HSELx[3]),
+        .HSEL      (slave_HSELx[4]),
         .HREADY    (HREADY),
-        .HREADYOUT (slave_HREADYOUT[3]),
-        .HRESP     (slave_HRESP[3]),
+        .HREADYOUT (slave_HREADYOUT[4]),
+        .HRESP     (slave_HRESP[4]),
         .HRDATA    (bridge_HRDATA),
         .PADDR     (bridge_PADDR),
         .PPROT     (bridge_PPROT),
@@ -285,15 +355,15 @@ module ahb_lite_bus #(
     ahb_default_slave u_ahb_default_slave (
         .HCLK      (HCLK),
         .HRESETn   (HRESETn),
-        .HSEL      (slave_HSELx[4]),
+        .HSEL      (slave_HSELx[5]),
         .HTRANS    (HTRANS),
         .HREADY    (HREADY),
-        .HREADYOUT (slave_HREADYOUT[4]),
-        .HRESP     (slave_HRESP[4])
+        .HREADYOUT (slave_HREADYOUT[5]),
+        .HRESP     (slave_HRESP[5])
     );
 
     assign default_HRDATA = {DATA_WIDTH{1'b0}};
 
-    assign slave_HRDATA = {default_HRDATA, bridge_HRDATA, clint_HRDATA, plic_HRDATA, sram_HRDATA};
+    assign slave_HRDATA = {default_HRDATA, bridge_HRDATA, clint_HRDATA, plic_HRDATA, bootrom_HRDATA, ddr3_HRDATA};
 
 endmodule

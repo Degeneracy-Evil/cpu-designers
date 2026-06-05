@@ -188,6 +188,32 @@ def _derive_sram_defines(mem: MemoryConfig) -> list[str]:
     return lines
 
 
+def _derive_ddr3_defines(mem: MemoryConfig) -> list[str]:
+    """Derive ``define`` macros for DDR3 / Bridge / Clocking Wizard."""
+    lines: list[str] = []
+    if not mem.ddr3.enabled:
+        return lines
+    
+    lines.append(f"`define DDR3_ENABLED        1")
+    lines.append(f"`define DDR3_IP_NAME        \"{mem.ddr3.ip_name}\"")
+    lines.append(f"`define DDR3_MEM_SIZE       {mem.ddr3.mem_size}")
+    lines.append(f"`define DDR3_AXI_ADDR_WIDTH {mem.ddr3.axi_addr_width}")
+    lines.append(f"`define DDR3_AXI_DATA_WIDTH {mem.ddr3.axi_data_width}")
+    lines.append(f"`define DDR3_AXI_ID_WIDTH   {mem.ddr3.axi_id_width}")
+    lines.append(f"`define DDR3_DATA_RATE      {mem.ddr3.data_rate}")
+    lines.append(f"`define DDR3_BASE_ADDR      32'h8000_0000")
+    lines.append(f"")
+    lines.append(f"`define BRIDGE_IP_NAME      \"{mem.ahb_bridge.ip_name}\"")
+    lines.append(f"`define BRIDGE_THREAD_ID_WIDTH {mem.ahb_bridge.thread_id_width}")
+    lines.append(f"`define BRIDGE_SUPPORTS_NARROW_BURST {1 if mem.ahb_bridge.supports_narrow_burst else 0}")
+    lines.append(f"")
+    lines.append(f"`define CLK_WIZ_IP_NAME     \"{mem.clk_wiz.ip_name}\"")
+    lines.append(f"`define CLK_WIZ_PRIM_IN_FREQ  {int(mem.clk_wiz.prim_in_freq)}")
+    lines.append(f"`define CLK_WIZ_DDR_REF_FREQ {int(mem.clk_wiz.clk_out2_freq)}")
+    lines.append(f"`define MIG_UI_CLK_FREQ     {mem.ddr3.input_clk_freq}")
+    return lines
+
+
 # ---------------------------------------------------------------------------
 # Full header generation
 # ---------------------------------------------------------------------------
@@ -223,6 +249,13 @@ def generate_cache_header(mem: MemoryConfig) -> str:
     lines.append("// --- SRAM (Main Memory) ---")
     lines.extend(_derive_sram_defines(mem))
     lines.append("")
+
+    # DDR3 / Bridge / Clocking Wizard
+    ddr3_lines = _derive_ddr3_defines(mem)
+    if ddr3_lines:
+        lines.append("// --- DDR3 Main Memory (via MIG + Bridge) ---")
+        lines.extend(ddr3_lines)
+        lines.append("")
 
     # I-Cache
     lines.append("// --- I-Cache ---")

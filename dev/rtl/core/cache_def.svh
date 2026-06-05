@@ -15,6 +15,25 @@
 `define SRAM_DEPTH       8192
 `define SRAM_ADDR_WIDTH  13
 
+// --- DDR3 Main Memory (via MIG + Bridge) ---
+`define DDR3_ENABLED        1
+`define DDR3_IP_NAME        "bd_soc_mig_7series_0_1"
+`define DDR3_MEM_SIZE       134217728
+`define DDR3_AXI_ADDR_WIDTH 27
+`define DDR3_AXI_DATA_WIDTH 32
+`define DDR3_AXI_ID_WIDTH   8
+`define DDR3_DATA_RATE      800
+`define DDR3_BASE_ADDR      32'h8000_0000
+
+`define BRIDGE_IP_NAME      "ahblite_axi_bridge_0"
+`define BRIDGE_THREAD_ID_WIDTH 0
+`define BRIDGE_SUPPORTS_NARROW_BURST 1
+
+`define CLK_WIZ_IP_NAME     "clk_wiz_0"
+`define CLK_WIZ_PRIM_IN_FREQ  100
+`define CLK_WIZ_DDR_REF_FREQ 200
+`define MIG_UI_CLK_FREQ     100
+
 // --- I-Cache ---
 `define ICACHE_NUM_SETS    8
 `define ICACHE_NUM_WAYS    4

@@ -55,3 +55,38 @@ memory:
 
   # TLB storage: false = register array (current), true = BRAM IPs (tlb_flag/tlb_data)
   use_tlb_bram: true
+
+  # DDR3 main memory via MIG 7 Series + AHB-Lite AXI Bridge
+  ddr3:
+    enabled: true
+    ip_name: bd_soc_mig_7series_0_1
+    ip_version: "4.2"
+    mig_prj_file: Reference/mig/mig_a.prj
+    mem_size: 134217728          # 128MB
+    axi_addr_width: 27
+    axi_data_width: 32
+    axi_id_width: 8
+    supports_narrow_burst: true
+    data_rate: 800               # Mbps
+    input_clk_freq: 100          # MHz
+
+  ahb_bridge:
+    enabled: true
+    ip_name: ahblite_axi_bridge_0
+    ip_version: "3.0"
+    thread_id_width: 0           # Single master, ID hardwired to 0
+    supports_narrow_burst: true
+    timeout: 0                   # No timeout
+
+  clk_wiz:
+    enabled: true
+    ip_name: clk_wiz_0
+    ip_version: "6.0"
+    prim_in_freq: 100.0          # MHz, external crystal
+    mmcm_clkin_period: 10.0      # ns
+    mmcm_clkfbout_mult_f: 10.0   # VCO = 1000MHz
+    mmcm_divclk_divide: 1
+    num_out_clks: 2
+    clk_out1_freq: 100.0         # MHz, clk_system (backup)
+    clk_out2_freq: 200.0         # MHz, clk_ddr_ref → MIG clk_ref_i
+    reset_type: ACTIVE_LOW

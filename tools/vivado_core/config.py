@@ -105,6 +105,49 @@ class TlbConfig:
 
 
 @dataclass(frozen=True)
+class Ddr3Config:
+    """DDR3 main memory via MIG 7 Series configuration."""
+    enabled: bool = False
+    ip_name: str = "bd_soc_mig_7series_0_1"
+    ip_version: str = "4.2"
+    mig_prj_file: str = "Reference/mig/mig_a.prj"
+    mem_size: int = 134217728  # 128MB
+    axi_addr_width: int = 27
+    axi_data_width: int = 32
+    axi_id_width: int = 8
+    supports_narrow_burst: bool = True
+    data_rate: int = 800  # Mbps
+    input_clk_freq: int = 100  # MHz
+
+
+@dataclass(frozen=True)
+class AhbBridgeConfig:
+    """AHB-Lite to AXI4 Bridge configuration."""
+    enabled: bool = False
+    ip_name: str = "ahblite_axi_bridge_0"
+    ip_version: str = "3.0"
+    thread_id_width: int = 0
+    supports_narrow_burst: bool = True
+    timeout: int = 0
+
+
+@dataclass(frozen=True)
+class ClkWizConfig:
+    """Clocking Wizard configuration for DDR3 reference clock."""
+    enabled: bool = False
+    ip_name: str = "clk_wiz_0"
+    ip_version: str = "6.0"
+    prim_in_freq: float = 100.0  # MHz
+    mmcm_clkin_period: float = 10.0  # ns
+    mmcm_clkfbout_mult_f: float = 10.0  # VCO = 1000MHz
+    mmcm_divclk_divide: int = 1
+    num_out_clks: int = 2
+    clk_out1_freq: float = 100.0  # MHz (clk_system,备用)
+    clk_out2_freq: float = 200.0  # MHz (clk_ddr_ref → MIG clk_ref_i)
+    reset_type: str = "ACTIVE_LOW"
+
+
+@dataclass(frozen=True)
 class MemoryConfig:
     """Top-level memory/cache configuration."""
 
@@ -125,6 +168,15 @@ class MemoryConfig:
 
     use_tlb_bram: bool = False
     """If true, use BRAM IPs (tlb_flag/tlb_data) for TLB storage; otherwise register array."""
+
+    ddr3: Ddr3Config = field(default_factory=Ddr3Config)
+    """DDR3 main memory via MIG 7 Series configuration."""
+
+    ahb_bridge: AhbBridgeConfig = field(default_factory=AhbBridgeConfig)
+    """AHB-Lite to AXI4 Bridge configuration."""
+
+    clk_wiz: ClkWizConfig = field(default_factory=ClkWizConfig)
+    """Clocking Wizard configuration for DDR3 reference clock."""
 
 
 @dataclass(frozen=True)
@@ -231,6 +283,44 @@ def load_config(path: Path | str | None = None, base_dir: Path | str | None = No
         data_byte_enable=tlb_raw.get("data_byte_enable", True),
         data_byte_size=tlb_raw.get("data_byte_size", 32),
     )
+    ddr3_raw: dict = mem_raw.get("ddr3", {}) or {}
+    ahb_bridge_raw: dict = mem_raw.get("ahb_bridge", {}) or {}
+    clk_wiz_raw: dict = mem_raw.get("clk_wiz", {}) or {}
+
+    ddr3 = Ddr3Config(
+        enabled=ddr3_raw.get("enabled", False),
+        ip_name=ddr3_raw.get("ip_name", "bd_soc_mig_7series_0_1"),
+        ip_version=ddr3_raw.get("ip_version", "4.2"),
+        mig_prj_file=ddr3_raw.get("mig_prj_file", "Reference/mig/mig_a.prj"),
+        mem_size=ddr3_raw.get("mem_size", 134217728),
+        axi_addr_width=ddr3_raw.get("axi_addr_width", 27),
+        axi_data_width=ddr3_raw.get("axi_data_width", 32),
+        axi_id_width=ddr3_raw.get("axi_id_width", 8),
+        supports_narrow_burst=ddr3_raw.get("supports_narrow_burst", True),
+        data_rate=ddr3_raw.get("data_rate", 800),
+        input_clk_freq=ddr3_raw.get("input_clk_freq", 100),
+    )
+    ahb_bridge = AhbBridgeConfig(
+        enabled=ahb_bridge_raw.get("enabled", False),
+        ip_name=ahb_bridge_raw.get("ip_name", "ahblite_axi_bridge_0"),
+        ip_version=ahb_bridge_raw.get("ip_version", "3.0"),
+        thread_id_width=ahb_bridge_raw.get("thread_id_width", 0),
+        supports_narrow_burst=ahb_bridge_raw.get("supports_narrow_burst", True),
+        timeout=ahb_bridge_raw.get("timeout", 0),
+    )
+    clk_wiz = ClkWizConfig(
+        enabled=clk_wiz_raw.get("enabled", False),
+        ip_name=clk_wiz_raw.get("ip_name", "clk_wiz_0"),
+        ip_version=clk_wiz_raw.get("ip_version", "6.0"),
+        prim_in_freq=float(clk_wiz_raw.get("prim_in_freq", 100.0)),
+        mmcm_clkin_period=float(clk_wiz_raw.get("mmcm_clkin_period", 10.0)),
+        mmcm_clkfbout_mult_f=float(clk_wiz_raw.get("mmcm_clkfbout_mult_f", 10.0)),
+        mmcm_divclk_divide=clk_wiz_raw.get("mmcm_divclk_divide", 1),
+        num_out_clks=clk_wiz_raw.get("num_out_clks", 2),
+        clk_out1_freq=float(clk_wiz_raw.get("clk_out1_freq", 100.0)),
+        clk_out2_freq=float(clk_wiz_raw.get("clk_out2_freq", 200.0)),
+        reset_type=clk_wiz_raw.get("reset_type", "ACTIVE_LOW"),
+    )
     memory = MemoryConfig(
         sram=sram,
         icache=icache,
@@ -238,6 +328,9 @@ def load_config(path: Path | str | None = None, base_dir: Path | str | None = No
         tlb=tlb,
         use_tag_bram=mem_raw.get("use_tag_bram", False),
         use_tlb_bram=mem_raw.get("use_tlb_bram", False),
+        ddr3=ddr3,
+        ahb_bridge=ahb_bridge,
+        clk_wiz=clk_wiz,
     )
 
     return GlobalConfig(

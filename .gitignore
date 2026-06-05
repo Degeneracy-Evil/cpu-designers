@@ -39,6 +39,7 @@ vivado*.log
 vivado*.jou
 .Xil/
 xsim.dir/
+*.bit
 
 #omo
 .omo/

@@ -111,8 +111,11 @@ begin
         cycle_cnt <= 16'd0;
     else if((state == S_SEND_BYTE && cycle_cnt == cycle_val - 1) || next_state != state)
         cycle_cnt <= 16'd0;
-    else
-        cycle_cnt <= cycle_cnt + 16'd1;    
+    else if(state != S_IDLE)
+        cycle_cnt <= cycle_cnt + 16'd1;
+    // BUG-55b: Guard — cycle_cnt must not increment when UART is idle.
+    // Without this guard, cycle_cnt free-runs every clock cycle in S_IDLE,
+    // generating unnecessary simulation events (16-bit toggle every cycle).
 end
 
 always@(posedge clk or negedge rst)

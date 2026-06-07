@@ -59,7 +59,7 @@ module cpu_controller(
     reg [3:0] state_r;
     reg [3:0] next_state;
 
-    always @(posedge clk or posedge reset) begin
+    always_ff @(posedge clk or posedge reset) begin
         if (reset) begin
             state_r <= STATE_IDLE;
         end else begin
@@ -67,7 +67,7 @@ module cpu_controller(
         end
     end
 
-    always @(*) begin
+    always_comb begin
         next_state = state_r;
         if (init_sig) begin
             next_state = STATE_IDLE;

@@ -82,7 +82,7 @@ module apb_bus #(
     );
 
     integer j;
-    always @(*) begin
+    always_comb begin
         bus_PREADY  = 1'b1;
         bus_PSLVERR = 1'b0;
         for (j = 0; j < SLAVE_NUM; j = j + 1) begin
@@ -120,7 +120,7 @@ module apb_bus #(
     endgenerate
 
     integer k;
-    always @(*) begin
+    always_comb begin
         bus_PRDATA = {DATA_WIDTH{1'b0}};
         for (k = 0; k < SLAVE_NUM; k = k + 1) begin
             if (slave_PSELx[k] & bus_PSEL) begin

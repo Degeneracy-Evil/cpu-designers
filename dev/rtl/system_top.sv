@@ -59,7 +59,7 @@ module system_top(
         .clk_in1  (clk),          // 100MHz external crystal
         .clk_out1 (clk_system),   // 100MHz (backup, not used when DDR3 active)
         .clk_out2 (clk_ddr_ref),  // 200MHz → MIG clk_ref_i
-        .reset    (~resetn),      // Active-high reset
+        .resetn   (resetn),        // Active-low reset
         .locked   (clk_wiz_locked)
     );
 
@@ -68,7 +68,49 @@ module system_top(
     wire mig_ui_clk;           // MIG 100MHz output = system clock
     wire mig_ui_clk_sync_rst;
     wire mig_mmcm_locked;
-    wire mig_aresetn;
+    // BUG-56 fix: aresetn must stay 0 until AFTER init_calib_complete.
+    // In tb_ddr3_ahb_ex (which works), aresetn stays 0 until
+    // init_calib_complete && mmcm_locked. Releasing aresetn early (after
+    // mmcm_locked only) allows the AXI UI to become active before calibration
+    // completes, which prevents MIG's internal calibration state machine from
+    // completing in the full system (even though no AXI transactions arrive).
+    // This matches the proven-working tb_ddr3_ahb_ex reset sequencing.
+    // There is NO circular dependency: aresetn is an INPUT to MIG, and
+    // init_calib_complete is an OUTPUT — the dependency is unidirectional.
+    // tb_ddr3_ahb_ex proves calibration CAN complete with aresetn=0.
+    reg mig_aresetn = 1'b0;
+
+    // Drive mig_aresetn: release after MMCM locked (NOT waiting for init_calib_complete).
+    // BUG-56 finding: With _mig_sim.v (SIM_BYPASS_INIT_CAL=FAST), waiting for
+    // init_calib_complete creates a deadlock — aresetn stays 0, and calibration
+    // may need aresetn=1 to complete in the full system (unlike tb_ddr3_ahb_ex
+    // where the simpler design allows calibration with aresetn=0).
+    // Releasing aresetn after mmcm_locked allows MIG AXI UI to activate,
+    // which may be required for the calibration state machine to advance.
+    // ahb_hresetn still waits for init_calib_complete to prevent CPU DDR3 access
+    // before DRAM is ready.
+    // BUG-55c: Add async reset (posedge reset) to sensitivity list so that
+    // mig_aresetn is deterministically 0 during reset, preventing X propagation
+    // through MIG when mmcm_locked may be undefined during power-on.
+    always @(posedge mig_ui_clk or posedge reset) begin
+        if (reset)
+            mig_aresetn <= 1'b0;
+        else if (mig_mmcm_locked)
+            mig_aresetn <= 1'b1;
+    end
+
+    // AHB bus reset: hold until MIG calibration completes so CPU cannot
+    // attempt DDR3 access before DRAM is ready.
+    // BUG-55c: Same async reset fix — prevents X on ahb_hresetn from
+    // propagating to ALL AHB slaves (HRESETn=X → every slave register stays X).
+    reg ahb_hresetn = 1'b0;
+
+    always @(posedge mig_ui_clk or posedge reset) begin
+        if (reset)
+            ahb_hresetn <= 1'b0;
+        else if (mig_init_calib_complete && mig_mmcm_locked)
+            ahb_hresetn <= 1'b1;
+    end
 
     wire [31:0] cpu_HADDR;
     wire [1:0]  cpu_HTRANS;
@@ -142,14 +184,14 @@ module system_top(
     ahb_lite_bus #(
         .ADDR_WIDTH  (32),
         .DATA_WIDTH  (32),
-        .SLAVE_NUM   (6),
+        .SLAVE_NUM   (7),
         .MEM_DEPTH   (8192),
         .WAIT_STATES (0),
         .GPIO_NUM    (16),
         .UART_FREQ   (100)
     ) u_ahb_lite_bus (
         .HCLK       (mig_ui_clk),
-        .HRESETn    (mig_aresetn),
+        .HRESETn    (ahb_hresetn),
         .HADDR      (cpu_HADDR),
         .HTRANS     (cpu_HTRANS),
         .HWRITE     (cpu_HWRITE),
@@ -179,11 +221,12 @@ module system_top(
         .o_gpioData (gpio_data_out_wire),
         .mig_sys_clk_i  (clk),              // 100MHz external crystal → MIG sys_clk_i
         .mig_clk_ref_i  (clk_ddr_ref),      // 200MHz from clk_wiz → MIG clk_ref_i
-        .mig_sys_rst    (~resetn),          // Active-high reset → MIG sys_rst
+        .mig_sys_rst    (resetn),           // MIG RST_ACT_LOW=1: sys_rst is active-LOW (0=reset, 1=normal)
         .init_calib_complete(mig_init_calib_complete),
         .ui_clk         (mig_ui_clk),
         .mmcm_locked    (mig_mmcm_locked),
         .aresetn        (mig_aresetn),
+        .i_clk_wiz_locked(clk_wiz_locked),
         .ddr3_addr      (ddr3_addr),
         .ddr3_ba        (ddr3_ba),
         .ddr3_ras_n     (ddr3_ras_n),
@@ -235,7 +278,7 @@ module system_top(
     assign gpio_ctrl_out = gpio_ctrl_out_wire[15:0];
     assign gpio_data_out = gpio_data_out_wire[15:0];
 
-    always @(posedge mig_ui_clk or posedge reset) begin
+    always_ff @(posedge mig_ui_clk or posedge reset) begin
         if (reset) begin
             display_valid  <= 1'b0;
             display_name   <= 40'b0;

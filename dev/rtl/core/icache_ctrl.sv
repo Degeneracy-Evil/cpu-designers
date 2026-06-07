@@ -210,7 +210,7 @@ module icache_ctrl(
     wire [TAG_ENTRY_W-1:0] refill_new_entry = {1'b1, latched_addr[`ICACHE_TAG_HI:`ICACHE_TAG_LO]};
     wire [TAG_BRAM_W-1:0]  refill_tag_din   = ({TAG_BRAM_W{1'b0}} | {{(TAG_BRAM_W-TAG_ENTRY_W){1'b0}}, refill_new_entry}) << (refill_way * TAG_BRAM_BS);
 
-    always @(posedge clk or posedge reset) begin
+    always_ff @(posedge clk or posedge reset) begin
         if (reset) begin
             state            <= S_IDLE;
             refill_req_r     <= 1'b0;

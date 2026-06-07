@@ -37,7 +37,7 @@ module apb_master #(
 
     reg [1:0] state;
 
-    always @(posedge PCLK or negedge PRESETn) begin
+    always_ff @(posedge PCLK or negedge PRESETn) begin
         if (!PRESETn) begin
             state     <= `APB_STATE_IDLE;
             PADDR     <= {ADDR_WIDTH{1'b0}};

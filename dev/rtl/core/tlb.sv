@@ -394,7 +394,7 @@ tree_plru u_d_plru(
 // State machine + latching + PLRU update
 // =========================================================================
 integer i;
-always @(posedge clk or posedge reset) begin
+always_ff @(posedge clk or posedge reset) begin
     if (reset) begin
         state            <= S_FLUSH;   // BUG-9: start in S_FLUSH to zero BRAM on reset
         i_latched_vpn    <= 20'b0;
@@ -545,7 +545,7 @@ reg        d_hit_a_r, d_hit_d_r, d_hit_g_r;
 reg        d_hit_mega_r;
 
 integer i;
-always @(*) begin
+always_comb begin
     i_hit_ppn_r  = 22'b0;
     i_hit_r_r    = 1'b0;
     i_hit_w_r    = 1'b0;
@@ -627,7 +627,7 @@ function [ENTRY_W-1:0] pack_entry;
     end
 endfunction
 
-always @(posedge clk or posedge reset) begin
+always_ff @(posedge clk or posedge reset) begin
     if (reset) begin
         rr_ptr <= '0;
         for (i = 0; i < ENTRIES; i = i + 1)

@@ -61,11 +61,20 @@ static inline void halt(void)
 
 /* ---- Address-space base constants ------------------------------- */
 
-#define SRAM_BASE       0x80000000U
-#define SRAM_SIZE       0x00008000U  /* 32 KB */
+#define DDR3_BASE       0x80000000U
+#define DDR3_SIZE       0x08000000U  /* 128 MB */
+#define SRAM_BASE       DDR3_BASE    /* Legacy alias */
+#define SRAM_SIZE       DDR3_SIZE    /* Legacy alias */
 #define CLINT_BASE      0x02000000U
 #define PLIC_BASE       0x0C000000U
 #define APB_BASE        0x10000000U
+#define BOOTROM_BASE    0xFC000000U
+#define SYS_STATUS_BASE 0x04000000U
+
+/* System Status register (SYS_STATUS_BASE + 0x00) */
+#define SYS_STATUS_INIT_CALIB  0x01U  /* [0] MIG init_calib_complete */
+#define SYS_STATUS_MMCM_LOCKED 0x02U  /* [1] MIG MMCM locked */
+#define SYS_STATUS_CLKWIZ_LOCK 0x04U  /* [2] Clocking Wizard locked */
 
 /* APB peripheral offsets (PADDR[15:14] selects slave) */
 #define GPIO_OFFSET     0x0000U      /* PSELx[0] */

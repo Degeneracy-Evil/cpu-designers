@@ -1,8 +1,9 @@
 `timescale 1ns / 1ps
+`include "core_bus_types.svh"
 
 module cpu_wb(
     input              wb_valid,
-    input      [176:0] mem_wb_bus_r,
+    input      wb_bus_t mem_wb_bus_r,
     output             rf_wen,
     output     [4:0]   rf_waddr,
     output     [31:0]  rf_wdata,
@@ -32,8 +33,20 @@ module cpu_wb(
     wire        fpu_rd_is_int;
     wire [4:0]  fpu_fflags;
 
-    assign {pc_plus4, is_jal_like, is_csr, wb_we, wb_rd, wb_data, csr_rdata, pc, inst,
-            is_fpu, is_flw, is_fsw, fpu_rd_is_int, fpu_fflags} = mem_wb_bus_r;
+    assign pc_plus4      = mem_wb_bus_r.pc_plus4;
+    assign is_jal_like   = mem_wb_bus_r.is_jal_like;
+    assign is_csr        = mem_wb_bus_r.is_csr;
+    assign wb_we         = mem_wb_bus_r.wb_we;
+    assign wb_rd         = mem_wb_bus_r.wb_rd;
+    assign wb_data       = mem_wb_bus_r.wb_data;
+    assign csr_rdata     = mem_wb_bus_r.csr_rdata;
+    assign pc            = mem_wb_bus_r.pc;
+    assign inst          = mem_wb_bus_r.inst;
+    assign is_fpu        = mem_wb_bus_r.is_fpu;
+    assign is_flw        = mem_wb_bus_r.is_flw;
+    assign is_fsw        = mem_wb_bus_r.is_fsw;
+    assign fpu_rd_is_int = mem_wb_bus_r.fpu_rd_is_int;
+    assign fpu_fflags    = mem_wb_bus_r.fpu_fflags;
 
     wire [31:0] actual_wb_data;
     assign actual_wb_data = is_csr ? csr_rdata : wb_data;

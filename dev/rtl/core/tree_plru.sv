@@ -13,7 +13,7 @@ module tree_plru(
     reg [2:0] next_state_r;
     assign next_state = next_state_r;
 
-    always @(*) begin
+    always_comb begin
         case (access_way)
             2'd0: next_state_r = {1'b1, 1'b1, plru_state[2]};
             2'd1: next_state_r = {1'b1, 1'b0, plru_state[2]};

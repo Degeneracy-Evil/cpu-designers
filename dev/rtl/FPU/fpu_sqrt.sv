@@ -6,6 +6,7 @@ module fpu_sqrt(
     input  [31:0] src1,
     input  [2:0]  rm,
     input         start,
+    input         flush,
     output [31:0] result,
     output [4:0]  fflags,
     output        done
@@ -185,7 +186,7 @@ module fpu_sqrt(
     // ----------------------------------------------------------------
     // FSM
     // ----------------------------------------------------------------
-    always @(posedge clk or posedge reset) begin
+    always_ff @(posedge clk or posedge reset) begin
         if (reset) begin
             state     <= IDLE;
             src1_r    <= 32'b0;
@@ -199,6 +200,8 @@ module fpu_sqrt(
             sticky    <= 1'b0;
             flags_r   <= 5'b0;
             result_r  <= 32'b0;
+        end else if (flush) begin
+            state     <= IDLE;
         end else begin
             case (state)
                 IDLE: begin

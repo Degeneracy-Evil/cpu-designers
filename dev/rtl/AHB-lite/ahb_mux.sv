@@ -16,7 +16,7 @@ module ahb_mux #(
 );
 
     integer i;
-    always @(*) begin
+    always_comb begin
         HRDATA  = {DATA_WIDTH{1'b0}};
         HREADY  = 1'b1;
         HRESP   = 1'b0;

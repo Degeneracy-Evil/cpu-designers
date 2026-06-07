@@ -17,7 +17,7 @@ module ahb_default_slave(
 
     reg error_phase;
 
-    always @(posedge HCLK or negedge HRESETn) begin
+    always_ff @(posedge HCLK or negedge HRESETn) begin
         if (!HRESETn) begin
             HREADYOUT  <= 1'b1;
             HRESP      <= 1'b0;

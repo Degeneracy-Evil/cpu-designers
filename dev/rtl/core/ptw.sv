@@ -91,7 +91,7 @@ module ptw(
 
     reg [3:0] fault_cause_r;
 
-    always @(*) begin
+    always_comb begin
         case (access_type)
             ACCESS_FETCH: fault_cause_r = 4'd12;
             ACCESS_LOAD:  fault_cause_r = 4'd13;
@@ -134,7 +134,7 @@ module ptw(
     wire perm_fault;
     reg perm_fault_r;
 
-    always @(*) begin
+    always_comb begin
         perm_fault_r = 1'b0;
         if (priv_mode == PRIV_U && !pte_u)
             perm_fault_r = 1'b1;
@@ -158,7 +158,7 @@ module ptw(
 
     assign perm_fault = perm_fault_r;
 
-    always @(posedge clk or posedge reset) begin
+    always_ff @(posedge clk or posedge reset) begin
         if (reset) begin
             state            <= S_IDLE;
             vaddr_r          <= 32'b0;

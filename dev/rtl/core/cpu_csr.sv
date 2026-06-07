@@ -198,7 +198,7 @@ module cpu_csr(
                               (sw_csr_addr == ADDR_MCONFIGPTR);
 
     reg csr_access_ok_r;
-    always @(*) begin
+    always_comb begin
         case (priv_mode)
             PRIV_U: csr_access_ok_r = 1'b0;
             PRIV_S: csr_access_ok_r = is_s_csr(sw_csr_addr) && !is_read_only_csr;
@@ -267,7 +267,7 @@ module cpu_csr(
     assign fflags_sw_wen = sw_csr_wen && (sw_csr_addr == ADDR_FFLAGS ||
                                           sw_csr_addr == ADDR_FCSR);
 
-    always @(posedge clk or posedge reset) begin
+    always_ff @(posedge clk or posedge reset) begin
         if (reset) begin
             r_mstatus   <= 32'h00001800;
             r_mie       <= 32'b0;
@@ -374,7 +374,7 @@ module cpu_csr(
     end
 
     reg [31:0] sw_csr_rdata_r;
-    always @(*) begin
+    always_comb begin
         case (sw_csr_addr)
             ADDR_FFLAGS:      sw_csr_rdata_r = {27'b0, r_fflags};
             ADDR_FRM:         sw_csr_rdata_r = {29'b0, r_frm};

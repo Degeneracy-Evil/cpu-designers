@@ -47,7 +47,7 @@ module ddr3_bridge_wrapper (
     output wire                    ui_clk,           // MIG output 100MHz (= system clock)
     output wire                    ui_clk_sync_rst,  // MIG sync reset (active-high)
     output wire                    mmcm_locked,      // MIG internal MMCM locked
-    output wire                    aresetn,          // MIG AXI reset (active-low)
+    input  wire                    aresetn,          // MIG AXI reset (active-low) — INPUT to MIG
 
     // --- MIG Application Interface (optional, tie low for normal operation) ---
     input  wire                    app_sr_req,       // Self-refresh request

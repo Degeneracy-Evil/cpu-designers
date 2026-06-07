@@ -8,6 +8,7 @@ module fpu_adder(
     input         is_sub,      // 1 for FSUB.S
     input  [2:0]  rm,          // rounding mode
     input         start,
+    input         flush,
     output [31:0] result,
     output [4:0]  fflags,      // {NV, DZ, OF, UF, NX}
     output        done
@@ -358,7 +359,7 @@ module fpu_adder(
     // ===================================================================
     // FSM
     // ===================================================================
-    always @(posedge clk or posedge reset) begin
+    always_ff @(posedge clk or posedge reset) begin
         if (reset) begin
             state     <= S_IDLE;
             done_r    <= 1'b0;
@@ -393,6 +394,8 @@ module fpu_adder(
             nm_special<= 1'b0;
             nm_spec_res<= 32'b0;
             nm_spec_flags<= 5'b0;
+        end else if (flush) begin
+            state     <= S_IDLE;
         end else begin
             done_r <= 1'b0;
 

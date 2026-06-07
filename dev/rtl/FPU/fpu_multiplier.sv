@@ -7,6 +7,7 @@ module fpu_multiplier(
     input  [31:0] src2,
     input  [2:0]  rm,          // rounding mode
     input         start,
+    input         flush,
     output [31:0] result,
     output [4:0]  fflags,      // {NV, DZ, OF, UF, NX}
     output        done
@@ -218,7 +219,7 @@ module fpu_multiplier(
     // ===================================================================
     // FSM
     // ===================================================================
-    always @(posedge clk or posedge reset) begin
+    always_ff @(posedge clk or posedge reset) begin
         if (reset) begin
             state    <= S_IDLE;
             done_r   <= 1'b0;
@@ -227,6 +228,8 @@ module fpu_multiplier(
             src1_r   <= 32'b0;
             src2_r   <= 32'b0;
             rm_r     <= 3'b0;
+        end else if (flush) begin
+            state    <= S_IDLE;
         end else begin
             done_r <= 1'b0;
 

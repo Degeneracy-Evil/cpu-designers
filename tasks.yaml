@@ -309,3 +309,38 @@ tasks:
   # Use: python -m tools.vivado_cli -task ddr3_test -create
   ddr3_test:
     top: system_top
+
+  # DDR3 simulation tasks (require sim_mode: ddr3)
+  ddr3_mig_ex:
+    tb: tb_ddr3_mig_ex
+    sim_mode: ddr3
+    verilog_defines:
+      SIM_BYPASS_INIT_CAL: FAST
+      SIMULATION: "TRUE"
+    runtime: 1000us
+
+  ddr3_ahb_ex:
+    tb: tb_ddr3_ahb_ex
+    sim_mode: ddr3
+    verilog_defines:
+      SIM_BYPASS_INIT_CAL: FAST
+      SIMULATION: "TRUE"
+    runtime: 1000us
+
+  ddr3_basic:
+    tb: tb_ddr3_basic
+    sim_mode: ddr3
+    verilog_defines:
+      SIM_BYPASS_INIT_CAL: FAST
+      SIMULATION: "TRUE"
+    runtime: 1000us
+
+  ddr3_system:
+    tb: tb_ddr3_system
+    sim_mode: ddr3
+    verilog_defines:
+      SIM_BYPASS_INIT_CAL: FAST
+      SIMULATION: "TRUE"
+      sg125: 1
+    hex_file: app/ddr3_test.hex
+    runtime: 10ms

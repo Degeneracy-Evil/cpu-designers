@@ -1,11 +1,12 @@
 `timescale 1ns / 1ps
 `include "ahb_def.svh"
+`include "core_bus_types.svh"
 
 module cpu_mem(
         input              clk,
         input              reset,
         input              mem_valid,
-        input      [215:0] exe_mem_bus_r,
+        input      exe_mem_bus_t exe_mem_bus_r,
         input      [31:0]  frs2_value,    // float register rs2 for FSW
         output             mem_en,
         output             mem_hwrite,
@@ -15,7 +16,7 @@ module cpu_mem(
         input      [31:0]  readData_32,
         input              data_valid,
         output             mem_done,
-        output     [176:0] mem_wb_bus,
+        output     wb_bus_t mem_wb_bus,
 
         output     [31:0]  mem_pc,
         output     [31:0]  mem_inst,
@@ -51,28 +52,26 @@ module cpu_mem(
     wire        fpu_rd_is_int;
     wire [4:0]  fpu_fflags;
 
-    assign {
-            pc_plus4,
-            valid_inst,
-            is_jal_like,
-            is_load,
-            is_store,
-            is_csr,
-            wb_we,
-            wb_rd,
-            alu_result,
-            mem_size,
-            mem_unsigned,
-            store_data,
-            csr_rdata,
-            pc,
-            inst,
-            is_fpu,
-            is_flw,
-            is_fsw,
-            fpu_rd_is_int,
-            fpu_fflags
-        } = exe_mem_bus_r;
+    assign pc_plus4      = exe_mem_bus_r.pc_plus4;
+    assign valid_inst    = exe_mem_bus_r.result_ok;
+    assign is_jal_like   = exe_mem_bus_r.is_jal_like;
+    assign is_load       = exe_mem_bus_r.is_load;
+    assign is_store      = exe_mem_bus_r.is_store;
+    assign is_csr        = exe_mem_bus_r.is_csr;
+    assign wb_we         = exe_mem_bus_r.wb_we;
+    assign wb_rd         = exe_mem_bus_r.wb_rd;
+    assign alu_result    = exe_mem_bus_r.result_reg;
+    assign mem_size      = exe_mem_bus_r.mem_size;
+    assign mem_unsigned  = exe_mem_bus_r.mem_unsigned;
+    assign store_data    = exe_mem_bus_r.rs2_value;
+    assign csr_rdata     = exe_mem_bus_r.csr_rdata;
+    assign pc            = exe_mem_bus_r.pc;
+    assign inst          = exe_mem_bus_r.inst;
+    assign is_fpu        = exe_mem_bus_r.is_fpu;
+    assign is_flw        = exe_mem_bus_r.is_flw;
+    assign is_fsw        = exe_mem_bus_r.is_fsw;
+    assign fpu_rd_is_int = exe_mem_bus_r.fpu_rd_is_int;
+    assign fpu_fflags    = exe_mem_bus_r.fpu_fflags;
 
     reg [1:0] mem_state;
     reg [31:0] addr_reg;
@@ -117,7 +116,7 @@ module cpu_mem(
     assign misalign_load  = (is_load | is_flw)  && misalign_addr;
     assign misalign_store = (is_store | is_fsw) && misalign_addr;
 
-    always @(posedge clk or posedge reset) begin
+    always_ff @(posedge clk or posedge reset) begin
         if (reset) begin
             mem_state <= MEM_IDLE;
             addr_reg <= 32'b0;
@@ -242,25 +241,27 @@ module cpu_mem(
     assign writeData_32 = writeData_32_reg;
 
     assign mem_done = done_reg;
-    assign mem_wb_bus = {pc_plus4,
-                         is_jal_like,
-                         is_csr,
-                         wb_we_reg,
-                         wb_rd_reg,
-                         wb_data_reg,
-                         csr_rdata,
-                         pc,
-                         inst,
-                         is_fpu,
-                         is_flw,
-                         is_fsw,
-                         fpu_rd_is_int,
-                         fpu_fflags};
+    assign mem_wb_bus = '{
+        pc_plus4:      pc_plus4,
+        is_jal_like:   is_jal_like,
+        is_csr:        is_csr,
+        wb_we:         wb_we_reg,
+        wb_rd:         wb_rd_reg,
+        wb_data:       wb_data_reg,
+        csr_rdata:     csr_rdata,
+        pc:            pc,
+        inst:          inst,
+        is_fpu:        is_fpu,
+        is_flw:        is_flw,
+        is_fsw:        is_fsw,
+        fpu_rd_is_int: fpu_rd_is_int,
+        fpu_fflags:    fpu_fflags
+    };
     assign mem_pc = pc;
     assign mem_inst = inst;
 
-    assign mem_misalign_load  = is_load  && misalign_addr;
-    assign mem_misalign_store = is_store && misalign_addr;
+    assign mem_misalign_load  = (is_load | is_flw)  && misalign_addr;
+    assign mem_misalign_store = (is_store | is_fsw) && misalign_addr;
     assign mem_misalign_addr  = alu_result;
     assign mem_data_access    = is_load || is_store || is_flw || is_fsw;
 

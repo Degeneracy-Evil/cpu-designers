@@ -4,7 +4,7 @@
 module ahb_lite_bus #(
     parameter ADDR_WIDTH  = `AHB_ADDR_WIDTH,
     parameter DATA_WIDTH  = `AHB_DATA_WIDTH,
-    parameter SLAVE_NUM   = 6,
+    parameter SLAVE_NUM   = 7,
     parameter MEM_DEPTH   = 8192,
     parameter WAIT_STATES = 0,
     parameter GPIO_NUM    = 16,
@@ -51,7 +51,10 @@ module ahb_lite_bus #(
     output wire                    init_calib_complete,
     output wire                    ui_clk,
     output wire                    mmcm_locked,
-    output wire                    aresetn,
+    input  wire                    aresetn,          // MIG AXI reset (active-low) — INPUT, driven by system_top
+
+    // System Status inputs (from clk_wiz and MIG)
+    input  wire                    i_clk_wiz_locked,
     output wire [12:0]             ddr3_addr,
     output wire [2:0]              ddr3_ba,
     output wire                    ddr3_ras_n,
@@ -75,16 +78,18 @@ module ahb_lite_bus #(
     wire [DATA_WIDTH-1:0]  clint_HRDATA;
     wire [DATA_WIDTH-1:0]  bridge_HRDATA;
     wire [DATA_WIDTH-1:0]  ddr3_HRDATA;
+    wire [DATA_WIDTH-1:0]  sys_status_HRDATA;
     wire [DATA_WIDTH*SLAVE_NUM-1:0] slave_HRDATA;
     wire [SLAVE_NUM-1:0]   slave_HREADYOUT;
     wire [SLAVE_NUM-1:0]   slave_HRESP;
 
-    assign slave_HSELx[0] = (HADDR[31:28] == 4'h8);
-    assign slave_HSELx[1] = (HADDR[31:24] == 8'hFC);
-    assign slave_HSELx[2] = (HADDR[31:24] == 8'h0C);
-    assign slave_HSELx[3] = (HADDR[31:24] == 8'h02);
-    assign slave_HSELx[4] = (HADDR[31:24] == 8'h10);
-    assign slave_HSELx[5] = ~(slave_HSELx[0] | slave_HSELx[1] | slave_HSELx[2] | slave_HSELx[3] | slave_HSELx[4]);
+    assign slave_HSELx[0] = (HADDR[31:28] == 4'h8);   // DDR3
+    assign slave_HSELx[1] = (HADDR[31:24] == 8'hFC);   // Boot ROM
+    assign slave_HSELx[2] = (HADDR[31:24] == 8'h0C);   // PLIC
+    assign slave_HSELx[3] = (HADDR[31:24] == 8'h02);   // CLINT
+    assign slave_HSELx[4] = (HADDR[31:24] == 8'h10);   // APB Bridge
+    assign slave_HSELx[5] = (HADDR[31:24] == 8'h04);   // System Status
+    assign slave_HSELx[6] = ~(slave_HSELx[0] | slave_HSELx[1] | slave_HSELx[2] | slave_HSELx[3] | slave_HSELx[4] | slave_HSELx[5]);
 
     // Latch HSELx when HREADY=1 for correct pipelined data phase selection.
     // Per AHB-Lite spec, the mux must use the HSELx from the address phase,
@@ -92,7 +97,7 @@ module ahb_lite_bus #(
     // Only update when HREADY=1 (data phase complete) so that during wait
     // states the mux keeps pointing to the slave that owns the data phase.
     reg [SLAVE_NUM-1:0]   mux_HSELx;
-    always @(posedge HCLK or negedge HRESETn) begin
+    always_ff @(posedge HCLK or negedge HRESETn) begin
         if (!HRESETn)
             mux_HSELx <= {SLAVE_NUM{1'b0}};
         else if (HREADY)
@@ -319,7 +324,7 @@ module ahb_lite_bus #(
         .o_spi_irq      (o_spi_irq)
     );
 
-    always @(*) begin
+    always_comb begin
         bridge_PREADY  = 1'b1;
         bridge_PSLVERR = 1'b0;
         if (apb_slave_PSELx[0] & bridge_PSEL) begin
@@ -337,7 +342,7 @@ module ahb_lite_bus #(
         end
     end
 
-    always @(*) begin
+    always_comb begin
         bridge_PRDATA = {DATA_WIDTH{1'b0}};
         if (apb_slave_PSELx[0] & bridge_PSEL) begin
             bridge_PRDATA = apb_slave0_PRDATA;
@@ -352,18 +357,39 @@ module ahb_lite_bus #(
 
     wire [DATA_WIDTH-1:0]  default_HRDATA;
 
-    ahb_default_slave u_ahb_default_slave (
+    ahb_sys_status #(
+        .ADDR_WIDTH (ADDR_WIDTH),
+        .DATA_WIDTH (DATA_WIDTH)
+    ) u_ahb_sys_status (
         .HCLK      (HCLK),
         .HRESETn   (HRESETn),
         .HSEL      (slave_HSELx[5]),
+        .HADDR     (HADDR),
         .HTRANS    (HTRANS),
+        .HWRITE    (HWRITE),
         .HREADY    (HREADY),
         .HREADYOUT (slave_HREADYOUT[5]),
-        .HRESP     (slave_HRESP[5])
+        .HRESP     (slave_HRESP[5]),
+        .HRDATA    (sys_status_HRDATA),
+        .i_init_calib_complete (init_calib_complete),
+        .i_mig_mmcm_locked     (mmcm_locked),
+        .i_clk_wiz_locked      (i_clk_wiz_locked)
+    );
+
+    ahb_default_slave u_ahb_default_slave (
+        .HCLK      (HCLK),
+        .HRESETn   (HRESETn),
+        .HSEL      (slave_HSELx[6]),
+        .HTRANS    (HTRANS),
+        .HREADY    (HREADY),
+        .HREADYOUT (slave_HREADYOUT[6]),
+        .HRESP     (slave_HRESP[6])
     );
 
     assign default_HRDATA = {DATA_WIDTH{1'b0}};
 
-    assign slave_HRDATA = {default_HRDATA, bridge_HRDATA, clint_HRDATA, plic_HRDATA, bootrom_HRDATA, ddr3_HRDATA};
+    // HRDATA concat: MSB = highest slave index, LSB = index 0
+    // [6]=Default, [5]=SysStatus, [4]=APB, [3]=CLINT, [2]=PLIC, [1]=BootROM, [0]=DDR3
+    assign slave_HRDATA = {default_HRDATA, sys_status_HRDATA, bridge_HRDATA, clint_HRDATA, plic_HRDATA, bootrom_HRDATA, ddr3_HRDATA};
 
 endmodule

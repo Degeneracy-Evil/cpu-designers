@@ -86,7 +86,7 @@ module mu_unit(
   wire [31:0] div_selected_result;
   assign div_selected_result = mu_funct3_reg[1] ? div_remainder : div_quotient;
 
-  always @(posedge clk or posedge reset)
+  always_ff @(posedge clk or posedge reset)
   begin
     if (reset)
     begin
@@ -178,6 +178,7 @@ module mu_unit(
                      .multiplicand(mul_src1_reg),
                      .multiplier(mul_src2_reg),
                      .start(mul_start),
+                     .flush(flush),
                      .product(mul_result),
                      .done(mul_done)
                    );
@@ -188,6 +189,7 @@ module mu_unit(
                           .dividend(div_src1_reg),
                           .divisor(div_src2_reg),
                           .start(div_start),
+                          .flush(flush),
                           .is_unsigned(mu_funct3_reg[2] & mu_funct3_reg[0]),
                           .quotient(div_quotient),
                           .remainder(div_remainder),

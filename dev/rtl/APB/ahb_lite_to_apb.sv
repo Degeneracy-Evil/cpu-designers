@@ -46,7 +46,7 @@ module ahb_lite_to_apb #(
 
     wire ahb_transfer = HSEL & HREADY & (HTRANS[1]);
 
-    always @(*) begin
+    always_comb begin
         case (HSIZE)
             3'b000: latch_strb = 1 << HADDR[$clog2(DATA_WIDTH/8)-1:0];
             3'b001: latch_strb = 3 << {HADDR[$clog2(DATA_WIDTH/8)-1:1], 1'b0};
@@ -54,13 +54,13 @@ module ahb_lite_to_apb #(
         endcase
     end
 
-    always @(*) begin
+    always_comb begin
         PPROT[0] = ~HPROT[1];
         PPROT[1] = ~HPROT[2];
         PPROT[2] = ~HPROT[0];
     end
 
-    always @(posedge HCLK or negedge HRESETn) begin
+    always_ff @(posedge HCLK or negedge HRESETn) begin
         if (!HRESETn) begin
             br_state    <= BR_IDLE;
             error_phase <= 1'b0;

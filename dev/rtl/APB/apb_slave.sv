@@ -33,7 +33,7 @@ module apb_slave #(
     assign reg_idx = PADDR[REG_ADDR_WIDTH+1:2];
 
     integer i;
-    always @(posedge PCLK or negedge PRESETn) begin
+    always_ff @(posedge PCLK or negedge PRESETn) begin
         if (!PRESETn) begin
             for (i = 0; i < REG_NUM; i = i + 1) begin
                 regs[i] <= {DATA_WIDTH{1'b0}};

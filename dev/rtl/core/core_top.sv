@@ -1,4 +1,5 @@
 `timescale 1ns / 1ps
+`include "core_bus_types.svh"
 
 module core_top(
     input         clk,
@@ -90,13 +91,13 @@ module core_top(
 
     wire [95:0]  if_id_bus;
     wire [333:0] id_exe_bus;
-    wire [215:0] exe_mem_bus;
-    wire [176:0] mem_wb_bus;
+    exe_mem_bus_t exe_mem_bus;
+    wb_bus_t      mem_wb_bus;
 
     reg [95:0]  if_id_bus_r;
     reg [333:0] id_exe_bus_r;
-    reg [215:0] exe_mem_bus_r;
-    reg [176:0] mem_wb_bus_r;
+    exe_mem_bus_t exe_mem_bus_r;
+    wb_bus_t      mem_wb_bus_r;
 
     wire mem_en;
 
@@ -157,27 +158,27 @@ module core_top(
 
     assign id_pc_plus4  = if_id_bus_r[95:64];
     assign exe_pc_plus4 = id_exe_bus_r[333:302];
-    assign wb_pc_plus4  = mem_wb_bus_r[176:145];
+    assign wb_pc_plus4  = mem_wb_bus_r.pc_plus4;
 
     wire [31:0] actual_rf_wdata;
     assign actual_rf_wdata = wb_is_jal_like ? wb_pc_plus4 : rf_wdata;
 
-    wire [176:0] exe_wb_bus;
-    assign exe_wb_bus = {
-        exe_mem_bus[215:184],   // pc_plus4
-        exe_mem_bus[182],       // is_jal_like
-        exe_mem_bus[179],       // is_csr
-        exe_mem_bus[178] & exe_mem_bus[183],  // wb_we = wb_we && result_ok
-        exe_mem_bus[177:173],   // wb_rd
-        exe_mem_bus[172:141],   // result_reg (alu_result)
-        exe_mem_bus[104:73],    // csr_rdata
-        exe_mem_bus[72:41],     // pc
-        exe_mem_bus[40:9],      // inst
-        exe_mem_bus[8],         // is_fpu
-        exe_mem_bus[7],         // is_flw
-        exe_mem_bus[6],         // is_fsw
-        exe_mem_bus[5],         // fpu_rd_is_int
-        exe_mem_bus[4:0]        // fpu_fflags
+    wb_bus_t      exe_wb_bus;
+    assign exe_wb_bus = '{
+        pc_plus4:      exe_mem_bus.pc_plus4,
+        is_jal_like:   exe_mem_bus.is_jal_like,
+        is_csr:        exe_mem_bus.is_csr,
+        wb_we:         exe_mem_bus.wb_we & exe_mem_bus.result_ok,
+        wb_rd:         exe_mem_bus.wb_rd,
+        wb_data:       exe_mem_bus.result_reg,
+        csr_rdata:     exe_mem_bus.csr_rdata,
+        pc:            exe_mem_bus.pc,
+        inst:          exe_mem_bus.inst,
+        is_fpu:        exe_mem_bus.is_fpu,
+        is_flw:        exe_mem_bus.is_flw,
+        is_fsw:        exe_mem_bus.is_fsw,
+        fpu_rd_is_int: exe_mem_bus.fpu_rd_is_int,
+        fpu_fflags:    exe_mem_bus.fpu_fflags
     };
 
     wire mem_misalign_load;
@@ -190,7 +191,7 @@ module core_top(
     wire exception_at_decode;
     wire trap_pending;
     wire [31:0] csr_read_data;
-    wire [176:0] csr_wb_bus;
+    wb_bus_t      csr_wb_bus;
     wire [31:0] trap_csr_pc;
     wire [31:0] csr_pc_plus4_out;
     wire [1:0]  target_priv;
@@ -230,9 +231,9 @@ module core_top(
     wire spp_field;
     assign spp_field = csr_mstatus[8];
 
-    always @(posedge clk or posedge reset) begin
+    always_ff @(posedge clk or posedge reset) begin
         if (reset) begin
-            pc <= 32'h80000000;
+            pc <= 32'hFC000000;  // Boot ROM @ 0xFC00_0000 (DDR3 bootloader)
             priv_mode <= PRIV_M;
             if_id_bus_r <= 96'b0;
             id_exe_bus_r <= 334'b0;
@@ -347,7 +348,7 @@ module core_top(
     reg dcache_flush_sent_r;
     reg icache_invalidate_sent_r;
 
-    always @(posedge clk or posedge reset) begin
+    always_ff @(posedge clk or posedge reset) begin
         if (reset) begin
             dcache_flush_sent_r      <= 1'b0;
             icache_invalidate_sent_r <= 1'b0;

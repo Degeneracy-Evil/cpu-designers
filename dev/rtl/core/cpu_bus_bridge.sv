@@ -134,7 +134,7 @@ module cpu_bus_bridge(
     wire beat_done = HREADY && htrans_r[1];
     wire last_beat = (beat_cnt == 3'd7);
 
-    always @(posedge clk or posedge reset) begin
+    always_ff @(posedge clk or posedge reset) begin
         if (reset) begin
             state                <= S_IDLE;
             haddr_r              <= 32'b0;

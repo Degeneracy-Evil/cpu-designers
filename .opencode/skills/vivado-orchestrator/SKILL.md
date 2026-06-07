@@ -133,6 +133,10 @@ python -m tools.vivado_cli -task cpu_full -archive
 | `mu_unit` | tb_mu_unit | 乘除法器测试 (5000ns) |
 | `divider` | tb_non_restoring_divider | 除法器测试 (5000ns) |
 | `fpga` | — | FPGA bitstream (top: system_top) |
+| `ddr3_mig_ex` | tb_ddr3_mig_ex | MIG DDR3 控制器测试 (1000us) |
+| `ddr3_ahb_ex` | tb_ddr3_ahb_ex | AHB+DDR3 测试 (1000us) |
+| `ddr3_basic` | tb_ddr3_basic | DDR3 基础测试 (1000us) |
+| `ddr3_system` | tb_ddr3_system | 全系统 DDR3 测试 (10ms) |
 
 > 通配符速查：`isa_*`(7), `exception_*`(5), `mmu_*`(11), `cache_*`(5), `mmio_*`(2), `reg_*`(7), `cpu_*`(6)
 
@@ -357,3 +361,47 @@ vivado_config.yaml
 | `vivado_do -refresh` | `-task cpu_full -refresh`（支持增量） |
 | `vivado_do -bitstream` | `-task fpga -bitstream` |
 | `vivado_do -program` | `-task fpga -program` |
+
+## DDR3 仿真
+
+DDR3 仿真任务使用 `sim_mode: ddr3` 标记，自动添加 MIG 仿真模型和 verilog defines。
+
+```bash
+# MIG DDR3 控制器测试
+python -m tools.vivado_cli -task ddr3_mig_ex -create -sim
+
+# AHB 总线 + DDR3 测试
+python -m tools.vivado_cli -task ddr3_ahb_ex -create -sim
+
+# 全系统 DDR3 测试（含 hex 程序加载）
+python -m tools.vivado_cli -task ddr3_system -create -sim
+
+# 批量 DDR3 仿真
+python -m tools.vivado_cli -batch "ddr3_*" -create -sim
+```
+
+### DDR3 仿真任务
+
+| 任务 | Testbench | 说明 | 仿真时间 |
+|------|-----------|------|----------|
+| `ddr3_mig_ex` | tb_ddr3_mig_ex | MIG DDR3 控制器测试 | 1000us |
+| `ddr3_ahb_ex` | tb_ddr3_ahb_ex | AHB 总线 + DDR3 测试 | 1000us |
+| `ddr3_basic` | tb_ddr3_basic | DDR3 基础测试 | 1000us |
+| `ddr3_system` | tb_ddr3_system | 全系统 DDR3 测试 | 10ms |
+
+### DDR3 仿真模型
+
+仿真模型文件位于 `Reference/ddr3_sim/`：
+
+| 文件 | 说明 |
+|------|------|
+| `ddr3_model.sv` | DDR3 SDRAM 行为模型 |
+| `ddr3_model_parameters.vh` | DDR3 时序参数（⚠ 依赖 MIG 配置） |
+| `wiredly.v` | Wire delay 模型 |
+
+> ⚠ 若修改 MIG 配置（如更换 DDR3 芯片），需重新从 MIG example design 导出 `ddr3_model_parameters.vh`。
+
+### MIG 配置文件
+
+MIG IP 的核心配置由 `Reference/mig/mig_a.prj` 定义，包含引脚分配、时序参数、内存型号等。
+修改此文件后需全量刷新（`-refresh`）。

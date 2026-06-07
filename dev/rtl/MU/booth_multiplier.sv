@@ -6,6 +6,7 @@ module booth_multiplier(
     input  [31:0] multiplicand,
     input  [31:0] multiplier,
     input         start,
+    input         flush,
     output [63:0] product,
     output        done
   );
@@ -61,7 +62,7 @@ module booth_multiplier(
 
   assign add_result = A + add_op_b + add_cin;
 
-  always @(posedge clk or posedge reset)
+  always_ff @(posedge clk or posedge reset)
   begin
     if (reset)
     begin
@@ -71,6 +72,10 @@ module booth_multiplier(
       Q <= 32'b0;
       Q_1 <= 1'b0;
       M <= 33'b0;
+    end
+    else if (flush)
+    begin
+      state <= IDLE;
     end
     else
     begin

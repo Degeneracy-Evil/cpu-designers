@@ -1,4 +1,5 @@
 `timescale 1ns / 1ps
+`include "core_bus_types.svh"
 
 module cpu_trap_csr(
     input         clk,
@@ -59,7 +60,7 @@ module cpu_trap_csr(
     output        exception_at_decode,
     output        trap_pending,
     output [31:0] csr_read_data,
-    output [176:0] csr_wb_bus,
+    output wb_bus_t csr_wb_bus,
     output [31:0] trap_pc,
     output [31:0] csr_pc_plus4,
     output [1:0]  target_priv,

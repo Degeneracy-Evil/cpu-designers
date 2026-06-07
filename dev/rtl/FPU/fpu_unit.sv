@@ -126,6 +126,7 @@ module fpu_unit(
       .is_sub((fpu_funct_reg == FPU_FSUB)),
       .rm(fpu_rm_reg),
       .start(adder_start),
+      .flush(flush),
       .result(adder_result),
       .fflags(adder_fflags),
       .done(adder_done)
@@ -142,6 +143,7 @@ module fpu_unit(
       .src2(src2_reg),
       .rm(fpu_rm_reg),
       .start(mul_start),
+      .flush(flush),
       .result(mul_result),
       .fflags(mul_fflags),
       .done(mul_done)
@@ -158,6 +160,7 @@ module fpu_unit(
       .src2(src2_reg),
       .rm(fpu_rm_reg),
       .start(div_start),
+      .flush(flush),
       .result(div_result),
       .fflags(div_fflags),
       .done(div_done)
@@ -173,6 +176,7 @@ module fpu_unit(
       .src1(src1_reg),
       .rm(fpu_rm_reg),
       .start(sqrt_start),
+      .flush(flush),
       .result(sqrt_result),
       .fflags(sqrt_fflags),
       .done(sqrt_done)
@@ -189,6 +193,7 @@ module fpu_unit(
       .cvt_funct(cvt_funct_r),
       .rm(fpu_rm_reg),
       .start(cvt_start),
+      .flush(flush),
       .result(cvt_result),
       .fflags(cvt_fflags),
       .done(cvt_done)
@@ -270,7 +275,7 @@ module fpu_unit(
   // ===================================================================
   // Main FSM (mirror mu_unit.sv pattern exactly)
   // ===================================================================
-  always @(posedge clk or posedge reset)
+  always_ff @(posedge clk or posedge reset)
   begin
     if (reset)
     begin

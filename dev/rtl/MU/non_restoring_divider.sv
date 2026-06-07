@@ -6,6 +6,7 @@ module non_restoring_divider(
     input  [31:0] dividend,
     input  [31:0] divisor,
     input         start,
+    input         flush,
     input         is_unsigned,
     output [31:0] quotient,
     output [31:0] remainder,
@@ -140,7 +141,7 @@ module non_restoring_divider(
                   );
 
   // 状态机
-  always @(posedge clk or posedge reset)
+  always_ff @(posedge clk or posedge reset)
   begin
     if (reset)
     begin
@@ -155,6 +156,10 @@ module non_restoring_divider(
       div_overflow_case <= 1'b0;
       dividend_reg <= 32'b0;
       divisor_reg <= 32'b0;
+    end
+    else if (flush)
+    begin
+      state <= IDLE;
     end
     else
     begin
@@ -345,7 +350,7 @@ module non_restoring_divider(
   reg [31:0] corrected_quotient;
   reg [31:0] corrected_remainder;
 
-  always @(*)
+  always_comb
   begin
     corrected_quotient = final_quotient;
     corrected_remainder = final_remainder;

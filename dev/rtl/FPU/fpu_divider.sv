@@ -7,6 +7,7 @@ module fpu_divider(
     input  [31:0] src2,        // divisor
     input  [2:0]  rm,
     input         start,
+    input         flush,
     output [31:0] result,
     output [4:0]  fflags,      // {NV, DZ, OF, UF, NX}
     output        done
@@ -194,7 +195,7 @@ module fpu_divider(
     // ----------------------------------------------------------------
     // FSM
     // ----------------------------------------------------------------
-    always @(posedge clk or posedge reset) begin
+    always_ff @(posedge clk or posedge reset) begin
         if (reset) begin
             state     <= IDLE;
             src1_r    <= 32'b0;
@@ -209,6 +210,8 @@ module fpu_divider(
             flags_r   <= 5'b0;
             result_r  <= 32'b0;
             iter_cnt  <= 6'b0;
+        end else if (flush) begin
+            state     <= IDLE;
         end else begin
             case (state)
                 // ----------------------------------------------------

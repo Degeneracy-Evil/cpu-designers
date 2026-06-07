@@ -62,7 +62,7 @@ module fpu_compare(
     reg [31:0] result_r;
     reg [4:0]  fflags_r;
 
-    always @(*) begin
+    always_comb begin
         result_r = 32'b0;
         fflags_r = 5'b0;
         case (cmp_funct)

@@ -1,4 +1,5 @@
 `timescale 1ns / 1ps
+`include "core_bus_types.svh"
 
 module cpu_execute(
     input              clk,
@@ -10,7 +11,7 @@ module cpu_execute(
     input      [31:0]  frs1_value,     // float register rs1 value
     input      [31:0]  frs2_value,     // float register rs2 value
     output             exe_done,
-    output     [215:0] exe_mem_bus,
+    output     exe_mem_bus_t exe_mem_bus,
     output             exe_branch_taken,
     output     [31:0]  exe_branch_target,
     output             exe_is_ctrl_flow,
@@ -200,7 +201,7 @@ module cpu_execute(
     reg        branch_taken_reg;
     reg        exe_seen_valid;
 
-    always @(posedge clk or posedge reset) begin
+    always_ff @(posedge clk or posedge reset) begin
         if (reset) begin
             mu_req_valid <= 1'b0;
             mu_result_got <= 1'b0;
@@ -311,27 +312,27 @@ module cpu_execute(
     assign exe_misalign_valid = done_reg && exe_is_ctrl_flow && branch_taken_reg && (branch_target_reg[1:0] != 2'b00);
     assign exe_misalign_target = branch_target_reg;
 
-    assign exe_mem_bus = {
-        pc_plus4,
-        result_ok,
-        is_jal_like,
-        is_load,
-        is_store,
-        is_csr,
-        wb_we,
-        wb_rd,
-        result_reg,
-        mem_size,
-        mem_unsigned,
-        rs2_value,
-        csr_rdata,
-        pc,
-        inst,
-        is_fpu,
-        is_flw,
-        is_fsw,
-        fpu_rd_is_int,
-        fpu_fflags
+    assign exe_mem_bus = '{
+        pc_plus4:      pc_plus4,
+        result_ok:     result_ok,
+        is_jal_like:   is_jal_like,
+        is_load:       is_load,
+        is_store:      is_store,
+        is_csr:        is_csr,
+        wb_we:         wb_we,
+        wb_rd:         wb_rd,
+        result_reg:    result_reg,
+        mem_size:      mem_size,
+        mem_unsigned:  mem_unsigned,
+        rs2_value:     rs2_value,
+        csr_rdata:     csr_rdata,
+        pc:            pc,
+        inst:          inst,
+        is_fpu:        is_fpu,
+        is_flw:        is_flw,
+        is_fsw:        is_fsw,
+        fpu_rd_is_int: fpu_rd_is_int,
+        fpu_fflags:    fpu_fflags
     };
 
     assign exe_pc = pc;

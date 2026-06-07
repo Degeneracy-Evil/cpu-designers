@@ -31,7 +31,7 @@ module ahb_plic #(
     reg        latch_write;
     reg        latch_valid;   // High during data phase (cycle after address phase)
 
-    always @(posedge HCLK or negedge HRESETn) begin
+    always_ff @(posedge HCLK or negedge HRESETn) begin
         if (!HRESETn) begin
             latch_addr   <= 32'b0;
             latch_write  <= 1'b0;
@@ -61,8 +61,7 @@ module ahb_plic #(
     reg  [31:0] r_threshold;
     reg  [NUM_SRC-1:0] r_gw_en;
 
-    reg  [7:0]  r_claim_id;
-    reg         r_claim_valid;
+    reg  [7:0]  r_claim_id;   // latched claim ID for HRDATA
 
     integer ii;
 
@@ -99,13 +98,12 @@ module ahb_plic #(
     assign o_eip = any_pending;
 
     // 修复：合并两个 always 块，彻底解决 multi-driven 报错
-    always @(posedge HCLK or negedge HRESETn) begin
+    always_ff @(posedge HCLK or negedge HRESETn) begin
         if (!HRESETn) begin
             r_pending    <= 32'd0;
             r_enable     <= 32'd0;
             r_threshold  <= 32'd0;
             r_claim_id   <= 8'd0;
-            r_claim_valid<= 1'b0;
             r_gw_en      <= {(NUM_SRC){1'b1}};
             for (ii = 0; ii < NUM_SRC; ii = ii + 1)
                 r_prio[ii] <= 32'd0;
@@ -136,24 +134,19 @@ module ahb_plic #(
                     r_gw_en[HWDATA] <= 1'b1;
             end
 
-            // 3. 处理 AHB 读 Claim 时的清除逻辑
-            if (rd_valid && addr_is_claim && r_claim_valid) begin
-                r_pending[r_claim_id] <= 1'b0;
-                r_gw_en[r_claim_id]   <= 1'b0;
-                r_claim_valid         <= 1'b0;
-            end
-
-            // 4. 处理 Claim 寄存器的赋值逻辑（原第二个 always 块的内容）
-            if (rd_valid && addr_is_claim && !r_claim_valid) begin
-                r_claim_id    <= highest_id;
-                r_claim_valid <= any_pending;
-            end else if (!rd_valid || !addr_is_claim) begin
-                r_claim_valid <= 1'b0;
+            // 3. 处理 AHB 读 Claim: 原子返回 highest_id 并清除 pending
+            //    单次读取即完成 claim，无需 r_claim_valid 两阶段机制
+            if (rd_valid && addr_is_claim) begin
+                r_claim_id <= highest_id;
+                if (any_pending) begin
+                    r_pending[highest_id] <= 1'b0;
+                    r_gw_en[highest_id]   <= 1'b0;
+                end
             end
         end
     end
 
-    always @(*) begin
+    always_comb begin
         HRDATA = 32'd0;
         if (rd_valid) begin
             if (addr_is_prio) begin
@@ -165,7 +158,7 @@ module ahb_plic #(
             end else if (addr_is_thresh) begin
                 HRDATA = r_threshold;
             end else if (addr_is_claim) begin
-                HRDATA = {24'd0, r_claim_id};
+                HRDATA = {24'd0, highest_id};
             end
         end
     end

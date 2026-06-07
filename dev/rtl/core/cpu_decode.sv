@@ -455,7 +455,7 @@ module cpu_decode(
   assign dec_csr_addr_valid = is_s_csr(csr_addr) || is_m_csr(csr_addr);
 
   reg dec_csr_access_ok_r;
-  always @(*) begin
+  always_comb begin
       case (priv_mode)
           PRIV_U: dec_csr_access_ok_r = 1'b0;
           PRIV_S: dec_csr_access_ok_r = is_s_csr(csr_addr);

@@ -54,6 +54,22 @@ module ahb_bootrom_slave #(
 
     wire        bram_ena   = bram_read_start;           // Only enable for reads
     wire [INDEX_WIDTH-1:0] bram_addra = HADDR[INDEX_WIDTH+1:2];
+
+    // --- Storage: BRAM IP (synthesis) vs register array (simulation) ---
+    // In simulation, expose a `mem` array so testbenches can inject
+    // trampoline instructions via hierarchical reference (e.g. .mem[0]).
+`ifdef SIMULATION
+    reg [DATA_WIDTH-1:0] mem [0:MEM_DEPTH-1];
+    // BUG-55 fix: Initialize mem array to zero in simulation.
+    // Without this, the entire 8K-entry array starts as X, causing the CPU
+    // to fetch X instructions → X propagates through the entire pipeline
+    // every cycle → massive event storm in XSim (5000x slowdown).
+    initial begin
+        for (integer i = 0; i < MEM_DEPTH; i = i + 1)
+            mem[i] = {DATA_WIDTH{1'b0}};
+    end
+    wire [31:0] bram_douta = mem[bram_addra];
+`else
     wire [31:0] bram_douta;
 
     Sram u_bram (
@@ -70,8 +86,9 @@ module ahb_bootrom_slave #(
         .dinb   (32'b0),
         .doutb  ()
     );
+`endif
 
-    always @(posedge HCLK or negedge HRESETn) begin
+    always_ff @(posedge HCLK or negedge HRESETn) begin
         if (!HRESETn) begin
             HREADYOUT  <= 1'b1;
             HRESP      <= 1'b0;

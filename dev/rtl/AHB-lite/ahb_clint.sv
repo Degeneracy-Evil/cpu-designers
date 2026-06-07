@@ -29,7 +29,7 @@ module ahb_clint(
     reg        latch_write;
     reg        latch_valid;   // High during data phase (cycle after address phase)
 
-    always @(posedge HCLK or negedge HRESETn) begin
+    always_ff @(posedge HCLK or negedge HRESETn) begin
         if (!HRESETn) begin
             latch_addr   <= 32'b0;
             latch_write  <= 1'b0;
@@ -73,7 +73,7 @@ module ahb_clint(
     assign o_mtip = mtip_raw;
     assign o_msip = r_msip;
 
-    always @(posedge HCLK or negedge HRESETn) begin
+    always_ff @(posedge HCLK or negedge HRESETn) begin
         if (!HRESETn) begin
             r_mtimecmp_lo <= 32'd0;
             r_mtimecmp_hi <= 32'd0;
@@ -95,7 +95,7 @@ module ahb_clint(
         end
     end
 
-    always @(*) begin
+    always_comb begin
         HRDATA = 32'd0;
         if (rd_valid) begin
             if (addr_cmplo)      HRDATA = r_mtimecmp_lo;

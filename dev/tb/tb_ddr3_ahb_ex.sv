@@ -60,8 +60,8 @@ module tb_ddr3_ahb_ex;
     localparam real REFCLK_PERIOD_L    = (1000000.0 / (2 * REFCLK_FREQ));
     localparam RESET_PERIOD            = 200000;       // 200ns in ps
     localparam real SYSCLK_PERIOD      = tCK;
-    localparam CALIB_TIMEOUT           = 100000000;    // 100us in ps
-    localparam SIM_TIMEOUT             = 500000000;    // 500us in ps
+    localparam CALIB_TIMEOUT           = 500000000;    // 500us in ps (full calib needs ~200-400us)
+    localparam SIM_TIMEOUT             = 1000000000;   // 1000us in ps
 
     // ========================================================================
     // Clock & Reset Generation
@@ -109,7 +109,9 @@ module tb_ddr3_ahb_ex;
     wire ui_clk;
     wire ui_clk_sync_rst;
     wire mmcm_locked;
-    wire aresetn;
+    // BUG-45 fix: aresetn is an INPUT to MIG, must be driven by testbench.
+    // Initialize to 0 (in reset), then release after calibration.
+    reg  aresetn = 1'b0;
 
     // ========================================================================
     // DDR3 FPGA-side Wires (from wrapper)
@@ -323,12 +325,17 @@ module tb_ddr3_ahb_ex;
     endtask
 
     // AHB-Lite single write: address phase + data phase
+    // Per AHB-Lite protocol: HWDATA is valid in the data phase (cycle after address phase).
+    // The bridge samples HWDATA on the clock edge when HREADYOUT=1 (data phase completion).
+    // We must hold HWDATA stable until that clock edge, then wait one more edge
+    // before calling ahb_idle() to avoid zeroing HWDATA before the bridge samples it.
     task ahb_write;
         input [31:0] addr;
         input [31:0] data;
         begin
             // Address phase: set up control signals
             @(posedge ui_clk);
+            #1;
             HSEL   = 1'b1;
             HTRANS = `AHB_TRANS_NONSEQ;
             HADDR  = addr;
@@ -339,26 +346,38 @@ module tb_ddr3_ahb_ex;
 
             // Data phase: drive HWDATA on next clock
             @(posedge ui_clk);
+            #1;
             HWDATA = data;
 
             // Wait for slave to accept (HREADYOUT high)
+            // HWDATA must remain stable until the bridge samples it.
             while (!HREADYOUT) begin
                 @(posedge ui_clk);
             end
 
-            // Return to idle
+            // CRITICAL: Hold HWDATA stable for one more clock edge.
+            // The bridge samples HWDATA on the posedge where HREADYOUT=1.
+            // If we call ahb_idle() immediately, HWDATA gets zeroed before
+            // the bridge's register samples it on the next posedge.
+            @(posedge ui_clk);
+
+            // Now safe to return to idle
             ahb_idle();
             @(posedge ui_clk);
         end
     endtask
 
     // AHB-Lite single read: address phase, then capture HRDATA
+    // NOTE: The AHB-AXI bridge has a 1-cycle pipeline delay — HRDATA
+    // returns the data for the PREVIOUS transaction on the first HREADYOUT.
+    // We need to wait for the SECOND HREADYOUT to get the correct data.
     task ahb_read;
         input  [31:0] addr;
         output [31:0] data;
         begin
             // Address phase
             @(posedge ui_clk);
+            #1;
             HSEL   = 1'b1;
             HTRANS = `AHB_TRANS_NONSEQ;
             HADDR  = addr;
@@ -367,7 +386,15 @@ module tb_ddr3_ahb_ex;
             HBURST = `AHB_BURST_SINGLE;
             HPROT  = 4'b0011;
 
-            // Wait for valid data (HREADYOUT high)
+            // Wait for first HREADYOUT (bridge accepts address phase)
+            @(posedge ui_clk);
+            while (!HREADYOUT) begin
+                @(posedge ui_clk);
+            end
+
+            // Wait for second HREADYOUT (bridge returns data)
+            // The bridge has a 1-cycle pipeline — the first HREADYOUT
+            // acknowledges the address, the second returns the data.
             @(posedge ui_clk);
             while (!HREADYOUT) begin
                 @(posedge ui_clk);
@@ -375,6 +402,9 @@ module tb_ddr3_ahb_ex;
 
             // Capture read data
             data = HRDATA;
+
+            // Hold bus stable for one more edge before returning to idle
+            @(posedge ui_clk);
 
             // Return to idle
             ahb_idle();
@@ -390,6 +420,15 @@ module tb_ddr3_ahb_ex;
     integer     pass_count;
     integer     fail_count;
     integer     i;
+
+    // ========================================================================
+    // BUG-45 fix: Drive aresetn (MIG AXI reset input)
+    // Release after MIG calibration completes. aresetn is active-low.
+    // ========================================================================
+    always @(posedge ui_clk) begin
+        if (init_calib_complete && mmcm_locked)
+            aresetn <= 1'b1;
+    end
 
     // ========================================================================
     // Main Test Sequence
@@ -408,6 +447,8 @@ module tb_ddr3_ahb_ex;
 
         // Wait for MIG calibration
         $display("[TB_AHB_EX] Waiting for MIG init_calib_complete...");
+        $display("[TB_AHB_EX] DBG: ui_clk=%b aresetn=%b init_calib=%b mmcm_locked=%b",
+                 ui_clk, aresetn, init_calib_complete, mmcm_locked);
         fork
             begin : calib_wait
                 wait (init_calib_complete === 1'b1);
@@ -423,26 +464,51 @@ module tb_ddr3_ahb_ex;
 
         // Settle time after calibration
         repeat(100) @(posedge ui_clk);
+        $display("[TB_AHB_EX] DBG after settle: aresetn=%b HROUT=%b HRDATA=0x%08H ARV=%b RR=%b",
+                 aresetn, HREADYOUT, HRDATA,
+                 u_dut.bridge_m_axi_arvalid, u_dut.bridge_m_axi_rready);
 
         // ---------------------------------------------------------------
-        // Write Phase
+        // Write Phase (with AXI W channel debug)
         // ---------------------------------------------------------------
         $display("[TB_AHB_EX] === WRITE PHASE ===");
         for (i = 0; i < NUM_TEST_WORDS; i = i + 1) begin
             $display("[TB_AHB_EX] AHB write addr=0x%08H data=0x%08H",
                      i * 4, write_data[i]);
             ahb_write(i * 4, write_data[i]);
+            // Wait for AXI B channel response (write commit) before next write
+            // This ensures MIG has fully processed the write before we start the next one
+            repeat(20) @(posedge ui_clk);
+            // Debug: snapshot AXI AW/W/B channel after each write
+            $display("[TB_AHB_EX] DBG AXI after write[%0d]: AWV=%b AWR=%b AWADDR=0x%08H WV=%b WR=%b WDATA=0x%08H WSTRB=0x%H BV=%b BR=%b",
+                     i, u_dut.bridge_m_axi_awvalid, u_dut.bridge_m_axi_awready,
+                     u_dut.bridge_m_axi_awaddr,
+                     u_dut.bridge_m_axi_wvalid, u_dut.bridge_m_axi_wready,
+                     u_dut.bridge_m_axi_wdata, u_dut.bridge_m_axi_wstrb,
+                     u_dut.bridge_m_axi_bvalid, u_dut.bridge_m_axi_bready);
         end
 
         // Allow time for writes to propagate through Bridge + MIG pipeline
         repeat(50) @(posedge ui_clk);
 
         // ---------------------------------------------------------------
-        // Read Phase
+        // Read Phase (with AXI debug monitoring)
         // ---------------------------------------------------------------
         $display("[TB_AHB_EX] === READ PHASE ===");
         for (i = 0; i < NUM_TEST_WORDS; i = i + 1) begin
+            // Debug: snapshot AXI AR/R channel BEFORE read
+            $display("[TB_AHB_EX] DBG before read[%0d]: ARV=%b ARR=%b ARADDR=0x%08H RV=%b RR=%b HROUT=%b HRDATA=0x%08H",
+                     i, u_dut.bridge_m_axi_arvalid, u_dut.bridge_m_axi_arready,
+                     u_dut.bridge_m_axi_araddr,
+                     u_dut.bridge_m_axi_rvalid, u_dut.bridge_m_axi_rready,
+                     HREADYOUT, HRDATA);
             ahb_read(i * 4, read_data[i]);
+            // Debug: snapshot AXI AR/R channel AFTER read
+            $display("[TB_AHB_EX] DBG after  read[%0d]: ARV=%b ARR=%b ARADDR=0x%08H RV=%b RR=%b HROUT=%b HRDATA=0x%08H",
+                     i, u_dut.bridge_m_axi_arvalid, u_dut.bridge_m_axi_arready,
+                     u_dut.bridge_m_axi_araddr,
+                     u_dut.bridge_m_axi_rvalid, u_dut.bridge_m_axi_rready,
+                     HREADYOUT, HRDATA);
             $display("[TB_AHB_EX] AHB read  addr=0x%08H data=0x%08H (expected=0x%08H)",
                      i * 4, read_data[i], write_data[i]);
         end

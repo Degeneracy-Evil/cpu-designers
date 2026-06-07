@@ -1,4 +1,5 @@
 `timescale 1ns / 1ps
+`include "core_bus_types.svh"
 
 module cpu_csr_interface(
     input         clk,
@@ -33,7 +34,7 @@ module cpu_csr_interface(
     input         fflags_wen,
 
     output [31:0] csr_read_data,
-    output [176:0] csr_wb_bus,
+    output wb_bus_t csr_wb_bus,
     output [31:0] csr_pc_plus4,
 
     output [31:0] csr_mstatus,
@@ -101,7 +102,22 @@ module cpu_csr_interface(
     assign csr_sw_wen   = csr_valid && !csr_no_write;
     assign csr_sw_wdata = csr_new_val;
 
-    assign csr_wb_bus = {csr_pc_plus4_bus, 1'b0, 1'b1, 1'b1, csr_rd_bus, csr_read_data, csr_read_data, csr_pc_bus, csr_inst_bus, 1'b0, 1'b0, 1'b0, 1'b0, 5'b0};
+    assign csr_wb_bus = '{
+        pc_plus4:      csr_pc_plus4_bus,
+        is_jal_like:   1'b0,
+        is_csr:        1'b1,
+        wb_we:         1'b1,
+        wb_rd:         csr_rd_bus,
+        wb_data:       csr_read_data,
+        csr_rdata:     csr_read_data,
+        pc:            csr_pc_bus,
+        inst:          csr_inst_bus,
+        is_fpu:        1'b0,
+        is_flw:        1'b0,
+        is_fsw:        1'b0,
+        fpu_rd_is_int: 1'b0,
+        fpu_fflags:    5'b0
+    };
 
     wire [31:0] csr_mscratch;
     wire [31:0] csr_mcause;

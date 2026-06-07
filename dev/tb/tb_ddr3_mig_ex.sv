@@ -65,8 +65,8 @@ module tb_ddr3_mig_ex;
     localparam real REFCLK_PERIOD_L    = (1000000.0 / (2 * REFCLK_FREQ));
     localparam RESET_PERIOD            = 200000;       // 200ns in ps
     localparam real SYSCLK_PERIOD      = tCK;
-    localparam CALIB_TIMEOUT           = 100000000;    // 100us in ps
-    localparam SIM_TIMEOUT             = 500000000;    // 500us in ps
+    localparam CALIB_TIMEOUT           = 500000000;    // 500us in ps (full calib needs ~200-400us)
+    localparam SIM_TIMEOUT             = 1000000000;   // 1000us in ps
 
     // ========================================================================
     // Clock & Reset Generation

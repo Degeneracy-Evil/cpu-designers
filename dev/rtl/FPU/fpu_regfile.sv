@@ -24,7 +24,7 @@ module fpu_regfile(
         foreach (rf[i]) rf[i] = 32'b0;
     end
 
-    always @(posedge clk) begin
+    always_ff @(posedge clk) begin
         if (reset) begin
             foreach (rf[i]) rf[i] <= 32'b0;
         end else if (wen && (waddr != 5'd0)) begin

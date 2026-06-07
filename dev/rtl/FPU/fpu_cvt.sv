@@ -7,6 +7,7 @@ module fpu_cvt(
     input  [2:0]  cvt_funct,   // 000=FCVT.W.S, 001=FCVT.WU.S, 010=FCVT.S.W, 011=FCVT.S.WU
     input  [2:0]  rm,
     input         start,
+    input         flush,
     output [31:0] result,
     output [4:0]  fflags,
     output        done
@@ -139,15 +140,19 @@ module fpu_cvt(
     // For large values (shift negative), shift left instead
     wire        f_large    = (f_shift[9] == 1'b1);  // negative shift => large value
     wire [9:0]  f_lshift   = -f_shift;               // left shift amount
-    wire [31:0] f_val_shl  = {8'b0, f_mant_norm} << f_lshift[4:0];  // shift left (capped to 16)
+    // BUG-7 fix: detect overflow when left shift >= 32 (result exceeds int32 range)
+    wire        f_lshift_of = f_large && (f_lshift >= 10'd32);
+    wire [31:0] f_val_shl  = {8'b0, f_mant_norm} << f_lshift[4:0];  // shift left
 
     // For small values (shift positive), shift right with GRS
+    // BUG-8 fix: detect when right shift >= 56 (all mantissa bits shifted out → integer = 0)
+    wire        f_rshift_zero = !f_large && (f_shift >= 10'd56);
     wire [55:0] f_ext_mant = {f_mant_norm, 32'b0};   // 56-bit: 24 mant + 32 extra
-    wire [55:0] f_val_shr  = f_ext_mant >> f_shift[5:0];  // shift right
+    wire [55:0] f_val_shr  = f_rshift_zero ? 56'b0 : (f_ext_mant >> f_shift[5:0]);  // shift right
     wire [23:0] f_int_part = f_val_shr[55:32];        // integer part (24 bits)
     wire        f_grd      = f_val_shr[31];            // guard
     wire        f_rnd      = f_val_shr[30];            // round
-    wire        f_stk      = |f_val_shr[29:0];        // sticky
+    wire        f_stk      = |f_val_shr[29:0] | f_rshift_zero;  // sticky (includes shifted-out bits)
 
     // Select shifted result (32-bit to handle large values from left-shift)
     wire [31:0] f_abs_int  = f_large ? f_val_shl : {8'b0, f_int_part};
@@ -178,16 +183,16 @@ module fpu_cvt(
     wire [31:0] f_neg_int  = -f_abs_rounded[31:0];  // two's complement
     wire [31:0] f_signed_res = f_sign ? f_neg_int : f_pos_int;
 
-    // Overflow detection for signed int32
     // Overflow detection for signed int32:
     //   Positive: overflow if abs > INT_MAX (0x7FFFFFFF)
     //   Negative: overflow if abs > |INT_MIN| (0x80000000), i.e. abs >= 0x80000001
     //   -2^31 (abs=0x80000000) is NOT overflow — it is exactly representable
-    wire f_ovf_w  = f_rnd_overflow |
+    //   BUG-7 fix: also overflow if left shift >= 32 (value exceeds int32 range)
+    wire f_ovf_w  = f_lshift_of | f_rnd_overflow |
                     (f_sign ? (f_abs_rounded[31:0] > 32'h80000000) :
                               (f_abs_rounded[31:0] > 32'h7FFFFFFF));
     // Overflow detection for unsigned int32
-    wire f_ovf_wu = f_rnd_overflow | (f_abs_rounded[31:0] > 32'hFFFFFFFF) | f_sign;
+    wire f_ovf_wu = f_lshift_of | f_rnd_overflow | (f_abs_rounded[31:0] > 32'hFFFFFFFF) | f_sign;
 
     // Saturated results
     wire [31:0] sat_w  = f_sign ? 32'h80000000 : 32'h7FFFFFFF;
@@ -272,7 +277,7 @@ module fpu_cvt(
     // ====================================================================
     wire is_f2i = (cvt_r == FCVT_W_S) || (cvt_r == FCVT_WU_S);
 
-    always @(posedge clk or posedge reset) begin
+    always_ff @(posedge clk or posedge reset) begin
         if (reset) begin
             state    <= IDLE;
             src1_r   <= 32'b0;
@@ -280,6 +285,8 @@ module fpu_cvt(
             rm_r     <= 3'b0;
             result_r <= 32'b0;
             flags_r  <= 5'b0;
+        end else if (flush) begin
+            state    <= IDLE;
         end else begin
             case (state)
                 IDLE: begin

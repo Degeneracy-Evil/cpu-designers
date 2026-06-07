@@ -34,7 +34,7 @@ module timer(
     assign PREADY  = 1'b1;
     assign PSLVERR = 1'b0;
 
-    always @(posedge PCLK or negedge PRESETn) begin
+    always_ff @(posedge PCLK or negedge PRESETn) begin
         if (!PRESETn) begin
             start    <= 1'b0;
             mode     <= `TIMER_MODE_PERIODIC;
@@ -69,7 +69,7 @@ module timer(
         end
     end
 
-    always @(*) begin
+    always_comb begin
         if (read_access) begin
             case (PADDR[3:2])
                 2'd0: PRDATA = expr_val;

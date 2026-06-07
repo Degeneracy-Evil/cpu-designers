@@ -38,7 +38,7 @@ module ahb_sram_slave #(
     reg [3:0] wait_cnt;
 
     reg [3:0] byte_we;
-    always @(*) begin
+    always_comb begin
         case (latch_size)
             `AHB_SIZE_BYTE: begin
                 case (latch_addr[1:0])
@@ -79,7 +79,7 @@ module ahb_sram_slave #(
         .doutb  ()
     );
 
-    always @(posedge HCLK or negedge HRESETn) begin
+    always_ff @(posedge HCLK or negedge HRESETn) begin
         if (!HRESETn) begin
             HREADYOUT  <= 1'b1;
             HRESP      <= 1'b0;

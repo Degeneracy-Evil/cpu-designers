@@ -2,7 +2,7 @@ OUTPUT_ARCH(riscv)
 ENTRY(_start)
 
 MEMORY {
-    SRAM (rwx) : ORIGIN = 0x80000000, LENGTH = 32K
+    DDR3 (rwx) : ORIGIN = 0x80000000, LENGTH = 128M
 }
 
 SECTIONS {
@@ -10,18 +10,18 @@ SECTIONS {
     .text : {
         *(.text.start)
         *(.text .text.*)
-    } > SRAM
+    } > DDR3
 
     /* Read-only data */
     .rodata : {
         *(.rodata .rodata.*)
-    } > SRAM
+    } > DDR3
 
     /* Initialised data */
     .data : {
         *(.data .data.*)
         *(.sdata .sdata.*)
-    } > SRAM
+    } > DDR3
 
     /* Zero-initialised data */
     .bss (NOLOAD) : {
@@ -31,10 +31,10 @@ SECTIONS {
         *(.sbss .sbss.*)
         . = ALIGN(4);
         __bss_end = .;
-    } > SRAM
+    } > DDR3
 
-    /* Stack at top of SRAM, growing downward */
-    _stack_top = ORIGIN(SRAM) + LENGTH(SRAM);
+    /* Stack at top of DDR3, growing downward */
+    _stack_top = ORIGIN(DDR3) + LENGTH(DDR3);
 
     /* Discard unwanted sections */
     /DISCARD/ : {

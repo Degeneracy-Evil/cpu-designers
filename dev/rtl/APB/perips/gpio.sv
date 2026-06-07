@@ -70,14 +70,14 @@ module gpio #(
     assign PSLVERR = 1'b0;
 
     // IRQ output: any pending & enabled interrupt
-    always @(*) begin
+    always_comb begin
         o_irq = |(gpio_irq_stat & gpio_irq_en[GPIO_NUM-1:0]);
     end
 
     // Store previous pin values for change detection
     generate
         for (i = 0; i < GPIO_NUM; i = i + 1) begin : gen_pin_prev
-            always @(posedge PCLK or negedge PRESETn) begin
+            always_ff @(posedge PCLK or negedge PRESETn) begin
                 if (!PRESETn) begin
                     gpio_pin_prev[i] <= 1'b0;
                 end else begin
@@ -90,7 +90,7 @@ module gpio #(
     // IRQ status: set on pin change, write-1-to-clear
     generate
         for (i = 0; i < GPIO_NUM; i = i + 1) begin : gen_irq_stat
-            always @(posedge PCLK or negedge PRESETn) begin
+            always_ff @(posedge PCLK or negedge PRESETn) begin
                 if (!PRESETn) begin
                     gpio_irq_stat[i] <= 1'b0;
                 end else begin
@@ -104,7 +104,7 @@ module gpio #(
         end
     endgenerate
 
-    always @(posedge PCLK or negedge PRESETn) begin
+    always_ff @(posedge PCLK or negedge PRESETn) begin
         if (!PRESETn) begin
             gpio_ctrl    <= {`APB_DATA_WIDTH{1'b0}};
             gpio_data_hi <= {(`APB_DATA_WIDTH-GPIO_NUM){1'b0}};
@@ -127,7 +127,7 @@ module gpio #(
         end
     end
 
-    always @(*) begin
+    always_comb begin
         if (read_access) begin
             case (PADDR[3:0])
                 GPIO_CTRL:     PRDATA = gpio_ctrl;
@@ -143,7 +143,7 @@ module gpio #(
 
     generate
         for (i = 0; i < GPIO_NUM; i = i + 1) begin : gen_io_data
-            always @(posedge PCLK or negedge PRESETn) begin
+            always_ff @(posedge PCLK or negedge PRESETn) begin
                 if (!PRESETn) begin
                     gpio_data_lo[i] <= 1'b0;
                 end else begin

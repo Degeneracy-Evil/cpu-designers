@@ -104,7 +104,7 @@ module uart_top #(
     // CPU reads RXDATA register → pop from RX FIFO
     // Note: pop happens on read_access (combinational), but actual read enable
     // is gated to only pop when FIFO is not empty
-    always @(*) begin
+    always_comb begin
         rx_fifo_rd_en = 1'b0;
         if (read_access && (PADDR[7:0] == UART_RXDATA) && !rx_fifo_empty) begin
             rx_fifo_rd_en = 1'b1;
@@ -133,7 +133,7 @@ module uart_top #(
 
     // Feed TX FIFO data to TX engine
     // Pop from FIFO when TX engine accepts the data
-    always @(*) begin
+    always_comb begin
         tx_fifo_rd_en = 1'b0;
         if (tx_en && !tx_fifo_empty && tx_data_ready) begin
             tx_fifo_rd_en = 1'b1;
@@ -184,7 +184,7 @@ module uart_top #(
     reg rx_fifo_was_empty;
     wire rx_valid_event = rx_fifo_was_empty && !rx_fifo_empty;
 
-    always @(posedge PCLK or negedge PRESETn) begin
+    always_ff @(posedge PCLK or negedge PRESETn) begin
         if (!PRESETn) begin
             tx_fifo_was_nonempty <= 1'b0;
             rx_fifo_was_empty    <= 1'b1;
@@ -195,7 +195,7 @@ module uart_top #(
     end
 
     // IRQ pending bits: set on event, write-1-to-clear
-    always @(posedge PCLK or negedge PRESETn) begin
+    always_ff @(posedge PCLK or negedge PRESETn) begin
         if (!PRESETn) begin
             uart_irq_stat <= 2'b0;
         end else begin
@@ -224,7 +224,7 @@ module uart_top #(
     assign PREADY  = 1'b1;
     assign PSLVERR = 1'b0;
 
-    always @(posedge PCLK or negedge PRESETn) begin
+    always_ff @(posedge PCLK or negedge PRESETn) begin
         if (!PRESETn) begin
             uart_ctrl <= 32'h0;
             uart_baud <= 32'h0;
@@ -249,7 +249,7 @@ module uart_top #(
     // TX busy: TX engine is not idle (not ready) OR TX FIFO is not empty
     wire tx_busy = !tx_data_ready || !tx_fifo_empty;
 
-    always @(*) begin
+    always_comb begin
         if (read_access) begin
             case (PADDR[7:0])
                 UART_CTRL: begin

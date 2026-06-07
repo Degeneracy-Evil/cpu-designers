@@ -36,6 +36,15 @@ class TaskConfig:
     top:
         Top module name for bitstream generation (empty for
         simulation-only tasks).
+    sim_mode:
+        Simulation mode flag, e.g. ``"ddr3"`` to trigger DDR3
+        simulation model import and configuration.
+    verilog_defines:
+        Verilog defines for simulation, e.g.
+        ``{"SIM_BYPASS_INIT_CAL": "FAST", "SIMULATION": "TRUE"}``.
+    hex_file:
+        HEX filename relative to ``dev/program_source/`` (empty if
+        the task does not need a program image for ``$readmemh``).
     """
 
     name: str
@@ -43,6 +52,9 @@ class TaskConfig:
     coe: str = ""
     runtime: str = ""
     top: str = ""
+    sim_mode: str = ""
+    verilog_defines: dict[str, str] = field(default_factory=dict)
+    hex_file: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -106,6 +118,9 @@ class TaskRegistry:
                 coe=cfg.get("coe", ""),
                 runtime=cfg.get("runtime", ""),
                 top=cfg.get("top", ""),
+                sim_mode=cfg.get("sim_mode", ""),
+                verilog_defines=cfg.get("verilog_defines", {}) or {},
+                hex_file=cfg.get("hex_file", ""),
             )
 
     # ------------------------------------------------------------------

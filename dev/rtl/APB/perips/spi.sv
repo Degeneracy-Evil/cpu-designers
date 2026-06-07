@@ -53,11 +53,11 @@ module spi(
     assign PSLVERR = 1'b0;
 
     // IRQ output: active when pending and enabled
-    always @(*) begin
+    always_comb begin
         o_irq = spi_irq_pending & spi_ctrl[4];
     end
 
-    always @(posedge PCLK or negedge PRESETn) begin
+    always_ff @(posedge PCLK or negedge PRESETn) begin
         if (!PRESETn) begin
             en <= 1'b0;
         end else begin
@@ -70,7 +70,7 @@ module spi(
         end
     end
 
-    always @(posedge PCLK or negedge PRESETn) begin
+    always_ff @(posedge PCLK or negedge PRESETn) begin
         if (!PRESETn) begin
             clk_cnt <= 9'h0;
         end else if (en) begin
@@ -84,7 +84,7 @@ module spi(
         end
     end
 
-    always @(posedge PCLK or negedge PRESETn) begin
+    always_ff @(posedge PCLK or negedge PRESETn) begin
         if (!PRESETn) begin
             spi_clk_edge_cnt   <= 5'h0;
             spi_clk_edge_level <= 1'b0;
@@ -106,7 +106,7 @@ module spi(
         end
     end
 
-    always @(posedge PCLK or negedge PRESETn) begin
+    always_ff @(posedge PCLK or negedge PRESETn) begin
         if (!PRESETn) begin
             o_spiClk   <= 1'b0;
             rdata      <= 8'h0;
@@ -154,7 +154,7 @@ module spi(
         end
     end
 
-    always @(posedge PCLK or negedge PRESETn) begin
+    always_ff @(posedge PCLK or negedge PRESETn) begin
         if (!PRESETn) begin
             done <= 1'b0;
         end else begin
@@ -168,7 +168,7 @@ module spi(
 
     // Interrupt pending: set on transfer complete when IRQ enabled,
     // cleared by writing to SPI_STATUS register
-    always @(posedge PCLK or negedge PRESETn) begin
+    always_ff @(posedge PCLK or negedge PRESETn) begin
         if (!PRESETn) begin
             spi_irq_pending <= 1'b0;
         end else begin
@@ -180,7 +180,7 @@ module spi(
         end
     end
 
-    always @(posedge PCLK or negedge PRESETn) begin
+    always_ff @(posedge PCLK or negedge PRESETn) begin
         if (!PRESETn) begin
             spi_ctrl   <= 32'h0;
             spi_data   <= 32'h0;
@@ -205,7 +205,7 @@ module spi(
         end
     end
 
-    always @(*) begin
+    always_comb begin
         if (read_access) begin
             case (PADDR[3:0])
                 SPI_CTRL:   PRDATA = spi_ctrl;

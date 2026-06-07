@@ -299,7 +299,7 @@ module MMU #(
     reg [31:0] i_pf_vaddr_r;
     reg i_pf_from_ptw_r;   // BUG-5: distinguish TLB perm fault from PTW walk fault
 
-    always @(posedge clk or posedge reset) begin
+    always_ff @(posedge clk or posedge reset) begin
         if (reset) begin
             i_pf_r <= 1'b0;
             i_pf_cause_r <= 4'b0;
@@ -336,7 +336,7 @@ module MMU #(
     reg [31:0] d_pf_vaddr_r;
     reg d_pf_from_ptw_r;   // BUG-5: distinguish TLB perm fault from PTW walk fault
 
-    always @(posedge clk or posedge reset) begin
+    always_ff @(posedge clk or posedge reset) begin
         if (reset) begin
             d_pf_r <= 1'b0;
             d_pf_cause_r <= 4'b0;
@@ -370,7 +370,7 @@ module MMU #(
     // =========================================================================
     // i-side FSM
     // =========================================================================
-    always @(posedge clk or posedge reset) begin
+    always_ff @(posedge clk or posedge reset) begin
         if (reset) begin
             i_state              <= I_IDLE;
             i_latched_vaddr      <= 32'b0;
@@ -439,7 +439,7 @@ module MMU #(
     // =========================================================================
     // d-side FSM
     // =========================================================================
-    always @(posedge clk or posedge reset) begin
+    always_ff @(posedge clk or posedge reset) begin
         if (reset) begin
             d_state              <= D_IDLE;
             d_latched_vaddr      <= 32'b0;
@@ -517,7 +517,7 @@ module MMU #(
     wire i_walk_req = (i_state == I_LOOKUP) && i_latched_sv32 && !i_tlb_hit && !i_input_changed;
     wire d_walk_req = (d_state == D_LOOKUP) && d_latched_sv32 && !d_tlb_hit && !d_input_changed && !d_lookup_stalled;
 
-    always @(posedge clk or posedge reset) begin
+    always_ff @(posedge clk or posedge reset) begin
         if (reset) begin
             walk_state     <= W_IDLE;
             pending_i_walk <= 1'b0;
@@ -750,7 +750,7 @@ module MMU #(
     reg walk_active_r;
     reg walk_is_d_r;    // BUG-3: track which side triggered the walk
 
-    always @(posedge clk or posedge reset) begin
+    always_ff @(posedge clk or posedge reset) begin
         if (reset) begin
             walk_active_r <= 1'b0;
             walk_is_d_r   <= 1'b0;
@@ -772,8 +772,8 @@ module MMU #(
 
     assign i_miss = i_tlb_miss && !walk_active_r;
     assign d_miss = d_tlb_miss && !walk_active_r;
-    assign i_ready = 1'b1;
-    assign d_ready = 1'b1;
+    assign i_ready = !i_miss;
+    assign d_ready = !d_miss;
 
     // ── i-side page fault ──
     reg i_pf_r;
@@ -781,7 +781,7 @@ module MMU #(
     reg [31:0] i_pf_vaddr_r;
     reg i_pf_from_ptw_r;   // BUG-5: distinguish TLB perm fault from PTW walk fault
 
-    always @(posedge clk or posedge reset) begin
+    always_ff @(posedge clk or posedge reset) begin
         if (reset) begin
             i_pf_r <= 1'b0;
             i_pf_cause_r <= 4'b0;
@@ -814,7 +814,7 @@ module MMU #(
     reg [31:0] d_pf_vaddr_r;
     reg d_pf_from_ptw_r;   // BUG-5: distinguish TLB perm fault from PTW walk fault
 
-    always @(posedge clk or posedge reset) begin
+    always_ff @(posedge clk or posedge reset) begin
         if (reset) begin
             d_pf_r <= 1'b0;
             d_pf_cause_r <= 4'b0;

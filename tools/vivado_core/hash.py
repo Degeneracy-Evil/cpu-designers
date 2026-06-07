@@ -37,6 +37,9 @@ class LayeredHash:
             "Reference/**/*.xci",
             "vivado_config.yaml",
             "tools/vivado_core/**/*.py",
+            "Reference/ddr3_sim/**/*.sv",
+            "Reference/ddr3_sim/**/*.vh",
+            "Reference/ddr3_sim/**/*.v",
         ],
         "tb": [
             "dev/tb/**/*.sv",

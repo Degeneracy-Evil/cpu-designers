@@ -44,7 +44,7 @@ module tb_ddr3_ahb_ex;
     parameter tCK                   = 2500;     // ps
     parameter REFCLK_FREQ          = 200.0;    // MHz
     parameter TCQ                   = 100;
-    parameter RST_ACT_LOW           = 1;
+    // RST_ACT_LOW=1: MIG sys_rst is active-LOW (reflected in mig_sys_rst_n port naming)
     parameter NUM_TEST_WORDS        = 4;
 
     // ========================================================================
@@ -67,7 +67,6 @@ module tb_ddr3_ahb_ex;
     // Clock & Reset Generation
     // ========================================================================
     reg  sys_rst_n;
-    wire sys_rst;
     reg  sys_clk_i;
     reg  clk_ref_i;
 
@@ -76,7 +75,6 @@ module tb_ddr3_ahb_ex;
         #RESET_PERIOD
         sys_rst_n = 1'b1;
     end
-    assign sys_rst = RST_ACT_LOW ? sys_rst_n : ~sys_rst_n;
 
     initial sys_clk_i = 1'b0;
     always sys_clk_i = #(CLKIN_PERIOD / 2.0) ~sys_clk_i;
@@ -173,7 +171,7 @@ module tb_ddr3_ahb_ex;
         // MIG Clock/Reset
         .mig_sys_clk_i       (sys_clk_i),
         .mig_clk_ref_i       (clk_ref_i),
-        .mig_sys_rst         (sys_rst),
+        .mig_sys_rst_n       (sys_rst_n),    // Active-LOW: matches RST_ACT_LOW=1
         // MIG Status
         .init_calib_complete (init_calib_complete),
         .ui_clk              (ui_clk),

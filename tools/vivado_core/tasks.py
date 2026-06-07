@@ -42,6 +42,11 @@ class TaskConfig:
     verilog_defines:
         Verilog defines for simulation, e.g.
         ``{"SIM_BYPASS_INIT_CAL": "FAST", "SIMULATION": "TRUE"}``.
+    mig_param_overrides:
+        MIG parameter overrides for xsim elaboration, mapping
+        hierarchical parameter paths to values, e.g.
+        ``{"u_dut...u_mig.SIM_BYPASS_INIT_CAL": "FAST"}``.
+        Passed as ``-g`` flags to xelab.
     hex_file:
         HEX filename relative to ``dev/program_source/`` (empty if
         the task does not need a program image for ``$readmemh``).
@@ -54,6 +59,7 @@ class TaskConfig:
     top: str = ""
     sim_mode: str = ""
     verilog_defines: dict[str, str] = field(default_factory=dict)
+    mig_param_overrides: dict[str, str] = field(default_factory=dict)
     hex_file: str = ""
 
 
@@ -120,6 +126,7 @@ class TaskRegistry:
                 top=cfg.get("top", ""),
                 sim_mode=cfg.get("sim_mode", ""),
                 verilog_defines=cfg.get("verilog_defines", {}) or {},
+                mig_param_overrides=cfg.get("mig_param_overrides", {}) or {},
                 hex_file=cfg.get("hex_file", ""),
             )
 

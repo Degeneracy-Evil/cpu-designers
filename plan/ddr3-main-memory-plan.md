@@ -1,6 +1,6 @@
 # DDR3 主存替换计划
 
-> 日期: 2026-06-05 | 状态: 进行中 (Phase 1+2+2.5 完成) | 依赖资料: `Reference/mig/ip_report.md`, `Reference/mig/mig_a.prj`
+> 日期: 2026-06-05 | 状态: 进行中 (Phase 1+2+2.5+3+3.5 完成, Phase 4 进行中, BUG-56 已通过 force workaround 解决) | 依赖资料: `Reference/mig/ip_report.md`, `Reference/mig/mig_a.prj`
 
 ---
 
@@ -507,6 +507,7 @@ def generate_clkwiz_create_ip_tcl(cfg: ClkWizConfig, ip_dir: str) -> str:
 ### 阶段 2.5：DDR3 仿真验证（~3 天）
 
 > **目标**：参考 Xilinx MIG example project (`project/bd_soc_mig_7series_0_1_ex/`)，验证 DDR3 链路和 AHB→AXI→DDR3 通路。
+> **BUG-56 解决**：MIG 校准 FSM 在全系统仿真中卡死（XSim SIP_PHASER_IN 不驱动 PHASELOCKED），已通过 5 层修复 + `force ddr_phy_init.init_calib_complete=1` workaround 解决。详见 `process/init_calib_complete_analysis.md` 和 `plan/clock-architecture-fix-plan.md`。
 
 | 步骤 | 内容 | 产出 |
 |------|------|------|
@@ -549,6 +550,8 @@ tb_ddr3_ahb_ex.sv (Phase 2: 全通路)
 | 3.6 | 仿真验证：完整 bootloader 流程（自检 → UART 接收 → DDR3 写入 → 跳转） | 仿真 PASS |
 
 ### 阶段 4：全系统验证（~3 天）
+
+> **BUG-56 状态**: ✅ 已通过 5 层修复 + force workaround 解决。`init_calib_complete` 在 15µs 后被 force 拉高，UI 使能，仿真完成 2ms。已知限制：DDR3 model refresh error 需容错。
 
 | 步骤 | 内容 | 产出 |
 |------|------|------|
@@ -738,5 +741,9 @@ wire clk = ui_clk;
 | 参考项目块设计 | — | `NonTrivialMIPS.srcs/sources_1/bd/bd_soc/bd_soc.bd` |
 | 参考项目时钟约束 | — | `NonTrivialMIPS.srcs/constrs_1/new/io_timings.xdc` |
 | CPU 设计报告 | — | `dev/docs/simpleCPU-design-report.md` |
-| FPGA 基硎信息 | — | `Reference/FPGA基础信息.md` |
+| **时钟架构修复** | — | `plan/clock-architecture-fix-plan.md` (5 层修复 + force workaround) |
+| **BUG-56 根因分析** | — | `process/init_calib_complete_analysis.md` |
+| **时钟传播分析** | — | `Reference/clock_propagation_analysis.md` |
+| **NonTrivialMIPS 对比** | — | `Reference/nontrivial_mips_vs_ddr3_system_comparison.md` |
+| FPGA 基础信息 | — | `Reference/FPGA基础信息.md` |
 | 引脚表 | — | `Reference/pins.csv` |

@@ -34,7 +34,7 @@ module tb_ddr3_basic;
     // ========================================================================
     reg sys_clk_i;    // 100MHz system clock (MIG sys_clk_i)
     reg clk_ref_i;    // 200MHz DDR reference clock (MIG clk_ref_i)
-    reg sys_rst;      // Active-high system reset
+    reg sys_rst_n;    // Active-LOW system reset (MIG RST_ACT_LOW=1: 0=reset, 1=normal)
 
     initial sys_clk_i = 1'b0;
     always #(SYSCLK_PERIOD/2.0) sys_clk_i = ~sys_clk_i;
@@ -43,9 +43,9 @@ module tb_ddr3_basic;
     always #(REFCLK_PERIOD/2.0) clk_ref_i = ~clk_ref_i;
 
     initial begin
-        sys_rst = 1'b1;
+        sys_rst_n = 1'b0;          // Active-LOW: assert reset
         #(RESET_PERIOD);
-        sys_rst = 1'b0;
+        sys_rst_n = 1'b1;          // Deassert reset
     end
 
     // ========================================================================
@@ -110,7 +110,7 @@ module tb_ddr3_basic;
 
         .mig_sys_clk_i       (sys_clk_i),
         .mig_clk_ref_i       (clk_ref_i),
-        .mig_sys_rst         (sys_rst),
+        .mig_sys_rst_n       (sys_rst_n),
 
         .init_calib_complete (init_calib_complete),
         .ui_clk              (ui_clk),

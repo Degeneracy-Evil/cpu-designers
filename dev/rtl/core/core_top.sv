@@ -77,6 +77,7 @@ module core_top(
     wire dec_is_sfence_vma;
     wire [11:0] dec_csr_addr;
     wire [2:0]  dec_csr_funct3;
+    // Debug: CSR decode results (used internally in cpu_decode for illegal_inst; not consumed at core_top)
     wire dec_csr_addr_valid;
     wire dec_csr_access_ok;
 
@@ -106,7 +107,7 @@ module core_top(
 
     wire        mmu_inst_miss;
     wire        mmu_data_miss;
-    wire        mem_data_access;
+    wire        mem_data_access;   // Combinational: is_load||is_store||is_flw||is_fsw (consumed by cpu_controller)
     wire        mmu_inst_page_fault;
     wire        mmu_data_page_fault;
     wire [3:0]  mmu_inst_pf_cause;
@@ -224,6 +225,7 @@ module core_top(
     wire [31:0] csr_satp;
     wire [31:0] csr_mcounteren;
     wire [31:0] csr_scounteren;
+    // Debug: CSR access permission from trap_csr (used internally; not consumed at core_top)
     wire csr_access_ok;
 
     wire [1:0] mpp_field;
@@ -311,7 +313,7 @@ module core_top(
         .data_page_fault_pending(data_page_fault_pending),
         .mmu_inst_miss(mmu_inst_miss),
         .mmu_data_miss(mmu_data_miss),
-        .mem_data_access(mem_en),
+        .mem_data_access(mem_data_access),  // Combinational: instruction is load/store (not mem_en which is registered bus-active)
         .init_sig(init_sig),
         .if_valid(if_valid),
         .id_valid(id_valid),

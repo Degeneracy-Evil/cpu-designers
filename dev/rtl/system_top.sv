@@ -57,7 +57,7 @@ module system_top(
 
     clk_wiz_0 u_clk_wiz_0 (
         .clk_in1  (clk),          // 100MHz external crystal
-        .clk_out1 (clk_system),   // 100MHz (backup, not used when DDR3 active)
+        .clk_out1 (clk_system),   // 100MHz → MIG sys_clk_i (same MMCM source as clk_ref_i)
         .clk_out2 (clk_ddr_ref),  // 200MHz → MIG clk_ref_i
         .resetn   (resetn),        // Active-low reset
         .locked   (clk_wiz_locked)
@@ -68,27 +68,22 @@ module system_top(
     wire mig_ui_clk;           // MIG 100MHz output = system clock
     wire mig_ui_clk_sync_rst;
     wire mig_mmcm_locked;
-    // BUG-56 fix: aresetn must stay 0 until AFTER init_calib_complete.
-    // In tb_ddr3_ahb_ex (which works), aresetn stays 0 until
-    // init_calib_complete && mmcm_locked. Releasing aresetn early (after
-    // mmcm_locked only) allows the AXI UI to become active before calibration
-    // completes, which prevents MIG's internal calibration state machine from
-    // completing in the full system (even though no AXI transactions arrive).
-    // This matches the proven-working tb_ddr3_ahb_ex reset sequencing.
-    // There is NO circular dependency: aresetn is an INPUT to MIG, and
-    // init_calib_complete is an OUTPUT — the dependency is unidirectional.
-    // tb_ddr3_ahb_ex proves calibration CAN complete with aresetn=0.
+    // BUG-56: aresetn release timing.
+    // Release aresetn after MMCM locked (NOT waiting for init_calib_complete).
+    // Waiting for init_calib_complete creates a circular dependency deadlock:
+    //   aresetn waits for init_calib_complete →
+    //   calibration FSM stuck at state 38 (needs aresetn=1 to advance) →
+    //   init_calib_complete never goes high →
+    //   aresetn stays 0 → deadlock.
+    // Releasing aresetn after mmcm_locked breaks the cycle and allows
+    // calibration to proceed. ahb_hresetn still waits for
+    // init_calib_complete to prevent CPU DDR3 access before DRAM is ready.
     reg mig_aresetn = 1'b0;
 
-    // Drive mig_aresetn: release after MMCM locked (NOT waiting for init_calib_complete).
-    // BUG-56 finding: With _mig_sim.v (SIM_BYPASS_INIT_CAL=FAST), waiting for
-    // init_calib_complete creates a deadlock — aresetn stays 0, and calibration
-    // may need aresetn=1 to complete in the full system (unlike tb_ddr3_ahb_ex
-    // where the simpler design allows calibration with aresetn=0).
-    // Releasing aresetn after mmcm_locked allows MIG AXI UI to activate,
-    // which may be required for the calibration state machine to advance.
-    // ahb_hresetn still waits for init_calib_complete to prevent CPU DDR3 access
-    // before DRAM is ready.
+    // Drive mig_aresetn: release after MMCM locked only.
+    // This breaks the circular dependency and allows MIG calibration to
+    // proceed. The AHB bus reset (ahb_hresetn) still waits for
+    // init_calib_complete, preventing CPU access before DRAM is ready.
     // BUG-55c: Add async reset (posedge reset) to sensitivity list so that
     // mig_aresetn is deterministically 0 during reset, preventing X propagation
     // through MIG when mmcm_locked may be undefined during power-on.
@@ -124,6 +119,8 @@ module system_top(
     wire        cpu_HREADY;
     wire        cpu_HRESP;
 
+    // IRQ taps from ahb_lite_bus (routed internally to PLIC → plic_eip → core_top)
+    // Kept as wires for debug observability; not consumed at system_top level.
     wire        timer_irq;
     wire        plic_eip;
     wire        clint_mtip;
@@ -219,9 +216,9 @@ module system_top(
         .o_spiClk   (spi_clk),
         .o_gpioCtrl (gpio_ctrl_out_wire),
         .o_gpioData (gpio_data_out_wire),
-        .mig_sys_clk_i  (clk),              // 100MHz external crystal → MIG sys_clk_i
+        .mig_sys_clk_i  (clk_system),      // 100MHz from clk_wiz_0 → MIG sys_clk_i (same MMCM source as clk_ref_i)
         .mig_clk_ref_i  (clk_ddr_ref),      // 200MHz from clk_wiz → MIG clk_ref_i
-        .mig_sys_rst    (resetn),           // MIG RST_ACT_LOW=1: sys_rst is active-LOW (0=reset, 1=normal)
+        .mig_sys_rst_n  (resetn),           // Active-LOW: MIG RST_ACT_LOW=1 (0=reset, 1=normal)
         .init_calib_complete(mig_init_calib_complete),
         .ui_clk         (mig_ui_clk),
         .mmcm_locked    (mig_mmcm_locked),

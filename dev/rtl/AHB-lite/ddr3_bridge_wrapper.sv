@@ -40,7 +40,7 @@ module ddr3_bridge_wrapper (
     // --- MIG Clock/Reset ---
     input  wire                    mig_sys_clk_i,    // 100MHz external crystal
     input  wire                    mig_clk_ref_i,    // 200MHz DDR reference clock
-    input  wire                    mig_sys_rst,      // Active-high system reset
+    input  wire                    mig_sys_rst_n,    // Active-LOW system reset (MIG RST_ACT_LOW=1: 0=reset, 1=normal)
 
     // --- MIG Status ---
     output wire                    init_calib_complete,
@@ -182,7 +182,7 @@ module ddr3_bridge_wrapper (
         // Clock & Reset
         .sys_clk_i            (mig_sys_clk_i),
         .clk_ref_i            (mig_clk_ref_i),
-        .sys_rst              (mig_sys_rst),
+        .sys_rst              (mig_sys_rst_n),    // MIG IP port sys_rst: active-LOW per RST_ACT_LOW=1
 
         // MIG Status
         .ui_clk               (ui_clk),

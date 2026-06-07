@@ -47,7 +47,7 @@ module ahb_lite_bus #(
     // DDR3 / MIG ports
     input  wire                    mig_sys_clk_i,
     input  wire                    mig_clk_ref_i,
-    input  wire                    mig_sys_rst,
+    input  wire                    mig_sys_rst_n,    // Active-LOW system reset (MIG RST_ACT_LOW=1: 0=reset, 1=normal)
     output wire                    init_calib_complete,
     output wire                    ui_clk,
     output wire                    mmcm_locked,
@@ -134,7 +134,7 @@ module ahb_lite_bus #(
         .HRDATA              (ddr3_HRDATA),
         .mig_sys_clk_i       (mig_sys_clk_i),
         .mig_clk_ref_i       (mig_clk_ref_i),
-        .mig_sys_rst         (mig_sys_rst),
+        .mig_sys_rst_n       (mig_sys_rst_n),
         .init_calib_complete (init_calib_complete),
         .ui_clk              (ui_clk),
         .ui_clk_sync_rst     (),

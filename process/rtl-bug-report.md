@@ -991,7 +991,7 @@ ddr3_model (Micron 行为模型)
 | BUG-55b | 🔴 HIGH | UART TX/RX cycle_cnt 空闲自由运行 → 无意义仿真事件 (**✅ 已修复**) |
 | BUG-55c | 🔴 HIGH | system_top mig_aresetn/ahb_hresetn 无异步复位 → X 传播至所有 AHB 从设备 (**✅ 已修复**) |
 | BUG-55d | 🔴 HIGH | $dumpvars(0,...) 60K-FF 设计 VCD I/O 开销 (**✅ 已修复**) |
-| BUG-56 | 🔴 HIGH | MIG 校准 FSM 卡死 @ INIT_PI_PHASELOCK_READS (state 38) → init_calib_complete 恒 0 (**✅ 已修复** — 5层修复 + force workaround, 详见 init_calib_complete_analysis.md) |
+| BUG-56 | 🔴 HIGH | MIG 校准 FSM 卡死 @ INIT_PI_PHASELOCK_READS (state 38) → init_calib_complete 恒 0 (**🔄 修复改进中** — force init_calib_complete 导致读通路未初始化，改用 force pi_phase_locked_all 让 FSM 自然走完) |
 
 ---
 

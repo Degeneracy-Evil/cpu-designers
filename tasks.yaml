@@ -344,4 +344,4 @@ tasks:
       sg125: 1
       DDR3_BYPASS_CLK_WIZ: 1
     hex_file: app/ddr3_test.hex
-    runtime: 30ms
+    runtime: 100ms

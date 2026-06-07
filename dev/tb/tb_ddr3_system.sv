@@ -86,8 +86,8 @@ module tb_ddr3_system;
     localparam real REFCLK_PERIOD_L    = (1000000.0 / (2 * REFCLK_FREQ));
     localparam RESET_PERIOD            = 200000;       // 200ns in ps
     localparam real SYSCLK_PERIOD      = tCK;
-    localparam CALIB_TIMEOUT           = 64'd20_000_000_000;   // 20ms in ps — must exceed force delay (15ms)
-    localparam SIM_TIMEOUT             = 64'd30_000_000_000;   // 30ms in ps — enough for force + BFM + CPU execution
+    localparam CALIB_TIMEOUT           = 64'd50_000_000_000;   // 50ms in ps — natural calibration with pi_phase_locked force
+    localparam SIM_TIMEOUT             = 64'd100_000_000_000;  // 100ms in ps — natural calib + BFM + CPU execution
     localparam BFM_WAIT_LIMIT          = 1000;           // Max clock cycles to wait for HREADYOUT before timeout
     localparam DDR3_CORR_NUM_WORDS     = 8;             // Number of words for DDR3 correctness test
 
@@ -182,32 +182,33 @@ module tb_ddr3_system;
     // MIG's PHY init FSM to get stuck at INIT_PI_PHASELOCK_READS (state 38),
     // and init_calib_complete never goes high.
     //
-    // SIM_BYPASS_INIT_CAL="FAST" is NOT sufficient because:
-    //   "FAST" → SIM_CAL_OPTION="FAST_CAL" → only reduces PHASELOCKED_TIMEOUT
-    //           (16383→1000), still waits for PI phase lock rising edge
-    //   "SKIP" → SIM_CAL_OPTION="SKIP_CAL" → skips PI phase lock after write
-    //           calib, but may hit other PHASER_IN issues
+    // SIM_BYPASS_INIT_CAL="FAST" reduces calibration time but XSim's
+    // PHASER_IN model doesn't drive PHASELOCKED → MIG calibration FSM
+    // gets stuck at INIT_PI_PHASELOCK_READS (state 38).
     //
-    // The only reliable workaround is to force init_calib_complete=1 at the
-    // deepest source register after PHY initialization completes. This
-    // propagates through:
-    //   ddr_phy_init.init_calib_complete → ddr_calib_top.init_calib_complete
-    //   → ddr_phy_top.phy_init_data_sel → mem_intfc.init_calib_complete
-    //   → memc_ui_top_axi.init_calib_complete_r (enables AXI UI)
+    // Previous workaround: force ddr_phy_init.init_calib_complete=1 at 15µs.
+    // This enabled the AXI UI (writes worked) but the MIG read datapath
+    // was never properly initialized → MIG never returned RVALID for reads.
     //
-    // With SIM_BYPASS_INIT_CAL="FAST", PHY uses bypass values, so DDR3
-    // read/write works correctly even without full calibration completion.
+    // Better workaround: force pi_phase_locked_all=1 to unstick the FSM
+    // at state 38, then let calibration complete NATURALLY through all
+    // remaining states. This properly initializes the read datapath.
+    //
+    // pi_phase_locked_all flows: ddr_mc_phy → ddr_phy_top → ddr_calib_top
+    //   → ddr_phy_init (FSM checks it at state 38)
     //
     // This is simulation-only (force has no effect in synthesis).
     // Reference: Xilinx AR#44019, PHASER_IN simulation model limitation.
     initial begin
-        // Wait for PHY initialization to complete (~10µs with FAST mode)
-        #15000000;  // 15µs — well after PHY init
+        // Wait for reset to release and FSM to reach state 38 (~1µs)
+        #1000000;  // 1µs
+        // Force at ddr_phy_top0 level — pi_phase_locked_all is a wire here
+        // that feeds both u_ddr_calib_top (FSM) and u_ddr_mc_phy_wrapper
         force u_dut.u_ahb_lite_bus.u_ddr3_bridge_wrapper.u_mig
               .u_bd_soc_mig_7series_0_1_mig.u_memc_ui_top_axi
-              .mem_intfc0.ddr_phy_top0.u_ddr_calib_top.u_ddr_phy_init
-              .init_calib_complete = 1'b1;
-        $display("[TB_DDR3_SYS] Forced ddr_phy_init.init_calib_complete=1 at time %0t", $time);
+              .mem_intfc0.ddr_phy_top0
+              .pi_phase_locked_all = 1'b1;
+        $display("[TB_DDR3_SYS] Forced pi_phase_locked_all=1 at time %0t", $time);
     end
 
     // ========================================================================
@@ -590,11 +591,19 @@ module tb_ddr3_system;
             if (wait_cnt >= BFM_WAIT_LIMIT) begin
                 $display("[TB_DDR3_SYS] ERROR: bfm_ahb_read 1st HREADYOUT timeout after %0d cycles at addr=0x%08H t=%0t",
                          wait_cnt, addr, $time);
-                $display("[TB_DDR3_SYS]   bridge_hreadyout=%b ahb_hresetn=%b HSEL=%b",
+                $display("[TB_DDR3_SYS]   bridge_hreadyout=%b ahb_hresetn=%b HSEL=%b HREADY=%b",
                          bridge_hreadyout, ahb_hresetn,
-                         u_dut.u_ahb_lite_bus.slave_HSELx[0]);
+                         u_dut.u_ahb_lite_bus.slave_HSELx[0],
+                         u_dut.u_ahb_lite_bus.HREADY);
                 $finish;
             end
+            // Debug: snapshot after 1st HREADYOUT (bridge accepted address)
+            $display("[TB_DDR3_SYS] READ-1st-HREADYOUT t=%0t: AR_valid=%b AR_ready=%b R_valid=%b B_valid=%b",
+                     $time,
+                     u_dut.u_ahb_lite_bus.u_ddr3_bridge_wrapper.bridge_m_axi_arvalid,
+                     u_dut.u_ahb_lite_bus.u_ddr3_bridge_wrapper.bridge_m_axi_arready,
+                     u_dut.u_ahb_lite_bus.u_ddr3_bridge_wrapper.bridge_m_axi_rvalid,
+                     u_dut.u_ahb_lite_bus.u_ddr3_bridge_wrapper.bridge_m_axi_bvalid);
 
             // Wait for second HREADYOUT (bridge returns data) with timeout
             // The bridge has a 1-cycle pipeline — the first HREADYOUT
@@ -604,10 +613,42 @@ module tb_ddr3_system;
             while (!bridge_hreadyout && wait_cnt < BFM_WAIT_LIMIT) begin
                 @(posedge mig_ui_clk);
                 wait_cnt = wait_cnt + 1;
+                // Debug: print AXI read channel status every 100 cycles
+                if (wait_cnt % 100 == 1) begin
+                    $display("[TB_DDR3_SYS] READ-DBG[%0d] t=%0t: HREADYOUT=%b HREADY=%b HSEL=%b",
+                             wait_cnt, $time, bridge_hreadyout,
+                             u_dut.u_ahb_lite_bus.HREADY,
+                             u_dut.u_ahb_lite_bus.slave_HSELx[0]);
+                    $display("[TB_DDR3_SYS]   AXI AR: valid=%b ready=%b addr=0x%08H",
+                             u_dut.u_ahb_lite_bus.u_ddr3_bridge_wrapper.bridge_m_axi_arvalid,
+                             u_dut.u_ahb_lite_bus.u_ddr3_bridge_wrapper.bridge_m_axi_arready,
+                             u_dut.u_ahb_lite_bus.u_ddr3_bridge_wrapper.bridge_m_axi_araddr);
+                    $display("[TB_DDR3_SYS]   AXI R:  valid=%b ready=%b data=0x%08H rresp=%b",
+                             u_dut.u_ahb_lite_bus.u_ddr3_bridge_wrapper.bridge_m_axi_rvalid,
+                             u_dut.u_ahb_lite_bus.u_ddr3_bridge_wrapper.bridge_m_axi_rready,
+                             u_dut.u_ahb_lite_bus.u_ddr3_bridge_wrapper.bridge_m_axi_rdata,
+                             u_dut.u_ahb_lite_bus.u_ddr3_bridge_wrapper.bridge_m_axi_rresp);
+                    $display("[TB_DDR3_SYS]   AXI B:  valid=%b ready=%b (pending write resp?)",
+                             u_dut.u_ahb_lite_bus.u_ddr3_bridge_wrapper.bridge_m_axi_bvalid,
+                             u_dut.u_ahb_lite_bus.u_ddr3_bridge_wrapper.bridge_m_axi_bready);
+                end
             end
             if (wait_cnt >= BFM_WAIT_LIMIT) begin
                 $display("[TB_DDR3_SYS] ERROR: bfm_ahb_read 2nd HREADYOUT timeout after %0d cycles at addr=0x%08H t=%0t",
                          wait_cnt, addr, $time);
+                $display("[TB_DDR3_SYS]   bridge_hreadyout=%b ahb_hresetn=%b HSEL=%b HREADY=%b",
+                         bridge_hreadyout, ahb_hresetn,
+                         u_dut.u_ahb_lite_bus.slave_HSELx[0],
+                         u_dut.u_ahb_lite_bus.HREADY);
+                $display("[TB_DDR3_SYS]   AXI AR: valid=%b ready=%b",
+                         u_dut.u_ahb_lite_bus.u_ddr3_bridge_wrapper.bridge_m_axi_arvalid,
+                         u_dut.u_ahb_lite_bus.u_ddr3_bridge_wrapper.bridge_m_axi_arready);
+                $display("[TB_DDR3_SYS]   AXI R:  valid=%b ready=%b",
+                         u_dut.u_ahb_lite_bus.u_ddr3_bridge_wrapper.bridge_m_axi_rvalid,
+                         u_dut.u_ahb_lite_bus.u_ddr3_bridge_wrapper.bridge_m_axi_rready);
+                $display("[TB_DDR3_SYS]   AXI B:  valid=%b ready=%b",
+                         u_dut.u_ahb_lite_bus.u_ddr3_bridge_wrapper.bridge_m_axi_bvalid,
+                         u_dut.u_ahb_lite_bus.u_ddr3_bridge_wrapper.bridge_m_axi_bready);
                 $finish;
             end
 

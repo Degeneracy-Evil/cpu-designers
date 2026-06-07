@@ -16,6 +16,7 @@
 | Phase 4 | 全系统验证 (link.ld + 复位向量 + 测试台 + ISA 测试) | 🔄 进行中 | — |
 | Phase 4.5 | DDR3 仿真自动化验证 (4 测试台全部可启动) | ✅ 完成 | 2026-06-06 |
 | Phase 4.6 | 时钟架构修复 + BUG-56 force workaround | ✅ 完成 | 2026-06-07 |
+| Phase 4.7 | BFM 读超时根因分析 + force 方案改进 | 🔄 进行中 | — |
 | Phase 5 | 优化与清理 (移除旧 SRAM IP + 文档更新) | ⏳ 待开始 | — |
 
 ---
@@ -296,7 +297,7 @@ vivado -mode batch -source dev/tb/run_ddr3_sim.tcl -tclargs tb_ddr3_ahb_ex
 | `ddr3_mig_ex` | ✅ 4 PASS, 0 FAIL | ALL TESTS PASSED — MIG 直连 AXI4 BFM 读写 DDR3 正确 |
 | `ddr3_ahb_ex` | ✅ 4 PASS, 0 FAIL | ALL TESTS PASSED (BUG-45 修复后) — AHB→Bridge→MIG 通路读写正确 |
 | `ddr3_basic` | ✅ 仿真启动 | MIG 校准超时 100µs — FAST sim 预期行为 |
-| `ddr3_system` | ✅ 仿真启动 + force workaround | BUG-56 已通过 5 层修复解决：`force ddr_phy_init.init_calib_complete=1` @ 15µs → UI 使能 → 仿真完成 2ms。已知限制：DDR3 model refresh error 需容错 |
+| `ddr3_system` | 🔄 BFM 读超时修复中 | BUG-56 force 改进：`force pi_phase_locked_all=1` 替代 `force init_calib_complete=1`，让 FSM 自然走完以正确初始化读通路。写通路已验证 ✅，读通路待验证 |
 | `ahb_bus` (回归) | ✅ 仿真启动 | 无回归 — RTL 修复未影响非 DDR3 测试 |
 
 ### 4.5.3: Vivado Orchestrator DDR3 支持
@@ -343,6 +344,106 @@ Simulation completed = 2ms  ✅
 - force workaround 使 UI 使能但 MC 发 refresh 时 DDR3 banks 未 precharge → DDR3 model 报 refresh error
 - 仿真中需配合 DDR3 model 容错或忽略此 error
 - 硬件上不存在此问题（SIP_PHASER_IN 为真实硅片行为）
+- **⚠️ force init_calib_complete 导致 MIG 读通路未初始化**（详见 Phase 4.7）
+
+---
+
+## Phase 4.7: BFM 读超时根因分析 + Force 方案改进 (🔄 进行中)
+
+> **日期**: 2026-06-07
+> **关联 BUG**: BUG-56 (MIG 校准 FSM 卡死)
+
+### 问题描述
+
+`tb_ddr3_system` Phase 1.5 DDR3 正确性测试：8 pattern 写入全部成功，但**读阶段超时**：
+```
+ERROR: bfm_ahb_read 2nd HREADYOUT timeout after 1000 cycles at addr=0x80000100
+```
+
+### 根因分析（三层调试）
+
+#### 第 1 层：AXI 通道探针
+
+在 `bfm_ahb_read` 的 2nd HREADYOUT 等待循环中每 100 周期打印 AXI AR/R/B 通道状态：
+
+```
+READ-DBG[1]:  HREADYOUT=0 HREADY=0 HSEL=1  AXI AR: valid=0 ready=0
+READ-DBG[101]: AXI AR: valid=0 ready=1  ← AR_valid 恒为 0！
+```
+
+初步判断：Bridge 从未发出 ARVALID，疑似 HREADY 死锁。
+
+#### 第 2 层：逐周期探针（关键突破）
+
+在 BFM 设置地址相位后，逐周期打印 Bridge 输入输出（前 10 周期）：
+
+```
+READ-ADDR[0]: HSEL=1 HTRANS=10 HWRITE=0 HREADY_IN=1  ← nonseq_detected 触发！
+READ-ADDR[1]: HSEL=1 HTRANS=10 HWRITE=0 HREADY_IN=0  ← HREADY 降为 0
+```
+
+**Cycle 0**: HREADY_IN=1 → `nonseq_detected=1` → Bridge 进入 CTL_ADDR → HREADYOUT→0
+**Cycle 1+**: mux_HSELx 锁存到 DDR3 → HREADY=bridge_hreadyout=0 → HREADY 死锁？
+
+#### 第 3 层：同周期 AXI 探针（根因确认）
+
+```
+Cycle 0: HREADYOUT=1 AR_valid=0 AR_ready=1  ← Bridge 空闲
+Cycle 1: HREADYOUT=0 AR_valid=1 AR_ready=1  ← ARVALID 发出！MIG 接受！
+Cycle 2: HREADYOUT=0 AR_valid=0 AR_ready=0  ← ARVALID 清除（已接受），等 RVALID
+Cycle 3+: R_valid=0 恒为 0                   ← MIG 永不返回读数据！
+```
+
+**根因确认**：Bridge 正确发出 ARVALID，MIG 正确接受（ARREADY=1），但 **MIG 永不返回 RVALID**。不是 HREADY 死锁，不是 Bridge 问题，是 **MIG 读数据通路未初始化**。
+
+### 根因：force init_calib_complete 导致读通路未初始化
+
+| force 方式 | 写通路 | 读通路 | 原因 |
+|------------|--------|--------|------|
+| `force ddr_phy_init.init_calib_complete=1` | ✅ 工作 | ❌ RVALID 永不返回 | 跳过整个校准 → AXI UI 使能但读 FIFO/PHY 未初始化 |
+| 自然校准（tb_ddr3_ahb_ex） | ✅ 工作 | ✅ 工作 | FSM 走完所有状态 → 读通路正确初始化 |
+
+### 修复方案：force `pi_phase_locked_all` 让 FSM 自然走完
+
+**原理**：MIG 校准 FSM 卡在 state 38 (INIT_PI_PHASELOCK_READS) 等待 `pi_phase_locked_all` 上升沿。XSim 的 PHASER_IN 仿真模型不驱动 PHASELOCKED → 该信号恒为 0。
+
+**新方案**：force `pi_phase_locked_all=1` 解除 state 38 卡死，让 FSM **自然走完后续所有状态**，正确初始化读通路。
+
+**信号层级路径**：
+```
+u_dut.u_ahb_lite_bus.u_ddr3_bridge_wrapper.u_mig
+  .u_bd_soc_mig_7series_0_1_mig.u_memc_ui_top_axi
+  .mem_intfc0.ddr_phy_top0.pi_phase_locked_all
+```
+
+**FSM 检查逻辑**（ddr_phy_init.v）：
+```verilog
+// State 38: INIT_PI_PHASELOCK_READS
+if (pi_phase_locked_all_r3 && ~pi_phase_locked_all_r4)  // 上升沿检测
+    init_next_state = INIT_PRECHARGE_PREWAIT;  // 推进到下一状态
+// 4 级同步器：pi_phase_locked_all → r1 → r2 → r3 → r4
+```
+
+force 后 4 个时钟周期 FSM 即推进。
+
+**5 层修复更新**：
+
+| 层 | 文件 | 修复 | 变更 |
+|----|------|------|------|
+| 1–4 | (同前) | (同前) | 无变更 |
+| 5 | `dev/tb/tb_ddr3_system.sv` | 1µs 后 `force pi_phase_locked_all=1` | **替换** 原 `force init_calib_complete=1` |
+
+### 已知风险
+
+- FSM 后续状态可能卡在 `INIT_PI_DQSFOUND_READS`（等待 `pi_dqs_found_all`），需同样 force
+- DDR3 model timing violations (tDSH, tDQSS) 仍会出现（force 副作用），但 STOP_ON_ERROR=0 已容错
+
+### 待验证
+
+- [ ] force `pi_phase_locked_all` 后校准是否自然完成（init_calib_complete=1）
+- [ ] 校准完成后 Phase 1.5 读通路是否正常（RVALID 返回）
+- [ ] 8-pattern 写/读/比较是否全部 PASS
+- [ ] 是否需要额外 force `pi_dqs_found_all`
 
 ---
 

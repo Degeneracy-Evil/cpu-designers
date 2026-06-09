@@ -1,6 +1,8 @@
 # DDR3 主存替换计划
 
-> 日期: 2026-06-05 | 状态: 进行中 (Phase 1+2+2.5+3+3.5 完成, Phase 4 进行中, BUG-56 已通过 force workaround 解决) | 依赖资料: `Reference/mig/ip_report.md`, `Reference/mig/mig_a.prj`
+> ⛔ **已停止** — 2026-06-09: AHB-Lite 架构已废弃，全面转向 AXI 总线 + chiplab 对齐架构。见新计划 `plan/axi-mig-alignment-plan.md`
+
+> 日期: 2026-06-05 | 状态: ⛔ 已停止 (Phase 1+2+2.5+3+3.5 完成, Phase 4 进行中, BUG-56 已通过 force workaround 解决) | 依赖资料: `Reference/mig/ip_report.md`, `Reference/mig/mig_a.prj`
 
 ---
 

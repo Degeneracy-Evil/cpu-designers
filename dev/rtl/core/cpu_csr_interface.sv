@@ -3,7 +3,7 @@
 
 module cpu_csr_interface(
     input         clk,
-    input         reset,
+    input         resetn,
 
     input  [333:0] id_exe_bus_r,
     input  [11:0]  dec_csr_addr,
@@ -125,7 +125,7 @@ module cpu_csr_interface(
 
     cpu_csr u_csr(
         .clk(clk),
-        .reset(reset),
+        .resetn(resetn),
         .sw_csr_addr(csr_sw_addr),
         .sw_csr_wen(csr_sw_wen),
         .sw_csr_wdata(csr_sw_wdata),

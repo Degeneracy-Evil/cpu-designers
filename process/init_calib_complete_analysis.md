@@ -1,5 +1,6 @@
 # init_calib_complete 始终不拉高 — 根因分析与修复方案
 
+> ⛔ **已停止** — 2026-06-09: AHB-Lite 架构已废弃，全面转向 AXI 总线 + chiplab 对齐架构。本文档中的 force workaround 不再适用。
 **日期**: 2026-06-07（最终更新 — 已修复）  
 **项目**: ddr3_system  
 **参考项目**: bd_soc_mig_7series_0_1_ex（官方示例，107ns 校准完成）

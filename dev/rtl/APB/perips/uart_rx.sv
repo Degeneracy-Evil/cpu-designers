@@ -7,7 +7,7 @@ module uart_rx
 )
 (
     input                        clk,              //clock input
-    input                        rst,            //asynchronous reset input, low active 
+    input                        rst_n,          //asynchronous reset input, low active
     output reg[7:0]              o_rxData_8,          //received serial data
     output reg                   o_rxDataValid_1,    //received serial data is valid
     input                        i_rxDataReady_1,    //data receiver module ready
@@ -35,9 +35,9 @@ reg[2:0]                         bit_cnt;          //bit counter
 
 assign rx_negedge = rx_d1 && ~rx_d0;
 
-always@(posedge clk or negedge rst)
+always_ff @(posedge clk or negedge rst_n)
 begin
-    if(rst == 1'b0)
+    if(!rst_n)
     begin
         rx_d0 <= 1'b0;
         rx_d1 <= 1'b0;    
@@ -50,15 +50,15 @@ begin
 end
 
 
-always@(posedge clk or negedge rst)
+always_ff @(posedge clk or negedge rst_n)
 begin
-    if(rst == 1'b0)
+    if(!rst_n)
         state <= S_IDLE;
     else
         state <= next_state;
 end
 
-always@(*)
+always_comb
 begin
     case(state)
         S_IDLE:
@@ -91,9 +91,9 @@ begin
     endcase
 end
 
-always@(posedge clk or negedge rst)
+always_ff @(posedge clk or negedge rst_n)
 begin
-    if(rst == 1'b0)
+    if(!rst_n)
         o_rxDataValid_1 <= 1'b0;
     else if(state == S_STOP && next_state != state)
         o_rxDataValid_1 <= 1'b1;
@@ -101,17 +101,17 @@ begin
         o_rxDataValid_1 <= 1'b0;
 end
 
-always@(posedge clk or negedge rst)
+always_ff @(posedge clk or negedge rst_n)
 begin
-    if(rst == 1'b0)
+    if(!rst_n)
         o_rxData_8 <= 8'd0;
     else if(state == S_STOP && next_state != state)
         o_rxData_8 <= rx_bits;//latch received data
 end
 
-always@(posedge clk or negedge rst)
+always_ff @(posedge clk or negedge rst_n)
 begin
-    if(rst == 1'b0)
+    if(!rst_n)
         begin
             bit_cnt <= 3'd0;
         end
@@ -123,9 +123,9 @@ begin
 end
 
 
-always@(posedge clk or negedge rst)
+always_ff @(posedge clk or negedge rst_n)
 begin
-    if(rst == 1'b0)
+    if(!rst_n)
         cycle_cnt <= 16'd0;
     else if((state == S_REC_BYTE && cycle_cnt == cycle_val - 1) || next_state != state)
         cycle_cnt <= 16'd0;
@@ -136,9 +136,9 @@ begin
     // generating unnecessary simulation events (16-bit toggle every cycle).
 end
 //receive serial data bit data
-always@(posedge clk or negedge rst)
+always_ff @(posedge clk or negedge rst_n)
 begin
-    if(rst == 1'b0)
+    if(!rst_n)
         rx_bits <= 8'd0;
     else if(state == S_REC_BYTE && cycle_cnt == cycle_val/2 - 1)
         rx_bits[bit_cnt] <= i_rxPin_1;

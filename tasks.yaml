@@ -345,3 +345,25 @@ tasks:
       DDR3_BYPASS_CLK_WIZ: 1
     hex_file: app/ddr3_test.hex
     runtime: 100ms
+
+  ddr3_system_v2:
+    tb: tb_ddr3_system_v2
+    sim_mode: ddr3
+    verilog_defines:
+      SIM_BYPASS_INIT_CAL: FAST
+      SIMULATION: "TRUE"
+      sg125: 1
+      DDR3_BYPASS_CLK_WIZ: 1
+    hex_file: app/ddr3_test.hex
+    runtime: 100ms
+
+  ddr3_system_v3:
+    tb: tb_ddr3_system_v3
+    sim_mode: ddr3
+    verilog_defines:
+      SIM_BYPASS_INIT_CAL: FAST
+      SIMULATION: "TRUE"
+      sg125: 1
+      DDR3_BYPASS_CLK_WIZ: 1
+    hex_file: app/ddr3_test.hex
+    runtime: 100ms

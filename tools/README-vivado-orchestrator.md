@@ -289,7 +289,7 @@ limits:
   max_concurrent: 3     # 最大并行 Vivado 进程
   max_disk_gb: 20       # project/ 总磁盘上限
   idle_timeout_min: 60  # 空闲进程自动关闭时间
-vivado_path: vivado.bat
+vivado_path: vivado        # Linux/macOS; Windows 用户改为 vivado.bat
 proj_name: simplecpu_bus
 device_part: xc7a200tfbg676-2
 

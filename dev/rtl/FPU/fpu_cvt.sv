@@ -2,7 +2,7 @@
 
 module fpu_cvt(
     input         clk,
-    input         reset,
+    input         resetn,
     input  [31:0] src1,
     input  [2:0]  cvt_funct,   // 000=FCVT.W.S, 001=FCVT.WU.S, 010=FCVT.S.W, 011=FCVT.S.WU
     input  [2:0]  rm,
@@ -277,8 +277,8 @@ module fpu_cvt(
     // ====================================================================
     wire is_f2i = (cvt_r == FCVT_W_S) || (cvt_r == FCVT_WU_S);
 
-    always_ff @(posedge clk or posedge reset) begin
-        if (reset) begin
+    always_ff @(posedge clk or negedge resetn) begin
+        if (!resetn) begin
             state    <= IDLE;
             src1_r   <= 32'b0;
             cvt_r    <= 3'b0;
@@ -341,6 +341,8 @@ module fpu_cvt(
                 DONE_STATE: begin
                     state <= IDLE;
                 end
+
+                default: state <= IDLE;  // BUG-FIX: 防止状态机卡死在非法状态
             endcase
         end
     end

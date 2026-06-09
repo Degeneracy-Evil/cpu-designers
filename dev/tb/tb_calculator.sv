@@ -19,117 +19,12 @@ module tb_calculator;
     // ----------------------------------------------------------------
     //  Clock & reset
     // ----------------------------------------------------------------
-    reg clk;
-    reg reset;
 
-    initial begin
-        clk = 1'b0;
-        forever #5 clk = ~clk;          // 100 MHz, T = 10 ns
-    end
+    // Shared boilerplate: system_top, clock, reset, debug signals, check_reg, check_mem_word
+    `include "tb_soc_includes.svh"
 
-    // ----------------------------------------------------------------
-    //  DUT: core_top
-    // ----------------------------------------------------------------
-    wire [31:0] cpu_HADDR;
-    wire [1:0]  cpu_HTRANS;
-    wire        cpu_HWRITE;
-    wire [2:0]  cpu_HSIZE;
-    wire [2:0]  cpu_HBURST;
-    wire [3:0]  cpu_HPROT;
-    wire        cpu_HMASTLOCK;
-    wire [31:0] cpu_HWDATA;
-    wire [31:0] cpu_HRDATA;
-    wire        cpu_HREADY;
-    wire        cpu_HRESP;
 
-    wire        timer_irq;
-    wire        plic_eip;
-    wire        clint_mtip;
-    wire        clint_msip;
-
-    core_top dut(
-        .clk(clk),
-        .reset(reset),
-        .rf_addr(5'b0),
-        .rf_data(),
-        .if_pc(),
-        .if_inst(),
-        .id_pc(),
-        .id_inst(),
-        .exe_pc(),
-        .exe_inst(),
-        .mem_pc(),
-        .mem_inst(),
-        .wb_pc(),
-        .wb_inst(),
-        .display_state(),
-        .HADDR(cpu_HADDR),
-        .HTRANS(cpu_HTRANS),
-        .HWRITE(cpu_HWRITE),
-        .HSIZE(cpu_HSIZE),
-        .HBURST(cpu_HBURST),
-        .HPROT(cpu_HPROT),
-        .HMASTLOCK(cpu_HMASTLOCK),
-        .HWDATA(cpu_HWDATA),
-        .HRDATA(cpu_HRDATA),
-        .HREADY(cpu_HREADY),
-        .HRESP(cpu_HRESP),
-        .init_sig(1'b0),
-        .timer_irq(clint_mtip),
-        .ext_meip_in(plic_eip),
-        .ext_msip_in(clint_msip)
-    );
-
-    // ----------------------------------------------------------------
-    //  DUT: AHB-Lite bus with UART
-    // ----------------------------------------------------------------
-    wire [15:0] gpio_io;
-    wire        uart_tx;       // DUT UART TX output (we decode this)
-    reg         uart_rx;       // DUT UART RX input (we drive this)
-
-    ahb_lite_bus #(
-        .ADDR_WIDTH  (32),
-        .DATA_WIDTH  (32),
-        .SLAVE_NUM   (5),
-        .MEM_DEPTH   (8192),
-        .WAIT_STATES (0),
-        .GPIO_NUM    (16),
-        .UART_FREQ   (100)
-    ) u_bus (
-        .HCLK       (clk),
-        .HRESETn    (~reset),
-        .HADDR      (cpu_HADDR),
-        .HTRANS     (cpu_HTRANS),
-        .HWRITE     (cpu_HWRITE),
-        .HSIZE      (cpu_HSIZE),
-        .HBURST     (cpu_HBURST),
-        .HPROT      (cpu_HPROT),
-        .HMASTLOCK  (cpu_HMASTLOCK),
-        .HWDATA     (cpu_HWDATA),
-        .HRDATA     (cpu_HRDATA),
-        .HREADY     (cpu_HREADY),
-        .HRESP      (cpu_HRESP),
-        .o_timer_irq(timer_irq),
-        .o_gpio_irq (),
-        .o_uart_irq (),
-        .o_spi_irq  (),
-        .o_plic_eip (plic_eip),
-        .o_clint_mtip(clint_mtip),
-        .o_clint_msip(clint_msip),
-        .io_gpioPin (gpio_io),
-        .i_uart_rx  (uart_rx),
-        .o_uart_tx  (uart_tx),
-        .o_spiMosi  (),
-        .i_spiMiso  (1'b0),
-        .o_spiSs    (),
-        .o_spiClk   (),
-        .o_gpioCtrl (),
-        .o_gpioData ()
-    );
-
-    // ----------------------------------------------------------------
-    //  UART timing constants
-    // ----------------------------------------------------------------
+    wire reset = ~resetn;
     localparam CLK_FRE    = 100;              // 100 MHz
     localparam BAUD_RATE  = 115200;
     localparam CYCLE      = CLK_FRE * 1000000 / BAUD_RATE;  // ~868 cycles/bit
@@ -416,8 +311,6 @@ module tb_calculator;
     // ----------------------------------------------------------------
     //  Result checker: search decoded output for "= <result>" patterns
     // ----------------------------------------------------------------
-    integer pass_count;
-    integer fail_count;
 
     // Search for a substring in decoded_msg
     // Returns 1 if found, 0 if not
@@ -473,10 +366,6 @@ module tb_calculator;
     initial begin
         pass_count = 0;
         fail_count = 0;
-        reset = 1'b1;
-
-        repeat (5) @(posedge clk);
-        reset = 1'b0;
 
         // Wait for all 5 expressions to be sent and processed:
         //   Boot: 2M, 5 exprs × ~50K each, 4 gaps × 1M ≈ 6.3M cycles
@@ -553,4 +442,6 @@ module tb_calculator;
         $finish;
     end
 
+
 endmodule
+

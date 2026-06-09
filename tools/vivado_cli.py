@@ -40,6 +40,19 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+
+# ---------------------------------------------------------------------------
+# Platform helpers
+# ---------------------------------------------------------------------------
+
+def _default_vivado_path() -> str:
+    """Return the default Vivado executable name for the current platform.
+
+    - Windows: ``vivado.bat``
+    - Linux / macOS: ``vivado``
+    """
+    return "vivado.bat" if sys.platform == "win32" else "vivado"
+
 # ---------------------------------------------------------------------------
 # YAML loading — prefer PyYAML, fall back to minimal parser
 # ---------------------------------------------------------------------------
@@ -152,7 +165,7 @@ class Limits:
 @dataclass
 class VivadoConfig:
     limits: Limits = field(default_factory=Limits)
-    vivado_path: str = "vivado.bat"
+    vivado_path: str = field(default_factory=_default_vivado_path)
     proj_name: str = "simplecpu_bus"
     device_part: str = "xc7a200tfbg676-2"
 
@@ -180,7 +193,7 @@ def load_config(path: Path) -> VivadoConfig:
     )
     return VivadoConfig(
         limits=limits,
-        vivado_path=str(raw.get("vivado_path", "vivado.bat")),
+        vivado_path=str(raw.get("vivado_path", _default_vivado_path())),
         proj_name=str(raw.get("proj_name", "simplecpu_bus")),
         device_part=str(raw.get("device_part", "xc7a200tfbg676-2")),
     )

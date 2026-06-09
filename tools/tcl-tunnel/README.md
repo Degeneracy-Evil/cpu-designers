@@ -11,13 +11,14 @@
 
 ## 环境要求
 
-- Windows
+- Windows 或 Linux
 - Python 3.12+
-- 已安装 Vivado，且命令行可调用 `vivado.bat`
+- 已安装 Vivado，且命令行可调用 `vivado`（Linux/macOS）或 `vivado.bat`（Windows）
 
-会话固定启动命令：
+会话启动命令：
 
-- `%SystemRoot%\\system32\\cmd.exe /k vivado.bat -mode tcl`
+- **Linux/macOS**: `vivado -mode tcl`
+- **Windows**: `%SystemRoot%\\system32\\cmd.exe /k vivado.bat -mode tcl`
 
 ## 安装依赖
 

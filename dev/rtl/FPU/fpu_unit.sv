@@ -2,7 +2,7 @@
 
 module fpu_unit(
     input         clk,
-    input         reset,
+    input         resetn,
     input  [6:0]  fpu_funct,    // FPU operation select
     input  [2:0]  fpu_rm,       // rounding mode (from instruction or CSR)
     input  [31:0] src1, src2,   // FPU operands (from float register file)
@@ -120,7 +120,7 @@ module fpu_unit(
 
   fpu_adder u_adder(
       .clk(clk),
-      .reset(reset),
+      .resetn(resetn),
       .src1(src1_reg),
       .src2(src2_reg),
       .is_sub((fpu_funct_reg == FPU_FSUB)),
@@ -138,7 +138,7 @@ module fpu_unit(
 
   fpu_multiplier u_mul(
       .clk(clk),
-      .reset(reset),
+      .resetn(resetn),
       .src1(src1_reg),
       .src2(src2_reg),
       .rm(fpu_rm_reg),
@@ -155,7 +155,7 @@ module fpu_unit(
 
   fpu_divider u_div(
       .clk(clk),
-      .reset(reset),
+      .resetn(resetn),
       .src1(src1_reg),
       .src2(src2_reg),
       .rm(fpu_rm_reg),
@@ -172,7 +172,7 @@ module fpu_unit(
 
   fpu_sqrt u_sqrt(
       .clk(clk),
-      .reset(reset),
+      .resetn(resetn),
       .src1(src1_reg),
       .rm(fpu_rm_reg),
       .start(sqrt_start),
@@ -188,7 +188,7 @@ module fpu_unit(
 
   fpu_cvt u_cvt(
       .clk(clk),
-      .reset(reset),
+      .resetn(resetn),
       .src1(src1_reg),
       .cvt_funct(cvt_funct_r),
       .rm(fpu_rm_reg),
@@ -275,9 +275,9 @@ module fpu_unit(
   // ===================================================================
   // Main FSM (mirror mu_unit.sv pattern exactly)
   // ===================================================================
-  always_ff @(posedge clk or posedge reset)
+  always_ff @(posedge clk or negedge resetn)
   begin
-    if (reset)
+    if (!resetn)
     begin
       adder_start       <= 1'b0;
       mul_start         <= 1'b0;

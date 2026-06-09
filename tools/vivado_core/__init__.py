@@ -56,6 +56,9 @@ from .hash import LayeredHash
 # High-level operations
 from .operations import Operations
 
+# IP generation
+from .ip_gen import get_bram_ip_names
+
 # Session management
 from .session import ExecuteResult, Session, SessionManager, SessionMeta
 
@@ -100,6 +103,8 @@ __all__ = [
     "LayeredHash",
     # operations
     "Operations",
+    # ip_gen
+    "get_bram_ip_names",
     # session
     "ExecuteResult",
     "Session",

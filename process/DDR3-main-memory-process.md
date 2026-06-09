@@ -1,5 +1,6 @@
 # DDR3 主存迁移实施进度
 
+> ⛔ **已停止** — 2026-06-09: AHB-Lite 架构已废弃，全面转向 AXI 总线 + chiplab 对齐架构。见新计划 `plan/axi-mig-alignment-plan.md`
 > 创建日期: 2026-06-05 | 关联计划: `plan/ddr3-main-memory-plan.md`
 
 ---
@@ -16,7 +17,8 @@
 | Phase 4 | 全系统验证 (link.ld + 复位向量 + 测试台 + ISA 测试) | 🔄 进行中 | — |
 | Phase 4.5 | DDR3 仿真自动化验证 (4 测试台全部可启动) | ✅ 完成 | 2026-06-06 |
 | Phase 4.6 | 时钟架构修复 + BUG-56 force workaround | ✅ 完成 | 2026-06-07 |
-| Phase 4.7 | BFM 读超时根因分析 + force 方案改进 | 🔄 进行中 | — |
+| Phase 4.7 | BFM 读超时根因分析 + force 方案改进 | ✅ 完成 | 2026-06-07 |
+| Phase 4.8 | clk_wiz_0_passthrough + 校准完成 + AXI W wready=0 死锁调试 | 🔄 进行中 | — |
 | Phase 5 | 优化与清理 (移除旧 SRAM IP + 文档更新) | ⏳ 待开始 | — |
 
 ---
@@ -297,7 +299,7 @@ vivado -mode batch -source dev/tb/run_ddr3_sim.tcl -tclargs tb_ddr3_ahb_ex
 | `ddr3_mig_ex` | ✅ 4 PASS, 0 FAIL | ALL TESTS PASSED — MIG 直连 AXI4 BFM 读写 DDR3 正确 |
 | `ddr3_ahb_ex` | ✅ 4 PASS, 0 FAIL | ALL TESTS PASSED (BUG-45 修复后) — AHB→Bridge→MIG 通路读写正确 |
 | `ddr3_basic` | ✅ 仿真启动 | MIG 校准超时 100µs — FAST sim 预期行为 |
-| `ddr3_system` | 🔄 BFM 读超时修复中 | BUG-56 force 改进：`force pi_phase_locked_all=1` 替代 `force init_calib_complete=1`，让 FSM 自然走完以正确初始化读通路。写通路已验证 ✅，读通路待验证 |
+| `ddr3_system` | 🔄 AXI W wready=0 死锁 | 校准完成 ✅ (clk_wiz_0_passthrough + PHASER_IN forces, ~62.5µs)；写 1 字成功，第 2 字超时 — MIG AXI upsizer wready=0 死锁 (Phase 4.8) |
 | `ahb_bus` (回归) | ✅ 仿真启动 | 无回归 — RTL 修复未影响非 DDR3 测试 |
 
 ### 4.5.3: Vivado Orchestrator DDR3 支持
@@ -438,12 +440,196 @@ force 后 4 个时钟周期 FSM 即推进。
 - FSM 后续状态可能卡在 `INIT_PI_DQSFOUND_READS`（等待 `pi_dqs_found_all`），需同样 force
 - DDR3 model timing violations (tDSH, tDQSS) 仍会出现（force 副作用），但 STOP_ON_ERROR=0 已容错
 
-### 待验证
+### 验证结果
 
-- [ ] force `pi_phase_locked_all` 后校准是否自然完成（init_calib_complete=1）
-- [ ] 校准完成后 Phase 1.5 读通路是否正常（RVALID 返回）
-- [ ] 8-pattern 写/读/比较是否全部 PASS
-- [ ] 是否需要额外 force `pi_dqs_found_all`
+- [x] force `pi_phase_locked_all` 后校准自然完成（init_calib_complete=1）— 后续改用 clk_wiz_0_passthrough 实现自然校准
+- [x] 校准完成后读通路正常（RVALID 返回）— 由 passthrough + PHASER_IN force 组合实现
+- [ ] 8-pattern 写/读/比较是否全部 PASS — **阻塞于 AXI W wready=0 死锁**（见 Phase 4.8）
+- [x] 需要额外 force `pi_dqs_found_all` — 是，PHASER_IN force workarounds 仍需保留
+
+---
+
+## Phase 4.8: clk_wiz_0_passthrough + 校准完成 + AXI W wready=0 死锁调试 (🔄 进行中)
+
+> **日期**: 2026-06-08
+> **前置**: Phase 4.7 (force 方案改进) → 进化为 clk_wiz_0_passthrough 方案
+
+### 4.8.1: BUG-57 修复 — clk_wiz_0 多驱动冲突 (✅ 完成)
+
+**问题**: XSim 中 MIG 内部 MMCM 与 clk_wiz_0 IP 产生多驱动冲突，MIG 校准无法完成。
+
+**方案**: 新建 `clk_wiz_0_passthrough.sv`，在 `DDR3_BYPASS_CLK_WIZ` 宏定义下替换 clk_wiz_0 IP。
+
+| 属性 | 值 |
+|------|-----|
+| 文件 | `dev/rtl/clk_wiz_0_passthrough.sv` |
+| 时钟生成 | `always #2.5 clk_ddr_ref = ~clk_ddr_ref` (200MHz) |
+| Timescale | `` `timescale 1ns / 1ps`` |
+| 选择条件 | `ifdef DDR3_BYPASS_CLK_WIZ` in `system_top.sv` |
+| Vivado 集成 | `tools/vivado_core/operations.py` 添加到文件导入列表 |
+
+**关键决策**: 不用 XOR 技巧（产生 50MHz 而非 200MHz），直接 `always #2.5` 反转。
+
+### 4.8.2: MIG 校准完成 (✅ 完成)
+
+**结果**: 使用 passthrough + PHASER_IN force workarounds 后，MIG 校准在 ~62.5µs 自然完成。
+
+```
+mig_mmcm_locked     = 1  ✅
+init_calib_complete = 1  ✅
+ahb_hresetn         = 1  ✅
+mig_aresetn         = 1  ✅
+```
+
+**PHASER_IN force workarounds** (XSim SIP 模型限制, AR#44019):
+- `force pi_phase_locked_all = 1` — 解除 state 38 (INIT_PI_PHASELOCK_READS) 卡死
+- `force pi_dqs_found_all = 1` — 解除后续 DQS found 等待
+- 这些 force 在 XSim 中必需；硬件上 PHASER_IN 为真实硅片行为，不存在此问题
+
+### 4.8.3: ahb_lite_bus mux_HSELx 修复 (✅ 完成)
+
+**问题**: mux_HSELx 在 AHB IDLE 阶段被错误更新，导致 DDR3 slave 选择丢失。
+
+**修复**:
+- HTRANS 门控更新：仅在 `HTRANS != IDLE && HREADY` 时更新 mux_HSELx
+- 复位后初始选择：mux_HSELx 初始化为 DDR3 slave (7'b0000001)
+
+### 4.8.4: BFM 早期 force (✅ 完成)
+
+**问题**: ext_resetn 释放后、BFM 接管前，CPU AHB 输出处于未定义状态，可能干扰 DDR3 通路。
+
+**修复**: 在 ext_resetn 释放前即 force CPU AHB 7 个输出信号为 idle 值：
+```
+force u_dut.cpu_HADDR   = bfm_HADDR;
+force u_dut.cpu_HWDATA  = bfm_HWDATA;
+force u_dut.cpu_HWRITE  = bfm_HWRITE;
+force u_dut.cpu_HSIZE   = bfm_HSIZE;
+force u_dut.cpu_HBURST  = bfm_HBURST;
+force u_dut.cpu_HPROT   = bfm_HPROT;
+force u_dut.cpu_HTRANS  = bfm_HTRANS;
+```
+
+### 4.8.5: AHB Bus Mux Phantom Write 死锁 (🔴 阻塞中)
+
+> **日期**: 2026-06-08 (持续更新)
+> **根因层级**: **RTL 层** — `ahb_lite_bus.sv` 的 HREADY 传播与参考 TB 的直连 loopback 不等价
+
+#### 现象演进
+
+| 阶段 | 写[0] | 写[1] | 写[2+] | BFM 协议 |
+|------|-------|-------|--------|----------|
+| v3 初始 (无 #1) | ✅ | ❌ W 永不发出 | ❌ | HTRANS=IDLE 立即 |
+| v3 + #1 延迟 | ✅ | ❌ W 永不发出 | ❌ | #1 + HTRANS=IDLE 立即 |
+| v3 + phantom complete | ✅ | ❌ B 永不返回 | ❌ | #1 + hold NONSEQ 1 cycle |
+| v3 + 16字节对齐 | ✅ | ❌ B 永不返回 | ❌ | 同上，地址 16B 间距 |
+
+**当前状态**: write[0] AW→W(L=1)→B 全部完成 ✅；phantom write 也完成 AW→W(L=1)→B ✅；write[1] AW+W 握手 ✅ 但 **B 永不返回**，MIG `wr_cmd_valid=0`。
+
+#### 根因分析：Phantom Write + AHB Bus Mux HREADY 传播不等价
+
+**参考 TB (tb_ddr3_ahb_ex)**: `wire HREADY = HREADYOUT;` — 直连 loopback，无 mux。
+**我们的 TB (tb_ddr3_system_v3)**: `bridge_HREADYOUT → ahb_mux → HREADY` — 经 mux，有条件。
+
+`ahb_mux.sv` 关键行为：
+```verilog
+HREADY = 1'b1;           // ← 默认值！无 slave 选中时 HREADY=1
+for (i = 0; i < SLAVE_NUM; i++)
+    if (HSELx[i]) HREADY = slave_HREADYOUT[i];
+```
+
+**Phantom write 机制** (AXI-EVENT trace 确认):
+
+1. write[0] 完成：bridge_HREADYOUT=1 → BFM while 循环退出
+2. BFM hold 周期：HTRANS 仍 NONSEQ → **bridge 捕获 phantom 地址相位**
+3. BFM idle：HTRANS=IDLE → `mux_HSELx` 锁存条件 `HREADY && HTRANS[1]` 不满足 → mux_HSELx 保持上一次值（DDR3 slave）
+4. Bridge 内部处理 phantom → 发出 AW(addr=0x80000100) → W(L=1) → B ✅
+5. Phantom 完成后 bridge_HREADYOUT 恢复 1
+6. write[1] 开始 → bridge 发出 AW+W → **MIG 接受但永不返回 B** (wr_cmd_valid=0)
+
+**关键差异**：参考 TB 中 phantom write 也发生（相同协议），但 HREADY 直连意味着 bridge 的 HREADYOUT 直接反馈给 BFM，无 mux 干扰。在我们的 TB 中，mux 的 HSELx 锁存和默认 HREADY=1 行为改变了 bridge 看到的 HREADY 时序，导致 phantom write 完成后 bridge/MIG 内部状态不一致。
+
+#### AXI-EVENT Trace 证据
+
+```
+Write[0]:
+  t=64555000: AW(v=1 r=1 addr=0x80000100) HTRANS=10 HSEL=1  ← AW handshake
+  t=64585000: W(v=1 r=1 L=1)                                ← W handshake
+  t=64615000: B(v=1 r=1) HREADYOUT=0                        ← B response
+  t=64625000: HREADYOUT=1                                   ← write[0] complete
+
+Phantom:
+  t=64635000: AW(v=1 r=1 addr=0x80000100) HTRANS=00 HSEL=0  ← phantom AW!
+  t=64665000: W(v=1 r=1 L=1)                                ← phantom W handshake
+  t=64695000: B(v=1 r=1)                                    ← phantom B ✅
+
+Write[1]:
+  t=69675000: AW(v=1 r=1 addr=0x80000110) HTRANS=10 HSEL=1  ← AW handshake ✅
+  t=69705000: W(v=1 r=1 L=1)                                ← W handshake ✅
+  (无更多事件)                                                ← B 永不返回 ❌
+```
+
+Write[1] 超时状态：
+```
+AXI AW: valid=0 ready=1    ← AW 已完成
+AXI W:  valid=0 ready=0    ← wready=0 (MIG 已接受但内部阻塞)
+AXI B:  valid=0 ready=1    ← bvalid=0, bridge 期待 B
+MIG mi_stalling=0 wr_cmd_valid=0  ← MIG 未转发写命令到 MC
+```
+
+#### 参考 TB 对比验证
+
+**tb_ddr3_ahb_ex 结果**: 4 写 4 读全部 PASS ✅
+- 地址: 0x00, 0x04, 0x08, 0x0C (4 字节间距)
+- 写后状态: BV=0 BR=0 (bridge 不期待 B)
+- HREADY: 直连 loopback
+
+**tb_ddr3_system_v3 结果**: write[0] PASS, write[1] TIMEOUT ❌
+- 写后状态: BV=0 BR=1 (bridge 仍期待 B)
+- HREADY: 经 ahb_mux
+
+#### 已排除的假设
+
+| 假设 | 排除方式 | 结论 |
+|------|----------|------|
+| MIG upsizer lane 累积 | 16 字节对齐地址同样失败 | ❌ 非根因 |
+| WLAST 未发出 | AXI-TRACE 确认 WLAST=1 | ❌ 非根因 |
+| AWLEN/AWSIZE/WSTRB 不匹配 | 4 个 explore agent 确认全部正确 | ❌ 非根因 |
+| HREADY 组合延迟 | mux 是纯组合逻辑 | ❌ 非根因 |
+| BFM 协议错误 | 与参考 TB 完全一致 | ❌ 非根因 |
+| CPU 未受控执行干扰 | 从 t=0 force CPU AHB 为 idle | ❌ 非根因 |
+| BFM #1 延迟有害 | #1 延迟匹配参考 TB，问题依旧 | ❌ 非根因（但 #1 在 registered mux 下有时序影响） |
+
+#### 已尝试的 Workarounds
+
+| Workaround | 结果 | 原因 |
+|------------|------|------|
+| HTRANS=IDLE 立即 | 更差（W 永不发出） | phantom AW 无 W → MIG 死锁 |
+| HTRANS=BUSY | 同上 | bridge 视 BUSY 同 NONSEQ |
+| force HREADY=HREADYOUT | 更差（0 writes） | 破坏 mux 协议 |
+| Direct bridge-IP input forces | XSim 错误 | VHDL IP 跨语言 force 限制 |
+| Phantom complete (hold NONSEQ 1 cycle) | write[0]+phantom OK, write[1] B 不返回 | MIG wr_cmd_valid=0 |
+| 16 字节地址对齐 | 同上 | 非 upsizer lane 问题 |
+
+### 下一步计划
+
+1. **方案 A: BFM 直接驱动 bridge AHB 端口** — 绕过 bus mux，像参考 TB 一样直连（最可靠）
+2. **方案 B: 修复 ahb_lite_bus HREADY 传播** — 确保 phantom write 后 mux 状态与 bridge 一致
+3. **方案 C: 消除 phantom write** — 在 HREADYOUT=1 的同一 posedge 前设置 HTRANS=IDLE（需解决 Verilog 竞争条件）
+4. 验证 8-pattern 写入/读回
+5. 更新本 Phase 状态
+
+### 关键信号路径
+
+```
+参考 TB:  BFM.HTRANS ──→ bridge.HTRANS
+          bridge.HREADYOUT ──→ BFM.HREADY     (直连 1:1)
+
+我们的 TB: BFM.HTRANS ──→ ahb_lite_bus.HTRANS ──→ bridge.HTRANS
+          bridge.HREADYOUT ──→ ahb_mux ──→ HREADY ──→ BFM.HREADY  (经 mux)
+                                  ↑
+                          mux_HSELx 锁存 (HREADY && HTRANS[1])
+                          默认 HREADY=1 (无 slave 选中)
+```
 
 ---
 
@@ -473,16 +659,17 @@ force 后 4 个时钟周期 FSM 即推进。
 | `dev/program_source/boot/bootloader.coe` | 新建 | 编译后 COE (4KB Boot ROM) |
 | `dev/program_source/boot/bootloader.hex` | 新建 | 编译后 hex |
 | `tools/uart_load.py` | 新建 | 主机端 UART 程序加载脚本 |
-| `dev/rtl/AHB-lite/ahb_lite_bus.sv` | 修改 | SLAVE_NUM=7, DDR3 索引 0, Boot ROM 索引 1, SysStatus 索引 5 |
-| `dev/rtl/system_top.sv` | 修改 | DDR3 引脚, clk_wiz, mig_ui_clk, SLAVE_NUM=7, i_clk_wiz_locked |
+| `dev/rtl/clk_wiz_0_passthrough.sv` | 新建 | 仿真用 clk_wiz_0 替代: 200MHz direct `always #2.5`, `timescale 1ns/1ps` |
+| `dev/rtl/AHB-lite/ahb_lite_bus.sv` | 修改 | SLAVE_NUM=7, DDR3 索引 0, Boot ROM 索引 1, SysStatus 索引 5; mux_HSELx HTRANS 门控更新 + DDR3 初始选择 |
+| `dev/rtl/system_top.sv` | 修改 | DDR3 引脚, clk_wiz, mig_ui_clk, SLAVE_NUM=7, i_clk_wiz_locked; `DDR3_BYPASS_CLK_WIZ` 条件编译选 passthrough; `mig_aresetn`/`ahb_hresetn` 等待 init_calib_complete && mmcm_locked |
 | `dev/fpga/cpu.xdc` | 修改 | DDR3 IOSTANDARD (SSTL15/DIFF_SSTL15) |
 | `dev/rtl/core/core_top.sv` | 修改 | 复位向量 0x80000000 → 0xFC000000 (Boot ROM) |
 | `dev/program_source/link.ld` | 修改 | SRAM→DDR3, 32K→128M, 基址 0x80000000 |
 | `dev/program_source/lib/include/sys.h` | 修改 | DDR3_BASE, BOOTROM_BASE, SYS_STATUS_BASE 常量 |
-| `dev/tb/tb_ddr3_system.sv` | 新建 | DDR3 系统测试台: system_top + ddr3_model + WireDelay + AHB BFM |
+| `dev/tb/tb_ddr3_system.sv` | 新建 | DDR3 系统测试台: system_top + ddr3_model + WireDelay + AHB BFM + PHASER_IN forces + 早期 BFM forces + AXI 监控 |
 | `tools/vivado_core/config.py` | 修改 | Ddr3Config/AhbBridgeConfig/ClkWizConfig |
 | `tools/vivado_core/ip_gen.py` | 修改 | MIG/Bridge/clk_wiz TCL 生成 |
-| `tools/vivado_core/operations.py` | 修改 | DDR3 IP 支持 |
+| `tools/vivado_core/operations.py` | 修改 | DDR3 IP 支持 + clk_wiz_0_passthrough.sv 添加到 Vivado 文件导入列表 |
 | `tools/vivado_core/cache_header_gen.py` | 修改 | DDR3 宏定义生成 |
 | `vivado_config.yaml` | 修改 | ddr3/ahb_bridge/clk_wiz 配置段 |
 | `tasks.yaml` | 修改 | ddr3_test 任务 |
@@ -493,6 +680,11 @@ force 后 4 个时钟周期 FSM 即推进。
 
 | Bug | 原因 | 修复 |
 |-----|------|------|
+| BUG-55: Boot ROM `mem[]` 未初始化 | `ahb_bootrom_slave.sv` 无 `mem` 数组供 TB 层次引用 | 添加 `ifdef SIMULATION` 寄存器数组 |
+| BUG-56: MIG _mig.v vs _mig_sim.v | sim_1 编译了 _mig.v (综合模型) 而非 _mig_sim.v (仿真模型) | operations.py: sim_1 只编译 _mig_sim.v |
+| BUG-52: sys_rst 极性 | MIG sys_rst 低电平有效，system_top 传了高电平 | 修正极性 |
+| BUG-54: mig_aresetn 不等 calib | mig_aresetn 在 mmcm_locked 后立即释放，不等 init_calib_complete | mig_aresetn 等待 init_calib_complete && mmcm_locked |
+| BUG-57: clk_wiz_0 多驱动冲突 | XSim 中 MIG 内部 MMCM 与 clk_wiz_0 IP 产生多驱动 | `clk_wiz_0_passthrough.sv` 在 `DDR3_BYPASS_CLK_WIZ` 下替换 |
 | `operations.py` DDR3 IP 双重生成 | `ddr3_gen` 块重复 | 删除冗余块 |
 | `CLK_OUT1_REQUESTED_OUT_FREQ` | Vivado 命名不匹配 | → `CLKOUT1_REQUESTED_OUT_FREQ` |
 | `NUM_OUT_CLKS` 作为派生参数 | MIG 不接受显式设置 | → 用 `CLKOUT2_USED {true}` 代替 |
@@ -500,6 +692,8 @@ force 后 4 个时钟周期 FSM 即推进。
 | CLINT/APB Bridge 索引交叉 | 编辑匹配错误实例 | 重写受影响代码段, 逐行验证 |
 | CPU 复位向量 0x80000000 | DDR3 上电未初始化, CPU 从空 DRAM 启动会取到无效指令 | → 0xFC000000 (Boot ROM) |
 | init_calib_complete 未内存映射 | 软件无法轮询 MIG 校准状态 | 新增 ahb_sys_status 从设备 @ 0x0400_0000 |
+| mux_HSELx IDLE 阶段错误更新 | AHB IDLE 阶段 HTRANS=0 时 mux_HSELx 被覆盖为 default slave | HTRANS 门控更新 + DDR3 初始选择 |
+| XOR 时钟产生 50MHz 而非 200MHz | XOR 技巧在 passthrough 中频率减半 | 改用直接 `always #2.5` 反转 |
 
 ---
 
@@ -516,3 +710,10 @@ force 后 4 个时钟周期 FSM 即推进。
 | 系统时钟 = MIG ui_clk | Bridge s_ahb_hclk 必须等于 MIG ui_clk, 避免跨时钟域 |
 | Boot ROM 只读 | 防止意外覆盖引导代码, 写入静默确认 |
 | SIM_BYPASS_INIT_CAL=FAST | 完整校准 ~50µs, FAST 模式 ~2µs, 仿真可用 |
+| clk_wiz_0_passthrough 替换 clk_wiz_0 IP | 消除 MMCM 实例多驱动冲突 (BUG-57)；不 force-override（force 对 IP 实例不可靠） |
+| passthrough 用 `always #2.5` 非 XOR | XOR 产生 50MHz 而非 200MHz（频率减半） |
+| PHASER_IN force workarounds 保留 | XSim SIP 模型不驱动 PHASELOCKED (AR#44019)，硬件上不存在此问题 |
+| 不 force init_calib_complete | 跳过校准 FSM 导致读通路未初始化 (RVALID 永不返回)；改用 force pi_phase_locked_all 让 FSM 自然走完 |
+| mux_HSELx HTRANS 门控更新 | 防止 AHB IDLE 阶段覆盖 slave 选择；复位后初始选 DDR3 |
+| BFM #1 延迟有害 | system_top 中 registered mux_HSELx 路径下 #1 延迟导致时序不匹配，写入从 3→1 |
+| HREADY force workaround 移极有害 | force HREADY=HREADYOUT 使写入从 1→0，已移除 |

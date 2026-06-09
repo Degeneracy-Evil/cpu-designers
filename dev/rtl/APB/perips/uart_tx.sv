@@ -7,7 +7,7 @@ module uart_tx
 )
 (
     input                        clk,              //clock input
-    input                        rst,            //asynchronous reset input, low active 
+    input                        rst_n,          //asynchronous reset input, low active
     input wire [15:0]            i_baud_div,     //baud rate divider (clock cycles per baud bit), 0 = use default
     input[7:0]                   i_txData_8,          //data to send
     input                        i_txDataValid_1,    //data to be sent is valid
@@ -29,15 +29,15 @@ reg[2:0]                         bit_cnt;//bit counter
 reg[7:0]                         tx_data_latch; //latch data to send
 reg                              tx_reg; //serial data output
 assign o_txPin_1 = tx_reg;
-always@(posedge clk or negedge rst)
+always_ff @(posedge clk or negedge rst_n)
 begin
-    if(rst == 1'b0)
+    if(!rst_n)
         state <= S_IDLE;
     else
         state <= next_state;
 end
 
-always@(*)
+always_comb
 begin
     case(state)
         S_IDLE:
@@ -64,9 +64,9 @@ begin
             next_state = S_IDLE;
     endcase
 end
-always@(posedge clk or negedge rst)
+always_ff @(posedge clk or negedge rst_n)
 begin
-    if(rst == 1'b0)
+    if(!rst_n)
         begin
             o_txDataReady_1 <= 1'b1;
         end
@@ -80,9 +80,9 @@ begin
 end
 
 
-always@(posedge clk or negedge rst)
+always_ff @(posedge clk or negedge rst_n)
 begin
-    if(rst == 1'b0)
+    if(!rst_n)
         begin
             tx_data_latch <= 8'd0;
         end
@@ -91,9 +91,9 @@ begin
         
 end
 
-always@(posedge clk or negedge rst)
+always_ff @(posedge clk or negedge rst_n)
 begin
-    if(rst == 1'b0)
+    if(!rst_n)
         begin
             bit_cnt <= 3'd0;
         end
@@ -105,9 +105,9 @@ begin
 end
 
 
-always@(posedge clk or negedge rst)
+always_ff @(posedge clk or negedge rst_n)
 begin
-    if(rst == 1'b0)
+    if(!rst_n)
         cycle_cnt <= 16'd0;
     else if((state == S_SEND_BYTE && cycle_cnt == cycle_val - 1) || next_state != state)
         cycle_cnt <= 16'd0;
@@ -118,9 +118,9 @@ begin
     // generating unnecessary simulation events (16-bit toggle every cycle).
 end
 
-always@(posedge clk or negedge rst)
+always_ff @(posedge clk or negedge rst_n)
 begin
-    if(rst == 1'b0)
+    if(!rst_n)
         tx_reg <= 1'b1;
     else
         case(state)

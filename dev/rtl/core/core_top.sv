@@ -1,9 +1,10 @@
 `timescale 1ns / 1ps
 `include "core_bus_types.svh"
+`include "axi4_def.svh"
 
 module core_top(
     input         clk,
-    input         reset,
+    input         resetn,
 
     input  [4:0]  rf_addr,
     output [31:0] rf_data,
@@ -19,17 +20,48 @@ module core_top(
     output [31:0] wb_inst,
     output [31:0] display_state,
 
-    output [31:0] HADDR,
-    output [1:0]  HTRANS,
-    output        HWRITE,
-    output [2:0]  HSIZE,
-    output [2:0]  HBURST,
-    output [3:0]  HPROT,
-    output        HMASTLOCK,
-    output [31:0] HWDATA,
-    input  [31:0] HRDATA,
-    input         HREADY,
-    input         HRESP,
+    // ---------- AXI4 Master — AW Channel ----------
+    output [3:0]  awid,
+    output [31:0] awaddr,
+    output [7:0]  awlen,
+    output [2:0]  awsize,
+    output [1:0]  awburst,
+    output        awlock,
+    output [3:0]  awcache,
+    output [2:0]  awprot,
+    output        awvalid,
+    input         awready,
+
+    // ---------- AXI4 Master — W Channel ----------
+    output [31:0] wdata,
+    output [3:0]  wstrb,
+    output        wlast,
+    output        wvalid,
+    input         wready,
+
+    // ---------- AXI4 Master — B Channel ----------
+    input  [1:0]  bresp,
+    input         bvalid,
+    output        bready,
+
+    // ---------- AXI4 Master — AR Channel ----------
+    output [3:0]  arid,
+    output [31:0] araddr,
+    output [7:0]  arlen,
+    output [2:0]  arsize,
+    output [1:0]  arburst,
+    output        arlock,
+    output [3:0]  arcache,
+    output [2:0]  arprot,
+    output        arvalid,
+    input         arready,
+
+    // ---------- AXI4 Master — R Channel ----------
+    input  [31:0] rdata,
+    input  [1:0]  rresp,
+    input         rlast,
+    input         rvalid,
+    output        rready,
 
     input         init_sig,
     input         timer_irq,
@@ -233,8 +265,8 @@ module core_top(
     wire spp_field;
     assign spp_field = csr_mstatus[8];
 
-    always_ff @(posedge clk or posedge reset) begin
-        if (reset) begin
+    always_ff @(posedge clk or negedge resetn) begin
+        if (!resetn) begin
             pc <= 32'hFC000000;  // Boot ROM @ 0xFC00_0000 (DDR3 bootloader)
             priv_mode <= PRIV_M;
             if_id_bus_r <= 96'b0;
@@ -285,7 +317,7 @@ module core_top(
 
     cpu_controller u_ctrl(
         .clk(clk),
-        .reset(reset),
+        .resetn(resetn),
         .if_done(if_done),
         .id_done(id_done),
         .exe_done(exe_done),
@@ -350,8 +382,8 @@ module core_top(
     reg dcache_flush_sent_r;
     reg icache_invalidate_sent_r;
 
-    always_ff @(posedge clk or posedge reset) begin
-        if (reset) begin
+    always_ff @(posedge clk or negedge resetn) begin
+        if (!resetn) begin
             dcache_flush_sent_r      <= 1'b0;
             icache_invalidate_sent_r <= 1'b0;
         end else begin
@@ -373,7 +405,7 @@ module core_top(
 
     icache_ctrl u_icache_wrap (
         .clk(clk),
-        .reset(reset),
+        .resetn(resetn),
 
         .cpu_req_valid(if_valid),
         .cpu_req_addr(mmu_inst_paddr),
@@ -398,7 +430,7 @@ module core_top(
 
     cpu_fetch u_fetch(
         .clk(clk),
-        .reset(reset),
+        .resetn(resetn),
         .if_valid(if_valid),
         .init_sig(init_sig),
         .pc(pc),
@@ -447,7 +479,7 @@ module core_top(
 
     cpu_execute u_execute(
         .clk(clk),
-        .reset(reset),
+        .resetn(resetn),
         .exe_valid(exe_valid),
         .id_exe_bus_r(id_exe_bus_r),
         .csr_rdata(csr_read_data),
@@ -505,7 +537,7 @@ module core_top(
 
     dcache_ctrl u_dcache_wrap (
         .clk(clk),
-        .reset(reset),
+        .resetn(resetn),
 
         .cpu_req_valid(mem_en),
         .cpu_req_addr(mmu_data_paddr),
@@ -541,7 +573,7 @@ module core_top(
 
     cpu_mem u_mem(
         .clk(clk),
-        .reset(reset),
+        .resetn(resetn),
         .mem_valid(mem_valid),
         .exe_mem_bus_r(exe_mem_bus_r),
         .frs2_value(frs2_value),
@@ -581,7 +613,7 @@ module core_top(
 
     cpu_regfile u_regfile(
         .clk(clk),
-        .reset(reset),
+        .resetn(resetn),
         .wen(rf_wen),
         .raddr1(rs1_addr),
         .raddr2(rs2_addr),
@@ -595,7 +627,7 @@ module core_top(
 
     fpu_regfile u_fregfile(
         .clk(clk),
-        .reset(reset),
+        .resetn(resetn),
         .wen(fp_wen),
         .raddr1(frs1_addr),
         .raddr2(frs2_addr),
@@ -609,7 +641,7 @@ module core_top(
 
     cpu_trap_csr u_trap_csr(
         .clk              (clk),
-        .reset            (reset),
+        .resetn            (resetn),
         .id_valid         (id_valid),
         .id_done          (id_done),
         .dec_illegal      (dec_illegal),
@@ -694,7 +726,7 @@ module core_top(
     // Unified MMU: single instance with dual i/d interfaces
     MMU u_mmu(
         .clk(clk),
-        .reset(reset),
+        .resetn(resetn),
         // i-side
         .i_vaddr(fetch_vaddr),
         .i_translate_en(1'b1),             // inst MMU always translates
@@ -733,7 +765,7 @@ module core_top(
 
     cpu_bus_bridge u_bus_bridge(
         .clk              (clk),
-        .reset            (reset),
+        .resetn            (resetn),
         .icache_mmio_req  (icache_mmio_req),
         .icache_mmio_addr (mmu_inst_paddr),
         .dcache_mmio_req  (dcache_mmio_req),
@@ -764,17 +796,39 @@ module core_top(
         .ptw_rdata         (ptw_bus_rdata),
         .ptw_done          (ptw_bus_done),
         .ptw_error         (ptw_bus_error),
-        .HADDR            (HADDR),
-        .HTRANS           (HTRANS),
-        .HWRITE           (HWRITE),
-        .HSIZE            (HSIZE),
-        .HBURST           (HBURST),
-        .HPROT            (HPROT),
-        .HMASTLOCK        (HMASTLOCK),
-        .HWDATA           (HWDATA),
-        .HRDATA           (HRDATA),
-        .HREADY           (HREADY),
-        .HRESP            (HRESP),
+        .awid              (awid),
+        .awaddr            (awaddr),
+        .awlen             (awlen),
+        .awsize            (awsize),
+        .awburst           (awburst),
+        .awlock            (awlock),
+        .awcache           (awcache),
+        .awprot            (awprot),
+        .awvalid           (awvalid),
+        .awready           (awready),
+        .wdata             (wdata),
+        .wstrb             (wstrb),
+        .wlast             (wlast),
+        .wvalid            (wvalid),
+        .wready            (wready),
+        .bresp             (bresp),
+        .bvalid            (bvalid),
+        .bready            (bready),
+        .arid              (arid),
+        .araddr            (araddr),
+        .arlen             (arlen),
+        .arsize            (arsize),
+        .arburst           (arburst),
+        .arlock            (arlock),
+        .arcache           (arcache),
+        .arprot            (arprot),
+        .arvalid           (arvalid),
+        .arready           (arready),
+        .rdata             (rdata),
+        .rresp             (rresp),
+        .rlast             (rlast),
+        .rvalid            (rvalid),
+        .rready            (rready),
         .icache_error     (bridge_icache_error),
         .dcache_error     (bridge_dcache_error),
         .dcache_error_is_store(bridge_dcache_error_is_store),

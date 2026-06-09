@@ -2,7 +2,7 @@
 
 module fpu_multiplier(
     input         clk,
-    input         reset,
+    input         resetn,
     input  [31:0] src1,
     input  [31:0] src2,
     input  [2:0]  rm,          // rounding mode
@@ -219,8 +219,8 @@ module fpu_multiplier(
     // ===================================================================
     // FSM
     // ===================================================================
-    always_ff @(posedge clk or posedge reset) begin
-        if (reset) begin
+    always_ff @(posedge clk or negedge resetn) begin
+        if (!resetn) begin
             state    <= S_IDLE;
             done_r   <= 1'b0;
             result_r <= 32'b0;

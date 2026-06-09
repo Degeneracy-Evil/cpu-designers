@@ -2,7 +2,7 @@
 
 module cpu_controller(
     input        clk,
-    input        reset,
+    input        resetn,
     input        if_done,
     input        id_done,
     input        exe_done,
@@ -59,8 +59,8 @@ module cpu_controller(
     reg [3:0] state_r;
     reg [3:0] next_state;
 
-    always_ff @(posedge clk or posedge reset) begin
-        if (reset) begin
+    always_ff @(posedge clk or negedge resetn) begin
+        if (!resetn) begin
             state_r <= STATE_IDLE;
         end else begin
             state_r <= next_state;

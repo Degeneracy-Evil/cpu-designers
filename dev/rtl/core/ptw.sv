@@ -2,7 +2,7 @@
 
 module ptw(
     input              clk,
-    input              reset,
+    input              resetn,
 
     input       [31:0] satp,
     input       [1:0]  priv_mode,
@@ -158,8 +158,8 @@ module ptw(
 
     assign perm_fault = perm_fault_r;
 
-    always_ff @(posedge clk or posedge reset) begin
-        if (reset) begin
+    always_ff @(posedge clk or negedge resetn) begin
+        if (!resetn) begin
             state            <= S_IDLE;
             vaddr_r          <= 32'b0;
             pte_r            <= 32'b0;

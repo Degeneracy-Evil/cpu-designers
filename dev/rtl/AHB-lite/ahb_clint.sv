@@ -68,10 +68,13 @@ module ahb_clint(
     assign mtimecmp_64 = {r_mtimecmp_hi, r_mtimecmp_lo};
 
     wire mtip_raw;
-    assign mtip_raw = (r_mtime >= mtimecmp_64) && (mtimecmp_64 != 64'd0);
+    assign mtip_raw = (r_mtime >= mtimecmp_64);
 
     assign o_mtip = mtip_raw;
     assign o_msip = r_msip;
+
+    // BUG-FIX: 当软件写入 mtime 时，暂停自增一周期，避免写入值被自增覆盖
+    wire mtime_we = wr_valid && (addr_timelo || addr_timehi);
 
     always_ff @(posedge HCLK or negedge HRESETn) begin
         if (!HRESETn) begin
@@ -80,7 +83,8 @@ module ahb_clint(
             r_mtime       <= 64'd0;
             r_msip        <= 1'b0;
         end else begin
-            r_mtime <= r_mtime + 64'd1;
+            if (!mtime_we)
+                r_mtime <= r_mtime + 64'd1;
 
             if (wr_valid && addr_cmplo)
                 r_mtimecmp_lo <= HWDATA;

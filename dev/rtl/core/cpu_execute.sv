@@ -3,7 +3,7 @@
 
 module cpu_execute(
     input              clk,
-    input              reset,
+    input              resetn,
     input              exe_valid,
     input      [333:0] id_exe_bus_r,
     input      [31:0]  csr_rdata,
@@ -138,7 +138,7 @@ module cpu_execute(
 
     mu_unit u_mu(
         .clk(clk),
-        .reset(reset),
+        .resetn(resetn),
         .mu_funct3(mu_funct3),
         .src1(alu_src1),
         .src2(alu_src2),
@@ -178,7 +178,7 @@ module cpu_execute(
 
     fpu_unit u_fpu(
         .clk(clk),
-        .reset(reset),
+        .resetn(resetn),
         .fpu_funct(fpu_funct),
         .fpu_rm(fpu_rm_resolved),
         .src1(fpu_src1_mux),
@@ -201,8 +201,8 @@ module cpu_execute(
     reg        branch_taken_reg;
     reg        exe_seen_valid;
 
-    always_ff @(posedge clk or posedge reset) begin
-        if (reset) begin
+    always_ff @(posedge clk or negedge resetn) begin
+        if (!resetn) begin
             mu_req_valid <= 1'b0;
             mu_result_got <= 1'b0;
             mu_active <= 1'b0;
@@ -258,8 +258,9 @@ module cpu_execute(
                     done_reg <= 1'b1;
                     mu_active <= 1'b0;
                     mu_req_valid <= 1'b0;
-                    branch_target_reg <= is_jalr ? (mu_result & 32'hffff_fffe) : mu_result;
-                    branch_taken_reg <= is_branch ? branch_cond_true : is_jal_like;
+                    // MU 指令 (MUL/DIV) 不是分支/JAL，无需设置 branch 信号
+                    branch_target_reg <= 32'b0;
+                    branch_taken_reg <= 1'b0;
                 end
             end
 

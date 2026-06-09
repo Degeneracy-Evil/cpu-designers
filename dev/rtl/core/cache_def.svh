@@ -14,6 +14,7 @@
 `define SRAM_DATA_WIDTH  32
 `define SRAM_DEPTH       8192
 `define SRAM_ADDR_WIDTH  13
+`define SRAM_WEA_WIDTH   4
 
 // --- DDR3 Main Memory (via MIG + Bridge) ---
 `define DDR3_ENABLED        1

@@ -1,10 +1,11 @@
 # RTL 设计逻辑错误与时序问题扫描报告
 
-> 扫描日期: 2026-06-05 ~ 2026-06-07
+> 扫描日期: 2026-06-05 ~ 2026-06-09
 > 扫描范围: dev/rtl/ + dev/tb/ 全部 SystemVerilog 文件
-> 扫描方法: 6 路并行深度扫描 + 直接代码审查 + 3 路并行 DDR3 读通路追踪
-> 扫描状态: Core Pipeline ✅ | Bus/Peripherals ✅ | MMU/TLB/Cache ✅ | System Top ✅ | FPU ✅ | ALU/MU ✅ | DDR3 AHB ✅ | DDR3 System ✅
+> 扫描方法: 6 路并行深度扫描 + 直接代码审查 + 3 路并行 DDR3 读通路追踪 + AXI4-Lite 外设 WSTRB/协议审查
+> 扫描状态: Core Pipeline ✅ | Bus/Peripherals ✅ | MMU/TLB/Cache ✅ | System Top ✅ | FPU ✅ | ALU/MU ✅ | DDR3 AHB ✅ | DDR3 System ✅ | AXI4-Lite ✅
 > HIGH 级修复状态: BUG-1 ✅ | BUG-2 ✅ | BUG-3 ✅ | BUG-4 ✅ | BUG-5 ✅ | BUG-6 ✅ | BUG-7 ✅ | BUG-8 ✅ | BUG-45 ✅ | BUG-47 ✅ | BUG-48 ✅ | BUG-49 ✅ | BUG-50 ✅ | BUG-51 ✅ | BUG-52 ✅ | BUG-53 ✅ | BUG-54 ✅ | BUG-55 ✅ | BUG-55b ✅ | BUG-55c ✅ | BUG-55d ✅ | BUG-56 ✅
+> 第二轮修复状态: BUG-57 ✅ | BUG-58 ✅ | BUG-59 ✅ | BUG-60 ✅ | BUG-61 ✅ | BUG-62 ✅ | BUG-63 ✅ | BUG-64 ✅ | BUG-65 ✅ | BUG-66 ✅ | BUG-67 ✅ | BUG-68 ✅
 
 ---
 
@@ -782,6 +783,154 @@ end
 
 ---
 
+## 🔴 第二轮扫描修复 (2026-06-08 ~ 2026-06-09)
+
+> 聚焦 AXI4-Lite 外设协议合规性、复位完整性、CSR 别名正确性
+
+### BUG-57: `axi_wrap_ddr.sv` ddr_aresetn 寄存器缺少异步复位
+
+**文件**: `dev/rtl/ram_wrap/axi_wrap_ddr.sv:282`
+
+**状态**: ✅ 已修复 (2026-06-08)
+
+**描述**: `ddr_aresetn` 寄存器仅在 `posedge clk` 时由 `ui_clk_sync_rst` 条件赋值，无 `negedge button_resetn` 异步复位。FPGA 上电后 `button_resetn` 释放前 `ddr_aresetn` 为 X → DDR3 控制器复位时序不确定。
+
+**修复**: 添加 `negedge button_resetn` 到敏感列表，复位时 `ddr_aresetn <= 1'b0`。
+
+---
+
+### BUG-58: FPU 状态机缺少 default 分支 — X 传播风险
+
+**文件**: `dev/rtl/FPU/fpu_cvt.sv:291`, `fpu_divider.sv:216`, `fpu_sqrt.sv:206`
+
+**状态**: ✅ 已修复 (2026-06-08)
+
+**描述**: `fpu_cvt`、`fpu_divider`、`fpu_sqrt` 的 FSM `case(state)` 无 `default` 分支。若噪声/单事件翻转导致状态寄存器进入未编码值，状态机永久挂死。
+
+**修复**: 添加 `default: state <= IDLE` 到所有三个状态机。
+
+---
+
+### BUG-59: CLINT mtime 软件写入与硬件自增竞争条件
+
+**文件**: `dev/rtl/AHB-lite/ahb_clint.sv`, `dev/rtl/AHB-lite/axi4lite_clint.sv`
+
+**状态**: ✅ 已修复 (2026-06-08)
+
+**描述**: `mtime` 每个 CPU 周期自增 1。软件写入 `mtime_lo`/`mtime_hi` 与硬件自增在同一 `always_ff` 块中竞争 — 写入值在下一周期被自增覆盖，软件写入"丢失"。
+
+**修复**: 添加 `mtime_we` 门控 — 软件写入 mtime 时暂停自增一周期。选择"暂停自增"而非"原子 64-bit 写"因实现更简单，单周期停顿可接受。
+
+---
+
+### BUG-60: AHB SRAM Slave byte_we 未连接到 BRAM 字节写使能
+
+**文件**: `dev/rtl/AHB-lite/ahb_sram_slave.sv`
+
+**状态**: ✅ 已修复 (2026-06-08)
+
+**描述**: `bram_wea` 为 1-bit 信号（全字写），AHB `byte_we[3:0]` 未连接。字节/半字写入时 BRAM 全字写入 → 相邻字节被错误覆盖。
+
+**修复**: `bram_wea` 从 1-bit 改为 4-bit，直连 `byte_we`；`vivado_config.yaml` 添加 `byte_enable: true`。
+
+---
+
+### BUG-61: AXI4-Lite→APB 桥 AWREADY/WREADY 握手错误
+
+**文件**: `dev/rtl/APB/axi4lite_to_apb.sv`
+
+**状态**: ✅ 已修复 (2026-06-08)
+
+**描述**: 原设计在 `wr_state == WR_IDLE` 时同时拉高 `awready` 和 `wready`，违反 AXI4 协议（AW 和 W 通道应独立握手）。若主机先发 WVALID 再发 AWVALID，W 数据在地址锁存前被消费 → 写入错误地址。
+
+**修复**: 重构为独立通道锁存 — `aw_latched`/`w_latched` 标志分别追踪 AW/W 通道完成，两通道均完成后才进入 WR_RESP。
+
+---
+
+### BUG-62: `axi_wrap_ram.sv` BRAM initial 块未保护 + always@ 风格
+
+**文件**: `dev/rtl/ram_wrap/axi_wrap_ram.sv`
+
+**状态**: ✅ 已修复 (2026-06-08)
+
+**描述**: BRAM 模型使用 `initial` 块初始化 `mem` 数组 — FPGA 综合可能忽略；`always @` 风格不自动检查锁存推断。
+
+**修复**: `initial` 包裹 `ifdef SIMULATION`；`always @` → `always_ff`/`always_comb`。
+
+---
+
+### BUG-63: MIP.SSIP 与 SIP.SSIP 别名未实现
+
+**文件**: `dev/rtl/core/cpu_csr.sv:297`
+
+**状态**: ✅ 已修复 (2026-06-08)
+
+**描述**: MIP 读路径 `r_mip <= w_mip_hw` 直接使用硬件中断位，未将 SIP.SSIP (bit 1) 合并到 MIP.SSIP。RISC-V 特权规范要求 MIP[1]=SIP[1]（SSIP 是 M-mode 和 S-mode 共享的软件中断 pending 位）。
+
+**修复**: `r_mip <= {w_mip_hw[31:2], r_sip[1], w_mip_hw[0]}` — 将 SSIP 从 SIP 寄存器插入 MIP bit 1。
+
+---
+
+### BUG-64: UART TX/RX 使用 always@ 而非 always_ff/always_comb
+
+**文件**: `dev/rtl/APB/perips/uart_tx.sv`, `dev/rtl/APB/perips/uart_rx.sv`
+
+**状态**: ✅ 已修复 (2026-06-08)
+
+**描述**: 15 处 `always @` 块，不自动检查锁存推断，与项目编码规范不一致。
+
+**修复**: 全部替换为 `always_ff`（时序逻辑）/ `always_comb`（组合逻辑）。
+
+---
+
+### BUG-65: `system_top.sv` display 寄存器块使用错误复位信号
+
+**文件**: `dev/rtl/system_top.sv:1364`
+
+**状态**: ✅ 已修复 (2026-06-08)
+
+**描述**: 显示寄存器块使用 `resetn`（模块局部信号）而非 `sys_resetn`（全局系统复位），可能导致复位时序不一致。
+
+**修复**: `resetn` → `sys_resetn`。
+
+---
+
+### BUG-66: CLINT mtimecmp=0 时 MTIP 被错误抑制
+
+**文件**: `dev/rtl/AHB-lite/ahb_clint.sv:71`, `dev/rtl/AHB-lite/axi4lite_clint.sv:170`
+
+**状态**: ✅ 已修复 (2026-06-08)
+
+**描述**: MTIP 判定包含 `mtimecmp_64 != 64'd0` 守卫，当 `mtimecmp=0` 时 MTIP 恒为 0。但 RISC-V 特权规范规定 `mtime ≥ mtimecmp` 时 MTIP=1，当 `mtime=0, mtimecmp=0` 时 `0 ≥ 0` 为真，MTIP 应为 1。
+
+**修复**: 移除 `mtimecmp_64 != 64'd0` 守卫。注意：修复后 MTIP=1 on boot（mtime=0 ≥ mtimecmp=0），软件须在使能 MTIE 前写入 mtimecmp。
+
+---
+
+### BUG-67: cpu_execute MU 结果设置分支信号 — 死代码
+
+**文件**: `dev/rtl/core/cpu_execute.sv:261-262`
+
+**状态**: ✅ 已修复 (2026-06-08)
+
+**描述**: MU（乘除法单元）结果写回时同时设置 `branch_target_reg` 和 `branch_taken_reg`，但 MU 结果不会引起分支 — 这些赋值为死代码，增加不必要的数据通路负载。
+
+**修复**: 移除 MU 结果对 `branch_target_reg`/`branch_taken_reg` 的赋值。
+
+---
+
+### BUG-68: AXI4-Lite PLIC/CLINT 写路径未检查 WSTRB
+
+**文件**: `dev/rtl/AHB-lite/axi4lite_plic.sv`, `dev/rtl/AHB-lite/axi4lite_clint.sv`
+
+**状态**: ✅ 已修复 (2026-06-09)
+
+**描述**: AXI4-Lite 写路径直接使用 `s_axi_wdata` 写入寄存器，未检查 `s_axi_wstrb[3:0]`。当主机发起部分写（WSTRB ≠ 4'b1111）时，未选通的字节车道被 WDATA 的未知值覆盖而非保留原值，违反 AXI4-Lite 协议。
+
+**修复**: 添加逐字节 WSTRB 门控 — 对每个寄存器生成 `wdata_*_masked` 信号，格式为 `{wstrb[3] ? wdata[31:24] : old[31:24], ...}`。PLIC 的 claim/complete 仅检查 `wstrb[0]`（中断 ID 在 byte 0）；CLINT 的 MSIP 仅检查 `wstrb[0]`（单 bit 寄存器）。
+
+---
+
 ## 📊 DDR3 AHB 读通路时序分析
 
 ### 完整读数据信号链
@@ -889,6 +1038,18 @@ ddr3_model (Micron 行为模型)
 | **P2** | BUG-20 | 宽总线时序 | 评估时序裕量 |
 | **P2** | BUG-35 | 异常优先级 | 对照 Table 3.6 验证 |
 | **P3** | BUG-26~44 | LOW 级问题 | 择机改进 |
+| **P0** | BUG-57 | axi_wrap_ddr ddr_aresetn 缺少异步复位 | 添加 negedge button_resetn | **✅ 已修复** |
+| **P0** | BUG-58 | FPU 状态机缺少 default 分支 | 添加 default: state <= IDLE | **✅ 已修复** |
+| **P0** | BUG-59 | CLINT mtime 写入与自增竞争 | 添加 mtime_we 门控暂停自增 | **✅ 已修复** |
+| **P1** | BUG-60 | AHB SRAM byte_we 未连接 | bram_wea 改 4-bit 连 byte_we | **✅ 已修复** |
+| **P1** | BUG-61 | AXI→APB 桥 AW/W 握手错误 | 独立通道锁存 aw_latched/w_latched | **✅ 已修复** |
+| **P1** | BUG-62 | axi_wrap_ram initial 未保护 + always@ | ifdef SIMULATION + always_ff | **✅ 已修复** |
+| **P1** | BUG-63 | MIP.SSIP 与 SIP.SSIP 别名未实现 | r_mip bit 插入 r_sip[1] | **✅ 已修复** |
+| **P2** | BUG-64 | UART TX/RX always@ 风格 | → always_ff/always_comb | **✅ 已修复** |
+| **P2** | BUG-65 | system_top display 块错误复位信号 | resetn → sys_resetn | **✅ 已修复** |
+| **P2** | BUG-66 | CLINT mtimecmp=0 时 MTIP 被抑制 | 移除 mtimecmp!=0 守卫 | **✅ 已修复** |
+| **P3** | BUG-67 | cpu_execute MU 死代码设置分支信号 | 移除赋值 | **✅ 已修复** |
+| **P3** | BUG-68 | AXI4-Lite PLIC/CLINT 未检查 WSTRB | 逐字节 WSTRB 门控 | **✅ 已修复** |
 
 ---
 
@@ -896,10 +1057,10 @@ ddr3_model (Micron 行为模型)
 
 | 严重度 | 数量 | Bug 编号 |
 |--------|------|---------|
-| 🔴 HIGH | 21 | BUG-1 ~ BUG-8, BUG-45, BUG-47 ~ BUG-55, BUG-55b ~ BUG-55d, BUG-56 |
-| 🟡 MEDIUM | 18 | BUG-9 ~ BUG-25, BUG-46 |
-| 🟢 LOW | 19 | BUG-26 ~ BUG-44 |
-| **总计** | **58** | |
+| 🔴 HIGH | 24 | BUG-1 ~ BUG-8, BUG-45, BUG-47 ~ BUG-55, BUG-55b ~ BUG-55d, BUG-56, BUG-57 ~ BUG-59 |
+| 🟡 MEDIUM | 22 | BUG-9 ~ BUG-25, BUG-46, BUG-60 ~ BUG-63 |
+| 🟢 LOW | 24 | BUG-26 ~ BUG-44, BUG-64 ~ BUG-68 |
+| **总计** | **70** | |
 
 ---
 
@@ -916,6 +1077,9 @@ ddr3_model (Micron 行为模型)
 | BUG-20 | 🟡 MED | 宽总线时序 |
 | BUG-34 | 🟢 LOW | wb_we 对 store 为 1 |
 | BUG-35 | 🟢 LOW | 异常优先级待验证 |
+| BUG-63 | 🟡 MED | MIP.SSIP 与 SIP.SSIP 别名未实现 (**✅ 已修复**) |
+| BUG-65 | 🟢 LOW | system_top display 块错误复位信号 (**✅ 已修复**) |
+| BUG-67 | 🟢 LOW | cpu_execute MU 死代码设置分支信号 (**✅ 已修复**) |
 
 ### MMU / TLB / PTW / Cache
 | Bug # | 严重度 | 描述 |
@@ -943,6 +1107,7 @@ ddr3_model (Micron 行为模型)
 | BUG-41 | 🟢 LOW | done 信号组合输出 |
 | BUG-42 | 🟢 LOW | ROUND_S 状态未使用 |
 | BUG-43 | 🟢 LOW | f_ovf_wu 比较恒假 |
+| BUG-58 | 🔴 HIGH | FPU 状态机缺少 default 分支 (**✅ 已修复**) |
 
 ### ALU / MU
 | Bug # | 严重度 | 描述 |
@@ -967,6 +1132,13 @@ ddr3_model (Micron 行为模型)
 | BUG-31 | 🟢 LOW | Decoder 无 generate else |
 | BUG-32 | 🟢 LOW | GPIO !== 可综合性 |
 | BUG-33 | 🟢 LOW | Timer 回绕 |
+| BUG-59 | 🔴 HIGH | CLINT mtime 写入与自增竞争条件 (**✅ 已修复**) |
+| BUG-60 | 🟡 MED | AHB SRAM byte_we 未连接到 BRAM (**✅ 已修复**) |
+| BUG-61 | 🟡 MED | AXI→APB 桥 AW/W 握手错误 (**✅ 已修复**) |
+| BUG-62 | 🟡 MED | axi_wrap_ram initial 未保护 + always@ (**✅ 已修复**) |
+| BUG-64 | 🟢 LOW | UART TX/RX always@ 风格 (**✅ 已修复**) |
+| BUG-66 | 🟢 LOW | CLINT mtimecmp=0 时 MTIP 被抑制 (**✅ 已修复**) |
+| BUG-68 | 🟢 LOW | AXI4-Lite PLIC/CLINT 未检查 WSTRB (**✅ 已修复**) |
 
 ### 全局性
 | Bug # | 严重度 | 描述 |
@@ -992,8 +1164,9 @@ ddr3_model (Micron 行为模型)
 | BUG-55c | 🔴 HIGH | system_top mig_aresetn/ahb_hresetn 无异步复位 → X 传播至所有 AHB 从设备 (**✅ 已修复**) |
 | BUG-55d | 🔴 HIGH | $dumpvars(0,...) 60K-FF 设计 VCD I/O 开销 (**✅ 已修复**) |
 | BUG-56 | 🔴 HIGH | MIG 校准 FSM 卡死 @ INIT_PI_PHASELOCK_READS (state 38) → init_calib_complete 恒 0 (**🔄 修复改进中** — force init_calib_complete 导致读通路未初始化，改用 force pi_phase_locked_all 让 FSM 自然走完) |
+| BUG-57 | 🔴 HIGH | axi_wrap_ddr ddr_aresetn 缺少异步复位 (**✅ 已修复**) |
 
 ---
 
 *报告由 Sisyphus RTL 审计系统生成。*
-*全部扫描完成: Core Pipeline ✅ | Bus/Peripherals ✅ | MMU/TLB/Cache ✅ | System Top ✅ | FPU ✅ | ALU/MU ✅ | DDR3 AHB ✅ | DDR3 System ✅ (BUG-54/55 修复后仿真提速 500x, BUG-56 5层修复+force workaround 验证通过)*
+*全部扫描完成: Core Pipeline ✅ | Bus/Peripherals ✅ | MMU/TLB/Cache ✅ | System Top ✅ | FPU ✅ | ALU/MU ✅ | DDR3 AHB ✅ | DDR3 System ✅ | AXI4-Lite ✅ (BUG-54/55 修复后仿真提速 500x, BUG-56 5层修复+force workaround 验证通过, 第二轮 12 项修复全部 LSP 验证通过)*

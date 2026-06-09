@@ -2,7 +2,7 @@
 
 module mu_unit(
     input         clk,
-    input         reset,
+    input         resetn,
     input  [2:0]  mu_funct3,
     input  [31:0] src1,
     input  [31:0] src2,
@@ -86,9 +86,9 @@ module mu_unit(
   wire [31:0] div_selected_result;
   assign div_selected_result = mu_funct3_reg[1] ? div_remainder : div_quotient;
 
-  always_ff @(posedge clk or posedge reset)
+  always_ff @(posedge clk or negedge resetn)
   begin
-    if (reset)
+    if (!resetn)
     begin
       mul_start <= 1'b0;
       div_start <= 1'b0;
@@ -174,7 +174,7 @@ module mu_unit(
 
   booth_multiplier multiplier(
                      .clk(clk),
-                     .reset(reset),
+                     .resetn(resetn),
                      .multiplicand(mul_src1_reg),
                      .multiplier(mul_src2_reg),
                      .start(mul_start),
@@ -185,7 +185,7 @@ module mu_unit(
 
   non_restoring_divider divider(
                           .clk(clk),
-                          .reset(reset),
+                          .resetn(resetn),
                           .dividend(div_src1_reg),
                           .divisor(div_src2_reg),
                           .start(div_start),

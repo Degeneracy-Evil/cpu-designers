@@ -2,7 +2,7 @@
 
 module fpu_sqrt(
     input         clk,
-    input         reset,
+    input         resetn,
     input  [31:0] src1,
     input  [2:0]  rm,
     input         start,
@@ -186,8 +186,8 @@ module fpu_sqrt(
     // ----------------------------------------------------------------
     // FSM
     // ----------------------------------------------------------------
-    always_ff @(posedge clk or posedge reset) begin
-        if (reset) begin
+    always_ff @(posedge clk or negedge resetn) begin
+        if (!resetn) begin
             state     <= IDLE;
             src1_r    <= 32'b0;
             rm_r      <= 3'b0;
@@ -303,6 +303,8 @@ module fpu_sqrt(
                 DONE_STATE: begin
                     state <= IDLE;
                 end
+
+                default: state <= IDLE;  // BUG-FIX: 防止状态机卡死在非法状态
             endcase
         end
     end

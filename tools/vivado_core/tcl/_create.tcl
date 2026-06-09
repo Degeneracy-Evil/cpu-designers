@@ -15,6 +15,7 @@
 #   apb_header_dir  — APB header directory
 #   apb_perips_dir  — APB peripherals directory
 #   sys_rtl_dir     — System RTL directory (contains system_top.sv)
+#   common_dir      — Common RTL directory (contains reset_sync.sv etc.)
 #   tb_dir          — Testbench directory
 # =============================================================================
 
@@ -22,7 +23,7 @@
 # 变量检查
 # ---------------------------------------------------------------------------
 foreach _var {proj_name device_part proj_dir alu_rtl_dir mu_rtl_dir fpu_rtl_dir cpu_core_dir \
-              ahb_dir ahb_ip_dir apb_dir apb_header_dir apb_perips_dir sys_rtl_dir tb_dir} {
+               ahb_dir ahb_ip_dir apb_dir apb_header_dir apb_perips_dir sys_rtl_dir common_dir tb_dir} {
     if { ![info exists $_var] } {
         puts "ERROR: _create.tcl — 缺少必需变量: $_var"
         return
@@ -89,6 +90,15 @@ if { [catch {
     puts "WARNING: 添加 CPU Core RTL 失败: $err"
 }
 
+# Common (reset_sync, etc.)
+if { [catch {
+    foreach f [glob -directory $common_dir *.sv] {
+        import_files -norecurse $f
+    }
+} err] } {
+    puts "WARNING: 添加 Common RTL 失败: $err"
+}
+
 # AHB-Lite (.sv + .svh)
 if { [catch {
     foreach f [glob -directory $ahb_dir *.sv] {
@@ -153,6 +163,7 @@ set_property include_dirs [list \
     $mu_rtl_dir \
     $fpu_rtl_dir \
     $cpu_core_dir \
+    $common_dir \
     $ahb_dir \
     $ahb_ip_dir \
     $apb_dir \

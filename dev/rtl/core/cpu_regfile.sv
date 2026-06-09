@@ -2,7 +2,7 @@
 
 module cpu_regfile(
     input         clk,
-    input         reset,
+    input         resetn,
     input         wen,
     input  [4:0]  raddr1,
     input  [4:0]  raddr2,
@@ -16,13 +16,9 @@ module cpu_regfile(
 
     reg [31:0] rf[0:31];
 
-    initial begin
-        foreach (rf[i]) rf[i] = 32'b0;
-    end
-
-    always_ff @(posedge clk) begin
-        if (reset) begin
-            foreach (rf[i]) rf[i] <= 32'b0;
+    always_ff @(posedge clk or negedge resetn) begin
+        if (!resetn) begin
+            for (integer i = 0; i < 32; i = i + 1) rf[i] <= 32'b0;
         end else if (wen && (waddr != 5'd0)) begin
             rf[waddr] <= wdata;
         end

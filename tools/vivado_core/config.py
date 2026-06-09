@@ -7,11 +7,25 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import math
+import sys
 from dataclasses import fields
 
 from pathlib import Path
 
 import yaml
+
+
+# ---------------------------------------------------------------------------
+# Platform helpers
+# ---------------------------------------------------------------------------
+
+def _default_vivado_path() -> str:
+    """Return the default Vivado executable name for the current platform.
+
+    - Windows: ``vivado.bat`` (batch wrapper in Vivado install bin/)
+    - Linux / macOS: ``vivado`` (shell wrapper in Vivado install bin/)
+    """
+    return "vivado.bat" if sys.platform == "win32" else "vivado"
 
 
 # ---------------------------------------------------------------------------
@@ -108,7 +122,7 @@ class TlbConfig:
 class Ddr3Config:
     """DDR3 main memory via MIG 7 Series configuration."""
     enabled: bool = False
-    ip_name: str = "bd_soc_mig_7series_0_1"
+    ip_name: str = "mig_axi_32"
     ip_version: str = "4.2"
     mig_prj_file: str = "Reference/mig/mig_a.prj"
     mem_size: int = 134217728  # 128MB
@@ -118,17 +132,6 @@ class Ddr3Config:
     supports_narrow_burst: bool = True
     data_rate: int = 800  # Mbps
     input_clk_freq: int = 100  # MHz
-
-
-@dataclass(frozen=True)
-class AhbBridgeConfig:
-    """AHB-Lite to AXI4 Bridge configuration."""
-    enabled: bool = False
-    ip_name: str = "ahblite_axi_bridge_0"
-    ip_version: str = "3.0"
-    thread_id_width: int = 0
-    supports_narrow_burst: bool = True
-    timeout: int = 0
 
 
 @dataclass(frozen=True)
@@ -172,9 +175,6 @@ class MemoryConfig:
     ddr3: Ddr3Config = field(default_factory=Ddr3Config)
     """DDR3 main memory via MIG 7 Series configuration."""
 
-    ahb_bridge: AhbBridgeConfig = field(default_factory=AhbBridgeConfig)
-    """AHB-Lite to AXI4 Bridge configuration."""
-
     clk_wiz: ClkWizConfig = field(default_factory=ClkWizConfig)
     """Clocking Wizard configuration for DDR3 reference clock."""
 
@@ -186,8 +186,12 @@ class GlobalConfig:
     limits: LimitsConfig = field(default_factory=LimitsConfig)
     """Resource limits."""
 
-    vivado_path: str = "vivado.bat"
-    """Path or name of the Vivado executable."""
+    vivado_path: str = _default_vivado_path()
+    """Path or name of the Vivado executable.
+
+    Defaults to ``vivado.bat`` on Windows and ``vivado`` on Linux/macOS.
+    Override in ``vivado_config.yaml`` or via ``--config`` if needed.
+    """
 
     proj_name: str = "simplecpu_soc"
     """Vivado project name (used as XPR base name)."""
@@ -284,12 +288,11 @@ def load_config(path: Path | str | None = None, base_dir: Path | str | None = No
         data_byte_size=tlb_raw.get("data_byte_size", 32),
     )
     ddr3_raw: dict = mem_raw.get("ddr3", {}) or {}
-    ahb_bridge_raw: dict = mem_raw.get("ahb_bridge", {}) or {}
     clk_wiz_raw: dict = mem_raw.get("clk_wiz", {}) or {}
 
     ddr3 = Ddr3Config(
         enabled=ddr3_raw.get("enabled", False),
-        ip_name=ddr3_raw.get("ip_name", "bd_soc_mig_7series_0_1"),
+        ip_name=ddr3_raw.get("ip_name", "mig_axi_32"),
         ip_version=ddr3_raw.get("ip_version", "4.2"),
         mig_prj_file=ddr3_raw.get("mig_prj_file", "Reference/mig/mig_a.prj"),
         mem_size=ddr3_raw.get("mem_size", 134217728),
@@ -299,14 +302,6 @@ def load_config(path: Path | str | None = None, base_dir: Path | str | None = No
         supports_narrow_burst=ddr3_raw.get("supports_narrow_burst", True),
         data_rate=ddr3_raw.get("data_rate", 800),
         input_clk_freq=ddr3_raw.get("input_clk_freq", 100),
-    )
-    ahb_bridge = AhbBridgeConfig(
-        enabled=ahb_bridge_raw.get("enabled", False),
-        ip_name=ahb_bridge_raw.get("ip_name", "ahblite_axi_bridge_0"),
-        ip_version=ahb_bridge_raw.get("ip_version", "3.0"),
-        thread_id_width=ahb_bridge_raw.get("thread_id_width", 0),
-        supports_narrow_burst=ahb_bridge_raw.get("supports_narrow_burst", True),
-        timeout=ahb_bridge_raw.get("timeout", 0),
     )
     clk_wiz = ClkWizConfig(
         enabled=clk_wiz_raw.get("enabled", False),
@@ -329,13 +324,12 @@ def load_config(path: Path | str | None = None, base_dir: Path | str | None = No
         use_tag_bram=mem_raw.get("use_tag_bram", False),
         use_tlb_bram=mem_raw.get("use_tlb_bram", False),
         ddr3=ddr3,
-        ahb_bridge=ahb_bridge,
         clk_wiz=clk_wiz,
     )
 
     return GlobalConfig(
         limits=limits,
-        vivado_path=raw.get("vivado_path", "vivado.bat"),
+        vivado_path=raw.get("vivado_path", _default_vivado_path()),
         proj_name=raw.get("proj_name", "simplecpu_bus"),
         device_part=raw.get("device_part", "xc7a200tfbg676-2"),
         memory=memory,

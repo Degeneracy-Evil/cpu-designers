@@ -5,7 +5,7 @@ module tlb #(
     parameter ENTRIES = 16
 )(
     input              clk,
-    input              reset,
+    input              resetn,
 
     // ── Port A: i-side lookup (read-only) ──
     input  [19:0]      i_lookup_vpn,
@@ -394,8 +394,8 @@ tree_plru u_d_plru(
 // State machine + latching + PLRU update
 // =========================================================================
 integer i;
-always_ff @(posedge clk or posedge reset) begin
-    if (reset) begin
+always_ff @(posedge clk or negedge resetn) begin
+    if (!resetn) begin
         state            <= S_FLUSH;   // BUG-9: start in S_FLUSH to zero BRAM on reset
         i_latched_vpn    <= 20'b0;
         i_latched_asid   <= 9'b0;
@@ -627,8 +627,8 @@ function [ENTRY_W-1:0] pack_entry;
     end
 endfunction
 
-always_ff @(posedge clk or posedge reset) begin
-    if (reset) begin
+always_ff @(posedge clk or negedge resetn) begin
+    if (!resetn) begin
         rr_ptr <= '0;
         for (i = 0; i < ENTRIES; i = i + 1)
             entries[i] <= '0;

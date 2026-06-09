@@ -2,11 +2,11 @@
 
 limits:
   max_sessions: 5
-  max_concurrent: 3
+  max_concurrent: 5
   max_disk_gb: 20
   idle_timeout_min: 60
 
-vivado_path: vivado.bat
+vivado_path: vivado
 proj_name: simplecpu_soc
 device_part: xc7a200tfbg676-2
 
@@ -19,8 +19,8 @@ memory:
   sram:
     data_width: 32        # SRAM word width (bits)
     depth: 8192           # SRAM depth (words) — 32KB for 32-bit width
-    byte_enable: false    # Byte-write enable for SRAM
-    byte_size: 8          # Byte size (only when byte_enable=true)
+    byte_enable: true     # Byte-write enable for SRAM (4-bit WEA for byte/halfword writes)
+    byte_size: 8          # Byte size (WEA width = data_width / byte_size = 4)
 
   icache:
     num_sets: 8           # Number of cache sets
@@ -56,10 +56,10 @@ memory:
   # TLB storage: false = register array (current), true = BRAM IPs (tlb_flag/tlb_data)
   use_tlb_bram: true
 
-  # DDR3 main memory via MIG 7 Series + AHB-Lite AXI Bridge
+  # DDR3 main memory via MIG 7 Series (AXI4 native)
   ddr3:
     enabled: true
-    ip_name: bd_soc_mig_7series_0_1
+    ip_name: mig_axi_32
     ip_version: "4.2"
     mig_prj_file: Reference/mig/mig_a.prj
     mem_size: 134217728          # 128MB
@@ -69,14 +69,6 @@ memory:
     supports_narrow_burst: true
     data_rate: 800               # Mbps
     input_clk_freq: 100          # MHz
-
-  ahb_bridge:
-    enabled: true
-    ip_name: ahblite_axi_bridge_0
-    ip_version: "3.0"
-    thread_id_width: 0           # Single master, ID hardwired to 0
-    supports_narrow_burst: true
-    timeout: 0                   # No timeout
 
   clk_wiz:
     enabled: true

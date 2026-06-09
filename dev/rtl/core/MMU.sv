@@ -5,7 +5,7 @@ module MMU #(
     parameter TLB_ENTRIES = 16
 )(
     input              clk,
-    input              reset,
+    input              resetn,
 
     // ── i-side interface ──
     input       [31:0] i_vaddr,
@@ -175,7 +175,7 @@ module MMU #(
 
     tlb #(.ENTRIES(TLB_ENTRIES)) u_tlb(
         .clk(clk),
-        .reset(reset),
+        .resetn(resetn),
         // i-side lookup (Port A)
         .i_lookup_vpn(i_vpn),
         .i_lookup_asid(i_asid),
@@ -299,8 +299,8 @@ module MMU #(
     reg [31:0] i_pf_vaddr_r;
     reg i_pf_from_ptw_r;   // BUG-5: distinguish TLB perm fault from PTW walk fault
 
-    always_ff @(posedge clk or posedge reset) begin
-        if (reset) begin
+    always_ff @(posedge clk or negedge resetn) begin
+        if (!resetn) begin
             i_pf_r <= 1'b0;
             i_pf_cause_r <= 4'b0;
             i_pf_vaddr_r <= 32'b0;
@@ -336,8 +336,8 @@ module MMU #(
     reg [31:0] d_pf_vaddr_r;
     reg d_pf_from_ptw_r;   // BUG-5: distinguish TLB perm fault from PTW walk fault
 
-    always_ff @(posedge clk or posedge reset) begin
-        if (reset) begin
+    always_ff @(posedge clk or negedge resetn) begin
+        if (!resetn) begin
             d_pf_r <= 1'b0;
             d_pf_cause_r <= 4'b0;
             d_pf_vaddr_r <= 32'b0;
@@ -370,8 +370,8 @@ module MMU #(
     // =========================================================================
     // i-side FSM
     // =========================================================================
-    always_ff @(posedge clk or posedge reset) begin
-        if (reset) begin
+    always_ff @(posedge clk or negedge resetn) begin
+        if (!resetn) begin
             i_state              <= I_IDLE;
             i_latched_vaddr      <= 32'b0;
             i_latched_access_type <= ACCESS_FETCH;
@@ -439,8 +439,8 @@ module MMU #(
     // =========================================================================
     // d-side FSM
     // =========================================================================
-    always_ff @(posedge clk or posedge reset) begin
-        if (reset) begin
+    always_ff @(posedge clk or negedge resetn) begin
+        if (!resetn) begin
             d_state              <= D_IDLE;
             d_latched_vaddr      <= 32'b0;
             d_latched_access_type <= 2'b0;
@@ -517,8 +517,8 @@ module MMU #(
     wire i_walk_req = (i_state == I_LOOKUP) && i_latched_sv32 && !i_tlb_hit && !i_input_changed;
     wire d_walk_req = (d_state == D_LOOKUP) && d_latched_sv32 && !d_tlb_hit && !d_input_changed && !d_lookup_stalled;
 
-    always_ff @(posedge clk or posedge reset) begin
-        if (reset) begin
+    always_ff @(posedge clk or negedge resetn) begin
+        if (!resetn) begin
             walk_state     <= W_IDLE;
             pending_i_walk <= 1'b0;
             pending_d_walk <= 1'b0;
@@ -609,7 +609,7 @@ module MMU #(
 
     ptw u_ptw(
         .clk(clk),
-        .reset(reset),
+        .resetn(resetn),
         .satp(walk_satp),
         .priv_mode(walk_priv),
         .mstatus_sum(walk_sum),
@@ -660,7 +660,7 @@ module MMU #(
     // ── TLB instance (dual-port, combinational) ──
     tlb #(.ENTRIES(TLB_ENTRIES)) u_tlb(
         .clk(clk),
-        .reset(reset),
+        .resetn(resetn),
         .i_lookup_vpn(i_vpn),
         .i_lookup_asid(i_asid),
         .i_lookup_req(1'b1),
@@ -750,8 +750,8 @@ module MMU #(
     reg walk_active_r;
     reg walk_is_d_r;    // BUG-3: track which side triggered the walk
 
-    always_ff @(posedge clk or posedge reset) begin
-        if (reset) begin
+    always_ff @(posedge clk or negedge resetn) begin
+        if (!resetn) begin
             walk_active_r <= 1'b0;
             walk_is_d_r   <= 1'b0;
         end else if (sfence_vma) begin
@@ -781,8 +781,8 @@ module MMU #(
     reg [31:0] i_pf_vaddr_r;
     reg i_pf_from_ptw_r;   // BUG-5: distinguish TLB perm fault from PTW walk fault
 
-    always_ff @(posedge clk or posedge reset) begin
-        if (reset) begin
+    always_ff @(posedge clk or negedge resetn) begin
+        if (!resetn) begin
             i_pf_r <= 1'b0;
             i_pf_cause_r <= 4'b0;
             i_pf_vaddr_r <= 32'b0;
@@ -814,8 +814,8 @@ module MMU #(
     reg [31:0] d_pf_vaddr_r;
     reg d_pf_from_ptw_r;   // BUG-5: distinguish TLB perm fault from PTW walk fault
 
-    always_ff @(posedge clk or posedge reset) begin
-        if (reset) begin
+    always_ff @(posedge clk or negedge resetn) begin
+        if (!resetn) begin
             d_pf_r <= 1'b0;
             d_pf_cause_r <= 4'b0;
             d_pf_vaddr_r <= 32'b0;
@@ -847,7 +847,7 @@ module MMU #(
     // ── Single PTW instance ──
     ptw u_ptw(
         .clk(clk),
-        .reset(reset),
+        .resetn(resetn),
         .satp(satp),
         .priv_mode(priv_mode),
         .mstatus_sum(mstatus_sum),

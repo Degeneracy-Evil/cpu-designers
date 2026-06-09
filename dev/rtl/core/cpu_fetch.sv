@@ -2,7 +2,7 @@
 
 module cpu_fetch(
     input         clk,
-    input         reset,
+    input         resetn,
     input         if_valid,
     input         init_sig,
     input  [31:0] pc,

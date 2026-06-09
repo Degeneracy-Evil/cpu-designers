@@ -145,7 +145,7 @@ module uart_top #(
         .BAUD_RATE(115200)
     ) uart_tx_inst (
         .clk              (PCLK),
-        .rst              (PRESETn),
+        .rst_n            (PRESETn),
         .i_baud_div       (uart_baud[15:0]),
         .i_txData_8       (tx_fifo_rd_data),
         .i_txDataValid_1  (tx_fifo_rd_en),
@@ -163,7 +163,7 @@ module uart_top #(
         .BAUD_RATE(115200)
     ) uart_rx_inst (
         .clk             (PCLK),
-        .rst             (PRESETn),
+        .rst_n           (PRESETn),
         .o_rxData_8      (rx_data_from_engine),
         .o_rxDataValid_1 (rx_data_valid),
         .i_rxDataReady_1 (rx_en && !rx_fifo_full),

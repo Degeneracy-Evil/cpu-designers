@@ -1,5 +1,7 @@
 # Vivado Orchestrator DDR3 仿真升级计划
 
+> ⛔ **已停止** — 2026-06-09: AHB-Lite 架构已废弃，全面转向 AXI 总线 + chiplab 对齐架构。见新计划 `plan/axi-mig-alignment-plan.md`
+
 > 日期: 2026-06-06 | 状态: 待实施 | 目标: 使 `python -m tools.vivado_cli -task ddr3_ahb_ex -create -sim` 等价于 `vivado -mode batch -source dev/tb/run_ddr3_sim.tcl -tclargs tb_ddr3_ahb_ex`
 
 ---

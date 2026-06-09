@@ -15,7 +15,7 @@ from .cache_header_gen import write_cache_header
 from .config import MemoryConfig
 from .exceptions import OperationError, StaleSessionError, VivadoProcessError
 from .hash import LayeredHash
-from .ip_gen import generate_all_ip_tcl
+from .ip_gen import generate_all_ip_tcl, get_bram_ip_names
 from .session import ExecuteResult, Session, SessionManager
 from .sync import SyncPolicy
 from .tasks import TaskConfig, TaskRegistry
@@ -67,8 +67,11 @@ def _tcl_create_project(
     mu_rtl_dir = f"{dev_dir}/rtl/MU"
     fpu_rtl_dir = f"{dev_dir}/rtl/FPU"
     cpu_core_dir = f"{dev_dir}/rtl/core"
+    common_dir = f"{dev_dir}/rtl/common"
     ahb_dir = f"{dev_dir}/rtl/AHB-lite"
     ahb_ip_dir = f"{dev_dir}/rtl/AHB-lite/ip"
+    amba_dir = f"{dev_dir}/rtl/AMBA"
+    ram_wrap_dir = f"{dev_dir}/rtl/ram_wrap"
     apb_dir = f"{dev_dir}/rtl/APB"
     apb_header_dir = f"{dev_dir}/rtl/APB/header"
     apb_perips_dir = f"{dev_dir}/rtl/APB/perips"
@@ -90,11 +93,15 @@ foreach f [glob -nocomplain -directory "{alu_rtl_dir}" *.sv] {{ import_files -no
 foreach f [glob -nocomplain -directory "{mu_rtl_dir}" *.sv] {{ import_files -norecurse $f }}
 foreach f [glob -nocomplain -directory "{fpu_rtl_dir}" *.sv] {{ import_files -norecurse $f }}
 foreach f [glob -nocomplain -directory "{cpu_core_dir}" *.sv] {{ import_files -norecurse $f }}
+foreach f [glob -nocomplain -directory "{common_dir}" *.sv] {{ import_files -norecurse $f }}
 foreach f [glob -nocomplain -directory "{ahb_dir}" *.sv] {{ import_files -norecurse $f }}
 foreach f [glob -nocomplain -directory "{ahb_dir}" *.svh] {{
     import_files -norecurse $f
     set_property file_type "Verilog Header" [get_files [file tail $f]]
 }}
+foreach f [glob -nocomplain -directory "{amba_dir}" *.v] {{ import_files -norecurse $f }}
+foreach f [glob -nocomplain -directory "{amba_dir}" *.sv] {{ import_files -norecurse $f }}
+foreach f [glob -nocomplain -directory "{ram_wrap_dir}" *.sv] {{ import_files -norecurse $f }}
 foreach f [glob -nocomplain -directory "{apb_dir}" *.sv] {{ import_files -norecurse $f }}
 foreach f [glob -nocomplain -directory "{apb_dir}" *.svh] {{
     import_files -norecurse $f
@@ -109,6 +116,14 @@ if {{ [file exists "{cpu_core_dir}/cache_def.svh"] }} {{
     import_files -norecurse "{cpu_core_dir}/cache_def.svh"
     set_property file_type "Verilog Header" [get_files cache_def.svh]
 }}
+if {{ [file exists "{sys_rtl_dir}/soc_config.vh"] }} {{
+    import_files -norecurse "{sys_rtl_dir}/soc_config.vh"
+    set_property file_type "Verilog Header" [get_files soc_config.vh]
+}}
+if {{ [file exists "{sys_rtl_dir}/axi4_def.svh"] }} {{
+    import_files -norecurse "{sys_rtl_dir}/axi4_def.svh"
+    set_property file_type "Verilog Header" [get_files axi4_def.svh]
+}}
 import_files -norecurse "{sys_rtl_dir}/system_top.sv"
 update_compile_order -fileset sources_1
 
@@ -118,11 +133,15 @@ set_property include_dirs [list \\
     "{mu_rtl_dir}" \\
     "{fpu_rtl_dir}" \\
     "{cpu_core_dir}" \\
+    "{common_dir}" \\
     "{ahb_dir}" \\
     "{ahb_ip_dir}" \\
+    "{amba_dir}" \\
+    "{ram_wrap_dir}" \\
     "{apb_dir}" \\
     "{apb_header_dir}" \\
     "{apb_perips_dir}" \\
+    "{sys_rtl_dir}" \\
     "{tb_dir}" \\
 ] [current_fileset]
 """
@@ -199,55 +218,130 @@ import_files -norecurse -fileset constrs_1 "{fpga_dir}/cpu.xdc"
 """
 
 
-def _tcl_add_ddr3_sim_models(base_dir: str, proj_dir: str) -> str:
+def _tcl_add_bram_sim_models(
+    proj_dir: str,
+    proj_name: str,
+    bram_ip_names: list[str],
+) -> str:
+    """Generate TCL for adding BRAM IP simulation models to sim_1.
+
+    For each BRAM IP created via ``create_ip``, XSim needs the
+    behavioral simulation model (``blk_mem_gen_v8_4.v``) and the
+    per-IP wrapper (``sim/<ip>.v``) to resolve the IP module during
+    elaboration.  Without these, XSim fails with "module <IP> not found".
+
+    Parameters
+    ----------
+    proj_dir:
+        Vivado project directory (TCL path format).
+    proj_name:
+        Vivado project name (for constructing the IP path).
+    bram_ip_names:
+        List of BRAM IP instance names (derived from MemoryConfig).
+    """
+    ip_base = f"{proj_dir}/{proj_name}.srcs/sources_1/ip"
+    lines: list[str] = []
+    lines.append('# --- BRAM IP simulation models (blk_mem_gen_v8_4) ---')
+    lines.append('puts "Adding BRAM IP simulation models..."')
+    lines.append(f'set bram_ip_dir "{ip_base}"')
+    lines.append('set bram_sim_model_added 0')
+    for ip_name in bram_ip_names:
+        ip_path = f"$bram_ip_dir/{ip_name}/{ip_name}"
+        lines.append(
+            f'if {{ [file exists [file join "{ip_path}" sim {ip_name}.v]] }} {{\n'
+            f'    add_files -fileset sim_1 -norecurse [file join "{ip_path}" sim {ip_name}.v]\n'
+            f'}}'
+        )
+        lines.append(
+            f'if {{ $bram_sim_model_added == 0 && [file exists [file join "{ip_path}" simulation blk_mem_gen_v8_4.v]] }} {{\n'
+            f'    add_files -fileset sim_1 -norecurse [file join "{ip_path}" simulation blk_mem_gen_v8_4.v]\n'
+            f'    set bram_sim_model_added 1\n'
+            f'}}'
+        )
+    return "\n".join(lines)
+
+
+def _tcl_cleanup_ip_gen(
+    proj_dir: str,
+    proj_name: str,
+    bram_ip_names: list[str],
+    mem_config: MemoryConfig,
+) -> str:
+    """Generate TCL to delete IP gen/ directories before project creation.
+
+    Following the chiplab pattern: deleting ``gen/`` subdirectories forces
+    Vivado to re-customize IPs from scratch on the next ``create_ip``,
+    avoiding stale output products that can cause simulation failures
+    (e.g. mismatched IP versions, corrupted simulation models).
+
+    Parameters
+    ----------
+    proj_dir:
+        Vivado project directory (TCL path format).
+    proj_name:
+        Vivado project name.
+    bram_ip_names:
+        BRAM IP instance names to clean.
+    mem_config:
+        Memory configuration (to check for DDR3/Bridge/ClkWiz IPs).
+    """
+    ip_base = f"{proj_dir}/{proj_name}.srcs/sources_1/ip"
+    lines: list[str] = []
+    lines.append('# --- IP gen/ cleanup (chiplab pattern: force fresh IP customization) ---')
+    for ip_name in bram_ip_names:
+        lines.append(f'file delete -force "{ip_base}/{ip_name}/gen"')
+    if mem_config.ddr3.enabled:
+        lines.append(f'file delete -force "{ip_base}/{mem_config.ddr3.ip_name}/gen"')
+        lines.append(f'file delete -force "{ip_base}/{mem_config.clk_wiz.ip_name}/gen"')
+    return "\n".join(lines)
+
+
+def _tcl_upgrade_ip() -> str:
+    """Generate TCL for upgrade_ip step after all IPs are created.
+
+    Following the chiplab pattern: ``upgrade_ip -quiet [get_ips]`` handles
+    version migration when the Vivado version differs from the version
+    that originally created the IP.  Without this, stale IP output
+    products can cause elaborate/synthesis failures.
+    """
+    return """\
+# --- upgrade_ip (chiplab pattern: handle version migration) ---
+catch { upgrade_ip -quiet [get_ips] }
+"""
+
+
+def _tcl_add_ddr3_sim_models(
+    base_dir: str,
+    proj_dir: str,
+    proj_name: str,
+    bram_ip_names: list[str],
+    mig_ip_name: str,
+) -> str:
     """Generate TCL for adding DDR3 simulation model files.
 
     Adds the MIG simulation model (from the generated IP's ``user_design/rtl/``),
     the external DDR3 model files (``ddr3_model.sv``, ``wiredly.v``) from
-    ``Reference/ddr3_sim/``, a ``glbl.v`` stub, and BRAM IP simulation models
-    (``blk_mem_gen_v8_4`` behavioral model + per-IP wrappers).
+    ``Reference/ddr3_sim/``, and BRAM IP simulation models.
 
     Parameters
     ----------
     base_dir:
         Project root directory (TCL path format).
     proj_dir:
-        Vivado project directory (TCL path format), used for
-        generating the ``glbl.v`` stub.
+        Vivado project directory (TCL path format).
+    proj_name:
+        Vivado project name.
+    bram_ip_names:
+        List of BRAM IP instance names (derived from MemoryConfig).
+    mig_ip_name:
+        MIG IP instance name (e.g. ``mig_axi_32``).
     """
     ddr3_dir = f"{base_dir}/Reference/ddr3_sim"
-    glbl_src = f"{base_dir}/dev/tb/glbl.v"
-    glbl_stub = f"{proj_dir}/glbl.v"
 
     # MIG IP simulation model path (generated by create_ip + generate_target)
-    mig_ip_dir = f"{proj_dir}/simplecpu_soc.srcs/sources_1/ip/bd_soc_mig_7series_0_1/bd_soc_mig_7series_0_1/bd_soc_mig_7series_0_1/user_design/rtl"
+    mig_ip_dir = f"{proj_dir}/{proj_name}.srcs/sources_1/ip/{mig_ip_name}/{mig_ip_name}/{mig_ip_name}/user_design/rtl"
 
-    # BRAM IP names that need simulation models (blk_mem_gen_v8_4)
-    bram_ip_names = ["Sram", "icached", "dcached", "icachet", "dcachet", "tlb_flag", "tlb_data"]
-
-    # Build BRAM sim model TCL: add sim/<ip>.v wrapper + simulation/blk_mem_gen_v8_4.v
-    # blk_mem_gen_v8_4.v only needs to be added once (all IPs share identical content).
-    bram_tcl_lines = []
-    bram_tcl_lines.append('# --- BRAM IP simulation models (blk_mem_gen_v8_4) ---')
-    bram_tcl_lines.append('puts "Adding BRAM IP simulation models..."')
-    bram_tcl_lines.append(f'set bram_ip_dir "{proj_dir}/simplecpu_soc.srcs/sources_1/ip"')
-    bram_tcl_lines.append('set bram_sim_model_added 0')
-    for ip_name in bram_ip_names:
-        ip_path = f"$bram_ip_dir/{ip_name}/{ip_name}"
-        # Add the IP wrapper (sim/<ip>.v) — unique per IP
-        bram_tcl_lines.append(
-            f'if {{ [file exists [file join "{ip_path}" sim {ip_name}.v]] }} {{\n'
-            f'    add_files -fileset sim_1 -norecurse [file join "{ip_path}" sim {ip_name}.v]\n'
-            f'}}'
-        )
-        # Add the simulation model (simulation/blk_mem_gen_v8_4.v) — only once
-        bram_tcl_lines.append(
-            f'if {{ $bram_sim_model_added == 0 && [file exists [file join "{ip_path}" simulation blk_mem_gen_v8_4.v]] }} {{\n'
-            f'    add_files -fileset sim_1 -norecurse [file join "{ip_path}" simulation blk_mem_gen_v8_4.v]\n'
-            f'    set bram_sim_model_added 1\n'
-            f'}}'
-        )
-    bram_tcl = "\n".join(bram_tcl_lines)
+    bram_tcl = _tcl_add_bram_sim_models(proj_dir, proj_name, bram_ip_names)
 
     return f"""\
 # --- MIG simulation model (from generated IP) ---
@@ -261,22 +355,21 @@ def _tcl_add_ddr3_sim_models(base_dir: str, proj_dir: str) -> str:
 # behavioral simulation — calibration FSM hangs forever because
 # IODELAY elements have no real delay. The _mig_sim.v model has
 # SIM_BYPASS_INIT_CAL="FAST" as default, matching the official MIG
-# example project (bd_soc_mig_7series_0_1_ex) which completes
-# calibration at ~107ns.
+# example project which completes calibration at ~107ns.
 #
-# Both files define the same module name (bd_soc_mig_7series_0_1_mig),
+# Both files define the same module name ({mig_ip_name}_mig),
 # so only ONE must be in sim_1. We explicitly remove _mig.v if it
 # was auto-added from sources_1 (by create_ip), then add _mig_sim.v.
 puts "Adding MIG simulation model (using _mig_sim.v)..."
 if {{ [file exists "{mig_ip_dir}"] }} {{
     # Remove _mig.v from sim_1 if present (hardware model, not for sim)
-    set mig_v [get_files -of_objects [get_filesets sim_1] -quiet "*/bd_soc_mig_7series_0_1_mig.v"]
+    set mig_v [get_files -of_objects [get_filesets sim_1] -quiet "*/{mig_ip_name}_mig.v"]
     if {{ [llength $mig_v] > 0 }} {{
         remove_files -fileset sim_1 -norecurse $mig_v
         puts "  Removed _mig.v (hardware model) from sim_1"
     }}
-    add_files -fileset sim_1 -norecurse [file join "{mig_ip_dir}" bd_soc_mig_7series_0_1.v]
-    add_files -fileset sim_1 -norecurse [file join "{mig_ip_dir}" bd_soc_mig_7series_0_1_mig_sim.v]
+    add_files -fileset sim_1 -norecurse [file join "{mig_ip_dir}" {mig_ip_name}.v]
+    add_files -fileset sim_1 -norecurse [file join "{mig_ip_dir}" {mig_ip_name}_mig_sim.v]
     puts "  Added _mig_sim.v (simulation model, SIM_BYPASS_INIT_CAL=FAST)"
     foreach subdir {{axi clocking controller ecc ip_top phy ui}} {{
         set subpath [file join "{mig_ip_dir}" $subdir]
@@ -326,28 +419,6 @@ def _tcl_set_verilog_defines(defines: dict[str, str]) -> str:
     return f"""\
 # --- verilog defines for simulation ---
 set_property verilog_define {{{define_str}}} [get_filesets sim_1]
-"""
-
-
-def _tcl_handle_bridge_vhdl() -> str:
-    """Generate TCL for Bridge VHDL library workaround.
-
-    When using ``create_ip`` to create the AHB-AXI Bridge, Vivado
-    automatically manages VHDL library mapping.  However, if bridge
-    VHDL files were manually imported (e.g. from a pre-built project),
-    ``set_property library`` can corrupt the fileset in Vivado 2018.3.
-
-    This workaround removes any manually-imported bridge VHDL files
-    from the project to prevent conflicts with the ``create_ip``
-    generated files.
-    """
-    return """\
-# --- Bridge VHDL library workaround ---
-set bridge_files [get_files -of_objects [get_filesets sources_1] -quiet "*ahblite_axi_bridge*"]
-if {[llength $bridge_files] > 0} {
-    remove_files $bridge_files
-    puts "Removed [llength $bridge_files] bridge VHDL files from project"
-}
 """
 
 
@@ -595,10 +666,13 @@ class Operations:
         device_part = self.session_mgr.config.device_part
         mem_config = self.session_mgr.config.memory
         coe_file = self._resolve_coe_path(task)
+        bram_ip_names = get_bram_ip_names(mem_config)
 
         tcl_parts = [
+            _tcl_cleanup_ip_gen(proj_dir, proj_name, bram_ip_names, mem_config),
             _tcl_create_project(proj_name, device_part, proj_dir, dev, base),
             _tcl_setup_ip(proj_name, proj_dir, base, coe_file, mem_config),
+            _tcl_upgrade_ip(),
             _tcl_add_constrs(base),
         ]
 
@@ -667,11 +741,13 @@ class Operations:
         if plan.full:
             # Full rebuild: close -> cd up -> delete -> create.
             mem_config = self.session_mgr.config.memory
+            bram_ip_names = get_bram_ip_names(mem_config)
             tcl_parts: list[str] = [
                 f"catch {{ close_project }}\ncd [file dirname {proj_dir}]",
                 f"file delete -force {proj_dir}",
                 _tcl_create_project(proj_name, device_part, proj_dir, dev, base),
                 _tcl_setup_ip(proj_name, proj_dir, base, coe_file, mem_config),
+                _tcl_upgrade_ip(),
                 _tcl_add_constrs(base),
                 _tcl_add_tb(dev, proj_dir, proj_name, task.tb, coe_file) if task.tb else "",
             ]
@@ -745,7 +821,15 @@ class Operations:
 
         # DDR3 simulation mode: add simulation models
         if task.sim_mode == "ddr3":
-            tcl_parts.append(_tcl_add_ddr3_sim_models(base, proj_dir))
+            bram_ip_names = get_bram_ip_names(self.session_mgr.config.memory)
+            mig_ip_name = self.session_mgr.config.memory.ddr3.ip_name
+            tcl_parts.append(_tcl_add_ddr3_sim_models(base, proj_dir, proj_name, bram_ip_names, mig_ip_name))
+        else:
+            # Non-DDR3 tasks still need BRAM simulation models for XSim elaboration
+            if task.tb:
+                bram_ip_names = get_bram_ip_names(self.session_mgr.config.memory)
+                tcl_parts.append(_tcl_add_bram_sim_models(proj_dir, proj_name, bram_ip_names))
+                tcl_parts.append("update_compile_order -fileset sim_1")
 
         tcl = "\n".join(tcl_parts)
 
@@ -790,14 +874,28 @@ class Operations:
             _tcl_add_tb(dev, proj_dir, proj_name, task.tb, coe_file),
         ]
 
-        # DDR3 simulation mode: add simulation models to sim_1
-        # (after testbench, because _tcl_add_tb clears sim_1 first)
+        # BRAM simulation models — always needed for XSim elaboration
+        # (DDR3 mode adds them via _tcl_add_ddr3_sim_models below)
+        bram_ip_names = get_bram_ip_names(self.session_mgr.config.memory)
         if task.sim_mode == "ddr3":
-            tcl_parts.append(_tcl_add_ddr3_sim_models(base, proj_dir))
+            mig_ip_name = self.session_mgr.config.memory.ddr3.ip_name
+            tcl_parts.append(_tcl_add_ddr3_sim_models(base, proj_dir, proj_name, bram_ip_names, mig_ip_name))
+        else:
+            tcl_parts.append(_tcl_add_bram_sim_models(proj_dir, proj_name, bram_ip_names))
+            tcl_parts.append("update_compile_order -fileset sim_1")
 
-        # Verilog defines (e.g. SIM_BYPASS_INIT_CAL=FAST for DDR3)
+        # Verilog defines for simulation
+        # DDR3 tasks define SIMULATION via task.verilog_defines in tasks.yaml
+        # Non-DDR3 tasks need SIMULATION=TRUE to activate generate blocks
+        # in system_top.sv (SIMU_USE_PLL/SIMU_USE_DDR conditional paths)
         if task.verilog_defines:
-            tcl_parts.append(_tcl_set_verilog_defines(task.verilog_defines))
+            defines = dict(task.verilog_defines)
+        else:
+            defines = {}
+        if task.sim_mode != "ddr3" and "SIMULATION" not in defines:
+            defines["SIMULATION"] = "TRUE"
+        if defines:
+            tcl_parts.append(_tcl_set_verilog_defines(defines))
 
         # HEX file copy for $readmemh
         if task.hex_file:
@@ -867,7 +965,6 @@ class Operations:
         sv_files: list[str] = []
         v_files: list[str] = []
         vhd_files: list[str] = []   # xil_defaultlib
-        bridge_vhd: list[str] = []  # ahblite_axi_bridge_0_vhd
 
         for f in sorted(src_imports.rglob("*")):
             if not f.is_file():
@@ -887,14 +984,11 @@ class Operations:
                 continue
             rel = os.path.relpath(f, xsim_dir).replace("\\", "/")
             if f.suffix == ".vhd":
-                if "ahblite_axi_bridge" in str(f):
-                    bridge_vhd.append(rel)
-                else:
-                    vhd_files.append(rel)
+                vhd_files.append(rel)
             elif f.suffix == ".v":
                 v_files.append(rel)
 
-        if not (sv_files or v_files or vhd_files or bridge_vhd):
+        if not (sv_files or v_files or vhd_files):
             logger.warning("No sources_1 files found — cannot patch prj")
             return None
 
@@ -948,14 +1042,11 @@ class Operations:
         if vhd_files:
             vhd_block += "vhdl xil_defaultlib \\\n"
             vhd_block += "\n".join(f'"{f}" \\' for f in vhd_files) + "\n"
-        if bridge_vhd:
-            vhd_block += "vhdl ahblite_axi_bridge_0_vhd \\\n"
-            vhd_block += "\n".join(f'"{f}" \\' for f in bridge_vhd) + "\n"
         if vhd_block:
             patched = patched.replace("# compile glbl module", f"{vhd_block}\n# compile glbl module")
 
         prj_path.write_text(patched, encoding="utf-8")
-        total = len(sv_files) + len(v_files) + len(vhd_files) + len(bridge_vhd)
+        total = len(sv_files) + len(v_files) + len(vhd_files)
         logger.info("Patched prj with %d sources_1 entries", total)
 
         # Re-run simulation via TCL (in-process, no external subprocess).

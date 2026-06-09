@@ -1,5 +1,7 @@
 # 时钟架构修改计划
 
+> ⛔ **已停止** — 2026-06-09: AHB-Lite 架构已废弃，全面转向 AXI 总线 + chiplab 对齐架构。见新计划 `plan/axi-mig-alignment-plan.md`
+
 > 日期: 2026-06-07 | 状态: **✅ 已完成（全部 5 层修复完成，仿真验证通过，成果已合入 `ddr3-main-memory-plan.md`）** | 依赖资料: `Reference/clock_propagation_analysis.md`, `Reference/mig/mig_a.prj`, `process/init_calib_complete_analysis.md`
 > 关联问题: BUG-56 (MIG 校准 FSM 卡死, init_calib_complete 永不拉高) — **已解决**
 

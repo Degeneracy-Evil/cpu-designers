@@ -3,7 +3,7 @@
 module tb_non_restoring_divider;
 
   reg clk;
-  reg reset;
+  reg resetn;
   reg [31:0] dividend;
   reg [31:0] divisor;
   reg start;
@@ -21,7 +21,7 @@ module tb_non_restoring_divider;
 
   non_restoring_divider dut(
                          .clk(clk),
-                         .reset(reset),
+                         .resetn(resetn),
                          .dividend(dividend),
                          .divisor(divisor),
                          .start(start),
@@ -142,7 +142,7 @@ module tb_non_restoring_divider;
   initial
   begin
     clk = 1'b0;
-    reset = 1'b1;
+    resetn = 1'b0;
     dividend = 32'b0;
     divisor = 32'b0;
     start = 1'b0;
@@ -155,7 +155,7 @@ module tb_non_restoring_divider;
     begin
       @(posedge clk);
     end
-    reset = 1'b0;
+    resetn = 1'b1;
 
     check_div(32'd1000, 32'd7, 32'd142, 32'd6, "1000 / 7");
     check_div(32'hFFFF_FC18, 32'd7, 32'hFFFF_FF72, 32'hFFFF_FFFA, "-1000 / 7");

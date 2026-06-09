@@ -1,10 +1,11 @@
 `timescale 1ns / 1ps
-`include "ahb_def.svh"
+`include "axi4_def.svh"
 
 module cpu_bus_bridge(
     input         clk,
-    input         reset,
+    input         resetn,
 
+    // ---------- Cache / MMIO request inputs (unchanged) ----------
     input         icache_mmio_req,
     input  [31:0] icache_mmio_addr,
 
@@ -42,50 +43,102 @@ module cpu_bus_bridge(
     output        ptw_done,
     output        ptw_error,
 
-    output [31:0] HADDR,
-    output [1:0]  HTRANS,
-    output        HWRITE,
-    output [2:0]  HSIZE,
-    output [2:0]  HBURST,
-    output [3:0]  HPROT,
-    output        HMASTLOCK,
-    output [31:0] HWDATA,
-    input  [31:0] HRDATA,
-    input         HREADY,
-    input         HRESP,
+    // ---------- AXI4 Master — AW Channel (Write Address) ----------
+    output logic [3:0]  awid,
+    output logic [31:0] awaddr,
+    output logic [7:0]  awlen,
+    output logic [2:0]  awsize,
+    output logic [1:0]  awburst,
+    output logic        awlock,
+    output logic [3:0]  awcache,
+    output logic [2:0]  awprot,
+    output logic        awvalid,
+    input  logic        awready,
 
+    // ---------- AXI4 Master — W Channel (Write Data) ----------
+    output logic [31:0] wdata,
+    output logic [3:0]  wstrb,
+    output logic        wlast,
+    output logic        wvalid,
+    input  logic        wready,
+
+    // ---------- AXI4 Master — B Channel (Write Response) ----------
+    input  logic [1:0]  bresp,
+    input  logic        bvalid,
+    output logic        bready,
+
+    // ---------- AXI4 Master — AR Channel (Read Address) ----------
+    output logic [3:0]  arid,
+    output logic [31:0] araddr,
+    output logic [7:0]  arlen,
+    output logic [2:0]  arsize,
+    output logic [1:0]  arburst,
+    output logic        arlock,
+    output logic [3:0]  arcache,
+    output logic [2:0]  arprot,
+    output logic        arvalid,
+    input  logic        arready,
+
+    // ---------- AXI4 Master — R Channel (Read Data) ----------
+    input  logic [31:0] rdata,
+    input  logic [1:0]  rresp,
+    input  logic        rlast,
+    input  logic        rvalid,
+    output logic        rready,
+
+    // ---------- Error outputs (unchanged) ----------
     output        icache_error,
     output        dcache_error,
     output        dcache_error_is_store,
     output [31:0] bus_error_addr
 );
 
+    // =====================================================================
+    // State encoding — AXI4 has more phases than AHB-Lite
+    //   Read:  AR (issue address) → R  (receive data beats)
+    //   Write: AW+W (issue addr+data) → B (receive response)
+    //          or AW → W (burst beats) → B
+    // =====================================================================
     localparam S_IDLE          = 4'd0;
-    localparam S_MMIO_ADDR     = 4'd1;
-    localparam S_MMIO_DATA     = 4'd2;
-    localparam S_IREFILL_ADDR  = 4'd3;
-    localparam S_IREFILL_DATA  = 4'd4;
-    localparam S_DREFILL_ADDR  = 4'd5;
-    localparam S_DREFILL_DATA  = 4'd6;
-    localparam S_WB_ADDR       = 4'd7;
-    localparam S_WB_DATA       = 4'd8;
-    localparam S_PTW_ADDR      = 4'd9;
-    localparam S_PTW_DATA      = 4'd10;
+    // MMIO read
+    localparam S_MMIO_AR       = 4'd1;
+    localparam S_MMIO_R        = 4'd2;
+    // MMIO write (AW+W simultaneous for single-beat)
+    localparam S_MMIO_AW_W     = 4'd3;
+    localparam S_MMIO_B        = 4'd4;
+    // icache refill (burst read)
+    localparam S_IREFILL_AR    = 4'd5;
+    localparam S_IREFILL_R     = 4'd6;
+    // dcache refill (burst read)
+    localparam S_DREFILL_AR    = 4'd7;
+    localparam S_DREFILL_R     = 4'd8;
+    // dcache writeback (burst write)
+    localparam S_WB_AW         = 4'd9;
+    localparam S_WB_W          = 4'd10;
+    localparam S_WB_B          = 4'd11;
+    // PTW read
+    localparam S_PTW_AR        = 4'd12;
+    localparam S_PTW_R         = 4'd13;
+    // PTW write (single-beat)
+    localparam S_PTW_AW_W      = 4'd14;
+    localparam S_PTW_B         = 4'd15;
 
-    reg [3:0]  state;
+    reg [3:0] state;
 
-    reg [31:0] haddr_r;
-    reg [1:0]  htrans_r;
-    reg        hwrite_r;
-    reg [2:0]  hsize_r;
-    reg [2:0]  hburst_r;
-    reg [3:0]  hprot_r;
-    reg        hmastlock_r;
-    reg [31:0] hwdata_r;
+    // ---------- Latched request metadata ----------
+    reg [31:0] addr_r;
+    reg        write_r;
+    reg [2:0]  size_r;
+    reg        is_inst_r;       // 1 = icache MMIO, 0 = dcache MMIO
+    reg [31:0] latch_wdata_r;
 
-    reg [31:0] mmio_latch_wdata;
-    reg        mmio_is_ireq;
+    // ---------- Burst tracking ----------
+    reg [2:0]  beat_cnt;
+    reg [31:0] burst_base_addr;
+    reg [255:0] refill_shift_reg;
+    reg [255:0] wb_shift_reg;
 
+    // ---------- Response registers ----------
     reg [31:0] ahb_inst_data_r;
     reg        ahb_inst_valid_r;
     reg [31:0] ahb_data_rdata_r;
@@ -94,24 +147,26 @@ module cpu_bus_bridge(
     reg        mmio_inst_served;
     reg        mmio_data_served;
 
-    reg [2:0]   beat_cnt;
-    reg [31:0]  burst_base_addr;
-    reg [255:0] refill_shift_reg;
-    reg [255:0] wb_shift_reg;
+    reg        icache_refill_valid_r;
+    reg        dcache_refill_valid_r;
+    reg        dcache_wb_valid_r;
 
-    reg icache_refill_valid_r;
-    reg dcache_refill_valid_r;
-    reg dcache_wb_valid_r;
-
-    reg icache_error_r;
-    reg dcache_error_r;
-    reg dcache_error_is_store_r;
+    reg        icache_error_r;
+    reg        dcache_error_r;
+    reg        dcache_error_is_store_r;
     reg [31:0] bus_error_addr_r;
 
     reg [31:0] ptw_rdata_r;
     reg        ptw_done_r;
     reg        ptw_error_r;
 
+    // ---------- Simultaneous AW+W handshake tracking ----------
+    reg aw_hs_done_r;
+    reg w_hs_done_r;
+
+    // =====================================================================
+    // Output assignments — response side
+    // =====================================================================
     assign ahb_inst_data     = ahb_inst_data_r;
     assign ahb_inst_valid    = ahb_inst_valid_r;
     assign ahb_data_rdata    = ahb_data_rdata_r;
@@ -131,175 +186,223 @@ module cpu_bus_bridge(
     assign ptw_done  = ptw_done_r;
     assign ptw_error = ptw_error_r;
 
-    wire beat_done = HREADY && htrans_r[1];
-    wire last_beat = (beat_cnt == 3'd7);
+    // =====================================================================
+    // AXI4 default outputs — safe values when channels are idle
+    // =====================================================================
+    // ID, QoS, Region — constant
+    assign awid     = 4'b0000;
+    assign arid     = 4'b0000;
+    assign awqos    = 4'b0000;   // Not used in this design
+    assign awregion = 4'b0000;
+    assign arqos    = 4'b0000;
+    assign arregion = 4'b0000;
 
-    always_ff @(posedge clk or posedge reset) begin
-        if (reset) begin
-            state                <= S_IDLE;
-            haddr_r              <= 32'b0;
-            htrans_r             <= `AHB_TRANS_IDLE;
-            hwrite_r             <= 1'b0;
-            hsize_r              <= `AHB_SIZE_WORD;
-            hburst_r             <= `AHB_BURST_SINGLE;
-            hprot_r              <= 4'b0011;
-            hmastlock_r          <= 1'b0;
-            hwdata_r             <= 32'b0;
-            mmio_latch_wdata     <= 32'b0;
-            mmio_is_ireq         <= 1'b0;
-            ahb_inst_data_r      <= 32'b0;
-            ahb_inst_valid_r     <= 1'b0;
-            ahb_data_rdata_r     <= 32'b0;
-            ahb_data_valid_r     <= 1'b0;
-            beat_cnt             <= 3'd0;
-            burst_base_addr      <= 32'b0;
-            refill_shift_reg     <= 256'b0;
-            wb_shift_reg         <= 256'b0;
-            icache_refill_valid_r <= 1'b0;
-            dcache_refill_valid_r <= 1'b0;
-            dcache_wb_valid_r     <= 1'b0;
-            icache_error_r        <= 1'b0;
-            dcache_error_r        <= 1'b0;
+    // =====================================================================
+    // Helper: AXI4 error check (OKAY=00, EXOKAY=01 are success)
+    // =====================================================================
+    wire r_error = (rresp == AXI_RESP_SLVERR) || (rresp == AXI_RESP_DECERR);
+    wire b_error = (bresp == AXI_RESP_SLVERR) || (bresp == AXI_RESP_DECERR);
+
+    // =====================================================================
+    // FSM
+    // =====================================================================
+    always_ff @(posedge clk or negedge resetn) begin
+        if (!resetn) begin
+            state                  <= S_IDLE;
+            addr_r                 <= 32'b0;
+            write_r                <= 1'b0;
+            size_r                 <= AXI_SIZE_4B;
+            is_inst_r              <= 1'b0;
+            latch_wdata_r          <= 32'b0;
+            beat_cnt               <= 3'd0;
+            burst_base_addr        <= 32'b0;
+            refill_shift_reg       <= 256'b0;
+            wb_shift_reg           <= 256'b0;
+            ahb_inst_data_r        <= 32'b0;
+            ahb_inst_valid_r       <= 1'b0;
+            ahb_data_rdata_r       <= 32'b0;
+            ahb_data_valid_r       <= 1'b0;
+            mmio_inst_served       <= 1'b0;
+            mmio_data_served       <= 1'b0;
+            icache_refill_valid_r  <= 1'b0;
+            dcache_refill_valid_r  <= 1'b0;
+            dcache_wb_valid_r      <= 1'b0;
+            icache_error_r         <= 1'b0;
+            dcache_error_r         <= 1'b0;
             dcache_error_is_store_r <= 1'b0;
-            bus_error_addr_r      <= 32'b0;
-            ptw_rdata_r           <= 32'b0;
-            ptw_done_r            <= 1'b0;
-            ptw_error_r           <= 1'b0;
-            mmio_inst_served      <= 1'b0;
-            mmio_data_served      <= 1'b0;
+            bus_error_addr_r       <= 32'b0;
+            ptw_rdata_r            <= 32'b0;
+            ptw_done_r             <= 1'b0;
+            ptw_error_r            <= 1'b0;
+            aw_hs_done_r           <= 1'b0;
+            w_hs_done_r            <= 1'b0;
+            // AXI4 channel defaults
+            awvalid  <= 1'b0;
+            wvalid   <= 1'b0;
+            arvalid  <= 1'b0;
+            awaddr   <= 32'b0;
+            awlen    <= 8'h00;
+            awsize   <= AXI_SIZE_4B;
+            awburst  <= AXI_BURST_INCR;
+            awlock   <= AXI_LOCK_NORMAL;
+            awcache  <= AXI_CACHE_DEV_NONBUF;
+            awprot   <= AXI_PROT_DATA_PRIV_SECURE;
+            araddr   <= 32'b0;
+            arlen    <= 8'h00;
+            arsize   <= AXI_SIZE_4B;
+            arburst  <= AXI_BURST_INCR;
+            arlock   <= AXI_LOCK_NORMAL;
+            arcache  <= AXI_CACHE_DEV_NONBUF;
+            arprot   <= AXI_PROT_DATA_PRIV_SECURE;
+            wdata    <= 32'b0;
+            wstrb    <= 4'b1111;
+            wlast    <= 1'b1;
         end else begin
-            ahb_inst_valid_r      <= 1'b0;
-            ahb_data_valid_r      <= 1'b0;
-            icache_refill_valid_r <= 1'b0;
-            dcache_refill_valid_r <= 1'b0;
-            dcache_wb_valid_r     <= 1'b0;
-            icache_error_r        <= 1'b0;
-            dcache_error_r        <= 1'b0;
+            // Default: clear one-cycle pulses
+            ahb_inst_valid_r       <= 1'b0;
+            ahb_data_valid_r       <= 1'b0;
+            icache_refill_valid_r  <= 1'b0;
+            dcache_refill_valid_r  <= 1'b0;
+            dcache_wb_valid_r      <= 1'b0;
+            icache_error_r         <= 1'b0;
+            dcache_error_r         <= 1'b0;
             dcache_error_is_store_r <= 1'b0;
-            ptw_done_r            <= 1'b0;
-            ptw_error_r           <= 1'b0;
+            ptw_done_r             <= 1'b0;
+            ptw_error_r            <= 1'b0;
             if (!icache_mmio_req) mmio_inst_served <= 1'b0;
             if (!dcache_mmio_req) mmio_data_served <= 1'b0;
 
             case (state)
+                // =====================================================
+                // S_IDLE — Arbitrate among request sources
+                // Priority: icache_mmio > dcache_mmio > ptw > dcache_wb > icache_refill > dcache_refill
+                // =====================================================
                 S_IDLE: begin
-                    htrans_r <= `AHB_TRANS_IDLE;
-                    if (icache_mmio_req && !ahb_inst_valid_r && !mmio_inst_served) begin
-                        state            <= S_MMIO_ADDR;
-                        haddr_r          <= icache_mmio_addr;
-                        htrans_r         <= `AHB_TRANS_NONSEQ;
-                        hwrite_r         <= 1'b0;
-                        hsize_r          <= `AHB_SIZE_WORD;
-                        hburst_r         <= `AHB_BURST_SINGLE;
-                        hprot_r          <= 4'b0011;
-                        hmastlock_r      <= 1'b0;
-                        mmio_latch_wdata <= 32'b0;
-                        mmio_is_ireq     <= 1'b1;
-                    end else if (dcache_mmio_req && !ahb_data_valid_r && !mmio_data_served) begin
-                        state            <= S_MMIO_ADDR;
-                        haddr_r          <= dcache_mmio_addr;
-                        htrans_r         <= `AHB_TRANS_NONSEQ;
-                        hwrite_r         <= dcache_mmio_hwrite;
-                        hsize_r          <= dcache_mmio_hsize;
-                        hburst_r         <= `AHB_BURST_SINGLE;
-                        hprot_r          <= 4'b0011;
-                        hmastlock_r      <= 1'b0;
-                        mmio_latch_wdata <= dcache_mmio_wdata;
-                        mmio_is_ireq     <= 1'b0;
-                    end else if (ptw_req && !ptw_done_r) begin
-                        state            <= S_PTW_ADDR;
-                        haddr_r          <= ptw_addr;
-                        htrans_r         <= `AHB_TRANS_NONSEQ;
-                        hwrite_r         <= ptw_we;
-                        hsize_r          <= `AHB_SIZE_WORD;
-                        hburst_r         <= `AHB_BURST_SINGLE;
-                        hprot_r          <= 4'b0011;
-                        hmastlock_r      <= 1'b0;
-                        mmio_latch_wdata <= ptw_wdata;
-                    end else if (dcache_wb_req && !dcache_wb_valid_r) begin
-                        state            <= S_WB_ADDR;
-                        haddr_r          <= dcache_wb_addr;
-                        htrans_r         <= `AHB_TRANS_NONSEQ;
-                        hwrite_r         <= 1'b1;
-                        hsize_r          <= `AHB_SIZE_WORD;
-                        hburst_r         <= `AHB_BURST_INCR8;
-                        hprot_r          <= 4'b0011;
-                        hmastlock_r      <= 1'b0;
-                        burst_base_addr  <= dcache_wb_addr;
-                        beat_cnt         <= 3'd0;
-                        wb_shift_reg     <= dcache_wb_data;
-                    end else if (icache_refill_req && !icache_refill_valid_r) begin
-                        state            <= S_IREFILL_ADDR;
-                        haddr_r          <= icache_refill_addr;
-                        htrans_r         <= `AHB_TRANS_NONSEQ;
-                        hwrite_r         <= 1'b0;
-                        hsize_r          <= `AHB_SIZE_WORD;
-                        hburst_r         <= `AHB_BURST_INCR8;
-                        hprot_r          <= 4'b0011;
-                        hmastlock_r      <= 1'b0;
-                        burst_base_addr  <= icache_refill_addr;
-                        beat_cnt         <= 3'd0;
-                        refill_shift_reg <= 256'b0;
-                    end else if (dcache_refill_req && !dcache_refill_valid_r) begin
-                        state            <= S_DREFILL_ADDR;
-                        haddr_r          <= dcache_refill_addr;
-                        htrans_r         <= `AHB_TRANS_NONSEQ;
-                        hwrite_r         <= 1'b0;
-                        hsize_r          <= `AHB_SIZE_WORD;
-                        hburst_r         <= `AHB_BURST_INCR8;
-                        hprot_r          <= 4'b0011;
-                        hmastlock_r      <= 1'b0;
-                        burst_base_addr  <= dcache_refill_addr;
-                        beat_cnt         <= 3'd0;
-                        refill_shift_reg <= 256'b0;
-                    end
-                end
+                    awvalid <= 1'b0;
+                    wvalid  <= 1'b0;
+                    arvalid <= 1'b0;
 
-                S_MMIO_ADDR: begin
-                    if (HREADY) begin
-                        if (HRESP == `AHB_RESP_ERROR) begin
-                            state     <= S_IDLE;
-                            htrans_r  <= `AHB_TRANS_IDLE;
-                            bus_error_addr_r <= haddr_r;
-                            if (mmio_is_ireq) begin
-                                icache_error_r   <= 1'b1;
-                                ahb_inst_valid_r <= 1'b1;
-                            end else begin
-                                dcache_error_r        <= 1'b1;
-                                dcache_error_is_store_r <= hwrite_r;
-                                ahb_data_valid_r  <= 1'b1;
-                            end
+                    if (icache_mmio_req && !ahb_inst_valid_r && !mmio_inst_served) begin
+                        // MMIO instruction read → AR channel
+                        state       <= S_MMIO_AR;
+                        addr_r      <= icache_mmio_addr;
+                        write_r     <= 1'b0;
+                        size_r      <= AXI_SIZE_4B;
+                        is_inst_r   <= 1'b1;
+                    end
+                    else if (dcache_mmio_req && !ahb_data_valid_r && !mmio_data_served) begin
+                        if (dcache_mmio_hwrite) begin
+                            // MMIO data write → AW+W channels
+                            state         <= S_MMIO_AW_W;
+                            addr_r        <= dcache_mmio_addr;
+                            write_r       <= 1'b1;
+                            size_r        <= dcache_mmio_hsize;
+                            is_inst_r     <= 1'b0;
+                            latch_wdata_r <= dcache_mmio_wdata;
+                            aw_hs_done_r  <= 1'b0;
+                            w_hs_done_r   <= 1'b0;
                         end else begin
-                            state     <= S_MMIO_DATA;
-                            htrans_r  <= `AHB_TRANS_IDLE;
-                            hwdata_r  <= mmio_latch_wdata;
+                            // MMIO data read → AR channel
+                            state       <= S_MMIO_AR;
+                            addr_r      <= dcache_mmio_addr;
+                            write_r     <= 1'b0;
+                            size_r      <= dcache_mmio_hsize;
+                            is_inst_r   <= 1'b0;
                         end
                     end
+                    else if (ptw_req && !ptw_done_r) begin
+                        if (ptw_we) begin
+                            // PTW write → AW+W channels
+                            state         <= S_PTW_AW_W;
+                            addr_r        <= ptw_addr;
+                            write_r       <= 1'b1;
+                            size_r        <= AXI_SIZE_4B;
+                            is_inst_r     <= 1'b0;
+                            latch_wdata_r <= ptw_wdata;
+                            aw_hs_done_r  <= 1'b0;
+                            w_hs_done_r   <= 1'b0;
+                        end else begin
+                            // PTW read → AR channel
+                            state       <= S_PTW_AR;
+                            addr_r      <= ptw_addr;
+                            write_r     <= 1'b0;
+                            size_r      <= AXI_SIZE_4B;
+                            is_inst_r   <= 1'b0;
+                        end
+                    end
+                    else if (dcache_wb_req && !dcache_wb_valid_r) begin
+                        // Writeback burst → AW then W then B
+                        state           <= S_WB_AW;
+                        addr_r          <= dcache_wb_addr;
+                        write_r         <= 1'b1;
+                        burst_base_addr <= dcache_wb_addr;
+                        beat_cnt        <= 3'd0;
+                        wb_shift_reg    <= dcache_wb_data;
+                    end
+                    else if (icache_refill_req && !icache_refill_valid_r) begin
+                        // Icache refill burst → AR then R
+                        state           <= S_IREFILL_AR;
+                        addr_r          <= icache_refill_addr;
+                        write_r         <= 1'b0;
+                        burst_base_addr <= icache_refill_addr;
+                        beat_cnt        <= 3'd0;
+                        refill_shift_reg <= 256'b0;
+                    end
+                    else if (dcache_refill_req && !dcache_refill_valid_r) begin
+                        // Dcache refill burst → AR then R
+                        state           <= S_DREFILL_AR;
+                        addr_r          <= dcache_refill_addr;
+                        write_r         <= 1'b0;
+                        burst_base_addr <= dcache_refill_addr;
+                        beat_cnt        <= 3'd0;
+                        refill_shift_reg <= 256'b0;
+                    end
                 end
 
-                S_MMIO_DATA: begin
-                    if (HREADY) begin
-                        if (HRESP == `AHB_RESP_ERROR) begin
-                            state     <= S_IDLE;
-                            htrans_r  <= `AHB_TRANS_IDLE;
-                            bus_error_addr_r <= haddr_r;
-                            if (mmio_is_ireq) begin
+                // =====================================================
+                // MMIO Read — AR phase
+                // =====================================================
+                S_MMIO_AR: begin
+                    arvalid  <= 1'b1;
+                    araddr   <= addr_r;
+                    arlen    <= 8'h00;         // Single beat
+                    arsize   <= size_r;
+                    arburst  <= AXI_BURST_INCR;
+                    arlock   <= AXI_LOCK_NORMAL;
+                    arcache  <= AXI_CACHE_DEV_NONBUF;
+                    arprot   <= is_inst_r ? AXI_PROT_INST_PRIV_SECURE : AXI_PROT_DATA_PRIV_SECURE;
+
+                    if (arready) begin
+                        // AR handshake complete
+                        arvalid <= 1'b0;
+                        state   <= S_MMIO_R;
+                    end
+                end
+
+                // =====================================================
+                // MMIO Read — R phase (single beat)
+                // =====================================================
+                S_MMIO_R: begin
+                    if (rvalid) begin
+                        if (r_error) begin
+                            state           <= S_IDLE;
+                            bus_error_addr_r <= addr_r;
+                            if (is_inst_r) begin
                                 icache_error_r   <= 1'b1;
                                 ahb_inst_valid_r <= 1'b1;
                             end else begin
-                                dcache_error_r        <= 1'b1;
-                                dcache_error_is_store_r <= hwrite_r;
-                                ahb_data_valid_r  <= 1'b1;
+                                dcache_error_r          <= 1'b1;
+                                dcache_error_is_store_r <= 1'b0;
+                                ahb_data_valid_r        <= 1'b1;
                             end
                         end else begin
-                            state     <= S_IDLE;
-                            htrans_r  <= `AHB_TRANS_IDLE;
-                            if (mmio_is_ireq) begin
-                                ahb_inst_data_r  <= HRDATA;
+                            state <= S_IDLE;
+                            if (is_inst_r) begin
+                                ahb_inst_data_r  <= rdata;
                                 ahb_inst_valid_r <= 1'b1;
                                 mmio_inst_served <= 1'b1;
                             end else begin
-                                ahb_data_rdata_r <= HRDATA;
+                                ahb_data_rdata_r <= rdata;
                                 ahb_data_valid_r <= 1'b1;
                                 mmio_data_served <= 1'b1;
                             end
@@ -307,120 +410,291 @@ module cpu_bus_bridge(
                     end
                 end
 
-                S_IREFILL_ADDR: begin
-                    if (HREADY) begin
-                        state    <= S_IREFILL_DATA;
-                        htrans_r <= `AHB_TRANS_SEQ;
-                        haddr_r  <= burst_base_addr + 32'd4;
+                // =====================================================
+                // MMIO Write — AW+W phase (simultaneous, single beat)
+                // =====================================================
+                S_MMIO_AW_W: begin
+                    // Drive AW channel
+                    if (!aw_hs_done_r) begin
+                        awvalid  <= 1'b1;
+                        awaddr   <= addr_r;
+                        awlen    <= 8'h00;
+                        awsize   <= size_r;
+                        awburst  <= AXI_BURST_INCR;
+                        awlock   <= AXI_LOCK_NORMAL;
+                        awcache  <= AXI_CACHE_DEV_NONBUF;
+                        awprot   <= AXI_PROT_DATA_PRIV_SECURE;
+                    end
+
+                    // Drive W channel
+                    if (!w_hs_done_r) begin
+                        wvalid   <= 1'b1;
+                        wdata    <= latch_wdata_r;
+                        wstrb    <= (size_r == AXI_SIZE_1B) ? 4'b0001 :
+                                   (size_r == AXI_SIZE_2B) ? 4'b0011 : 4'b1111;
+                        wlast    <= 1'b1;
+                    end
+
+                    // Track independent handshakes
+                    if (arready) begin end  // placeholder — awready/wready below
+                    if (awvalid && awready) aw_hs_done_r <= 1'b1;
+                    if (wvalid  && wready)  w_hs_done_r  <= 1'b1;
+
+                    // When both complete, move to B phase
+                    if ((aw_hs_done_r || (awvalid && awready)) &&
+                        (w_hs_done_r  || (wvalid  && wready))) begin
+                        awvalid <= 1'b0;
+                        wvalid  <= 1'b0;
+                        state   <= S_MMIO_B;
                     end
                 end
 
-                S_IREFILL_DATA: begin
-                    if (beat_done) begin
-                        if (HRESP == `AHB_RESP_ERROR) begin
-                            state    <= S_IDLE;
-                            htrans_r <= `AHB_TRANS_IDLE;
-                            icache_error_r   <= 1'b1;
+                // =====================================================
+                // MMIO Write — B phase (wait for response)
+                // =====================================================
+                S_MMIO_B: begin
+                    if (bvalid) begin
+                        if (b_error) begin
+                            state           <= S_IDLE;
+                            bus_error_addr_r <= addr_r;
+                            dcache_error_r          <= 1'b1;
+                            dcache_error_is_store_r <= 1'b1;
+                            ahb_data_valid_r        <= 1'b1;
+                        end else begin
+                            state <= S_IDLE;
+                            // For MMIO write, data_valid signals completion
+                            ahb_data_valid_r <= 1'b1;
+                            mmio_data_served <= 1'b1;
+                        end
+                    end
+                end
+
+                // =====================================================
+                // Icache Refill — AR phase (burst 8)
+                // =====================================================
+                S_IREFILL_AR: begin
+                    arvalid  <= 1'b1;
+                    araddr   <= addr_r;
+                    arlen    <= 8'h07;         // 8 beats
+                    arsize   <= AXI_SIZE_4B;
+                    arburst  <= AXI_BURST_INCR;
+                    arlock   <= AXI_LOCK_NORMAL;
+                    arcache  <= AXI_CACHE_NORM_BUF;  // Cacheable
+                    arprot   <= AXI_PROT_INST_PRIV_SECURE;
+
+                    if (arready) begin
+                        arvalid <= 1'b0;
+                        state   <= S_IREFILL_R;
+                    end
+                end
+
+                // =====================================================
+                // Icache Refill — R phase (8 beats)
+                // =====================================================
+                S_IREFILL_R: begin
+                    if (rvalid) begin
+                        if (r_error) begin
+                            state           <= S_IDLE;
+                            icache_error_r  <= 1'b1;
                             bus_error_addr_r <= burst_base_addr;
                         end else begin
-                            refill_shift_reg[beat_cnt*32 +: 32] <= HRDATA;
-                            if (last_beat) begin
-                                state    <= S_IDLE;
-                                htrans_r <= `AHB_TRANS_IDLE;
-                                icache_refill_valid_r <= 1'b1;
+                            refill_shift_reg[beat_cnt*32 +: 32] <= rdata;
+                            if (rlast) begin
+                                state                  <= S_IDLE;
+                                icache_refill_valid_r  <= 1'b1;
                             end else begin
                                 beat_cnt <= beat_cnt + 3'd1;
-                                haddr_r  <= burst_base_addr + ({29'b0, beat_cnt + 3'd1, 2'b0}) + 32'd4;
-                                htrans_r <= `AHB_TRANS_SEQ;
                             end
                         end
                     end
                 end
 
-                S_DREFILL_ADDR: begin
-                    if (HREADY) begin
-                        state    <= S_DREFILL_DATA;
-                        htrans_r <= `AHB_TRANS_SEQ;
-                        haddr_r  <= burst_base_addr + 32'd4;
+                // =====================================================
+                // Dcache Refill — AR phase (burst 8)
+                // =====================================================
+                S_DREFILL_AR: begin
+                    arvalid  <= 1'b1;
+                    araddr   <= addr_r;
+                    arlen    <= 8'h07;
+                    arsize   <= AXI_SIZE_4B;
+                    arburst  <= AXI_BURST_INCR;
+                    arlock   <= AXI_LOCK_NORMAL;
+                    arcache  <= AXI_CACHE_NORM_BUF;
+                    arprot   <= AXI_PROT_DATA_PRIV_SECURE;
+
+                    if (arready) begin
+                        arvalid <= 1'b0;
+                        state   <= S_DREFILL_R;
                     end
                 end
 
-                S_DREFILL_DATA: begin
-                    if (beat_done) begin
-                        if (HRESP == `AHB_RESP_ERROR) begin
-                            state    <= S_IDLE;
-                            htrans_r <= `AHB_TRANS_IDLE;
+                // =====================================================
+                // Dcache Refill — R phase (8 beats)
+                // =====================================================
+                S_DREFILL_R: begin
+                    if (rvalid) begin
+                        if (r_error) begin
+                            state            <= S_IDLE;
                             dcache_error_r   <= 1'b1;
                             dcache_error_is_store_r <= 1'b0;
                             bus_error_addr_r <= burst_base_addr;
                         end else begin
-                            refill_shift_reg[beat_cnt*32 +: 32] <= HRDATA;
-                            if (last_beat) begin
-                                state    <= S_IDLE;
-                                htrans_r <= `AHB_TRANS_IDLE;
-                                dcache_refill_valid_r <= 1'b1;
+                            refill_shift_reg[beat_cnt*32 +: 32] <= rdata;
+                            if (rlast) begin
+                                state                  <= S_IDLE;
+                                dcache_refill_valid_r  <= 1'b1;
                             end else begin
                                 beat_cnt <= beat_cnt + 3'd1;
-                                haddr_r  <= burst_base_addr + ({29'b0, beat_cnt + 3'd1, 2'b0}) + 32'd4;
-                                htrans_r <= `AHB_TRANS_SEQ;
                             end
                         end
                     end
                 end
 
-                S_WB_ADDR: begin
-                    if (HREADY) begin
-                        state    <= S_WB_DATA;
-                        htrans_r <= `AHB_TRANS_SEQ;
-                        haddr_r  <= burst_base_addr + 32'd4;
-                        hwdata_r <= wb_shift_reg[31:0];
+                // =====================================================
+                // Dcache Writeback — AW phase (burst 8)
+                // =====================================================
+                S_WB_AW: begin
+                    awvalid  <= 1'b1;
+                    awaddr   <= addr_r;
+                    awlen    <= 8'h07;
+                    awsize   <= AXI_SIZE_4B;
+                    awburst  <= AXI_BURST_INCR;
+                    awlock   <= AXI_LOCK_NORMAL;
+                    awcache  <= AXI_CACHE_NORM_BUF;
+                    awprot   <= AXI_PROT_DATA_PRIV_SECURE;
+
+                    if (awready) begin
+                        awvalid <= 1'b0;
+                        // Prepare first W beat
+                        wdata    <= wb_shift_reg[31:0];
+                        wstrb    <= 4'b1111;
+                        wlast    <= 1'b0;  // Not last yet (beat 0 of 8)
+                        wvalid   <= 1'b1;
+                        state    <= S_WB_W;
                     end
                 end
 
-                S_WB_DATA: begin
-                    if (beat_done) begin
-                        if (HRESP == `AHB_RESP_ERROR) begin
-                            state    <= S_IDLE;
-                            htrans_r <= `AHB_TRANS_IDLE;
+                // =====================================================
+                // Dcache Writeback — W phase (8 beats)
+                // =====================================================
+                S_WB_W: begin
+                    if (wvalid && wready) begin
+                        // W handshake for current beat
+                        if (wlast) begin
+                            // Last beat sent — move to B phase
+                            wvalid <= 1'b0;
+                            state  <= S_WB_B;
+                        end else begin
+                            // Advance to next beat
+                            beat_cnt    <= beat_cnt + 3'd1;
+                            wb_shift_reg <= wb_shift_reg >> 32;
+                            wdata       <= wb_shift_reg[63:32];
+                            wstrb       <= 4'b1111;
+                            wlast       <= (beat_cnt == 3'd6);  // beat 7 is last
+                        end
+                    end
+                end
+
+                // =====================================================
+                // Dcache Writeback — B phase
+                // =====================================================
+                S_WB_B: begin
+                    if (bvalid) begin
+                        if (b_error) begin
+                            state            <= S_IDLE;
                             dcache_error_r   <= 1'b1;
                             dcache_error_is_store_r <= 1'b1;
                             bus_error_addr_r <= burst_base_addr;
                         end else begin
-                            if (last_beat) begin
-                                state    <= S_IDLE;
-                                htrans_r <= `AHB_TRANS_IDLE;
-                                dcache_wb_valid_r <= 1'b1;
-                            end else begin
-                                beat_cnt    <= beat_cnt + 3'd1;
-                                wb_shift_reg <= wb_shift_reg >> 32;
-                                hwdata_r    <= wb_shift_reg[63:32];
-                                haddr_r     <= burst_base_addr + ({29'b0, beat_cnt + 3'd1, 2'b0}) + 32'd4;
-                                htrans_r    <= `AHB_TRANS_SEQ;
-                            end
+                            state            <= S_IDLE;
+                            dcache_wb_valid_r <= 1'b1;
                         end
                     end
                 end
 
-                S_PTW_ADDR: begin
-                    if (HREADY) begin
-                        state    <= S_PTW_DATA;
-                        htrans_r <= `AHB_TRANS_IDLE;
-                        hwdata_r <= mmio_latch_wdata;
+                // =====================================================
+                // PTW Read — AR phase
+                // =====================================================
+                S_PTW_AR: begin
+                    arvalid  <= 1'b1;
+                    araddr   <= addr_r;
+                    arlen    <= 8'h00;
+                    arsize   <= AXI_SIZE_4B;
+                    arburst  <= AXI_BURST_INCR;
+                    arlock   <= AXI_LOCK_NORMAL;
+                    arcache  <= AXI_CACHE_DEV_NONBUF;
+                    arprot   <= AXI_PROT_DATA_PRIV_SECURE;
+
+                    if (arready) begin
+                        arvalid <= 1'b0;
+                        state   <= S_PTW_R;
                     end
                 end
 
-                S_PTW_DATA: begin
-                    if (HREADY) begin
-                        if (HRESP == `AHB_RESP_ERROR) begin
+                // =====================================================
+                // PTW Read — R phase
+                // =====================================================
+                S_PTW_R: begin
+                    if (rvalid) begin
+                        if (r_error) begin
                             state       <= S_IDLE;
-                            htrans_r    <= `AHB_TRANS_IDLE;
                             ptw_rdata_r <= 32'b0;
                             ptw_done_r  <= 1'b0;
                             ptw_error_r <= 1'b1;
                         end else begin
                             state       <= S_IDLE;
-                            htrans_r    <= `AHB_TRANS_IDLE;
-                            ptw_rdata_r <= HRDATA;
+                            ptw_rdata_r <= rdata;
+                            ptw_done_r  <= 1'b1;
+                            ptw_error_r <= 1'b0;
+                        end
+                    end
+                end
+
+                // =====================================================
+                // PTW Write — AW+W phase (simultaneous, single beat)
+                // =====================================================
+                S_PTW_AW_W: begin
+                    if (!aw_hs_done_r) begin
+                        awvalid  <= 1'b1;
+                        awaddr   <= addr_r;
+                        awlen    <= 8'h00;
+                        awsize   <= AXI_SIZE_4B;
+                        awburst  <= AXI_BURST_INCR;
+                        awlock   <= AXI_LOCK_NORMAL;
+                        awcache  <= AXI_CACHE_DEV_NONBUF;
+                        awprot   <= AXI_PROT_DATA_PRIV_SECURE;
+                    end
+
+                    if (!w_hs_done_r) begin
+                        wvalid   <= 1'b1;
+                        wdata    <= latch_wdata_r;
+                        wstrb    <= 4'b1111;
+                        wlast    <= 1'b1;
+                    end
+
+                    if (awvalid && awready) aw_hs_done_r <= 1'b1;
+                    if (wvalid  && wready)  w_hs_done_r  <= 1'b1;
+
+                    if ((aw_hs_done_r || (awvalid && awready)) &&
+                        (w_hs_done_r  || (wvalid  && wready))) begin
+                        awvalid <= 1'b0;
+                        wvalid  <= 1'b0;
+                        state   <= S_PTW_B;
+                    end
+                end
+
+                // =====================================================
+                // PTW Write — B phase
+                // =====================================================
+                S_PTW_B: begin
+                    if (bvalid) begin
+                        if (b_error) begin
+                            state       <= S_IDLE;
+                            ptw_rdata_r <= 32'b0;
+                            ptw_done_r  <= 1'b0;
+                            ptw_error_r <= 1'b1;
+                        end else begin
+                            state       <= S_IDLE;
                             ptw_done_r  <= 1'b1;
                             ptw_error_r <= 1'b0;
                         end
@@ -428,20 +702,33 @@ module cpu_bus_bridge(
                 end
 
                 default: begin
-                    state    <= S_IDLE;
-                    htrans_r <= `AHB_TRANS_IDLE;
+                    state   <= S_IDLE;
+                    awvalid <= 1'b0;
+                    wvalid  <= 1'b0;
+                    arvalid <= 1'b0;
                 end
             endcase
         end
     end
 
-    assign HADDR     = haddr_r;
-    assign HTRANS    = htrans_r;
-    assign HWRITE    = hwrite_r;
-    assign HSIZE     = hsize_r;
-    assign HBURST    = hburst_r;
-    assign HPROT     = hprot_r;
-    assign HMASTLOCK = hmastlock_r;
-    assign HWDATA    = hwdata_r;
+    // =====================================================================
+    // rready / bready — combinatorial, asserted when expecting responses
+    // This is safe: rvalid/bvalid only come after we initiated the transaction
+    // =====================================================================
+    always_comb begin
+        rready = 1'b0;
+        bready = 1'b0;
+
+        case (state)
+            S_MMIO_R:     rready = 1'b1;
+            S_IREFILL_R:  rready = 1'b1;
+            S_DREFILL_R:  rready = 1'b1;
+            S_PTW_R:      rready = 1'b1;
+            S_MMIO_B:     bready = 1'b1;
+            S_WB_B:       bready = 1'b1;
+            S_PTW_B:      bready = 1'b1;
+            default:      ;  // both 0
+        endcase
+    end
 
 endmodule

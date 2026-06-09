@@ -4,7 +4,7 @@
 
 module dcache_ctrl(
     input  wire        clk,
-    input  wire        reset,
+    input  wire        resetn,
 
     input  wire        cpu_req_valid,
     input  wire [31:0] cpu_req_addr,
@@ -326,8 +326,8 @@ module dcache_ctrl(
     wire [TAG_ENTRY_W-1:0] flush_clear_entry = {1'b1, 1'b0, tag_r_flush[TAG_WIDTH-1:0]};
     wire [TAG_BRAM_W-1:0]  flush_clear_tag_din = ({TAG_BRAM_W{1'b0}} | {{(TAG_BRAM_W-TAG_ENTRY_W){1'b0}}, flush_clear_entry}) << (flush_way * TAG_BRAM_BS);
 
-    always_ff @(posedge clk or posedge reset) begin
-        if (reset) begin
+    always_ff @(posedge clk or negedge resetn) begin
+        if (!resetn) begin
             state            <= S_IDLE;
             refill_req_r     <= 1'b0;
             refill_addr_r    <= 32'b0;

@@ -2,7 +2,7 @@
 
 module non_restoring_divider(
     input         clk,
-    input         reset,
+    input         resetn,
     input  [31:0] dividend,
     input  [31:0] divisor,
     input         start,
@@ -141,9 +141,9 @@ module non_restoring_divider(
                   );
 
   // 状态机
-  always_ff @(posedge clk or posedge reset)
+  always_ff @(posedge clk or negedge resetn)
   begin
-    if (reset)
+    if (!resetn)
     begin
       state <= IDLE;
       count <= 6'b0;

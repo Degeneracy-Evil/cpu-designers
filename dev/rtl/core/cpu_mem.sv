@@ -4,7 +4,7 @@
 
 module cpu_mem(
         input              clk,
-        input              reset,
+        input              resetn,
         input              mem_valid,
         input      exe_mem_bus_t exe_mem_bus_r,
         input      [31:0]  frs2_value,    // float register rs2 for FSW
@@ -116,8 +116,8 @@ module cpu_mem(
     assign misalign_load  = (is_load | is_flw)  && misalign_addr;
     assign misalign_store = (is_store | is_fsw) && misalign_addr;
 
-    always_ff @(posedge clk or posedge reset) begin
-        if (reset) begin
+    always_ff @(posedge clk or negedge resetn) begin
+        if (!resetn) begin
             mem_state <= MEM_IDLE;
             addr_reg <= 32'b0;
             mem_size_reg <= 3'b0;

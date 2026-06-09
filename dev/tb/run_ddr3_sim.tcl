@@ -3,8 +3,8 @@
 #
 # Usage:
 #   vivado -mode batch -source dev/tb/run_ddr3_sim.tcl -tclargs <tb_name> [hex_file]
-#   where <tb_name> is one of: tb_ddr3_mig_ex, tb_ddr3_ahb_ex, tb_ddr3_system
-#   and [hex_file] is optional hex file for tb_ddr3_system (copied to xsim dir)
+#   where <tb_name> is one of: tb_ddr3_mig_ex, tb_ddr3_ahb_ex, tb_ddr3_system_v3
+#   and [hex_file] is optional hex file for tb_ddr3_system_v3 (copied to xsim dir)
 #
 # This script:
 #   1. Creates a temporary Vivado project
@@ -37,6 +37,7 @@ set ahb_dir    [file join $rtl_dir AHB-lite]
 set apb_dir    [file join $rtl_dir APB]
 set core_dir   [file join $rtl_dir core]
 set perips_dir [file join $apb_dir perips]
+set common_dir [file join $rtl_dir common]
 
 # MIG example project paths (source of MIG sim model + ddr3_model)
 set ex_proj    [file join $repo_root project bd_soc_mig_7series_0_1_ex]
@@ -76,15 +77,15 @@ add_files -norecurse [file join $ex_imports ddr3_model.sv]
 add_files -norecurse [file join $ex_imports ddr3_model_parameters.vh]
 add_files -norecurse [file join $ex_imports wiredly.v]
 
-# --- Add IP cores (AHB-AXI bridge, Clocking Wizard) ---
+# --- Add IP cores (AHB-AXI bridge) ---
 puts "Adding IP cores..."
 # AHB-Lite to AXI4 bridge (VHDL) — add both wrapper and RTL library
 set bridge_rtl [file normalize [file join $ddr3_proj ahblite_axi_bridge_0 ahblite_axi_bridge_0 hdl ahblite_axi_bridge_v3_0_vh_rfs.vhd]]
 set bridge_sim [file normalize [file join $ddr3_proj ahblite_axi_bridge_0 ahblite_axi_bridge_0 sim ahblite_axi_bridge_0.vhd]]
 add_files -norecurse $bridge_rtl
 add_files -norecurse $bridge_sim
-# Clocking Wizard (Verilog)
-add_files -norecurse [file join $ddr3_proj clk_wiz_0 clk_wiz_0 clk_wiz_0.v]
+# NOTE: clk_wiz_0 IP is NOT added — v3 testbench bypasses it entirely
+# via DDR3_BYPASS_CLK_WIZ direct clock ports on system_top.
 
 # --- Add glbl.v ---
 set glbl_v [file join $ex_proj bd_soc_mig_7series_0_1_ex.sim sim_1 behav xsim glbl.v]
@@ -131,8 +132,16 @@ add_files -norecurse [file join $perips_dir uart_tx.sv]
 add_files -norecurse [file join $perips_dir timer.sv]
 add_files -norecurse [file join $perips_dir spi.sv]
 
-# System top (needed by tb_ddr3_system)
+# System top (needed by tb_ddr3_system_v3)
 add_files -norecurse [file join $rtl_dir system_top.sv]
+
+# Common modules (reset_sync, etc.)
+add_files [glob -nocomplain -directory $common_dir *.sv]
+
+# clk_wiz_0_passthrough is NO LONGER NEEDED — v3 bypasses clock_wiz
+# entirely via direct clock ports. Kept for backward compatibility
+# with tb_ddr3_system / tb_ddr3_system_v2 if they are still used.
+# add_files -norecurse [file join $rtl_dir clk_wiz_0_passthrough.sv]
 
 # LCD module stub for simulation (real lcd_module is a DCP netlist)
 add_files -norecurse [file join $tb_dir lcd_module_stub.sv]
@@ -166,9 +175,9 @@ if {$hex_file ne ""} {
 set_property top $tb_name [get_filesets sim_1]
 set_property top_lib xil_defaultlib [get_filesets sim_1]
 
-# --- Define SIM_BYPASS_INIT_CAL and SIMULATION ---
-set_property verilog_define {SIM_BYPASS_INIT_CAL=FAST SIMULATION=TRUE} [get_filesets sim_1]
-set_property verilog_define {SIM_BYPASS_INIT_CAL=FAST SIMULATION=TRUE} [current_fileset]
+# --- Define SIM_BYPASS_INIT_CAL, SIMULATION, and DDR3_BYPASS_CLK_WIZ ---
+set_property verilog_define {SIM_BYPASS_INIT_CAL=FAST SIMULATION=TRUE DDR3_BYPASS_CLK_WIZ} [get_filesets sim_1]
+set_property verilog_define {SIM_BYPASS_INIT_CAL=FAST SIMULATION=TRUE DDR3_BYPASS_CLK_WIZ} [current_fileset]
 
 # --- Set include paths for `include directives ---
 set_property include_dirs [list $ahb_dir $apb_dir $core_dir] [get_filesets sources_1]
@@ -204,8 +213,11 @@ if {[llength $bridge_files] > 0} {
 # --- Set simulation runtime ---
 # Full MIG calibration needs ~200-400µs; use 1000µs for MIG/AHB tests
 set sim_runtime "1000us"
-if {$tb_name eq "tb_ddr3_system"} {
+if {$tb_name eq "tb_ddr3_system" || $tb_name eq "tb_ddr3_system_v2"} {
     set sim_runtime "10ms"
+}
+if {$tb_name eq "tb_ddr3_system_v3"} {
+    set sim_runtime "100ms"
 }
 set_property xsim.simulate.runtime $sim_runtime [get_filesets sim_1]
 

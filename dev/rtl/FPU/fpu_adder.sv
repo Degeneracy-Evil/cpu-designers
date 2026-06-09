@@ -2,7 +2,7 @@
 
 module fpu_adder(
     input         clk,
-    input         reset,
+    input         resetn,
     input  [31:0] src1,
     input  [31:0] src2,
     input         is_sub,      // 1 for FSUB.S
@@ -359,8 +359,8 @@ module fpu_adder(
     // ===================================================================
     // FSM
     // ===================================================================
-    always_ff @(posedge clk or posedge reset) begin
-        if (reset) begin
+    always_ff @(posedge clk or negedge resetn) begin
+        if (!resetn) begin
             state     <= S_IDLE;
             done_r    <= 1'b0;
             result_r  <= 32'b0;

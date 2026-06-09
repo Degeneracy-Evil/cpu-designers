@@ -2,7 +2,7 @@
 
 module cpu_trap_manager(
     input         clk,
-    input         reset,
+    input         resetn,
 
     input         id_valid,
     input         id_done,
@@ -113,8 +113,8 @@ module cpu_trap_manager(
     reg [31:0] store_page_fault_vaddr_r;
     reg [31:0] mem_page_fault_pc_r;
 
-    always_ff @(posedge clk or posedge reset) begin
-        if (reset) begin
+    always_ff @(posedge clk or negedge resetn) begin
+        if (!resetn) begin
             inst_access_fault_r      <= 1'b0;
             inst_access_fault_addr_r <= 32'b0;
             load_access_fault_r      <= 1'b0;
@@ -251,8 +251,8 @@ module cpu_trap_manager(
                             misalign_exception_valid ? misalign_exception_mtval :
                             exe_exception_mtval;
 
-    always_ff @(posedge clk or posedge reset) begin
-        if (reset) begin
+    always_ff @(posedge clk or negedge resetn) begin
+        if (!resetn) begin
             exception_valid_r <= 1'b0;
             exception_cause_r <= 32'b0;
             exception_pc_r    <= 32'b0;
@@ -279,7 +279,7 @@ module cpu_trap_manager(
 
     cpu_clint u_clint(
         .clk(clk),
-        .reset(reset),
+        .resetn(resetn),
         .exception_valid(exception_valid_r),
         .exception_cause(exception_cause_r),
         .exception_pc(exception_pc_r),

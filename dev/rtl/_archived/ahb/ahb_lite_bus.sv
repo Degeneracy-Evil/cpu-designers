@@ -53,6 +53,11 @@ module ahb_lite_bus #(
     output wire                    mmcm_locked,
     input  wire                    aresetn,          // MIG AXI reset (active-low) — INPUT, driven by system_top
 
+    // AXI Ready Observability (方案A: ready-gated reset release)
+    output wire                    mig_axi_awready,  // MIG S_AXI awready (for reset sequencing)
+    output wire                    mig_axi_wready,   // MIG S_AXI wready  (for reset sequencing)
+    output wire                    mig_axi_arready,  // MIG S_AXI arready (for reset sequencing)
+
     // System Status inputs (from clk_wiz and MIG)
     input  wire                    i_clk_wiz_locked,
     output wire [12:0]             ddr3_addr,
@@ -96,11 +101,18 @@ module ahb_lite_bus #(
     // not the current HADDR (which belongs to the next transfer in a pipeline).
     // Only update when HREADY=1 (data phase complete) so that during wait
     // states the mux keeps pointing to the slave that owns the data phase.
+    //
+    // FIX: Gate update with HTRANS[1] (NONSEQ=2'b10 or SEQ=2'b11) to exclude
+    // both IDLE (2'b00) and BUSY (2'b01). Per AHB-Lite spec, address/control
+    // signals are undefined during BUSY — the master is not starting a new
+    // transfer. Latching during BUSY could capture a stale or corrupt HSELx.
+    // Also init to DDR3 slave (index 0) instead of all-zeros to avoid
+    // defaulting to the default slave's HREADYOUT=1 after reset.
     reg [SLAVE_NUM-1:0]   mux_HSELx;
     always_ff @(posedge HCLK or negedge HRESETn) begin
         if (!HRESETn)
-            mux_HSELx <= {SLAVE_NUM{1'b0}};
-        else if (HREADY)
+            mux_HSELx <= 7'b0000001;  // Default to DDR3 bridge (slave 0)
+        else if (HREADY && HTRANS[1])  // Only update during NONSEQ/SEQ (not IDLE/BUSY)
             mux_HSELx <= slave_HSELx;
     end
 
@@ -140,6 +152,9 @@ module ahb_lite_bus #(
         .ui_clk_sync_rst     (),
         .mmcm_locked         (mmcm_locked),
         .aresetn             (aresetn),
+        .mig_axi_awready     (mig_axi_awready),
+        .mig_axi_wready      (mig_axi_wready),
+        .mig_axi_arready     (mig_axi_arready),
         .app_sr_req          (1'b0),
         .app_ref_req         (1'b0),
         .app_zq_req          (1'b0),

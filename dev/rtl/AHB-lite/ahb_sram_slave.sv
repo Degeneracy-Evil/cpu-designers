@@ -59,7 +59,7 @@ module ahb_sram_slave #(
     wire bram_write_do   = latch_sel && latch_write && (wait_cnt == 4'd1);
 
     wire        bram_ena   = bram_read_start || bram_write_do;
-    wire        bram_wea   = bram_write_do;
+    wire [3:0]  bram_wea   = bram_write_do ? byte_we : 4'b0000;
     wire [INDEX_WIDTH-1:0] bram_addra = bram_write_do ? latch_addr[INDEX_WIDTH+1:2] : HADDR[INDEX_WIDTH+1:2];
     wire [31:0] bram_dina  = HWDATA;
     wire [31:0] bram_douta;
@@ -73,7 +73,7 @@ module ahb_sram_slave #(
         .douta  (bram_douta),
         .clkb   (HCLK),
         .enb    (1'b0),
-        .web    (1'b0),
+        .web    (4'b0000),
         .addrb  ({INDEX_WIDTH{1'b0}}),
         .dinb   (32'b0),
         .doutb  ()

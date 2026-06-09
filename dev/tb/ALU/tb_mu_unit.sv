@@ -3,7 +3,7 @@
 module tb_mu_unit;
 
   reg clk;
-  reg reset;
+  reg resetn;
   reg [2:0] mu_funct3;
   reg [31:0] src1;
   reg [31:0] src2;
@@ -35,7 +35,7 @@ module tb_mu_unit;
 
   mu_unit dut(
             .clk(clk),
-            .reset(reset),
+            .resetn(resetn),
             .mu_funct3(mu_funct3),
             .src1(src1),
             .src2(src2),
@@ -130,7 +130,7 @@ module tb_mu_unit;
     rv_pulse_count = 0;
     result_valid_d = 1'b0;
 
-    reset = 1'b1;
+    resetn = 1'b0;
     mu_funct3 = 3'b0;
     src1 = 32'b0;
     src2 = 32'b0;
@@ -139,7 +139,7 @@ module tb_mu_unit;
     result_got = 1'b1;
 
     repeat (3) @(posedge clk);
-    reset = 1'b0;
+    resetn = 1'b1;
     repeat (2) @(posedge clk);
 
     $display("========================================");

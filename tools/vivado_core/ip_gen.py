@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from .config import CacheConfig, Ddr3Config, AhbBridgeConfig, ClkWizConfig, MemoryConfig, SramConfig, TlbConfig
+from .config import CacheConfig, Ddr3Config, ClkWizConfig, MemoryConfig, SramConfig, TlbConfig
 
 
 # ---------------------------------------------------------------------------
@@ -66,15 +66,6 @@ class MigIpConfig:
     axi_data_width: int = 32
     axi_addr_width: int = 27
     axi_id_width: int = 8
-
-
-@dataclass(frozen=True)
-class BridgeIpConfig:
-    """AHB-Lite AXI Bridge IP configuration for TCL generation."""
-    name: str
-    ip_version: str = "3.0"
-    thread_id_width: int = 0
-    supports_narrow_burst: bool = True
 
 
 @dataclass(frozen=True)
@@ -228,16 +219,6 @@ def ddr3_to_mig_ip(cfg: Ddr3Config) -> MigIpConfig:
     )
 
 
-def bridge_to_ip(cfg: AhbBridgeConfig) -> BridgeIpConfig:
-    """Derive Bridge IP config from AHB bridge config."""
-    return BridgeIpConfig(
-        name=cfg.ip_name,
-        ip_version=cfg.ip_version,
-        thread_id_width=cfg.thread_id_width,
-        supports_narrow_burst=cfg.supports_narrow_burst,
-    )
-
-
 def clkwiz_to_ip(cfg: ClkWizConfig) -> ClkWizIpConfig:
     """Derive Clocking Wizard IP config from clk_wiz config."""
     return ClkWizIpConfig(
@@ -338,21 +319,6 @@ set_property -dict [list \\
 """
 
 
-def generate_bridge_create_ip_tcl(cfg: BridgeIpConfig, ip_dir: str) -> str:
-    """Generate create_ip TCL for AHB-Lite to AXI4 Bridge."""
-    narrow = "true" if cfg.supports_narrow_burst else "false"
-    return f"""\
-# --- create IP: {cfg.name} (AHB-Lite AXI Bridge, ID_WIDTH={cfg.thread_id_width}) ---
-file mkdir {ip_dir}/{cfg.name}
-create_ip -name ahblite_axi_bridge -vendor xilinx.com -library ip -version {cfg.ip_version} \\
-    -module_name {cfg.name} -dir {ip_dir}/{cfg.name}
-set_property -dict [list \\
-    CONFIG.C_M_AXI_THREAD_ID_WIDTH {{{cfg.thread_id_width}}} \\
-    CONFIG.C_M_AXI_SUPPORTS_NARROW_BURST {{{narrow}}} \\
-] [get_ips {cfg.name}]
-"""
-
-
 def generate_clkwiz_create_ip_tcl(cfg: ClkWizIpConfig, ip_dir: str) -> str:
     """Generate create_ip TCL for Clocking Wizard (DDR3 ref clock generation).
     
@@ -394,6 +360,31 @@ generate_target all [get_ips {name}]
 catch {{ config_ip_cache -export [get_ips -all {name}] }}
 export_ip_user_files -of_objects [get_ips {name}] -no_script -sync -force -quiet
 """
+
+
+def get_bram_ip_names(mem: MemoryConfig) -> list[str]:
+    """Derive the list of BRAM IP names from the memory configuration.
+
+    This replaces the hardcoded ``["Sram", "icached", "dcached", ...]``
+    list, ensuring the BRAM simulation model set always matches the
+    actual IPs created by :func:`generate_all_ip_tcl`.
+
+    Parameters
+    ----------
+    mem:
+        Memory/cache configuration.
+
+    Returns
+    -------
+    list[str]
+        Ordered list of BRAM IP instance names.
+    """
+    names: list[str] = ["Sram", "icached", "dcached"]
+    if mem.use_tag_bram:
+        names.extend(["icachet", "dcachet"])
+    if mem.use_tlb_bram:
+        names.extend(["tlb_flag", "tlb_data"])
+    return names
 
 
 def generate_all_ip_tcl(mem: MemoryConfig, ip_dir: str, base_dir: str = "") -> tuple[str, list[str]]:
@@ -452,7 +443,7 @@ def generate_all_ip_tcl(mem: MemoryConfig, ip_dir: str, base_dir: str = "") -> t
         parts.append(generate_bram_create_ip_tcl(cfg_tlb_data, ip_dir))
         names.append(cfg_tlb_data.name)
 
-    # DDR3 / Bridge / Clocking Wizard (when enabled)
+    # DDR3 / Clocking Wizard (when enabled)
     if mem.ddr3.enabled:
         # Clocking Wizard must be created first (provides clk_ddr_ref)
         cfg_cw = clkwiz_to_ip(mem.clk_wiz)
@@ -463,10 +454,5 @@ def generate_all_ip_tcl(mem: MemoryConfig, ip_dir: str, base_dir: str = "") -> t
         cfg_mig = ddr3_to_mig_ip(mem.ddr3)
         parts.append(generate_mig_create_ip_tcl(cfg_mig, ip_dir, base_dir))
         names.append(cfg_mig.name)
-
-        # AHB-Lite AXI Bridge
-        cfg_bridge = bridge_to_ip(mem.ahb_bridge)
-        parts.append(generate_bridge_create_ip_tcl(cfg_bridge, ip_dir))
-        names.append(cfg_bridge.name)
 
     return "\n".join(parts), names

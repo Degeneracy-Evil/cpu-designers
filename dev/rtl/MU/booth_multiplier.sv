@@ -2,7 +2,7 @@
 
 module booth_multiplier(
     input         clk,
-    input         reset,
+    input         resetn,
     input  [31:0] multiplicand,
     input  [31:0] multiplier,
     input         start,
@@ -62,9 +62,9 @@ module booth_multiplier(
 
   assign add_result = A + add_op_b + add_cin;
 
-  always_ff @(posedge clk or posedge reset)
+  always_ff @(posedge clk or negedge resetn)
   begin
-    if (reset)
+    if (!resetn)
     begin
       state <= IDLE;
       count <= 6'b0;

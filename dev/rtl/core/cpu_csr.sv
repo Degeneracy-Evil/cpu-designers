@@ -2,7 +2,7 @@
 
 module cpu_csr(
     input              clk,
-    input              reset,
+    input              resetn,
 
     input       [11:0] sw_csr_addr,
     input              sw_csr_wen,
@@ -267,8 +267,8 @@ module cpu_csr(
     assign fflags_sw_wen = sw_csr_wen && (sw_csr_addr == ADDR_FFLAGS ||
                                           sw_csr_addr == ADDR_FCSR);
 
-    always_ff @(posedge clk or posedge reset) begin
-        if (reset) begin
+    always_ff @(posedge clk or negedge resetn) begin
+        if (!resetn) begin
             r_mstatus   <= 32'h00001800;
             r_mie       <= 32'b0;
             r_mtvec     <= 32'b0;
@@ -294,7 +294,7 @@ module cpu_csr(
             r_fflags    <= 5'b0;
             r_frm       <= 3'b0;
         end else begin
-            r_mip <= w_mip_hw;
+            r_mip <= {w_mip_hw[31:2], r_sip[1], w_mip_hw[0]};
 
             if (cycle_en)
                 r_mcycle <= r_mcycle + 64'd1;

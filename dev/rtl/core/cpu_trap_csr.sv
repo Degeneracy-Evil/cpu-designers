@@ -3,7 +3,7 @@
 
 module cpu_trap_csr(
     input         clk,
-    input         reset,
+    input         resetn,
 
     input         id_valid,
     input         id_done,
@@ -113,7 +113,7 @@ module cpu_trap_csr(
 
     cpu_trap_manager u_trap_mgr(
         .clk              (clk),
-        .reset            (reset),
+        .resetn            (resetn),
         .id_valid         (id_valid),
         .id_done          (id_done),
         .dec_illegal      (dec_illegal),
@@ -183,7 +183,7 @@ module cpu_trap_csr(
 
     cpu_csr_interface u_csr_if(
         .clk              (clk),
-        .reset            (reset),
+        .resetn            (resetn),
         .id_exe_bus_r     (id_exe_bus_r),
         .dec_csr_addr     (dec_csr_addr),
         .csr_valid        (csr_valid),

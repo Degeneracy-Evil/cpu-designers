@@ -2,7 +2,7 @@
 
 module cpu_clint(
     input              clk,
-    input              reset,
+    input              resetn,
 
     input              exception_valid,
     input       [31:0] exception_cause,

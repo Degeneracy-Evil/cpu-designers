@@ -2,111 +2,12 @@
 
 module tb_uart_hello;
 
-    reg clk;
-    reg reset;
 
-    wire [31:0] cpu_HADDR;
-    wire [1:0]  cpu_HTRANS;
-    wire        cpu_HWRITE;
-    wire [2:0]  cpu_HSIZE;
-    wire [2:0]  cpu_HBURST;
-    wire [3:0]  cpu_HPROT;
-    wire        cpu_HMASTLOCK;
-    wire [31:0] cpu_HWDATA;
-    wire [31:0] cpu_HRDATA;
-    wire        cpu_HREADY;
-    wire        cpu_HRESP;
+    // Shared boilerplate: system_top, clock, reset, debug signals, check_reg, check_mem_word
+    `include "tb_soc_includes.svh"
 
-    wire        timer_irq;
-    wire        plic_eip;
-    wire        clint_mtip;
-    wire        clint_msip;
 
-    wire        uart_tx;
-
-    core_top dut(
-        .clk(clk),
-        .reset(reset),
-        .rf_addr(5'b0),
-        .rf_data(),
-        .if_pc(),
-        .if_inst(),
-        .id_pc(),
-        .id_inst(),
-        .exe_pc(),
-        .exe_inst(),
-        .mem_pc(),
-        .mem_inst(),
-        .wb_pc(),
-        .wb_inst(),
-        .display_state(),
-        .HADDR(cpu_HADDR),
-        .HTRANS(cpu_HTRANS),
-        .HWRITE(cpu_HWRITE),
-        .HSIZE(cpu_HSIZE),
-        .HBURST(cpu_HBURST),
-        .HPROT(cpu_HPROT),
-        .HMASTLOCK(cpu_HMASTLOCK),
-        .HWDATA(cpu_HWDATA),
-        .HRDATA(cpu_HRDATA),
-        .HREADY(cpu_HREADY),
-        .HRESP(cpu_HRESP),
-        .init_sig(1'b0),
-        .timer_irq(clint_mtip),
-        .ext_meip_in(plic_eip),
-        .ext_msip_in(clint_msip)
-    );
-
-    wire [15:0] gpio_io;
-
-    ahb_lite_bus #(
-        .ADDR_WIDTH  (32),
-        .DATA_WIDTH  (32),
-        .SLAVE_NUM   (5),
-        .MEM_DEPTH   (8192),
-        .WAIT_STATES (0),
-        .GPIO_NUM    (16),
-        .UART_FREQ   (100)
-    ) u_bus (
-        .HCLK       (clk),
-        .HRESETn    (~reset),
-        .HADDR      (cpu_HADDR),
-        .HTRANS     (cpu_HTRANS),
-        .HWRITE     (cpu_HWRITE),
-        .HSIZE      (cpu_HSIZE),
-        .HBURST     (cpu_HBURST),
-        .HPROT      (cpu_HPROT),
-        .HMASTLOCK  (cpu_HMASTLOCK),
-        .HWDATA     (cpu_HWDATA),
-        .HRDATA     (cpu_HRDATA),
-        .HREADY     (cpu_HREADY),
-        .HRESP      (cpu_HRESP),
-        .o_timer_irq(timer_irq),
-        .o_gpio_irq (),
-        .o_uart_irq (),
-        .o_spi_irq  (),
-        .o_plic_eip (plic_eip),
-        .o_clint_mtip(clint_mtip),
-        .o_clint_msip(clint_msip),
-        .io_gpioPin (gpio_io),
-        .i_uart_rx  (1'b1),
-        .o_uart_tx  (uart_tx),
-        .o_spiMosi  (),
-        .i_spiMiso  (1'b0),
-        .o_spiSs    (),
-        .o_spiClk   (),
-        .o_gpioCtrl (),
-        .o_gpioData ()
-    );
-
-    initial begin
-    end
-
-    initial begin
-        clk = 1'b0;
-        forever #5 clk = ~clk;
-    end
-
+    wire reset = ~resetn;
     localparam CLK_FRE    = 100;
     localparam BAUD_RATE  = 115200;
     localparam CYCLE      = CLK_FRE * 1000000 / BAUD_RATE;
@@ -116,8 +17,6 @@ module tb_uart_hello;
     reg [7:0] expected_msg [0:MSG_LEN-1];
     reg [7:0] decoded_msg [0:MSG_LEN-1];
     integer   decoded_count;
-    integer   pass_count;
-    integer   fail_count;
 
     initial begin
         expected_msg[0]  = "H";
@@ -199,18 +98,11 @@ module tb_uart_hello;
         end
     end
 
-    initial begin
-    end
-
     integer i;
 
     initial begin
         pass_count = 0;
         fail_count = 0;
-        reset = 1'b1;
-
-        repeat (5) @(posedge clk);
-        reset = 1'b0;
 
         repeat (3000000) @(posedge clk);
 
@@ -257,4 +149,6 @@ module tb_uart_hello;
         $finish;
     end
 
+
 endmodule
+

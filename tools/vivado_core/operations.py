@@ -88,43 +88,28 @@ create_project "{proj_name}" "{proj_dir}" -part "{device_part}" -force
 set_property target_language Verilog [current_project]
 set_property simulator_language Mixed [current_project]
 
-# --- add RTL sources ---
-foreach f [glob -nocomplain -directory "{alu_rtl_dir}" *.sv] {{ import_files -norecurse $f }}
-foreach f [glob -nocomplain -directory "{mu_rtl_dir}" *.sv] {{ import_files -norecurse $f }}
-foreach f [glob -nocomplain -directory "{fpu_rtl_dir}" *.sv] {{ import_files -norecurse $f }}
-foreach f [glob -nocomplain -directory "{cpu_core_dir}" *.sv] {{ import_files -norecurse $f }}
-foreach f [glob -nocomplain -directory "{common_dir}" *.sv] {{ import_files -norecurse $f }}
-foreach f [glob -nocomplain -directory "{ahb_dir}" *.sv] {{ import_files -norecurse $f }}
-foreach f [glob -nocomplain -directory "{ahb_dir}" *.svh] {{
-    import_files -norecurse $f
-    set_property file_type "Verilog Header" [get_files [file tail $f]]
-}}
-foreach f [glob -nocomplain -directory "{amba_dir}" *.v] {{ import_files -norecurse $f }}
-foreach f [glob -nocomplain -directory "{amba_dir}" *.sv] {{ import_files -norecurse $f }}
-foreach f [glob -nocomplain -directory "{ram_wrap_dir}" *.sv] {{ import_files -norecurse $f }}
-foreach f [glob -nocomplain -directory "{apb_dir}" *.sv] {{ import_files -norecurse $f }}
-foreach f [glob -nocomplain -directory "{apb_dir}" *.svh] {{
-    import_files -norecurse $f
-    set_property file_type "Verilog Header" [get_files [file tail $f]]
-}}
-foreach f [glob -nocomplain -directory "{apb_perips_dir}" *.sv] {{ import_files -norecurse $f }}
-foreach f [glob -nocomplain -directory "{apb_header_dir}" *.svh] {{
-    import_files -norecurse $f
-    set_property file_type "Verilog Header" [get_files [file tail $f]]
-}}
-if {{ [file exists "{cpu_core_dir}/cache_def.svh"] }} {{
-    import_files -norecurse "{cpu_core_dir}/cache_def.svh"
-    set_property file_type "Verilog Header" [get_files cache_def.svh]
-}}
-if {{ [file exists "{sys_rtl_dir}/soc_config.vh"] }} {{
-    import_files -norecurse "{sys_rtl_dir}/soc_config.vh"
-    set_property file_type "Verilog Header" [get_files soc_config.vh]
-}}
+# --- add RTL sources (scan_for_includes for auto dependency inference) ---
+# Using add_files -scan_for_includes (chiplab approach) instead of
+# per-file import_files, so Vivado auto-discovers `include deps
+# and update_compile_order can infer correct compile order.
+add_files -scan_for_includes "{alu_rtl_dir}"
+add_files -scan_for_includes "{mu_rtl_dir}"
+add_files -scan_for_includes "{fpu_rtl_dir}"
+add_files -scan_for_includes "{cpu_core_dir}"
+add_files -scan_for_includes "{common_dir}"
+add_files -scan_for_includes "{ahb_dir}"
+add_files -scan_for_includes "{amba_dir}"
+add_files -scan_for_includes "{ram_wrap_dir}"
+add_files -scan_for_includes "{apb_dir}"
+# sys_rtl_dir top-level files only (avoid _archived/ recursion)
+add_files -norecurse "{sys_rtl_dir}/system_top.sv"
+add_files -norecurse "{sys_rtl_dir}/soc_config.vh"
 if {{ [file exists "{sys_rtl_dir}/axi4_def.svh"] }} {{
-    import_files -norecurse "{sys_rtl_dir}/axi4_def.svh"
-    set_property file_type "Verilog Header" [get_files axi4_def.svh]
+    add_files -norecurse "{sys_rtl_dir}/axi4_def.svh"
 }}
-import_files -norecurse "{sys_rtl_dir}/system_top.sv"
+if {{ [file exists "{sys_rtl_dir}/clk_wiz_0_passthrough.sv"] }} {{
+    add_files -norecurse "{sys_rtl_dir}/clk_wiz_0_passthrough.sv"
+}}
 update_compile_order -fileset sources_1
 
 # --- set include dirs ---
@@ -387,7 +372,6 @@ if {{ [file exists "{mig_ip_dir}"] }} {{
 import_files -fileset sim_1 -norecurse "{ddr3_dir}/ddr3_model.sv"
 import_files -fileset sim_1 -norecurse "{ddr3_dir}/ddr3_model_parameters.vh"
 set_property file_type "Verilog Header" [get_files ddr3_model_parameters.vh]
-import_files -fileset sim_1 -norecurse "{ddr3_dir}/wiredly.v"
 
 {bram_tcl}
 
@@ -422,22 +406,18 @@ set_property verilog_define {{{define_str}}} [get_filesets sim_1]
 """
 
 
-def _tcl_copy_hex_file(hex_src: str, proj_dir: str) -> str:
+def _tcl_copy_hex_file(hex_src: str, proj_dir: str, proj_name: str) -> str:
     """Generate TCL for copying a HEX file for ``$readmemh`` access.
 
-    Parameters
-    ----------
-    hex_src:
-        Absolute path to the HEX file (TCL path format).
-    proj_dir:
-        Vivado project directory (TCL path format).
+    Copies to the xsim run directory so $readmemh("prog.hex") can find it.
     """
-    hex_dst = f"{proj_dir}/prog.hex"
+    xsim_dir = f"{proj_dir}/{proj_name}.sim/sim_1/behav/xsim"
     return f"""\
 # --- copy hex file for $readmemh ---
+file mkdir "{xsim_dir}"
 if {{ [file exists "{hex_src}"] }} {{
-    file copy -force "{hex_src}" "{hex_dst}"
-    puts "Copied {hex_src} -> {hex_dst}"
+    file copy -force "{hex_src}" "{xsim_dir}/prog.hex"
+    puts "Copied {hex_src} -> {xsim_dir}/prog.hex"
 }} else {{
     puts "WARNING: HEX file not found: {hex_src}"
 }}
@@ -457,6 +437,19 @@ def _tcl_add_tb(
     """
     tb_dir = f"{dev_dir}/tb"
     ip_xci_dir = f"{proj_dir}/{proj_name}.srcs/sources_1/ip"
+
+    alu_rtl_dir = f"{dev_dir}/rtl/ALU"
+    mu_rtl_dir = f"{dev_dir}/rtl/MU"
+    fpu_rtl_dir = f"{dev_dir}/rtl/FPU"
+    cpu_core_dir = f"{dev_dir}/rtl/core"
+    common_dir = f"{dev_dir}/rtl/common"
+    ahb_dir = f"{dev_dir}/rtl/AHB-lite"
+    amba_dir = f"{dev_dir}/rtl/AMBA"
+    ram_wrap_dir = f"{dev_dir}/rtl/ram_wrap"
+    apb_dir = f"{dev_dir}/rtl/APB"
+    apb_header_dir = f"{dev_dir}/rtl/APB/header"
+    apb_perips_dir = f"{dev_dir}/rtl/APB/perips"
+    sys_rtl_dir = f"{dev_dir}/rtl"
 
     coe_update = ""
     if coe_file:
@@ -491,10 +484,58 @@ if {{ [file exists "{tb_dir}/lcd_module_stub.sv"] }} {{
 }}
 set_property top {tb_name} [get_filesets sim_1]
 set_property top_lib xil_defaultlib [get_filesets sim_1]
-# Propagate include_dirs from sources_1 to sim_1 so Vivado can
-# resolve `include directives during update_compile_order.
 set src_includes [get_property include_dirs [get_filesets sources_1]]
 set_property include_dirs $src_includes [get_filesets sim_1]
+
+# --- import RTL sources into sim_1 ---
+# Vivado 2018.3's prj generator only includes files that are
+# imported into sim_1 — it ignores files merely referenced via
+# add_files.  import_files -fileset sim_1 copies each source
+# into the sim_1 directory so the prj generator discovers them.
+foreach f [glob -nocomplain -directory "{alu_rtl_dir}" *.sv] {{ import_files -fileset sim_1 -norecurse $f }}
+foreach f [glob -nocomplain -directory "{mu_rtl_dir}" *.sv] {{ import_files -fileset sim_1 -norecurse $f }}
+foreach f [glob -nocomplain -directory "{fpu_rtl_dir}" *.sv] {{ import_files -fileset sim_1 -norecurse $f }}
+foreach f [glob -nocomplain -directory "{cpu_core_dir}" *.sv] {{ import_files -fileset sim_1 -norecurse $f }}
+foreach f [glob -nocomplain -directory "{cpu_core_dir}" *.svh] {{
+    import_files -fileset sim_1 -norecurse $f
+    set_property file_type "Verilog Header" [get_files [file tail $f]]
+}}
+foreach f [glob -nocomplain -directory "{common_dir}" *.sv] {{ import_files -fileset sim_1 -norecurse $f }}
+foreach f [glob -nocomplain -directory "{ahb_dir}" *.sv] {{ import_files -fileset sim_1 -norecurse $f }}
+foreach f [glob -nocomplain -directory "{ahb_dir}" *.svh] {{
+    import_files -fileset sim_1 -norecurse $f
+    set_property file_type "Verilog Header" [get_files [file tail $f]]
+}}
+foreach f [glob -nocomplain -directory "{amba_dir}" *.v] {{ import_files -fileset sim_1 -norecurse $f }}
+foreach f [glob -nocomplain -directory "{amba_dir}" *.sv] {{ import_files -fileset sim_1 -norecurse $f }}
+foreach f [glob -nocomplain -directory "{ram_wrap_dir}" *.sv] {{ import_files -fileset sim_1 -norecurse $f }}
+foreach f [glob -nocomplain -directory "{apb_dir}" *.sv] {{ import_files -fileset sim_1 -norecurse $f }}
+foreach f [glob -nocomplain -directory "{apb_dir}" *.svh] {{
+    import_files -fileset sim_1 -norecurse $f
+    set_property file_type "Verilog Header" [get_files [file tail $f]]
+}}
+foreach f [glob -nocomplain -directory "{apb_perips_dir}" *.sv] {{ import_files -fileset sim_1 -norecurse $f }}
+foreach f [glob -nocomplain -directory "{apb_header_dir}" *.svh] {{
+    import_files -fileset sim_1 -norecurse $f
+    set_property file_type "Verilog Header" [get_files [file tail $f]]
+}}
+if {{ [file exists "{cpu_core_dir}/cache_def.svh"] }} {{
+    import_files -fileset sim_1 -norecurse "{cpu_core_dir}/cache_def.svh"
+    set_property file_type "Verilog Header" [get_files cache_def.svh]
+}}
+if {{ [file exists "{sys_rtl_dir}/soc_config.vh"] }} {{
+    import_files -fileset sim_1 -norecurse "{sys_rtl_dir}/soc_config.vh"
+    set_property file_type "Verilog Header" [get_files soc_config.vh]
+}}
+if {{ [file exists "{sys_rtl_dir}/axi4_def.svh"] }} {{
+    import_files -fileset sim_1 -norecurse "{sys_rtl_dir}/axi4_def.svh"
+    set_property file_type "Verilog Header" [get_files axi4_def.svh]
+}}
+import_files -fileset sim_1 -norecurse "{sys_rtl_dir}/system_top.sv"
+if {{ [file exists "{sys_rtl_dir}/clk_wiz_0_passthrough.sv"] }} {{
+    import_files -fileset sim_1 -norecurse "{sys_rtl_dir}/clk_wiz_0_passthrough.sv"
+}}
+
 update_compile_order -fileset sim_1
 
 # --- update COE ---
@@ -894,27 +935,29 @@ class Operations:
             defines = {}
         if task.sim_mode != "ddr3" and "SIMULATION" not in defines:
             defines["SIMULATION"] = "TRUE"
+        if task.hex_file and "SRAM_HEX_FILE" not in defines:
+            pass  # hex file copied to xsim dir by _tcl_copy_hex_file below
         if defines:
             tcl_parts.append(_tcl_set_verilog_defines(defines))
 
-        # HEX file copy for $readmemh
+        # HEX file copy for $readmemh (legacy — kept for backward compat)
         if task.hex_file:
             hex_path = self._resolve_hex_path(task)
-            tcl_parts.append(_tcl_copy_hex_file(hex_path, proj_dir))
+            tcl_parts.append(_tcl_copy_hex_file(hex_path, proj_dir, proj_name))
 
         tcl_parts.append(_tcl_run_sim(task.tb, sim_runtime, proj_dir, proj_name))
         tcl = "\n".join(tcl_parts)
 
         result = session.execute(tcl, timeout=600.0)
 
-        # --- DDR3 prj patching ---
-        # Vivado 2018.3's dependency resolver fails at SV→VHDL boundaries
-        # (Bridge IP), producing an incomplete prj that omits sources_1
-        # files.  When this happens, launch_simulation fails at elaborate
-        # with "Module <ddr3_bridge_wrapper> not found".  We detect this,
-        # patch the prj file to include sources_1 files, and re-run
-        # xvlog/xelab/xsim manually.
-        if task.sim_mode == "ddr3" and not result.success:
+        # --- prj patching ---
+        # Vivado 2018.3's dependency resolver frequently produces an
+        # incomplete prj that omits sources_1 files (SV→VHDL boundaries,
+        # `include dependencies, etc.).  When this happens,
+        # launch_simulation fails at elaborate with "Module <X> not found".
+        # We detect this, patch the prj file to include sources_1 files,
+        # and re-run xvlog/xelab/xsim manually.
+        if not result.success:
             patched = self._patch_prj_and_rerun(
                 session, task, sim_runtime, proj_dir, proj_name
             )
@@ -1049,19 +1092,24 @@ class Operations:
         total = len(sv_files) + len(v_files) + len(vhd_files)
         logger.info("Patched prj with %d sources_1 entries", total)
 
-        # Re-run simulation via TCL (in-process, no external subprocess).
-        # After patching the prj, close the failed simulation and re-launch.
-        # Use -mt off to avoid XSIM 43-3356 (Vivado 2018.3 Windows file-locking race).
+        # Re-run simulation by calling xvlog/xelab/xsim directly.
+        # We cannot use launch_simulation because it regenerates the prj
+        # file, overwriting our patch.
         tb = task.tb
         sim_log_dir = f"{proj_dir}/{proj_name}.sim/sim_1/behav/xsim"
+        prj_name_base = prj_path.stem
+        snapshot = f"{tb}_behav"
 
         tcl_rerun = f"""\
-# --- Re-run simulation after prj patch ---
+# --- Re-run simulation after prj patch (direct xvlog/xelab/xsim) ---
 catch {{ close_sim -force }}
-set_property xsim.elaborate.xsim.more_options {{-mt off -debug off}} [get_filesets sim_1]
-set_property xsim.simulate.runtime {runtime} [get_filesets sim_1]
-set_property xsim.simulate.log_all_objects true [get_filesets sim_1]
-launch_simulation -mode behavioral
+cd {sim_log_dir}
+catch {{ exec xvlog --incr --relax -prj {prj_name_base}.prj }} xvlog_result
+puts $xvlog_result
+catch {{ exec xelab --incr --debug typical --relax -mt 8 -d SIMULATION=TRUE -L xil_defaultlib -L unisims_ver -L unimacro_ver -L secureip -L xpm --snapshot {snapshot} xil_defaultlib.{tb} xil_defaultlib.glbl }} xelab_result
+puts $xelab_result
+catch {{ exec xsim {snapshot} -R -log simulate.log }} xsim_result
+puts $xsim_result
 
 # --- read sim log ---
 set sim_log_file "{sim_log_dir}/simulate.log"

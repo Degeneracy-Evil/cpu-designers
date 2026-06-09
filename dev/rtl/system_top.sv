@@ -60,12 +60,39 @@ module system_top(
 );
 
     // ========================================================================
-    // Clock Architecture — 3-branch generate (Phase 4)
+    // Clock + Reset Architecture — 3-branch generate (aligned with chiplab)
+    // ========================================================================
+    // Each branch generates clocks AND the corresponding reset chain.
+    // Reset conditions differ per branch:
+    //   sim_clk:      resetn & ddr_data_init            (clk_wiz_locked=1)
+    //   sim_pll_clk:  resetn & clk_wiz_locked & ddr_data_init
+    //   fpga_clk:     resetn & clk_wiz_locked & ddr_aresetn
+    //
+    // ddr_aresetn comes from axi_wrap_ddr (MIG init_calib_complete).
+    // In SRAM mode, ddr_aresetn is tied to 1'b1 (no DDR3 calibration).
+    // In simulation, ddr_data_init replaces ddr_aresetn (TB force-override).
     // ========================================================================
     wire cpu_clk;       // CPU clock domain
     wire sys_clk;       // System/interconnect clock domain (100MHz)
     wire ddr_clk_ref;   // 200MHz DDR reference clock
     wire clk_wiz_locked; // Clocking Wizard locked (FPGA path only; sim ties to 1)
+    wire sys_resetn;    // Synchronized system reset (active-LOW)
+    wire cpu_resetn;    // Synchronized CPU reset (active-LOW)
+
+    // ddr_data_init: simulation-only gating signal
+    // In simulation: TB forces to 0 initially, then 1 after DDR3 init + program load
+    // In FPGA: tied to 1 (CPU boots from ROM, no DDR3 init gating)
+    wire ddr_data_init;
+`ifdef SIMULATION
+    assign ddr_data_init = 1'b0;  // Default: system held in reset; TB overrides with force
+`else
+    assign ddr_data_init = 1'b1;  // FPGA: not used (ddr_aresetn gates reset instead)
+`endif
+
+    // ddr_aresetn: DDR3 calibration complete signal from axi_wrap_ddr
+    // Declared here so the reset chain can reference it before the DDR3 generate block.
+    // Driven by axi_wrap_ddr in DDR3 mode, or tied to 1'b1 in SRAM mode.
+    wire ddr_aresetn;
 
 `ifdef SIMULATION
     if (`SIMU_USE_PLL == 0) begin: sim_clk
@@ -78,10 +105,21 @@ module system_top(
         assign sys_clk     = clk;            // 100MHz external
         assign ddr_clk_ref = clk_200m;
         assign clk_wiz_locked = 1'b1;        // No PLL in sim, always "locked"
+
+        // Reset: resetn & ddr_data_init (clk_wiz_locked=1, so omitted)
+        reset_sync u_rst_sys (
+            .rst_n_in (resetn & ddr_data_init),
+            .clk      (sys_clk),
+            .rst_n_out(sys_resetn)
+        );
+        reset_sync u_rst_cpu (
+            .rst_n_in (sys_resetn),
+            .clk      (cpu_clk),
+            .rst_n_out(cpu_resetn)
+        );
     end
     else begin: sim_pll_clk
         // Simulation + PLL: use clk_wiz_0 (slow but more realistic)
-        // For now, same as FPGA path
         wire clk_wiz_locked_local;
         clk_wiz_0 u_clk_wiz_0 (
             .clk_in1  (clk),
@@ -92,6 +130,18 @@ module system_top(
         );
         assign cpu_clk = sys_clk;
         assign clk_wiz_locked = clk_wiz_locked_local;
+
+        // Reset: resetn & clk_wiz_locked & ddr_data_init
+        reset_sync u_rst_sys (
+            .rst_n_in (resetn & clk_wiz_locked & ddr_data_init),
+            .clk      (sys_clk),
+            .rst_n_out(sys_resetn)
+        );
+        reset_sync u_rst_cpu (
+            .rst_n_in (sys_resetn),
+            .clk      (cpu_clk),
+            .rst_n_out(cpu_resetn)
+        );
     end
 `else
     // FPGA: use clk_wiz_0
@@ -111,46 +161,23 @@ module system_top(
         );
         assign clk_wiz_locked = clk_wiz_locked_local;
 `endif
-        assign cpu_clk = sys_clk;  // Same clock for now
+        assign cpu_clk = sys_clk;
+
+        // Reset: resetn & clk_wiz_locked & ddr_aresetn
+        // ddr_aresetn = 1 only after MIG init_calib_complete,
+        // ensuring system stays in reset until DDR3 is calibrated.
+        reset_sync u_rst_sys (
+            .rst_n_in (resetn & clk_wiz_locked & ddr_aresetn),
+            .clk      (sys_clk),
+            .rst_n_out(sys_resetn)
+        );
+        reset_sync u_rst_cpu (
+            .rst_n_in (sys_resetn),
+            .clk      (cpu_clk),
+            .rst_n_out(cpu_resetn)
+        );
     end
 `endif
-
-    // ========================================================================
-    // ddr_data_init wire
-    // ========================================================================
-    // Simulation: TB force; FPGA: tied to 1
-    wire ddr_data_init;
-`ifdef SIMULATION
-    assign ddr_data_init = 1'b0;  // Default: system held in reset; TB overrides with force
-`else
-    assign ddr_data_init = 1'b1;  // FPGA: CPU boots from ROM, no DDR3 init gating
-`endif
-
-    // ========================================================================
-    // Reset Sequencing (simplified, aligned with chiplab)
-    // ========================================================================
-    // Stage 1: System reset — sync deassert
-    wire sys_resetn_raw;
-`ifdef SIMULATION
-    assign sys_resetn_raw = resetn & ddr_data_init;
-`else
-    assign sys_resetn_raw = resetn;  // ddr_data_init=1 in FPGA
-`endif
-
-    wire sys_resetn;
-    reset_sync u_rst_sys (
-        .rst_n_in (sys_resetn_raw),
-        .clk      (sys_clk),
-        .rst_n_out(sys_resetn)
-    );
-
-    // Stage 2: CPU reset — sync deassert
-    wire cpu_resetn;
-    reset_sync u_rst_cpu (
-        .rst_n_in (sys_resetn),
-        .clk      (cpu_clk),
-        .rst_n_out(cpu_resetn)
-    );
 
     // ========================================================================
     // CPU Instantiation — AXI4 ports
@@ -164,6 +191,8 @@ module system_top(
     wire        cpu_awlock;
     wire [3:0]  cpu_awcache;
     wire [2:0]  cpu_awprot;
+    wire [3:0]  cpu_awqos;
+    wire [3:0]  cpu_awregion;
     wire        cpu_awvalid;
     wire        cpu_awready;
     wire [31:0] cpu_wdata;
@@ -182,6 +211,8 @@ module system_top(
     wire        cpu_arlock;
     wire [3:0]  cpu_arcache;
     wire [2:0]  cpu_arprot;
+    wire [3:0]  cpu_arqos;
+    wire [3:0]  cpu_arregion;
     wire        cpu_arvalid;
     wire        cpu_arready;
     wire [31:0] cpu_rdata;
@@ -239,6 +270,8 @@ module system_top(
         .awlock       (cpu_awlock),
         .awcache      (cpu_awcache),
         .awprot       (cpu_awprot),
+        .awqos        (cpu_awqos),
+        .awregion     (cpu_awregion),
         .awvalid      (cpu_awvalid),
         .awready      (cpu_awready),
         // AXI4 W Channel
@@ -260,6 +293,8 @@ module system_top(
         .arlock       (cpu_arlock),
         .arcache      (cpu_arcache),
         .arprot       (cpu_arprot),
+        .arqos        (cpu_arqos),
+        .arregion     (cpu_arregion),
         .arvalid      (cpu_arvalid),
         .arready      (cpu_arready),
         // AXI4 R Channel
@@ -289,6 +324,8 @@ module system_top(
     wire [0:0]  cdc_awlock;
     wire [3:0]  cdc_awcache;
     wire [2:0]  cdc_awprot;
+    wire [3:0]  cdc_awqos;
+    wire [3:0]  cdc_awregion;
     wire        cdc_wvalid;
     wire        cdc_wready;
     wire [31:0] cdc_wdata;
@@ -308,6 +345,15 @@ module system_top(
     wire [0:0]  cdc_arlock;
     wire [3:0]  cdc_arcache;
     wire [2:0]  cdc_arprot;
+    wire [3:0]  cdc_arqos;
+    wire [3:0]  cdc_arregion;
+
+    // QoS/Region not passed through CDC — tie to zero
+    assign cdc_awqos    = 4'b0000;
+    assign cdc_awregion = 4'b0000;
+    assign cdc_arqos    = 4'b0000;
+    assign cdc_arregion = 4'b0000;
+
     wire        cdc_rvalid;
     wire        cdc_rready;
     wire [31:0] cdc_rdata;
@@ -427,20 +473,28 @@ module system_top(
                                3'd6;
 
     // Latch slave select on AW handshake (for W/B channel routing)
+    // Latch slave select on cdc_awvalid (not handshake) so aw_slave_sel is
+    // updated BEFORE the first W beat arrives.  The Axi_CDC may introduce
+    // different pipeline latencies for AW and W channels; if the W channel
+    // has less latency, the first W beat can reach the decoder before
+    // aw_slave_sel is latched on the AW handshake, routing it to the
+    // default slave (6) and losing the beat.  Latching on cdc_awvalid
+    // ensures aw_slave_sel is correct one cycle after awvalid is asserted,
+    // which is always before any W beats can arrive.
     reg [2:0] aw_slave_sel;
     always_ff @(posedge sys_clk or negedge sys_resetn) begin
         if (!sys_resetn)
             aw_slave_sel <= 3'd6;
-        else if (cdc_awvalid && cdc_awready)
+        else if (cdc_awvalid)
             aw_slave_sel <= aw_slave_sel_comb;
     end
 
-    // Latch slave select on AR handshake (for R channel routing)
+    // Latch slave select on cdc_arvalid (same reasoning as AW above)
     reg [2:0] ar_slave_sel;
     always_ff @(posedge sys_clk or negedge sys_resetn) begin
         if (!sys_resetn)
             ar_slave_sel <= 3'd6;
-        else if (cdc_arvalid && cdc_arready)
+        else if (cdc_arvalid)
             ar_slave_sel <= ar_slave_sel_comb;
     end
 
@@ -600,6 +654,8 @@ module system_top(
     assign ddr_awburst  = cdc_awburst;
     assign ddr_awlock   = cdc_awlock;
     assign ddr_awcache  = cdc_awcache;
+
+
     assign ddr_awprot   = cdc_awprot;
 
     // Boot ROM (slave 1) — AXI4-Lite
@@ -642,50 +698,57 @@ module system_top(
                          default_awready;
 
     // --- W channel routing (follows latched AW slave select) ---
-    assign ddr_wvalid    = cdc_wvalid && (aw_slave_sel == 3'd0);
+    // When cdc_awvalid is asserted, the AW address is still on the bus and
+    // aw_slave_sel_comb is correct.  Use it for W routing to handle the
+    // case where the first W beat arrives in the same cycle as the AW
+    // handshake (before aw_slave_sel has been latched).
+    // After cdc_awvalid drops, fall back to the registered aw_slave_sel.
+    wire [2:0] w_slave_sel = cdc_awvalid ? aw_slave_sel_comb : aw_slave_sel;
+
+    assign ddr_wvalid    = cdc_wvalid && (w_slave_sel == 3'd0);
     assign ddr_wdata     = cdc_wdata;
     assign ddr_wstrb     = cdc_wstrb;
     assign ddr_wlast     = cdc_wlast;
 
-    assign bootrom_wvalid = cdc_wvalid && (aw_slave_sel == 3'd1);
+    assign bootrom_wvalid = cdc_wvalid && (w_slave_sel == 3'd1);
     assign bootrom_wdata  = cdc_wdata;
     assign bootrom_wstrb  = cdc_wstrb;
 
-    assign plic_wvalid = cdc_wvalid && (aw_slave_sel == 3'd2);
+    assign plic_wvalid = cdc_wvalid && (w_slave_sel == 3'd2);
     assign plic_wdata  = cdc_wdata;
     assign plic_wstrb  = cdc_wstrb;
 
-    assign clint_wvalid = cdc_wvalid && (aw_slave_sel == 3'd3);
+    assign clint_wvalid = cdc_wvalid && (w_slave_sel == 3'd3);
     assign clint_wdata  = cdc_wdata;
     assign clint_wstrb  = cdc_wstrb;
 
-    assign apb_wvalid = cdc_wvalid && (aw_slave_sel == 3'd4);
+    assign apb_wvalid = cdc_wvalid && (w_slave_sel == 3'd4);
     assign apb_wdata  = cdc_wdata;
     assign apb_wstrb  = cdc_wstrb;
 
-    assign syssts_wvalid = cdc_wvalid && (aw_slave_sel == 3'd5);
+    assign syssts_wvalid = cdc_wvalid && (w_slave_sel == 3'd5);
     assign syssts_wdata  = cdc_wdata;
     assign syssts_wstrb  = cdc_wstrb;
 
-    assign default_wvalid = cdc_wvalid && (aw_slave_sel == 3'd6);
+    assign default_wvalid = cdc_wvalid && (w_slave_sel == 3'd6);
     assign default_wdata  = cdc_wdata;
     assign default_wstrb  = cdc_wstrb;
 
     // W ready mux back to CDC master
-    assign cdc_wready = (aw_slave_sel == 3'd0) ? ddr_wready    :
-                        (aw_slave_sel == 3'd1) ? bootrom_wready :
-                        (aw_slave_sel == 3'd2) ? plic_wready    :
-                        (aw_slave_sel == 3'd3) ? clint_wready   :
-                        (aw_slave_sel == 3'd4) ? apb_wready     :
-                        (aw_slave_sel == 3'd5) ? syssts_wready  :
+    assign cdc_wready = (w_slave_sel == 3'd0) ? ddr_wready    :
+                        (w_slave_sel == 3'd1) ? bootrom_wready :
+                        (w_slave_sel == 3'd2) ? plic_wready    :
+                        (w_slave_sel == 3'd3) ? clint_wready   :
+                        (w_slave_sel == 3'd4) ? apb_wready     :
+                        (w_slave_sel == 3'd5) ? syssts_wready  :
                         default_wready;
 
-    // --- B channel routing (follows latched AW slave select) ---
-    assign ddr_bready    = cdc_bready && (aw_slave_sel == 3'd0);
-    assign bootrom_bready = cdc_bready && (aw_slave_sel == 3'd1);
-    assign plic_bready    = cdc_bready && (aw_slave_sel == 3'd2);
-    assign clint_bready   = cdc_bready && (aw_slave_sel == 3'd3);
-    assign apb_bready     = cdc_bready && (aw_slave_sel == 3'd4);
+    // --- B channel routing (follows w_slave_sel, same as W channel) ---
+    assign ddr_bready    = cdc_bready && (w_slave_sel == 3'd0);
+    assign bootrom_bready = cdc_bready && (w_slave_sel == 3'd1);
+    assign plic_bready    = cdc_bready && (w_slave_sel == 3'd2);
+    assign clint_bready   = cdc_bready && (w_slave_sel == 3'd3);
+    assign apb_bready     = cdc_bready && (w_slave_sel == 3'd4);
     assign syssts_bready  = cdc_bready && (aw_slave_sel == 3'd5);
     assign default_bready = cdc_bready && (aw_slave_sel == 3'd6);
 
@@ -794,7 +857,10 @@ module system_top(
     // ========================================================================
     // DDR3/SRAM Conditional Generate
     // ========================================================================
-    wire ddr_aresetn;  // From axi_wrap_ddr (or tied to sys_resetn in SRAM mode)
+    // ddr_aresetn is declared above (in clock/reset section) so the reset
+    // chain can reference it.  Here we drive it:
+    //   SRAM mode:  ddr_aresetn = 1 (no DDR3 calibration to wait for)
+    //   DDR3 mode:  driven by axi_wrap_ddr output
 
 `ifdef SIMULATION
     if (`SIMU_USE_DDR == 0) begin: sim_ram
@@ -845,7 +911,10 @@ module system_top(
             .ram_random_mask(5'b0)
         );
         // No DDR3 pins in SRAM mode — tie off top-level outputs
-        assign ddr_aresetn   = sys_resetn;
+        // ddr_aresetn = 1: no DDR3 calibration to wait for;
+        // using 1'b1 (not sys_resetn) avoids circular dependency
+        // now that FPGA reset chain gates on ddr_aresetn.
+        assign ddr_aresetn   = 1'b1;
         assign ddr3_addr     = 13'b0;
         assign ddr3_ba       = 3'b0;
         assign ddr3_ras_n    = 1'b1;
@@ -1181,9 +1250,9 @@ module system_top(
     wire        bridge_PWRITE;
     wire [31:0] bridge_PWDATA;
     wire [3:0]  bridge_PSTRB;
-    wire        bridge_PREADY;
-    wire [31:0] bridge_PRDATA;
-    wire        bridge_PSLVERR;
+    logic       bridge_PREADY;
+    logic [31:0] bridge_PRDATA;
+    logic       bridge_PSLVERR;
 
     // APB slave select
     wire [3:0] apb_slave_PSELx;

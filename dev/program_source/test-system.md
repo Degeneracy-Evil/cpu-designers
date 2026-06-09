@@ -1,6 +1,6 @@
 # 测试体系文档
 
-> 最后更新: 2026-05-29 | 关联计划: `dev/PLAN-test-system.md` | 进度追踪: `dev/PROCESS-test-system.md`
+> 最后更新: 2026-06-09 | 关联计划: `dev/PLAN-test-system.md` | 进度追踪: `dev/PROCESS-test-system.md`
 
 ---
 
@@ -25,10 +25,10 @@ dev/program_source/
 ├── test/                       # 测试程序
 │   ├── tests.yaml              # ★ 测试注册表
 │   ├── isa/                    # ISA 指令测试 (7 文件, 107 子测试)
-│   ├── exception/              # 异常/中断测试 (6 文件, 15 子测试)
-│   ├── privilege/              # 特权级测试 (3 文件)
-│   ├── mmu/                    # MMU/TLB 测试 (12 文件, 70 子测试)
-│   ├── cache/                  # Cache 测试 (5 文件, 31 子测试)
+│   ├── exception/              # 异常/中断测试 (6 文件, 21 子测试)
+│   ├── privilege/              # 特权级测试 (3 文件, 21 子测试)
+│   ├── mmu/                    # MMU/TLB 测试 (12 文件, 80 子测试)
+│   ├── cache/                  # Cache 测试 (5 文件, 21 子测试)
 │   ├── mmio/                   # MMIO 测试 (2 文件, 8 子测试)
 │   ├── regression/             # 回归测试 (7 文件, 21 子测试)
 │   └── integration/            # 集成测试 (3 文件)
@@ -56,7 +56,7 @@ dev/program_source/
 
 ### 2.2 内存结果区
 
-固定地址 `0x80007000` (SRAM 内):
+固定地址 `0x80007000` (BRAM 内，MMU 测试布局 page 7):
 
 | 偏移 | 内容 | 说明 |
 |------|------|------|
@@ -209,7 +209,9 @@ endmodule
 
 ## 6. MMU 测试特殊约定
 
-### 6.1 内存布局 (32KB SRAM)
+### 6.1 内存布局
+
+仿真模型 `axi_wrap_ram` 提供 1MB BRAM (MEM_DEPTH=262144)。MMU 测试自约束使用前 32KB (8 页 × 4KB)，确保页表和测试数据在连续页内：
 
 ```
 0x80000000: 代码 (.text.start)     [page 0]
@@ -221,6 +223,8 @@ endmodule
 0x80006000: 数据页 C               [page 6]
 0x80007000: TEST_RESULT_BASE       [page 7]
 ```
+
+> `cache_def.svh` 中 `SRAM_DEPTH=8192` (32KB) 对应 FPGA BRAM IP 配置，仿真模型实际为 1MB。
 
 ### 6.2 M→S→M 特权级切换
 
@@ -246,9 +250,9 @@ s_mode_entry:
 
 ### 6.4 注意事项
 
-- **fence.i 在 enable_sv32 前必需**: dcache write-back, PTW 绕过 dcache → fence.i 确保页表写入 SRAM
+- **fence.i 在 enable_sv32 前必需**: dcache write-back, PTW 绕过 dcache → fence.i 确保页表写入内存
 - **数据区最小化**: 使用 `.word + .word 0` 代替 `.fill 1023, 4, 0`，`.balign 4096` 保证页对齐
-- **SRAM 上限 32KB**: 页表 (8KB) + 代码 + 数据区 < 32KB
+- **MMU 测试自约束 32KB**: 页表 (8KB) + 代码 + 数据区 < 32KB (仿真模型为 1MB，但 MMU 测试布局仅使用前 8 页)
 - **地址偏移用 li+add**: 0x800 等大立即数超出 addi 12-bit 范围
 
 ---
@@ -259,12 +263,17 @@ s_mode_entry:
 |-------|------|---------|--------|------|
 | T1 | 框架搭建 | 1 | 20 | ✅ |
 | T2 | ISA | 7 | 107 | ✅ |
-| T3 | 异常/中断 | 6 | 15 | ✅ |
-| T4 | MMU/TLB | 11 | 62 | ✅ |
-| T5 | Cache + MMIO | 7 | 31 | ✅ |
+| T2.5 | ISA-F (FPU) | 2 | 50 | ✅ |
+| T3 | 异常/中断 | 6 | 21 | ✅ |
+| T4 | MMU/TLB | 11 | 72 | ✅ |
+| T5 | Cache + MMIO | 7 | 29 | ✅ |
 | T6 | 回归测试 | 7 | 21 | ✅ |
 | T7 | 统一 MMU | 1 | 8 | ✅ |
-| **合计** | | **40** | **264** | **ALL PASS** |
+| T8 | 特权级 | 3 | 21 | ✅ |
+| T9 | 集成测试 | 3 | — | ✅ |
+| **合计** | | **48** | **329** | **ALL PASS** |
+
+> 子测试数来源于各 testbench 的 `EXPECTED_TOTAL`。集成测试使用 `framework: none`，无子测试计数，采用直接寄存器/内存值检查。
 
 ---
 

@@ -37,7 +37,7 @@ module tb_fpu_multiplier;
 
     // ── Clock & reset ──
     reg        clk;
-    reg        reset;
+    reg        resetn;
 
     // ── DUT inputs ──
     reg  [31:0] src1;
@@ -63,7 +63,7 @@ module tb_fpu_multiplier;
     // ── DUT instantiation ──
     fpu_multiplier dut (
         .clk    (clk),
-        .reset  (reset),
+        .resetn (resetn),
         .src1   (src1),
         .src2   (src2),
         .rm     (rm),
@@ -133,9 +133,9 @@ module tb_fpu_multiplier;
         start      = 1'b0;
 
         // Assert reset for 5 cycles
-        reset = 1'b1;
+        resetn = 1'b0;
         repeat (5) @(posedge clk);
-        reset = 1'b0;
+        resetn = 1'b1;
         @(posedge clk);
 
         // ============================================================

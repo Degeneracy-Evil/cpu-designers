@@ -107,8 +107,8 @@ class SyncPolicy:
         if not session.meta.hashes:
             return PreflightResult(
                 ok=False,
-                reason="Session has no project; create first",
-                fix="Run -create before proceeding",
+                reason=f"Session {session.name!r} has no project; create first",
+                fix=f"Run -create on session {session.name!r} before proceeding",
                 severity="error",
                 stale_layers=[],
             )

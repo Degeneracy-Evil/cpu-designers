@@ -73,7 +73,7 @@ module axi4lite_sys_status #(
             aw_latch     <= 1'b0;
             w_latch      <= 1'b0;
             s_axi_bvalid <= 1'b0;
-            s_axi_bresp  <= AXI_RESP_OKAY;
+            s_axi_bresp  <= `AXI_RESP_OKAY;
         end else begin
             if (s_axi_bvalid && s_axi_bready) begin
                 s_axi_bvalid <= 1'b0;
@@ -102,7 +102,7 @@ module axi4lite_sys_status #(
     always_ff @(posedge s_axi_aclk or negedge s_axi_aresetn) begin
         if (!s_axi_aresetn) begin
             s_axi_rvalid  <= 1'b0;
-            s_axi_rresp   <= AXI_RESP_OKAY;
+            s_axi_rresp   <= `AXI_RESP_OKAY;
             s_axi_rdata   <= {DATA_WIDTH{1'b0}};
             latch_araddr  <= {ADDR_WIDTH{1'b0}};
         end else begin
@@ -110,7 +110,7 @@ module axi4lite_sys_status #(
                 s_axi_rvalid <= 1'b0;
             end else if (!s_axi_rvalid && s_axi_arvalid) begin
                 s_axi_rvalid <= 1'b1;
-                s_axi_rresp  <= AXI_RESP_OKAY;
+                s_axi_rresp  <= `AXI_RESP_OKAY;
                 latch_araddr <= s_axi_araddr;
                 // Combinational mux based on latched address
                 case (s_axi_araddr[3:0])

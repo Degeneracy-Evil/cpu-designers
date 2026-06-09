@@ -23,7 +23,8 @@
 # 变量检查
 # ---------------------------------------------------------------------------
 foreach _var {proj_name device_part proj_dir alu_rtl_dir mu_rtl_dir fpu_rtl_dir cpu_core_dir \
-               ahb_dir ahb_ip_dir apb_dir apb_header_dir apb_perips_dir sys_rtl_dir common_dir tb_dir} {
+               ahb_dir ahb_ip_dir apb_dir apb_header_dir apb_perips_dir sys_rtl_dir common_dir tb_dir \
+               amba_dir ram_wrap_dir} {
     if { ![info exists $_var] } {
         puts "ERROR: _create.tcl — 缺少必需变量: $_var"
         return
@@ -50,103 +51,79 @@ set_property simulator_language Mixed [current_project]
 puts "工程已创建: $proj_dir (拷贝策略)"
 
 # ---------------------------------------------------------------------------
-# Step 2: 添加 RTL 源文件
+# Step 2: 添加 RTL 源文件 (add_files -scan_for_includes)
+#
+# 使用 add_files -scan_for_includes 代替逐文件 import_files:
+#   -scan_for_includes 让 Vivado 自动扫描 `include 依赖
+#   -自动推断编译顺序，解决 update_compile_order 依赖缺失问题
+#   -参考 chiplab 框架项目的 create_project.tcl
+#
+# 注意: sys_rtl_dir (dev/rtl/) 的顶层文件需单独添加，
+#       因为 add_files -scan_for_includes 会递归包含 _archived/ 等不需要的子目录
 # ---------------------------------------------------------------------------
 puts "========== Step 2: 添加 RTL 源文件 =========="
 
 # ALU
-if { [catch {
-    foreach f [glob -directory $alu_rtl_dir *.sv] {
-        import_files -norecurse $f
-    }
-} err] } {
+if { [catch {add_files -scan_for_includes $alu_rtl_dir} err] } {
     puts "WARNING: 添加 ALU RTL 失败: $err"
 }
 
 # MU
-if { [catch {
-    foreach f [glob -directory $mu_rtl_dir *.sv] {
-        import_files -norecurse $f
-    }
-} err] } {
+if { [catch {add_files -scan_for_includes $mu_rtl_dir} err] } {
     puts "WARNING: 添加 MU RTL 失败: $err"
 }
 
 # FPU
-if { [catch {
-    foreach f [glob -directory $fpu_rtl_dir *.sv] {
-        import_files -norecurse $f
-    }
-} err] } {
+if { [catch {add_files -scan_for_includes $fpu_rtl_dir} err] } {
     puts "WARNING: 添加 FPU RTL 失败: $err"
 }
 
-# CPU Core
-if { [catch {
-    foreach f [glob -directory $cpu_core_dir *.sv] {
-        import_files -norecurse $f
-    }
-} err] } {
+# CPU Core (含 cache_def.svh, core_bus_types.svh 等头文件)
+if { [catch {add_files -scan_for_includes $cpu_core_dir} err] } {
     puts "WARNING: 添加 CPU Core RTL 失败: $err"
 }
 
 # Common (reset_sync, etc.)
-if { [catch {
-    foreach f [glob -directory $common_dir *.sv] {
-        import_files -norecurse $f
-    }
-} err] } {
+if { [catch {add_files -scan_for_includes $common_dir} err] } {
     puts "WARNING: 添加 Common RTL 失败: $err"
 }
 
-# AHB-Lite (.sv + .svh)
-if { [catch {
-    foreach f [glob -directory $ahb_dir *.sv] {
-        import_files -norecurse $f
-    }
-    foreach f [glob -directory $ahb_dir *.svh] {
-        import_files -norecurse $f
-        set_property file_type "Verilog Header" [get_files [file tail $f]]
-    }
-} err] } {
+# AHB-Lite
+if { [catch {add_files -scan_for_includes $ahb_dir} err] } {
     puts "WARNING: 添加 AHB-Lite RTL 失败: $err"
 }
 
-# APB (.sv + .svh)
-if { [catch {
-    foreach f [glob -directory $apb_dir *.sv] {
-        import_files -norecurse $f
-    }
-    foreach f [glob -directory $apb_dir *.svh] {
-        import_files -norecurse $f
-        set_property file_type "Verilog Header" [get_files [file tail $f]]
-    }
-} err] } {
+# AMBA
+if { [catch {add_files -scan_for_includes $amba_dir} err] } {
+    puts "WARNING: 添加 AMBA RTL 失败: $err"
+}
+
+# RAM Wrapper
+if { [catch {add_files -scan_for_includes $ram_wrap_dir} err] } {
+    puts "WARNING: 添加 RAM Wrapper RTL 失败: $err"
+}
+
+# APB (含子目录 perips/, header/)
+if { [catch {add_files -scan_for_includes $apb_dir} err] } {
     puts "WARNING: 添加 APB RTL 失败: $err"
 }
 
-# APB Peripherals
-if { [catch {
-    foreach f [glob -directory $apb_perips_dir *.sv] {
-        import_files -norecurse $f
-    }
-} err] } {
-    puts "WARNING: 添加 APB Peripherals RTL 失败: $err"
-}
-
-# APB Headers
-if { [catch {
-    foreach f [glob -directory $apb_header_dir *.svh] {
-        import_files -norecurse $f
-        set_property file_type "Verilog Header" [get_files [file tail $f]]
-    }
-} err] } {
-    puts "WARNING: 添加 APB Header 失败: $err"
-}
-
-# System Top
-if { [catch {import_files -norecurse "${sys_rtl_dir}/system_top.sv"} err] } {
+# System RTL 顶层文件 (不递归，避免包含 _archived/)
+if { [catch {add_files -norecurse "${sys_rtl_dir}/system_top.sv"} err] } {
     puts "WARNING: 添加 system_top.sv 失败: $err"
+}
+if { [catch {add_files -norecurse "${sys_rtl_dir}/soc_config.vh"} err] } {
+    puts "WARNING: 添加 soc_config.vh 失败: $err"
+}
+if { [file exists "${sys_rtl_dir}/axi4_def.svh"] } {
+    if { [catch {add_files -norecurse "${sys_rtl_dir}/axi4_def.svh"} err] } {
+        puts "WARNING: 添加 axi4_def.svh 失败: $err"
+    }
+}
+if { [file exists "${sys_rtl_dir}/clk_wiz_0_passthrough.sv"] } {
+    if { [catch {add_files -norecurse "${sys_rtl_dir}/clk_wiz_0_passthrough.sv"} err] } {
+        puts "WARNING: 添加 clk_wiz_0_passthrough.sv 失败: $err"
+    }
 }
 
 update_compile_order -fileset sources_1
@@ -166,10 +143,13 @@ set_property include_dirs [list \
     $common_dir \
     $ahb_dir \
     $ahb_ip_dir \
+    $amba_dir \
+    $ram_wrap_dir \
     $apb_dir \
     $apb_header_dir \
     $apb_perips_dir \
+    $sys_rtl_dir \
     $tb_dir \
 ] [current_fileset]
 
-puts "Include 目录已设置 (9 个目录)"
+puts "Include 目录已设置 (14 个目录)"

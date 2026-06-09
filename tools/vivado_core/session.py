@@ -482,6 +482,41 @@ class SessionManager:
         sess.load_meta()
         return sess
 
+    def find_session_for_task(self, task_name: str) -> Session:
+        """Find the most recently used session for a given task.
+
+        Searches all existing sessions whose ``meta.task`` matches
+        *task_name* and returns the one with the most recent
+        ``last_used_at`` timestamp.
+
+        Parameters
+        ----------
+        task_name:
+            Task name to search for.
+
+        Returns
+        -------
+        Session
+            The most recently used session for the task.
+
+        Raises
+        ------
+        SessionNotFoundError
+            If no session exists for the given task.
+        """
+        candidates: list[Session] = []
+        for sess in self.list_sessions():
+            if sess.meta.task == task_name:
+                candidates.append(sess)
+
+        if not candidates:
+            raise SessionNotFoundError(
+                f"(task={task_name!r})"
+            )
+
+        candidates.sort(key=lambda s: s.meta.last_used_at, reverse=True)
+        return candidates[0]
+
     def get_or_create(
         self,
         task_name: str,

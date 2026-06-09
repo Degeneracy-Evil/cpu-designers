@@ -66,7 +66,7 @@ module axi4lite_bootrom #(
             aw_latch     <= 1'b0;
             w_latch      <= 1'b0;
             s_axi_bvalid <= 1'b0;
-            s_axi_bresp  <= AXI_RESP_OKAY;
+            s_axi_bresp  <= `AXI_RESP_OKAY;
         end else begin
             if (s_axi_bvalid && s_axi_bready) begin
                 s_axi_bvalid <= 1'b0;
@@ -104,7 +104,7 @@ module axi4lite_bootrom #(
         if (!s_axi_aresetn) begin
             rd_state     <= RD_IDLE;
             s_axi_rvalid <= 1'b0;
-            s_axi_rresp  <= AXI_RESP_OKAY;
+            s_axi_rresp  <= `AXI_RESP_OKAY;
             s_axi_rdata  <= {DATA_WIDTH{1'b0}};
             latch_addra  <= {INDEX_WIDTH{1'b0}};
         end else begin
@@ -119,7 +119,7 @@ module axi4lite_bootrom #(
                 RD_DATA: begin
                     s_axi_rvalid <= 1'b1;
                     s_axi_rdata  <= bram_douta;
-                    s_axi_rresp  <= AXI_RESP_OKAY;
+                    s_axi_rresp  <= `AXI_RESP_OKAY;
                     if (s_axi_rready) begin
                         rd_state     <= RD_IDLE;
                         s_axi_rvalid <= 1'b0;

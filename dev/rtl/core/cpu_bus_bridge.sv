@@ -52,6 +52,8 @@ module cpu_bus_bridge(
     output logic        awlock,
     output logic [3:0]  awcache,
     output logic [2:0]  awprot,
+    output logic [3:0]  awqos,
+    output logic [3:0]  awregion,
     output logic        awvalid,
     input  logic        awready,
 
@@ -76,6 +78,8 @@ module cpu_bus_bridge(
     output logic        arlock,
     output logic [3:0]  arcache,
     output logic [2:0]  arprot,
+    output logic [3:0]  arqos,
+    output logic [3:0]  arregion,
     output logic        arvalid,
     input  logic        arready,
 
@@ -200,8 +204,29 @@ module cpu_bus_bridge(
     // =====================================================================
     // Helper: AXI4 error check (OKAY=00, EXOKAY=01 are success)
     // =====================================================================
-    wire r_error = (rresp == AXI_RESP_SLVERR) || (rresp == AXI_RESP_DECERR);
-    wire b_error = (bresp == AXI_RESP_SLVERR) || (bresp == AXI_RESP_DECERR);
+    wire r_error = (rresp == `AXI_RESP_SLVERR) || (rresp == `AXI_RESP_DECERR);
+    wire b_error = (bresp == `AXI_RESP_SLVERR) || (bresp == `AXI_RESP_DECERR);
+
+    // =====================================================================
+    // Sub-word store: shift wstrb and wdata to correct byte lane
+    //   addr_r[1:0] determines which byte lane within the 32-bit word.
+    //   Byte store:   4'b0001 << lane  (single byte strobe)
+    //   Halfword:     4'b0011 << lane  (lane must be 0 or 2)
+    //   Word:         4'b1111          (all bytes, lane must be 0)
+    //   wdata is shifted left by 8*lane bits to align with the strobe.
+    // =====================================================================
+    wire [1:0]  mmio_byte_lane = addr_r[1:0];
+    wire [3:0]  mmio_shifted_wstrb;
+    wire [31:0] mmio_shifted_wdata;
+
+    assign mmio_shifted_wstrb = (size_r == `AXI_SIZE_1B) ? (4'b0001 << mmio_byte_lane) :
+                                (size_r == `AXI_SIZE_2B) ? (4'b0011 << mmio_byte_lane) :
+                                4'b1111;
+
+    assign mmio_shifted_wdata = (mmio_byte_lane == 2'b00) ? latch_wdata_r :
+                                (mmio_byte_lane == 2'b01) ? {latch_wdata_r[23:0], 8'b0} :
+                                (mmio_byte_lane == 2'b10) ? {latch_wdata_r[15:0], 16'b0} :
+                                                             {latch_wdata_r[7:0], 24'b0};
 
     // =====================================================================
     // FSM
@@ -211,7 +236,7 @@ module cpu_bus_bridge(
             state                  <= S_IDLE;
             addr_r                 <= 32'b0;
             write_r                <= 1'b0;
-            size_r                 <= AXI_SIZE_4B;
+            size_r                 <= `AXI_SIZE_4B;
             is_inst_r              <= 1'b0;
             latch_wdata_r          <= 32'b0;
             beat_cnt               <= 3'd0;
@@ -242,18 +267,18 @@ module cpu_bus_bridge(
             arvalid  <= 1'b0;
             awaddr   <= 32'b0;
             awlen    <= 8'h00;
-            awsize   <= AXI_SIZE_4B;
-            awburst  <= AXI_BURST_INCR;
-            awlock   <= AXI_LOCK_NORMAL;
-            awcache  <= AXI_CACHE_DEV_NONBUF;
-            awprot   <= AXI_PROT_DATA_PRIV_SECURE;
+            awsize   <= `AXI_SIZE_4B;
+            awburst  <= `AXI_BURST_INCR;
+            awlock   <= `AXI_LOCK_NORMAL;
+            awcache  <= `AXI_CACHE_DEV_NONBUF;
+            awprot   <= `AXI_PROT_DATA_PRIV_SECURE;
             araddr   <= 32'b0;
             arlen    <= 8'h00;
-            arsize   <= AXI_SIZE_4B;
-            arburst  <= AXI_BURST_INCR;
-            arlock   <= AXI_LOCK_NORMAL;
-            arcache  <= AXI_CACHE_DEV_NONBUF;
-            arprot   <= AXI_PROT_DATA_PRIV_SECURE;
+            arsize   <= `AXI_SIZE_4B;
+            arburst  <= `AXI_BURST_INCR;
+            arlock   <= `AXI_LOCK_NORMAL;
+            arcache  <= `AXI_CACHE_DEV_NONBUF;
+            arprot   <= `AXI_PROT_DATA_PRIV_SECURE;
             wdata    <= 32'b0;
             wstrb    <= 4'b1111;
             wlast    <= 1'b1;
@@ -287,7 +312,7 @@ module cpu_bus_bridge(
                         state       <= S_MMIO_AR;
                         addr_r      <= icache_mmio_addr;
                         write_r     <= 1'b0;
-                        size_r      <= AXI_SIZE_4B;
+                        size_r      <= `AXI_SIZE_4B;
                         is_inst_r   <= 1'b1;
                     end
                     else if (dcache_mmio_req && !ahb_data_valid_r && !mmio_data_served) begin
@@ -316,7 +341,7 @@ module cpu_bus_bridge(
                             state         <= S_PTW_AW_W;
                             addr_r        <= ptw_addr;
                             write_r       <= 1'b1;
-                            size_r        <= AXI_SIZE_4B;
+                            size_r        <= `AXI_SIZE_4B;
                             is_inst_r     <= 1'b0;
                             latch_wdata_r <= ptw_wdata;
                             aw_hs_done_r  <= 1'b0;
@@ -326,7 +351,7 @@ module cpu_bus_bridge(
                             state       <= S_PTW_AR;
                             addr_r      <= ptw_addr;
                             write_r     <= 1'b0;
-                            size_r      <= AXI_SIZE_4B;
+                            size_r      <= `AXI_SIZE_4B;
                             is_inst_r   <= 1'b0;
                         end
                     end
@@ -338,6 +363,7 @@ module cpu_bus_bridge(
                         burst_base_addr <= dcache_wb_addr;
                         beat_cnt        <= 3'd0;
                         wb_shift_reg    <= dcache_wb_data;
+
                     end
                     else if (icache_refill_req && !icache_refill_valid_r) begin
                         // Icache refill burst → AR then R
@@ -367,14 +393,13 @@ module cpu_bus_bridge(
                     araddr   <= addr_r;
                     arlen    <= 8'h00;         // Single beat
                     arsize   <= size_r;
-                    arburst  <= AXI_BURST_INCR;
-                    arlock   <= AXI_LOCK_NORMAL;
-                    arcache  <= AXI_CACHE_DEV_NONBUF;
-                    arprot   <= is_inst_r ? AXI_PROT_INST_PRIV_SECURE : AXI_PROT_DATA_PRIV_SECURE;
+                    arburst  <= `AXI_BURST_INCR;
+                    arlock   <= `AXI_LOCK_NORMAL;
+                    arcache  <= `AXI_CACHE_DEV_NONBUF;
+                    arprot   <= is_inst_r ? `AXI_PROT_INST_PRIV_SECURE : `AXI_PROT_DATA_PRIV_SECURE;
 
                     if (arready) begin
                         // AR handshake complete
-                        arvalid <= 1'b0;
                         state   <= S_MMIO_R;
                     end
                 end
@@ -383,6 +408,7 @@ module cpu_bus_bridge(
                 // MMIO Read — R phase (single beat)
                 // =====================================================
                 S_MMIO_R: begin
+                    arvalid <= 1'b0;  // AR channel done — clear valid
                     if (rvalid) begin
                         if (r_error) begin
                             state           <= S_IDLE;
@@ -420,18 +446,17 @@ module cpu_bus_bridge(
                         awaddr   <= addr_r;
                         awlen    <= 8'h00;
                         awsize   <= size_r;
-                        awburst  <= AXI_BURST_INCR;
-                        awlock   <= AXI_LOCK_NORMAL;
-                        awcache  <= AXI_CACHE_DEV_NONBUF;
-                        awprot   <= AXI_PROT_DATA_PRIV_SECURE;
+                        awburst  <= `AXI_BURST_INCR;
+                        awlock   <= `AXI_LOCK_NORMAL;
+                        awcache  <= `AXI_CACHE_DEV_NONBUF;
+                        awprot   <= `AXI_PROT_DATA_PRIV_SECURE;
                     end
 
-                    // Drive W channel
+                    // Drive W channel — use shifted wstrb/wdata for sub-word stores
                     if (!w_hs_done_r) begin
                         wvalid   <= 1'b1;
-                        wdata    <= latch_wdata_r;
-                        wstrb    <= (size_r == AXI_SIZE_1B) ? 4'b0001 :
-                                   (size_r == AXI_SIZE_2B) ? 4'b0011 : 4'b1111;
+                        wdata    <= mmio_shifted_wdata;
+                        wstrb    <= mmio_shifted_wstrb;
                         wlast    <= 1'b1;
                     end
 
@@ -476,14 +501,13 @@ module cpu_bus_bridge(
                     arvalid  <= 1'b1;
                     araddr   <= addr_r;
                     arlen    <= 8'h07;         // 8 beats
-                    arsize   <= AXI_SIZE_4B;
-                    arburst  <= AXI_BURST_INCR;
-                    arlock   <= AXI_LOCK_NORMAL;
-                    arcache  <= AXI_CACHE_NORM_BUF;  // Cacheable
-                    arprot   <= AXI_PROT_INST_PRIV_SECURE;
+                    arsize   <= `AXI_SIZE_4B;
+                    arburst  <= `AXI_BURST_INCR;
+                    arlock   <= `AXI_LOCK_NORMAL;
+                    arcache  <= `AXI_CACHE_NORM_BUF;  // Cacheable
+                    arprot   <= `AXI_PROT_INST_PRIV_SECURE;
 
                     if (arready) begin
-                        arvalid <= 1'b0;
                         state   <= S_IREFILL_R;
                     end
                 end
@@ -492,6 +516,7 @@ module cpu_bus_bridge(
                 // Icache Refill — R phase (8 beats)
                 // =====================================================
                 S_IREFILL_R: begin
+                    arvalid <= 1'b0;  // AR channel done — clear valid
                     if (rvalid) begin
                         if (r_error) begin
                             state           <= S_IDLE;
@@ -516,14 +541,13 @@ module cpu_bus_bridge(
                     arvalid  <= 1'b1;
                     araddr   <= addr_r;
                     arlen    <= 8'h07;
-                    arsize   <= AXI_SIZE_4B;
-                    arburst  <= AXI_BURST_INCR;
-                    arlock   <= AXI_LOCK_NORMAL;
-                    arcache  <= AXI_CACHE_NORM_BUF;
-                    arprot   <= AXI_PROT_DATA_PRIV_SECURE;
+                    arsize   <= `AXI_SIZE_4B;
+                    arburst  <= `AXI_BURST_INCR;
+                    arlock   <= `AXI_LOCK_NORMAL;
+                    arcache  <= `AXI_CACHE_NORM_BUF;
+                    arprot   <= `AXI_PROT_DATA_PRIV_SECURE;
 
                     if (arready) begin
-                        arvalid <= 1'b0;
                         state   <= S_DREFILL_R;
                     end
                 end
@@ -532,6 +556,7 @@ module cpu_bus_bridge(
                 // Dcache Refill — R phase (8 beats)
                 // =====================================================
                 S_DREFILL_R: begin
+                    arvalid <= 1'b0;  // AR channel done — clear valid
                     if (rvalid) begin
                         if (r_error) begin
                             state            <= S_IDLE;
@@ -557,14 +582,13 @@ module cpu_bus_bridge(
                     awvalid  <= 1'b1;
                     awaddr   <= addr_r;
                     awlen    <= 8'h07;
-                    awsize   <= AXI_SIZE_4B;
-                    awburst  <= AXI_BURST_INCR;
-                    awlock   <= AXI_LOCK_NORMAL;
-                    awcache  <= AXI_CACHE_NORM_BUF;
-                    awprot   <= AXI_PROT_DATA_PRIV_SECURE;
+                    awsize   <= `AXI_SIZE_4B;
+                    awburst  <= `AXI_BURST_INCR;
+                    awlock   <= `AXI_LOCK_NORMAL;
+                    awcache  <= `AXI_CACHE_NORM_BUF;
+                    awprot   <= `AXI_PROT_DATA_PRIV_SECURE;
 
                     if (awready) begin
-                        awvalid <= 1'b0;
                         // Prepare first W beat
                         wdata    <= wb_shift_reg[31:0];
                         wstrb    <= 4'b1111;
@@ -578,7 +602,9 @@ module cpu_bus_bridge(
                 // Dcache Writeback — W phase (8 beats)
                 // =====================================================
                 S_WB_W: begin
+                    awvalid <= 1'b0;  // AW channel done — clear valid
                     if (wvalid && wready) begin
+
                         // W handshake for current beat
                         if (wlast) begin
                             // Last beat sent — move to B phase
@@ -619,14 +645,13 @@ module cpu_bus_bridge(
                     arvalid  <= 1'b1;
                     araddr   <= addr_r;
                     arlen    <= 8'h00;
-                    arsize   <= AXI_SIZE_4B;
-                    arburst  <= AXI_BURST_INCR;
-                    arlock   <= AXI_LOCK_NORMAL;
-                    arcache  <= AXI_CACHE_DEV_NONBUF;
-                    arprot   <= AXI_PROT_DATA_PRIV_SECURE;
+                    arsize   <= `AXI_SIZE_4B;
+                    arburst  <= `AXI_BURST_INCR;
+                    arlock   <= `AXI_LOCK_NORMAL;
+                    arcache  <= `AXI_CACHE_DEV_NONBUF;
+                    arprot   <= `AXI_PROT_DATA_PRIV_SECURE;
 
                     if (arready) begin
-                        arvalid <= 1'b0;
                         state   <= S_PTW_R;
                     end
                 end
@@ -635,6 +660,7 @@ module cpu_bus_bridge(
                 // PTW Read — R phase
                 // =====================================================
                 S_PTW_R: begin
+                    arvalid <= 1'b0;  // AR channel done — clear valid
                     if (rvalid) begin
                         if (r_error) begin
                             state       <= S_IDLE;
@@ -658,11 +684,11 @@ module cpu_bus_bridge(
                         awvalid  <= 1'b1;
                         awaddr   <= addr_r;
                         awlen    <= 8'h00;
-                        awsize   <= AXI_SIZE_4B;
-                        awburst  <= AXI_BURST_INCR;
-                        awlock   <= AXI_LOCK_NORMAL;
-                        awcache  <= AXI_CACHE_DEV_NONBUF;
-                        awprot   <= AXI_PROT_DATA_PRIV_SECURE;
+                        awsize   <= `AXI_SIZE_4B;
+                        awburst  <= `AXI_BURST_INCR;
+                        awlock   <= `AXI_LOCK_NORMAL;
+                        awcache  <= `AXI_CACHE_DEV_NONBUF;
+                        awprot   <= `AXI_PROT_DATA_PRIV_SECURE;
                     end
 
                     if (!w_hs_done_r) begin

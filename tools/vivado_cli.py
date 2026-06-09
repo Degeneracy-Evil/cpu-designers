@@ -102,6 +102,7 @@ try:
         expand_batch_spec,
         load_batch_plan,
     )
+    from tools.vivado_core.exceptions import SessionNotFoundError
 
     _HAS_CORE = True
 except ImportError:
@@ -821,9 +822,27 @@ def main(argv: list[str] | None = None) -> int:
     assert session_name is not None
     assert task_def is not None
     try:
-        session = session_mgr.get_or_create(task_name, session_name)  # type: ignore[attr-defined]
+        if args.create:
+            session = session_mgr.get_or_create(task_name, session_name)  # type: ignore[attr-defined]
+        else:
+            # Exact name match first, then most-recent session for the task.
+            try:
+                session = session_mgr.get_session(session_name)  # type: ignore[attr-defined]
+            except SessionNotFoundError:  # type: ignore[name-defined]
+                from tools.vivado_core.exceptions import SessionNotFoundError as _SNFE  # type: ignore[attr-defined]
+                try:
+                    session = session_mgr.find_session_for_task(task_name)  # type: ignore[attr-defined]
+                except _SNFE:
+                    raise _SNFE(
+                        f"{session_name!r} (and no session found for task {task_name!r})"
+                    )
     except VivadoCoreError as e:
-        print(f"ERROR: Session error: {e}", file=sys.stderr)
+        print(f"ERROR: Session not found: {e}", file=sys.stderr)
+        print(
+            f"  Hint: Run with -create to create a new session first:\n"
+            f"        python -m tools.vivado_cli -task {task_name} -create",
+            file=sys.stderr,
+        )
         return EXIT_SESSION
 
     # --- Parse refresh layers ---

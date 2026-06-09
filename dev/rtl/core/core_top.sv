@@ -29,6 +29,8 @@ module core_top(
     output        awlock,
     output [3:0]  awcache,
     output [2:0]  awprot,
+    output [3:0]  awqos,
+    output [3:0]  awregion,
     output        awvalid,
     input         awready,
 
@@ -53,6 +55,8 @@ module core_top(
     output        arlock,
     output [3:0]  arcache,
     output [2:0]  arprot,
+    output [3:0]  arqos,
+    output [3:0]  arregion,
     output        arvalid,
     input         arready,
 
@@ -267,7 +271,11 @@ module core_top(
 
     always_ff @(posedge clk or negedge resetn) begin
         if (!resetn) begin
-            pc <= 32'hFC000000;  // Boot ROM @ 0xFC00_0000 (DDR3 bootloader)
+`ifdef SIMULATION
+            pc <= 32'h80000000;  // Simulation: skip bootloader, start from main memory
+`else
+            pc <= 32'hFC000000;  // FPGA: Boot ROM @ 0xFC00_0000 (DDR3 bootloader)
+`endif
             priv_mode <= PRIV_M;
             if_id_bus_r <= 96'b0;
             id_exe_bus_r <= 334'b0;
@@ -393,6 +401,7 @@ module core_top(
             end else begin
                 if (dcache_flush_done && !dcache_flush_sent_r)
                     dcache_flush_sent_r <= 1'b1;
+                    dcache_flush_sent_r <= 1'b1;
                 if (icache_invalidate_done && !icache_invalidate_sent_r)
                     icache_invalidate_sent_r <= 1'b1;
             end
@@ -402,6 +411,8 @@ module core_top(
     assign dcache_flush_req      = fencei_req && !dcache_flush_sent_r;
     assign icache_invalidate_req = fencei_req && dcache_flush_sent_r && !icache_invalidate_sent_r;
     assign fencei_done           = dcache_flush_sent_r && icache_invalidate_sent_r;
+
+
 
     icache_ctrl u_icache_wrap (
         .clk(clk),
@@ -804,6 +815,8 @@ module core_top(
         .awlock            (awlock),
         .awcache           (awcache),
         .awprot            (awprot),
+        .awqos             (awqos),
+        .awregion          (awregion),
         .awvalid           (awvalid),
         .awready           (awready),
         .wdata             (wdata),
@@ -822,6 +835,8 @@ module core_top(
         .arlock            (arlock),
         .arcache           (arcache),
         .arprot            (arprot),
+        .arqos             (arqos),
+        .arregion          (arregion),
         .arvalid           (arvalid),
         .arready           (arready),
         .rdata             (rdata),

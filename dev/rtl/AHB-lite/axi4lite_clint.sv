@@ -88,7 +88,7 @@ module axi4lite_clint(
 
     // B channel
     assign s_axi_bvalid = (wr_state == WR_RESP);
-    assign s_axi_bresp  = AXI_RESP_OKAY;
+    assign s_axi_bresp  = `AXI_RESP_OKAY;
 
     // =========================================================================
     // AXI4-Lite Read FSM
@@ -130,7 +130,7 @@ module axi4lite_clint(
 
     // R channel
     assign s_axi_rvalid = (rd_state == RD_RESP);
-    assign s_axi_rresp  = AXI_RESP_OKAY;
+    assign s_axi_rresp  = `AXI_RESP_OKAY;
 
     // =========================================================================
     // Address decode (identical to AHB version, using latched addresses)

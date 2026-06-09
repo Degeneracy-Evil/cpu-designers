@@ -94,13 +94,11 @@ localparam MEM_DEPTH = 262144;
 
 reg [31:0] BRAM [0:MEM_DEPTH-1];
 
-// Initialize BRAM to zero (simulation only — FPGA synthesizers ignore initial on large arrays)
+// Initialize BRAM — simulation: load prog.hex (placed by orchestrator into xsim dir)
+// FPGA: synthesizer handles COE via Sram IP.
 `ifdef SIMULATION
-integer init_i;
 initial begin
-    for (init_i = 0; init_i < MEM_DEPTH; init_i = init_i + 1) begin
-        BRAM[init_i] = 32'h0;
-    end
+    $readmemh("prog.hex", BRAM);
 end
 `endif
 
@@ -140,8 +138,8 @@ reg [18:0] r_word_addr;  // word-aligned address for BRAM indexing
 wire [31:0] r_next_addr;
 assign r_next_addr = r_addr + (32'b1 << r_size);
 
-// BRAM read data
-reg [31:0] r_bram_data;
+// BRAM read data (combinational — zero-latency read)
+wire [31:0] r_bram_data = BRAM[r_word_addr];
 
 always_ff @(posedge aclk or negedge aresetn) begin
     if (!aresetn) begin
@@ -153,7 +151,7 @@ always_ff @(posedge aclk or negedge aresetn) begin
         r_burst     <= 2'd0;
         r_id        <= 4'd0;
         r_word_addr <= 19'd0;
-        r_bram_data <= 32'd0;
+
     end else begin
         case (r_state)
             R_IDLE: begin
@@ -193,10 +191,7 @@ always_ff @(posedge aclk or negedge aresetn) begin
     end
 end
 
-// BRAM read — combinational (zero-latency)
-always_comb begin
-    r_bram_data = BRAM[r_word_addr];
-end
+// BRAM read — combinational (zero-latency), driven by continuous assign above
 
 // AR channel outputs
 assign axi_arready = (r_state == R_IDLE);
@@ -267,6 +262,7 @@ always_ff @(posedge aclk or negedge aresetn) begin
                     if (axi_wstrb[2]) BRAM[w_addr[20:2]][23:16] <= axi_wdata[23:16];
                     if (axi_wstrb[1]) BRAM[w_addr[20:2]][15:8]  <= axi_wdata[15:8];
                     if (axi_wstrb[0]) BRAM[w_addr[20:2]][7:0]   <= axi_wdata[7:0];
+
 
                     if (axi_wlast) begin
                         // Last beat — move to response phase

@@ -53,7 +53,7 @@ module tb_fpu_unit;
     // Clock and reset
     // ===================================================================
     reg        clk;
-    reg        reset;
+    reg        resetn;
 
     always #5 clk = ~clk;   // 10ns period, 5ns half-period
 
@@ -79,7 +79,7 @@ module tb_fpu_unit;
     // ===================================================================
     fpu_unit dut (
         .clk        (clk),
-        .reset      (reset),
+        .resetn     (resetn),
         .fpu_funct  (fpu_funct),
         .fpu_rm     (fpu_rm),
         .src1       (src1),
@@ -197,7 +197,7 @@ module tb_fpu_unit;
     initial begin
         // Initialize
         clk        = 1'b0;
-        reset      = 1'b1;
+        resetn     = 1'b0;
         fpu_funct  = 7'b0;
         fpu_rm     = RNE;
         src1       = 32'b0;
@@ -211,7 +211,7 @@ module tb_fpu_unit;
 
         // Assert reset for 5 cycles
         repeat (5) @(posedge clk);
-        reset = 1'b0;
+        resetn = 1'b1;
         @(posedge clk);
 
         $display("========================================");

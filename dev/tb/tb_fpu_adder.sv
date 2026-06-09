@@ -42,7 +42,7 @@ module tb_fpu_adder;
     // Clock and reset
     // ===================================================================
     reg        clk;
-    reg        reset;
+    reg        resetn;
 
     always #5 clk = ~clk;   // 10ns period, 5ns half-period
 
@@ -63,7 +63,7 @@ module tb_fpu_adder;
     // ===================================================================
     fpu_adder dut (
         .clk    (clk),
-        .reset  (reset),
+        .resetn (resetn),
         .src1   (src1),
         .src2   (src2),
         .is_sub (is_sub),
@@ -136,7 +136,7 @@ module tb_fpu_adder;
     initial begin
         // Initialize
         clk   = 1'b0;
-        reset = 1'b1;
+        resetn = 1'b0;
         src1  = 32'b0;
         src2  = 32'b0;
         is_sub = 1'b0;
@@ -148,7 +148,7 @@ module tb_fpu_adder;
 
         // Assert reset for 5 cycles
         repeat (5) @(posedge clk);
-        reset = 1'b0;
+        resetn = 1'b1;
         @(posedge clk);
 
         $display("========================================");

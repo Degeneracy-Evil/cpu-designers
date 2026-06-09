@@ -1,5 +1,5 @@
 `timescale 1ns / 1ps
-`include "ahb_def.svh"
+`include "axi4_def.svh"
 `include "cache_def.svh"
 
 module dcache_ctrl(
@@ -202,14 +202,21 @@ module dcache_ctrl(
     wire [LINE_WIDTH-1:0] bram_doutb;
 
     wire [3:0] word_byte_we;
-    assign word_byte_we = (cpu_req_hsize == `AHB_SIZE_BYTE) ? (4'b0001 << cpu_req_addr[1:0]) :
-                          (cpu_req_hsize == `AHB_SIZE_HWORD) ? (cpu_req_addr[1] ? 4'b1100 : 4'b0011) :
+    assign word_byte_we = (cpu_req_hsize == `AXI_SIZE_BYTE) ? (4'b0001 << cpu_req_addr[1:0]) :
+                          (cpu_req_hsize == `AXI_SIZE_HWORD) ? (cpu_req_addr[1] ? 4'b1100 : 4'b0011) :
                           4'b1111;
 
+    // word_store_data: position store data into the correct byte lane of a 32-bit word.
+    // BYTE: CPU puts byte in wdata[7:0] (unshifted) — we shift to correct lane.
+    // HWORD: CPU already pre-shifts wdata to the correct halfword lane — pass through.
+    // WORD:  CPU provides full 32-bit word — pass through.
     wire [31:0] word_store_data;
-    assign word_store_data = (cpu_req_hsize == `AHB_SIZE_BYTE) ?
-                             (cpu_req_wdata[7:0] << (cpu_req_addr[1:0] * 8)) :
-                             cpu_req_wdata;
+    assign word_store_data = (cpu_req_hsize == `AXI_SIZE_BYTE) ?
+                             (cpu_req_addr[1:0] == 2'b00 ? {24'b0, cpu_req_wdata[7:0]} :
+                              cpu_req_addr[1:0] == 2'b01 ? {16'b0, cpu_req_wdata[7:0], 8'b0} :
+                              cpu_req_addr[1:0] == 2'b10 ? {8'b0, cpu_req_wdata[7:0], 16'b0} :
+                                                           {cpu_req_wdata[7:0], 24'b0}) :
+                             cpu_req_wdata;  // HWORD and WORD: CPU pre-shifts, pass through
 
     wire [WEA_WIDTH-1:0]  store_full_wea  = ({28'b0, word_byte_we}) << (word_off * 4);
     wire [LINE_WIDTH-1:0] store_full_dina = ({224'b0, word_store_data}) << (word_off * 32);
@@ -223,19 +230,27 @@ module dcache_ctrl(
     wire is_store_hit = (state == S_TAG_READ) && cache_hit && cpu_req_hwrite && mmu_ready;
     wire is_load_hit  = (state == S_TAG_READ) && cache_hit && !cpu_req_hwrite && mmu_ready;
 
+
+
     wire bram_ena = is_load_hit || is_store_hit;
     wire [WEA_WIDTH-1:0]  bram_wea  = is_store_hit ? store_full_wea : {WEA_WIDTH{1'b0}};
     wire [LINE_WIDTH-1:0] bram_dina = is_store_hit ? store_full_dina : {LINE_WIDTH{1'b0}};
 
     wire [3:0] latched_word_byte_we;
-    assign latched_word_byte_we = (latched_hsize == `AHB_SIZE_BYTE) ? (4'b0001 << latched_addr[1:0]) :
-                                  (latched_hsize == `AHB_SIZE_HWORD) ? (latched_addr[1] ? 4'b1100 : 4'b0011) :
+    assign latched_word_byte_we = (latched_hsize == `AXI_SIZE_BYTE) ? (4'b0001 << latched_addr[1:0]) :
+                                  (latched_hsize == `AXI_SIZE_HWORD) ? (latched_addr[1] ? 4'b1100 : 4'b0011) :
                                   4'b1111;
 
+    // latched_word_store_data: same logic as word_store_data but using latched signals.
+    // BYTE: latched_wdata[7:0] is unshifted — shift to correct lane.
+    // HWORD/WORD: CPU pre-shifts — pass through.
     wire [31:0] latched_word_store_data;
-    assign latched_word_store_data = (latched_hsize == `AHB_SIZE_BYTE) ?
-                                     (latched_wdata[7:0] << (latched_addr[1:0] * 8)) :
-                                     latched_wdata;
+    assign latched_word_store_data = (latched_hsize == `AXI_SIZE_BYTE) ?
+                                     (latched_addr[1:0] == 2'b00 ? {24'b0, latched_wdata[7:0]} :
+                                      latched_addr[1:0] == 2'b01 ? {16'b0, latched_wdata[7:0], 8'b0} :
+                                      latched_addr[1:0] == 2'b10 ? {8'b0, latched_wdata[7:0], 16'b0} :
+                                                                   {latched_wdata[7:0], 24'b0}) :
+                                     latched_wdata;  // HWORD and WORD: CPU pre-shifts, pass through
 
     wire [WEA_WIDTH-1:0]  merge_full_wea  = ({28'b0, latched_word_byte_we}) << (latched_word_off * 4);
     wire [LINE_WIDTH-1:0] merge_full_dina = ({224'b0, latched_word_store_data}) << (latched_word_off * 32);
@@ -368,6 +383,7 @@ module dcache_ctrl(
                         state     <= S_FLUSH_SCAN;
                         flush_set <= {SET_IDX_W{1'b0}};
                         flush_way <= {WAY_W{1'b0}};
+
                     end else if (cpu_req_valid && !cpu_req_ready_r) begin
                         if (is_mmio) begin
                             if (mmio_valid) begin
@@ -473,6 +489,7 @@ module dcache_ctrl(
                     // Tag BRAM output valid for flush_set
                     if (tag_r_flush[TAG_ENTRY_W-1] && tag_r_flush[TAG_ENTRY_W-2]) begin
                         // Valid && Dirty → need writeback
+
                         latched_set        <= flush_set;
                         latched_victim_way <= flush_way;
                         latched_victim_tag <= tag_r_flush[TAG_WIDTH-1:0];
@@ -503,6 +520,7 @@ module dcache_ctrl(
 
                 S_FLUSH_WB_SD: begin
                     wb_req_r <= 1'b1;
+
                     if (wb_valid) begin
                         wb_req_r <= 1'b0;
                         // Clear dirty bit in tag BRAM
@@ -535,6 +553,7 @@ module dcache_ctrl(
                     tag_bram_web_r   <= {TAG_BRAM_WEA{1'b1}};   // write all 4 ways
                     tag_bram_addrb_r <= invalidate_set;
                     tag_bram_dinb_r  <= {TAG_BRAM_W{1'b0}};     // all zeros
+
                     if (invalidate_set == NUM_SETS - 1) begin
                         for (integer s = 0; s < NUM_SETS; s = s + 1) begin
                             plru_state[s] <= {NUM_WAYS-1{1'b0}};

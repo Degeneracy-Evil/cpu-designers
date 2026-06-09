@@ -70,9 +70,13 @@ set dev_dir         "${base_dir}/dev"
 
 set alu_rtl_dir     "${dev_dir}/rtl/ALU"
 set mu_rtl_dir      "${dev_dir}/rtl/MU"
+set fpu_rtl_dir     "${dev_dir}/rtl/FPU"
 set cpu_core_dir    "${dev_dir}/rtl/core"
+set common_dir      "${dev_dir}/rtl/common"
 set ahb_dir         "${dev_dir}/rtl/AHB-lite"
 set ahb_ip_dir      "${dev_dir}/rtl/AHB-lite/ip"
+set amba_dir        "${dev_dir}/rtl/AMBA"
+set ram_wrap_dir    "${dev_dir}/rtl/ram_wrap"
 set apb_dir         "${dev_dir}/rtl/APB"
 set apb_header_dir  "${dev_dir}/rtl/APB/header"
 set apb_perips_dir  "${dev_dir}/rtl/APB/perips"
@@ -84,7 +88,7 @@ set prog_dir        "${dev_dir}/program_source"
 set fpga_dir        "${dev_dir}/fpga"
 set ips_dir         "${base_dir}/Reference/newips"
 
-set tcl_dir         "${base_dir}/tools/tcl"
+set tcl_dir         "${base_dir}/tools/vivado_core/tcl"
 
 array set tb_coe_map {
     tb_simple_cpu_top     "test/cpu_test.coe"
@@ -311,9 +315,9 @@ proc vivado_do {args} {
             open_project "${proj_dir}/${proj_name}.xpr"
         } else {
             puts "创建新工程..."
-            source -notrace -encoding utf-8 "${tcl_dir}/create_proj.tcl"
-            source -notrace -encoding utf-8 "${tcl_dir}/setup_ip.tcl"
-            source -notrace -encoding utf-8 "${tcl_dir}/add_constrs.tcl"
+            source -notrace -encoding utf-8 "${tcl_dir}/_create.tcl"
+            source -notrace -encoding utf-8 "${tcl_dir}/_setup_ip.tcl"
+            source -notrace -encoding utf-8 "${tcl_dir}/_add_constrs.tcl"
         }
     }
 
@@ -331,17 +335,17 @@ proc vivado_do {args} {
             }
         }
         puts "重建工程..."
-        source -notrace -encoding utf-8 "${tcl_dir}/create_proj.tcl"
-        source -notrace -encoding utf-8 "${tcl_dir}/setup_ip.tcl"
-        source -notrace -encoding utf-8 "${tcl_dir}/add_constrs.tcl"
+        source -notrace -encoding utf-8 "${tcl_dir}/_create.tcl"
+        source -notrace -encoding utf-8 "${tcl_dir}/_setup_ip.tcl"
+        source -notrace -encoding utf-8 "${tcl_dir}/_add_constrs.tcl"
         puts "--> 工程刷新完成"
     }
 
     # --- -sim: 添加 testbench 并运行仿真 ---
     if { $opt_sim ne "" } {
         if { ![ensure_project_open] } { return }
-        source -notrace -encoding utf-8 "${tcl_dir}/add_tb.tcl"
-        source -notrace -encoding utf-8 "${tcl_dir}/run_sim.tcl"
+        source -notrace -encoding utf-8 "${tcl_dir}/_add_tb.tcl"
+        source -notrace -encoding utf-8 "${tcl_dir}/_run_sim.tcl"
     }
 
     # --- -bitstream: 生成 bitstream ---

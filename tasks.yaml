@@ -6,7 +6,21 @@ tasks:
   cpu_full:
     tb: tb_simple_cpu_top
     coe: test/integration/cpu_full.coe
+    hex_file: test/integration/cpu_full.hex
     runtime: 5ms
+
+  cpu_full_ddr3:
+    tb: tb_simple_cpu_top
+    sim_mode: ddr3
+    verilog_defines:
+      SIM_BYPASS_INIT_CAL: FAST
+      SIMULATION: "TRUE"
+      SIMU_USE_DDR: 1
+      SIMU_USE_PLL: 0
+      SIMU_DDR_MODE: 1
+      sg125: 1
+    hex_file: test/integration/cpu_full.hex
+    runtime: 100ms
 
   cpu_compute:
     tb: tb_simple_cpu_compute
@@ -21,6 +35,7 @@ tasks:
   isa_alu:
     tb: tb_isa_alu
     coe: test/isa/alu.coe
+    hex_file: test/isa/alu.hex
     runtime: 5ms
 
   isa_branch:

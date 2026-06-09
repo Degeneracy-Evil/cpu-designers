@@ -93,11 +93,11 @@ module axi4lite_to_apb #(
     // R channel — driven from latched values; stable while RVALID && !RREADY
     assign s_axi_rvalid = (state == ST_READ_RESP);
     assign s_axi_rdata  = latch_rdata;
-    assign s_axi_rresp  = latch_slverr ? AXI_RESP_SLVERR : AXI_RESP_OKAY;
+    assign s_axi_rresp  = latch_slverr ? `AXI_RESP_SLVERR : `AXI_RESP_OKAY;
 
     // B channel — driven from latched value; stable while BVALID && !BREADY
     assign s_axi_bvalid = (state == ST_WRITE_RESP);
-    assign s_axi_bresp  = latch_slverr ? AXI_RESP_SLVERR : AXI_RESP_OKAY;
+    assign s_axi_bresp  = latch_slverr ? `AXI_RESP_SLVERR : `AXI_RESP_OKAY;
 
     // -------------------------------------------------------------------------
     // APB output combinational logic

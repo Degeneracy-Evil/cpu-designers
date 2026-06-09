@@ -13,6 +13,16 @@ module tb_apb_perips;
     wire [15:0] gpio_io;
 
     // ----------------------------------------------------------------
+    // Inout wires for DDR3 and peripheral ports (cannot connect constants to inout)
+    // ----------------------------------------------------------------
+    wire [15:0] lcd_data_io_wire;
+    wire [15:0] ddr3_dq_wire;
+    wire [1:0]  ddr3_dqs_p_wire;
+    wire [1:0]  ddr3_dqs_n_wire;
+    wire        ct_int_wire;
+    wire        ct_sda_wire;
+
+    // ----------------------------------------------------------------
     // system_top instantiation (replaces ahb_lite_bus)
     // ----------------------------------------------------------------
     system_top u_soc (
@@ -36,10 +46,10 @@ module tb_apb_perips;
         .lcd_rs           (),
         .lcd_wr           (),
         .lcd_rd           (),
-        .lcd_data_io      (16'b0),
+        .lcd_data_io      (lcd_data_io_wire),
         .lcd_bl_ctr       (),
-        .ct_int           (1'b0),
-        .ct_sda           (1'b0),
+        .ct_int           (ct_int_wire),
+        .ct_sda           (ct_sda_wire),
         .ct_scl           (),
         .ct_rstn          (),
         .ddr3_addr        (),
@@ -52,9 +62,9 @@ module tb_apb_perips;
         .ddr3_ck_n        (),
         .ddr3_cke         (),
         .ddr3_dm          (),
-        .ddr3_dq          (16'b0),
-        .ddr3_dqs_p       (2'b0),
-        .ddr3_dqs_n       (2'b0),
+        .ddr3_dq          (ddr3_dq_wire),
+        .ddr3_dqs_p       (ddr3_dqs_p_wire),
+        .ddr3_dqs_n       (ddr3_dqs_n_wire),
         .ddr3_odt         ()
     );
 

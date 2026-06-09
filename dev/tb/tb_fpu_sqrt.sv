@@ -38,7 +38,7 @@ module tb_fpu_sqrt;
 
     // ── Clock & reset ──
     reg        clk;
-    reg        reset;
+    reg        resetn;
 
     always #5 clk = ~clk;   // 10 ns period, 5 ns half-period
 
@@ -57,7 +57,7 @@ module tb_fpu_sqrt;
     // ── Instantiate DUT ──
     fpu_sqrt dut (
         .clk    (clk),
-        .reset  (reset),
+        .resetn (resetn),
         .src1   (src1),
         .rm     (rm),
         .start  (start),
@@ -122,7 +122,7 @@ module tb_fpu_sqrt;
     // ── Main stimulus ──
     initial begin
         clk   = 1'b0;
-        reset = 1'b1;
+        resetn = 1'b0;
         src1  = 32'b0;
         rm    = RNE;
         start = 1'b0;
@@ -131,7 +131,7 @@ module tb_fpu_sqrt;
 
         // Assert reset for 5 cycles
         repeat (5) @(posedge clk);
-        reset = 1'b0;
+        resetn = 1'b1;
         @(posedge clk);
 
         // ────────────────────────────────────────────

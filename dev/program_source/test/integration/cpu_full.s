@@ -114,9 +114,12 @@ jalr_target:
     lb x23, 9(x21)
 
     li x10, 0xFF00
-    sh x10, 10(x21)
-    lb x24, 10(x21)
-    lb x25, 11(x21)
+     sh x10, 10(x21)
+     lb x24, 10(x21)
+     lb x25, 11(x21)
+
+     # Flush dcache: write back sh/sb stores to 0x80001004-0x8000100B
+     fence.i
 
     li x10, 0x80
     csrrw x2, mstatus, x10
@@ -151,6 +154,9 @@ jalr_target:
 
     la x10, trap_handler
     csrw mtvec, x10
+    # Clear mie FIRST — CSR test left mie=0x80 (MTIE=1), and MTIP=1 since reset.
+    # Must clear MTIE before enabling MIE, otherwise timer fires immediately.
+    csrw mie, x0
     li x10, 0x88
     csrw mstatus, x10
     li x10, 0x800
@@ -170,6 +176,9 @@ jalr_target:
     .word 0x0000007F
 
     addi  x1, x0, 3
+
+    # Restore x21 to data base address (trap_handler clobbers x21)
+    lui   x21, 0x80001
 
     li    x5, 100
     li    x6, 7
@@ -201,8 +210,13 @@ jalr_target:
     sw    x7, 0x28(x21)
 
     li    x5, -1
-    remu  x7, x5, x6
-    sw    x7, 0x2C(x21)
+     remu  x7, x5, x6
+     sw    x7, 0x2C(x21)
+
+     # Flush dcache after all memory stores so TB can verify BRAM content.
+     # This must come before timer/CSR tests which may prevent reaching
+     # the later fence.i at end_loop.
+     fence.i
 
     li x10, 0x80
     csrw mstatus, x10
@@ -212,13 +226,19 @@ jalr_target:
     la x10, timer_handler
     csrw mtvec, x10
 
-    li x10, 0x88
-    csrw mstatus, x10
-
-    li x10, 0x080
-    csrw mie, x10
-
+    # Disarm timer: set mtimecmp to max first so CLINT deasserts MTIP
+    # before we compute the real mtimecmp value.
+    # (mtimecmp defaults to 0, mtime > 0 since reset → MTIP=1)
     lui x10, 0x02000
+    li  x11, 0xFFFFFFFF
+    sw  x11, 0(x10)
+    sw  x11, 4(x10)
+    # Drain AXI write buffer — 40 NOPs ensures store reaches CLINT
+    .rept 40
+    nop
+    .endr
+
+    # Now safe to read mtime — MTIP is low
     lw x11, 8(x10)
     lw x13, 12(x10)
     li x12, 100000
@@ -228,12 +248,30 @@ jalr_target:
     add x13, x13, x14
     sw x11, 0(x10)
     sw x13, 4(x10)
+    # Drain again so CLINT sees new mtimecmp before we enable MTIE
+    .rept 40
+    nop
+    .endr
+
+    li x10, 0x88
+    csrw mstatus, x10
+
+    li x10, 0x080
+    csrw mie, x10
 
     addi x1, x1, 1
     addi x1, x1, 1
     addi x1, x1, 1
     addi x1, x1, 1
     addi x1, x1, 1
+
+    # Disable timer interrupt before fence.i to prevent interrupt storm
+    # during dcache flush (flush takes many cycles, MTIP stays asserted)
+    csrw mie, x0
+
+    # Flush dcache: fence.i triggers dcache writeback + icache invalidate
+    # This ensures all dirty cache lines reach BRAM before the testbench reads them.
+    fence.i
 
 end_loop:
     j end_loop

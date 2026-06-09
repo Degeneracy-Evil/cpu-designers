@@ -49,7 +49,7 @@ module tb_fpu_cvt;
     // Clock and reset
     // ===================================================================
     reg        clk;
-    reg        reset;
+    reg        resetn;
 
     always #5 clk = ~clk;   // 10ns period, 5ns half-period
 
@@ -69,7 +69,7 @@ module tb_fpu_cvt;
     // ===================================================================
     fpu_cvt dut (
         .clk       (clk),
-        .reset     (reset),
+        .resetn    (resetn),
         .src1      (src1),
         .cvt_funct (cvt_funct),
         .rm        (rm),
@@ -139,7 +139,7 @@ module tb_fpu_cvt;
     initial begin
         // Initialize
         clk       = 1'b0;
-        reset     = 1'b1;
+        resetn     = 1'b0;
         src1      = 32'b0;
         cvt_funct = 3'b0;
         rm        = RNE;
@@ -150,7 +150,7 @@ module tb_fpu_cvt;
 
         // Assert reset for 5 cycles
         repeat (5) @(posedge clk);
-        reset = 1'b0;
+        resetn = 1'b1;
         @(posedge clk);
 
         $display("========================================");

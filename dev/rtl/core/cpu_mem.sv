@@ -1,5 +1,5 @@
 `timescale 1ns / 1ps
-`include "ahb_def.svh"
+`include "axi4_def.svh"
 `include "core_bus_types.svh"
 
 module cpu_mem(
@@ -128,7 +128,7 @@ module cpu_mem(
             done_reg <= 1'b0;
             mem_seen_valid <= 1'b0;
             hwrite_reg <= 1'b0;
-            hsize_reg <= `AHB_SIZE_WORD;
+            hsize_reg <= `AXI_SIZE_WORD;
             dataAddr_32_reg <= 32'b0;
             writeData_32_reg <= 32'b0;
             mem_en_reg <= 1'b0;
@@ -154,20 +154,20 @@ module cpu_mem(
                         if (!valid_inst || (!is_load && !is_store && !is_flw && !is_fsw)) begin
                             wb_data_reg <= alu_result;
                             hwrite_reg <= 1'b0;
-                            hsize_reg <= `AHB_SIZE_WORD;
+                            hsize_reg <= `AXI_SIZE_WORD;
                             done_reg <= 1'b1;
                         end
                         else if (misalign_load || misalign_store) begin
                             wb_data_reg <= 32'b0;
                             wb_we_reg <= 1'b0;
                             hwrite_reg <= 1'b0;
-                            hsize_reg <= `AHB_SIZE_WORD;
+                            hsize_reg <= `AXI_SIZE_WORD;
                             done_reg <= 1'b1;
                         end
                         else if (is_load || is_flw) begin
                             dataAddr_32_reg <= alu_result;
                             hwrite_reg <= 1'b0;
-                            hsize_reg <= `AHB_SIZE_WORD;
+                            hsize_reg <= `AXI_SIZE_WORD;
                             writeData_32_reg <= 32'b0;
                             mem_en_reg <= 1'b1;
                             mem_state <= MEM_READ;
@@ -178,17 +178,17 @@ module cpu_mem(
                             mem_en_reg <= 1'b1;
                             // For FSW: use frs2_value as store data, always word size
                             if (is_fsw) begin
-                                hsize_reg <= `AHB_SIZE_WORD;
+                                hsize_reg <= `AXI_SIZE_WORD;
                                 writeData_32_reg <= frs2_value;
                             end
                             else begin
                                 case (mem_size)
                                     3'b000: begin
-                                        hsize_reg <= `AHB_SIZE_BYTE;
+                                        hsize_reg <= `AXI_SIZE_BYTE;
                                         writeData_32_reg <= {4{store_data[7:0]}};
                                     end
                                     3'b001: begin
-                                        hsize_reg <= `AHB_SIZE_HWORD;
+                                        hsize_reg <= `AXI_SIZE_HWORD;
                                         case (alu_result[1:0])
                                             2'b00: begin
                                                 writeData_32_reg <= {16'b0, store_data[15:0]};
@@ -199,7 +199,7 @@ module cpu_mem(
                                         endcase
                                     end
                                     default: begin
-                                        hsize_reg <= `AHB_SIZE_WORD;
+                                        hsize_reg <= `AXI_SIZE_WORD;
                                         writeData_32_reg <= store_data;
                                     end
                                 endcase
@@ -222,7 +222,7 @@ module cpu_mem(
                         wb_we_reg <= 1'b0;
                         wb_data_reg <= 32'b0;
                         hwrite_reg <= 1'b0;
-                        hsize_reg <= `AHB_SIZE_WORD;
+                        hsize_reg <= `AXI_SIZE_WORD;
                         mem_en_reg <= 1'b0;
                         mem_state <= MEM_IDLE;
                     end

@@ -80,10 +80,17 @@ class StaleSessionError(SessionError):
     def __init__(self, session_name: str, stale_layers: list[str]) -> None:
         self.session_name = session_name
         self.stale_layers = stale_layers
-        super().__init__(
-            f"Session {session_name!r} is stale in layers {stale_layers}; "
-            f"refresh required"
-        )
+        if stale_layers:
+            msg = (
+                f"Session {session_name!r} is stale in layers {stale_layers}; "
+                f"refresh required"
+            )
+        else:
+            msg = (
+                f"Session {session_name!r} has no project created yet; "
+                f"run -create before proceeding"
+            )
+        super().__init__(msg)
 
 
 # ---------------------------------------------------------------------------

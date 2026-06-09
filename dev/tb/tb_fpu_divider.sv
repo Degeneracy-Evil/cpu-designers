@@ -6,7 +6,7 @@ module tb_fpu_divider;
     // Clock and reset
     // ----------------------------------------------------------------
     reg        clk;
-    reg        reset;
+    reg        resetn;
 
     // ----------------------------------------------------------------
     // DUT inputs
@@ -69,7 +69,7 @@ module tb_fpu_divider;
     // ----------------------------------------------------------------
     fpu_divider dut (
         .clk    (clk),
-        .reset  (reset),
+        .resetn (resetn),
         .src1   (src1),
         .src2   (src2),
         .rm     (rm),
@@ -149,9 +149,9 @@ module tb_fpu_divider;
         start = 0;
 
         // Assert reset for 5 cycles
-        reset = 1;
+        resetn = 1'b0;
         repeat (5) @(posedge clk);
-        reset = 0;
+        resetn = 1'b1;
         @(posedge clk);
         #1;
 

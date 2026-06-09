@@ -1,6 +1,7 @@
 # DDR3 主存迁移实施进度
 
 > ⛔ **已停止** — 2026-06-09: AHB-Lite 架构已废弃，全面转向 AXI 总线 + chiplab 对齐架构。见新计划 `plan/axi-mig-alignment-plan.md`
+> ⚡ **2026-06-10 更新**: Phase 5.5（时钟/复位体系对齐 chiplab + DDR3 仿真准备）已完成，见 `axi-mig-alignment-process.md`
 > 创建日期: 2026-06-05 | 关联计划: `plan/ddr3-main-memory-plan.md`
 
 ---

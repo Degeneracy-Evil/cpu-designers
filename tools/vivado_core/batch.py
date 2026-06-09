@@ -30,7 +30,12 @@ from typing import TYPE_CHECKING, Any
 
 import yaml
 
-from .exceptions import TaskNotFoundError, VivadoCoreError
+from .exceptions import (
+    SessionLimitError,
+    SessionNotFoundError,
+    TaskNotFoundError,
+    VivadoCoreError,
+)
 
 if TYPE_CHECKING:
     from .config import GlobalConfig
@@ -326,13 +331,32 @@ class BatchExecutor:
 
         # --- Pre-check resource limits ---
         existing_sessions = self._session_mgr.list_sessions()
-        if len(existing_sessions) + len(spec.tasks) > self._config.limits.max_sessions:
-            logger.warning(
-                "Batch may exceed session limit: %d existing + %d batch > %d max",
-                len(existing_sessions),
-                len(spec.tasks),
-                self._config.limits.max_sessions,
+        new_sessions_needed = len(spec.tasks)
+        if "create" not in spec.operations:
+            # Without 'create', sessions must already exist — no new sessions needed.
+            new_sessions_needed = 0
+
+        if new_sessions_needed > 0:
+            available_slots = max(
+                self._config.limits.max_sessions - len(existing_sessions), 0
             )
+            # Auto-eviction can free at most len(existing_sessions) slots,
+            # but we keep at least 1 for running tasks. Practical cap:
+            # max_sessions total (after evicting all idle sessions).
+            if new_sessions_needed > self._config.limits.max_sessions:
+                raise SessionLimitError(
+                    len(existing_sessions),
+                    self._config.limits.max_sessions,
+                )
+            if new_sessions_needed > available_slots and new_sessions_needed > 1:
+                logger.warning(
+                    "Batch requires %d new sessions but only %d slots available "
+                    "(%d existing, %d max). Auto-eviction will reclaim old sessions.",
+                    new_sessions_needed,
+                    available_slots,
+                    len(existing_sessions),
+                    self._config.limits.max_sessions,
+                )
 
         # --- Cancellation event for fail-fast ---
         cancel = threading.Event()
@@ -477,11 +501,20 @@ class BatchExecutor:
 
         # --- Create/get session ---
         try:
-            session = self._session_mgr.get_or_create(
-                batch_task.task_name,
-                session_name,
-                self._task_registry,
-            )
+            if "create" in spec.operations:
+                session = self._session_mgr.get_or_create(
+                    batch_task.task_name,
+                    session_name,
+                    self._task_registry,
+                )
+            else:
+                # Without 'create', the session must already exist.
+                if batch_task.session_name:
+                    session = self._session_mgr.get_session(batch_task.session_name)
+                else:
+                    session = self._session_mgr.find_session_for_task(
+                        batch_task.task_name
+                    )
         except VivadoCoreError as exc:
             duration = time.monotonic() - t0
             tracker.on_complete(batch_task.task_name, False, duration)

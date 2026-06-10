@@ -4,7 +4,7 @@ limits:
   max_sessions: 10
   max_concurrent: 6
   max_disk_gb: 20
-  idle_timeout_min: 60
+  idle_timeout_min: 180
 
 vivado_path: vivado
 proj_name: simplecpu_soc

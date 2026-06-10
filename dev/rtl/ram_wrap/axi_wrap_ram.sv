@@ -165,6 +165,11 @@ always_ff @(posedge aclk or negedge aresetn) begin
                     r_burst <= axi_arburst;
                     r_id    <= axi_arid;
                     r_word_addr <= remapped_araddr[20:2];  // word index
+                    // WRAP burst assertion — this model does not implement WRAP
+                    `ifdef SIMULATION
+                    assert (axi_arburst != 2'b10) else
+                        $error("axi_wrap_ram: WRAP burst not supported, received arburst=%b araddr=%h", axi_arburst, axi_araddr);
+                    `endif
                 end
             end
             R_BURST: begin
@@ -253,6 +258,11 @@ always_ff @(posedge aclk or negedge aresetn) begin
                     w_size  <= axi_awsize;
                     w_burst <= axi_awburst;
                     w_id    <= axi_awid;
+                    // WRAP burst assertion — this model does not implement WRAP
+                    `ifdef SIMULATION
+                    assert (axi_awburst != 2'b10) else
+                        $error("axi_wrap_ram: WRAP burst not supported, received awburst=%b awaddr=%h", axi_awburst, axi_awaddr);
+                    `endif
                 end
             end
             W_DATA: begin

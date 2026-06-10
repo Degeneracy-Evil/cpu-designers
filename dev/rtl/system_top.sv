@@ -743,12 +743,12 @@ module system_top(
                         (w_slave_sel == 3'd5) ? syssts_wready  :
                         default_wready;
 
-    // --- B channel routing (follows w_slave_sel, same as W channel) ---
-    assign ddr_bready    = cdc_bready && (w_slave_sel == 3'd0);
-    assign bootrom_bready = cdc_bready && (w_slave_sel == 3'd1);
-    assign plic_bready    = cdc_bready && (w_slave_sel == 3'd2);
-    assign clint_bready   = cdc_bready && (w_slave_sel == 3'd3);
-    assign apb_bready     = cdc_bready && (w_slave_sel == 3'd4);
+    // --- B channel routing (follows aw_slave_sel, per AXI spec BID=AWID) ---
+    assign ddr_bready    = cdc_bready && (aw_slave_sel == 3'd0);
+    assign bootrom_bready = cdc_bready && (aw_slave_sel == 3'd1);
+    assign plic_bready    = cdc_bready && (aw_slave_sel == 3'd2);
+    assign clint_bready   = cdc_bready && (aw_slave_sel == 3'd3);
+    assign apb_bready     = cdc_bready && (aw_slave_sel == 3'd4);
     assign syssts_bready  = cdc_bready && (aw_slave_sel == 3'd5);
     assign default_bready = cdc_bready && (aw_slave_sel == 3'd6);
 

@@ -321,6 +321,45 @@ sg125: 1                      # DDR3-1600 速度等级（匹配 MT41J64M16XX-125
 
 ---
 
+## Phase 5.6: AXI4 协议合规审计修复
+
+> **日期**: 2026-06-10 | **依据**: IHI0022L AMBA AXI4 Protocol Spec (`dev/docs/axi/`)
+
+### 审计结果总览
+
+| 类别 | 数量 | 详情 |
+|------|------|------|
+| 🔴 FAIL | 3 | F1: B通道路由不一致, F2: WRAP突发无断言, F3: WVALID依赖AWREADY |
+| 🟡 WARNING | 9 | W1-W9 (ID宽度/地址重映射/QoS/读地址/写回延迟/ddr_aresetn/缓存属性/错误恢复/4KB边界) |
+| ✅ PASS | 14 | P1-P14: 握手协议/VALID稳定性/复位/编码/WSTRB/地址解码等 |
+
+### F1: B 通道 bready 路由不一致 → 已修复
+
+- **问题**: `system_top.sv` B 通道 bready 用 `w_slave_sel`，但 bvalid/bresp/bid 用 `aw_slave_sel`
+- **规范依据**: AXI4 A5 — "BID value of a write response matches the AWID value" — B 通道逻辑配对 AW 通道
+- **分析**: `w_slave_sel = cdc_awvalid ? aw_slave_sel_comb : aw_slave_sel`，B 通道激活时 `cdc_awvalid=0`，故 `w_slave_sel == aw_slave_sel`，功能等价但不一致
+- **修复**: B 通道全部统一用 `aw_slave_sel`（bready L747-753），注释更新为 "per AXI spec BID=AWID"
+
+### F2: WRAP 突发无断言 → 已修复
+
+- **问题**: `axi_wrap_ram.sv` 将 WRAP 突发当作 INCR 处理，无任何警告
+- **规范依据**: AXI4 A3.1 — BURST=WRAP (0b10) 是合法突发类型
+- **修复**: 在 R_IDLE 和 W_IDLE 状态添加 `ifdef SIMULATION` 守卫的 `assert` 断言，收到 WRAP 突发时触发 `$error`
+- **注意**: 未实现 WRAP 地址计算逻辑（当前 cpu_bus_bridge 只发 INCR），仅添加防御性断言
+
+### F3: WVALID 依赖 AWREADY → 已修复
+
+- **问题**: `cpu_bus_bridge.sv` S_WB_AW 中 `wvalid` 仅在 `awready` 为真时置 1，违反 AXI4 A2.3.2
+- **规范依据**: AXI4 A2.3.2 — "Manager must NOT wait for AWREADY before asserting WVALID"
+- **修复**: 重构 S_WB_AW 为 AW+W 并发模式（参照 S_MMIO_AW_W）：
+  - 同时驱动 `awvalid=1` 和 `wvalid=1`（beat 0 数据）
+  - 用 `aw_hs_done_r`/`w_hs_done_r` 独立跟踪握手
+  - AW 握手完成后清 awvalid，W 握手完成后清 wvalid（防止从设备接受重复 beat）
+  - 两者都完成后转换到 S_WB_W（beat 1-7），beat_cnt 从 1 开始
+- **S_IDLE 转换**: 添加 `aw_hs_done_r <= 1'b0; w_hs_done_r <= 1'b0;` 初始化
+
+---
+
 ## Phase 6: 延迟展宽 (可选)
 
 - [ ] 移植 R/B 通道延迟展宽

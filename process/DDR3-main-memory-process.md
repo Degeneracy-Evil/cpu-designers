@@ -19,7 +19,8 @@
 | Phase 4.5 | DDR3 仿真自动化验证 (4 测试台全部可启动) | ✅ 完成 | 2026-06-06 |
 | Phase 4.6 | 时钟架构修复 + BUG-56 force workaround | ✅ 完成 | 2026-06-07 |
 | Phase 4.7 | BFM 读超时根因分析 + force 方案改进 | ✅ 完成 | 2026-06-07 |
-| Phase 4.8 | clk_wiz_0_passthrough + 校准完成 + AXI W wready=0 死锁调试 | 🔄 进行中 | — |
+| Phase 4.8 | clk_wiz_0_passthrough + 校准完成 + AXI W wready=0 死锁调试 | ✅ 完成 | 2026-06-10 |
+| Phase 4.9 | cpu_full_ddr3 仿真验证 (SIMU_USE_DDR=1 全系统 DDR3 仿真) | 🔄 进行中 | — |
 | Phase 5 | 优化与清理 (移除旧 SRAM IP + 文档更新) | ⏳ 待开始 | — |
 
 ---
@@ -717,4 +718,60 @@ MIG mi_stalling=0 wr_cmd_valid=0  ← MIG 未转发写命令到 MC
 | 不 force init_calib_complete | 跳过校准 FSM 导致读通路未初始化 (RVALID 永不返回)；改用 force pi_phase_locked_all 让 FSM 自然走完 |
 | mux_HSELx HTRANS 门控更新 | 防止 AHB IDLE 阶段覆盖 slave 选择；复位后初始选 DDR3 |
 | BFM #1 延迟有害 | system_top 中 registered mux_HSELx 路径下 #1 延迟导致时序不匹配，写入从 3→1 |
+
+---
+
+## Phase 4.9: cpu_full_ddr3 仿真验证
+
+> 日期: 2026-06-10
+
+### 目标
+验证 `SIMU_USE_DDR=1` 下 cpu_full 测试程序能通过 DDR3 主存完整执行。
+
+### 仿真配置
+- **任务**: `cpu_full_ddr3` (tb_simple_cpu_top, sim_mode=ddr3)
+- **Verilog defines**: `SIMU_USE_DDR=1, SIMU_USE_PLL=0, SIMU_DDR_MODE=1, SIM_BYPASS_INIT_CAL=FAST, sg125=1`
+- **Runtime**: 5ms (从 100ms 缩短，DDR3 行为仿真极慢)
+
+### 探针系统
+为解决仿真进度不可观测问题，添加了三层探针：
+
+1. **DDR3 init 探针** (`tb_soc_includes.svh`):
+   - `[PROBE] Waiting for MIG init_calib_complete...`
+   - `[PROBE] MIG init_calib_complete = 1, loading hex file...`
+   - `[PROBE] Hex file loaded, resetting Axi_CDC...`
+   - `[PROBE] ddr_data_init released, CPU starting!`
+
+2. **AXI 写入探针** (`axi4_write` + `write_hex_file`):
+   - `[AXI-W] #%0d AW addr=... awready=... wready=...` — 每 1024 个 word
+   - `[AXI-W] #%0d DONE addr=...` — 写入完成
+   - `[PROBE] AXI write progress: word %0d` — 每 512 个 word
+
+3. **CPU 执行探针** (`tb_simple_cpu_top.sv`):
+   - `[PROBE] cycle=%0d PC=0x%08h inst=0x%08h ddr_init=%b | AXI ar_cnt=%0d aw_cnt=%0d arvalid=%b arready=%b rvalid=%b awvalid=%b awready=%b`
+   - 每 500k cycle 打印一次
+
+### 仿真结果 (2026-06-10)
+
+| 阶段 | 仿真时间 | 实际耗时 | 状态 |
+|------|----------|----------|------|
+| DDR3 PHY_INIT | 0 → 103.8us | ~35min | ✅ 全部校准通过 |
+| Hex 文件加载 (8192 words) | 106.2us → 761.6us | ~60min | ✅ 32KB 加载完成 |
+| CPU 执行 (500k cycles) | 761.6us → 5ms | ~10min | ✅ CPU 正常执行 |
+
+**关键观察**:
+- DDR3 MIG 校准全部通过 (Memory Init → Phaser_In → DQSFOUND → Write Leveling → Calibration → Read Leveling)
+- AXI 写入正常: `awready=1`, `wready` 在请求时为 0 但随后拉高（正常 MIG 行为）
+- CPU 已启动: `PC=0x80000460, inst=0x0000006f` (jal 指令)
+- AXI 读正常: `ar_cnt=46` (CPU 通过 AXI AR 通道读 DDR3 46 次)
+- AXI 通道就绪: `arready=1, awready=1`
+
+**已知问题**:
+- BRAM collision warning (dcache tag BRAM) — 行为仿真已知警告，不影响功能
+- DDR3 行为仿真极慢: 5ms 仿真时间需 ~2 小时实际时间
+- 4M cycle 测试需要更长仿真时间 (估计需要 40ms = ~16 小时实际时间)
+
+### 下一步
+- [ ] 增加仿真时间至足够完成 4M cycle 测试 (或减少测试 cycle 数)
+- [ ] 验证 PASS/FAIL 结果
 | HREADY force workaround 移极有害 | force HREADY=HREADYOUT 使写入从 1→0，已移除 |

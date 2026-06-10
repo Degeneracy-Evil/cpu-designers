@@ -171,12 +171,22 @@ else begin: ddr3_tb
     //   Uses force on MIG AXI signals (matching chiplab pattern).
     //   Hierarchy: u_soc.ddr3.u_axi_wrap_ddr.mig_axi
     // ------------------------------------------------------------
+    // Global counter for AXI write progress (shared with write_hex_file)
+    integer axi_write_cnt;
+
     task axi4_write;
         input [31:0] addr;
         input [31:0] data;
         begin
             // Write address channel
             @(posedge u_soc.ddr3.u_axi_wrap_ddr.mig_axi.ui_clk);
+            if (axi_write_cnt < 5 || axi_write_cnt % 1024 == 0) begin
+                $display("[AXI-W] %0t: #%0d AW addr=0x%08h awready=%b wready=%b",
+                         $time, axi_write_cnt, addr,
+                         u_soc.ddr3.u_axi_wrap_ddr.mig_axi.s_axi_awready,
+                         u_soc.ddr3.u_axi_wrap_ddr.mig_axi.s_axi_wready);
+                $fflush;
+            end
             force u_soc.ddr3.u_axi_wrap_ddr.mig_axi.s_axi_awid    = 4'b0001;
             force u_soc.ddr3.u_axi_wrap_ddr.mig_axi.s_axi_awaddr  = addr[26:0];
             force u_soc.ddr3.u_axi_wrap_ddr.mig_axi.s_axi_awlen   = 8'h00;
@@ -209,6 +219,11 @@ else begin: ddr3_tb
             wait(u_soc.ddr3.u_axi_wrap_ddr.mig_axi.s_axi_bvalid);
             @(posedge u_soc.ddr3.u_axi_wrap_ddr.mig_axi.ui_clk);
             force u_soc.ddr3.u_axi_wrap_ddr.mig_axi.s_axi_bready = 1'b0;
+            axi_write_cnt = axi_write_cnt + 1;
+            if (axi_write_cnt <= 5 || axi_write_cnt % 1024 == 0) begin
+                $display("[AXI-W] %0t: #%0d DONE addr=0x%08h", $time, axi_write_cnt, addr);
+                $fflush;
+            end
         end
     endtask
 
@@ -224,6 +239,7 @@ else begin: ddr3_tb
         integer        fd;
         integer        addr_offset;
         integer        code;
+        integer        word_cnt;
         begin
             fd = $fopen(filename, "r");
             if (fd == 0) begin
@@ -232,12 +248,23 @@ else begin: ddr3_tb
             end
 
             addr_offset = 0;
+            word_cnt    = 0;
+            axi_write_cnt = 0;
 
             while (!$feof(fd)) begin
                 code = $fscanf(fd, "%h\n", data);
                 if (code == 1) begin
                     axi4_write(base_addr + addr_offset, data);
                     addr_offset = addr_offset + 4;
+                    word_cnt = word_cnt + 1;
+                    if (word_cnt % 512 == 1) begin
+                        $display("[PROBE] %0t: AXI write progress: word %0d addr=0x%08h awready=%b wready=%b bvalid=%b",
+                                 $time, word_cnt, base_addr + addr_offset,
+                                 u_soc.ddr3.u_axi_wrap_ddr.mig_axi.s_axi_awready,
+                                 u_soc.ddr3.u_axi_wrap_ddr.mig_axi.s_axi_wready,
+                                 u_soc.ddr3.u_axi_wrap_ddr.mig_axi.s_axi_bvalid);
+                        $fflush;
+                    end
                 end
             end
 
@@ -273,13 +300,21 @@ else begin: ddr3_tb
     // ------------------------------------------------------------
     initial begin
         force u_soc.ddr_data_init = 1'b0;
+        $display("[PROBE] %0t: Waiting for MIG init_calib_complete...", $time);
+        $fflush;
         wait(u_soc.ddr3.u_axi_wrap_ddr.mig_axi.init_calib_complete);
+        $display("[PROBE] %0t: MIG init_calib_complete = 1, loading hex file...", $time);
+        $fflush;
         write_hex_file(32'h80000000, "prog.hex");
+        $display("[PROBE] %0t: Hex file loaded, resetting Axi_CDC...", $time);
+        $fflush;
         @(posedge u_soc.ddr3.u_axi_wrap_ddr.mig_axi.ui_clk);
         force u_soc.ddr3.u_axi_wrap_ddr.u_Axi_CDC.axiOutRst = 1'b0;
         @(posedge u_soc.ddr3.u_axi_wrap_ddr.mig_axi.ui_clk);
         force u_soc.ddr3.u_axi_wrap_ddr.u_Axi_CDC.axiOutRst = 1'b1;
         force u_soc.ddr_data_init = 1'b1;
+        $display("[PROBE] %0t: ddr_data_init released, CPU starting!", $time);
+        $fflush;
     end
 
 end

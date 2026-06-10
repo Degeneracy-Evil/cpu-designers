@@ -765,6 +765,14 @@ class Operations:
         self._ensure_vivado(session)
 
         staleness = self.layered_hash.compute_staleness(session.meta.hashes)
+
+        # --layers overrides staleness: force-refresh even if hashes match
+        if layers is not None:
+            for layer in layers:
+                if layer in staleness and not staleness[layer]:
+                    logger.info("Forcing stale layer %r (--layers override)", layer)
+                    staleness[layer] = True
+
         task = self.task_registry.get(session.meta.task)
         plan = self.sync.plan_refresh(staleness, task)
 

@@ -356,14 +356,15 @@ module cpu_bus_bridge(
                         end
                     end
                     else if (dcache_wb_req && !dcache_wb_valid_r) begin
-                        // Writeback burst → AW then W then B
+                        // Writeback burst → AW+W simultaneous (beat 0), then W beats 1-7, then B
                         state           <= S_WB_AW;
                         addr_r          <= dcache_wb_addr;
                         write_r         <= 1'b1;
                         burst_base_addr <= dcache_wb_addr;
                         beat_cnt        <= 3'd0;
                         wb_shift_reg    <= dcache_wb_data;
-
+                        aw_hs_done_r    <= 1'b0;
+                        w_hs_done_r     <= 1'b0;
                     end
                     else if (icache_refill_req && !icache_refill_valid_r) begin
                         // Icache refill burst → AR then R
@@ -576,30 +577,55 @@ module cpu_bus_bridge(
                 end
 
                 // =====================================================
-                // Dcache Writeback — AW phase (burst 8)
+                // Dcache Writeback — AW+W phase (beat 0 simultaneous)
+                // Per AXI spec A2.3.2: WVALID must NOT wait for AWREADY.
+                // Drive AW and W channels independently, track handshakes.
                 // =====================================================
                 S_WB_AW: begin
-                    awvalid  <= 1'b1;
-                    awaddr   <= addr_r;
-                    awlen    <= 8'h07;
-                    awsize   <= `AXI_SIZE_4B;
-                    awburst  <= `AXI_BURST_INCR;
-                    awlock   <= `AXI_LOCK_NORMAL;
-                    awcache  <= `AXI_CACHE_NORM_BUF;
-                    awprot   <= `AXI_PROT_DATA_PRIV_SECURE;
+                    // Drive AW channel (until handshake completes)
+                    if (!aw_hs_done_r) begin
+                        awvalid  <= 1'b1;
+                        awaddr   <= addr_r;
+                        awlen    <= 8'h07;
+                        awsize   <= `AXI_SIZE_4B;
+                        awburst  <= `AXI_BURST_INCR;
+                        awlock   <= `AXI_LOCK_NORMAL;
+                        awcache  <= `AXI_CACHE_NORM_BUF;
+                        awprot   <= `AXI_PROT_DATA_PRIV_SECURE;
+                    end else begin
+                        awvalid <= 1'b0;
+                    end
 
-                    if (awready) begin
-                        // Prepare first W beat
+                    // Drive W channel — first beat simultaneously with AW
+                    if (!w_hs_done_r) begin
+                        wvalid   <= 1'b1;
                         wdata    <= wb_shift_reg[31:0];
                         wstrb    <= 4'b1111;
                         wlast    <= 1'b0;  // Not last yet (beat 0 of 8)
-                        wvalid   <= 1'b1;
-                        state    <= S_WB_W;
+                    end else begin
+                        wvalid <= 1'b0;  // Clear after first W handshake
+                    end
+
+                    // Track independent handshakes
+                    if (awvalid && awready) aw_hs_done_r <= 1'b1;
+                    if (wvalid  && wready)  w_hs_done_r  <= 1'b1;
+
+                    // When both complete, move to W phase for remaining beats (1-7)
+                    if ((aw_hs_done_r || (awvalid && awready)) &&
+                        (w_hs_done_r  || (wvalid  && wready))) begin
+                        awvalid      <= 1'b0;
+                        wvalid       <= 1'b1;  // Immediately drive beat 1
+                        beat_cnt     <= 3'd1;
+                        wb_shift_reg <= wb_shift_reg >> 32;
+                        wdata        <= wb_shift_reg[63:32];
+                        wstrb        <= 4'b1111;
+                        wlast        <= 1'b0;  // beat 1, not last
+                        state        <= S_WB_W;
                     end
                 end
 
                 // =====================================================
-                // Dcache Writeback — W phase (8 beats)
+                // Dcache Writeback — W phase (beats 1-7)
                 // =====================================================
                 S_WB_W: begin
                     awvalid <= 1'b0;  // AW channel done — clear valid

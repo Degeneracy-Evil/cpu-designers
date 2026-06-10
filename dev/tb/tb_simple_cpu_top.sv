@@ -7,9 +7,55 @@ module tb_simple_cpu_top;
 
 
 
+    // ----------------------------------------------------------------
+    // Progress probe: print PC + AXI bus activity every 500k cycles
+    // ----------------------------------------------------------------
+`ifdef SIMU_DDR_MODE
+    integer probe_cnt;
+    integer axi_ar_cnt;
+    integer axi_aw_cnt;
+    // Count AXI read handshakes (arvalid && arready)
+    always @(posedge u_soc.ddr3.u_axi_wrap_ddr.mig_axi.ui_clk) begin
+        if (u_soc.ddr3.u_axi_wrap_ddr.mig_axi.s_axi_arvalid &&
+            u_soc.ddr3.u_axi_wrap_ddr.mig_axi.s_axi_arready)
+            axi_ar_cnt = axi_ar_cnt + 1;
+        if (u_soc.ddr3.u_axi_wrap_ddr.mig_axi.s_axi_awvalid &&
+            u_soc.ddr3.u_axi_wrap_ddr.mig_axi.s_axi_awready)
+            axi_aw_cnt = axi_aw_cnt + 1;
+    end
+    initial begin
+        probe_cnt  = 0;
+        axi_ar_cnt = 0;
+        axi_aw_cnt = 0;
+        forever begin
+            @(posedge clk);
+            probe_cnt = probe_cnt + 1;
+            if (probe_cnt % 500000 == 0) begin
+                $display("[PROBE] %0t: cycle=%0d PC=0x%08h inst=0x%08h ddr_init=%b | AXI ar_cnt=%0d aw_cnt=%0d arvalid=%b arready=%b rvalid=%b awvalid=%b awready=%b",
+                         $time, probe_cnt, if_pc, if_inst, u_soc.ddr_data_init,
+                         axi_ar_cnt, axi_aw_cnt,
+                         u_soc.ddr3.u_axi_wrap_ddr.mig_axi.s_axi_arvalid,
+                         u_soc.ddr3.u_axi_wrap_ddr.mig_axi.s_axi_arready,
+                         u_soc.ddr3.u_axi_wrap_ddr.mig_axi.s_axi_rvalid,
+                         u_soc.ddr3.u_axi_wrap_ddr.mig_axi.s_axi_awvalid,
+                         u_soc.ddr3.u_axi_wrap_ddr.mig_axi.s_axi_awready);
+                $fflush;
+            end
+        end
+    end
+`endif
+
     initial begin
         pass_count = 0;
         fail_count = 0;
+
+`ifdef SIMU_DDR_MODE
+        $display("[PROBE] %0t: Test body waiting for ddr_data_init...", $time);
+        $fflush;
+        wait(u_soc.ddr_data_init);
+        $display("[PROBE] %0t: ddr_data_init=1, starting 4M cycle wait...", $time);
+        $fflush;
+`endif
 
          repeat (4000000) @(posedge clk);
 

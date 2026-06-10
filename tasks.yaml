@@ -20,7 +20,7 @@ tasks:
       SIMU_DDR_MODE: 1
       sg125: 1
     hex_file: test/integration/cpu_full.hex
-    runtime: 100ms
+    runtime: 5ms
 
   cpu_compute:
     tb: tb_simple_cpu_compute

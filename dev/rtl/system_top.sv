@@ -123,12 +123,12 @@ module system_top(
         wire clk_wiz_locked_local;
         clk_wiz_0 u_clk_wiz_0 (
             .clk_in1  (clk),
-            .clk_out1 (sys_clk),     // 100MHz
-            .clk_out2 (ddr_clk_ref), // 200MHz
+            .clk_out1 (cpu_clk),     // 50MHz CPU core
+            .clk_out2 (sys_clk),     // 100MHz AXI interconnect
+            .clk_out3 (ddr_clk_ref), // 200MHz DDR reference
             .resetn   (resetn),
             .locked   (clk_wiz_locked_local)
         );
-        assign cpu_clk = sys_clk;
         assign clk_wiz_locked = clk_wiz_locked_local;
 
         // Reset: resetn & clk_wiz_locked & ddr_data_init
@@ -147,6 +147,7 @@ module system_top(
     // FPGA: use clk_wiz_0
     begin: fpga_clk
 `ifdef DDR3_BYPASS_CLK_WIZ
+        assign cpu_clk     = clk_system_bypass;
         assign sys_clk     = clk_system_bypass;
         assign ddr_clk_ref = clk_ddr_ref_bypass;
         assign clk_wiz_locked = clk_wiz_locked_bypass;
@@ -154,14 +155,14 @@ module system_top(
         wire clk_wiz_locked_local;
         clk_wiz_0 u_clk_wiz_0 (
             .clk_in1  (clk),          // 100MHz external crystal
-            .clk_out1 (sys_clk),      // 100MHz
-            .clk_out2 (ddr_clk_ref),  // 200MHz
+            .clk_out1 (cpu_clk),      // 50MHz CPU core
+            .clk_out2 (sys_clk),      // 100MHz AXI interconnect
+            .clk_out3 (ddr_clk_ref),  // 200MHz DDR reference
             .resetn   (resetn),
             .locked   (clk_wiz_locked_local)
         );
         assign clk_wiz_locked = clk_wiz_locked_local;
 `endif
-        assign cpu_clk = sys_clk;
 
         // Reset: resetn & clk_wiz_locked & ddr_aresetn
         // ddr_aresetn = 1 only after MIG init_calib_complete,

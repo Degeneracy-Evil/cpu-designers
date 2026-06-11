@@ -319,6 +319,10 @@ tasks:
 
   fpga:
     top: system_top
+    coe: boot/bootloader.coe
+    verilog_defines:
+      SIMU_USE_DDR: 1
+      SIMU_USE_PLL: 1
 
   # DDR3 IP verification — create project only, no sim/bitstream
   # Use: python -m tools.vivado_cli -task ddr3_test -create

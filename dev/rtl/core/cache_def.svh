@@ -28,7 +28,7 @@
 
 `define CLK_WIZ_IP_NAME     "clk_wiz_0"
 `define CLK_WIZ_PRIM_IN_FREQ  100
-`define CLK_WIZ_DDR_REF_FREQ 200
+`define CLK_WIZ_DDR_REF_FREQ 100
 `define MIG_UI_CLK_FREQ     100
 
 // --- I-Cache ---

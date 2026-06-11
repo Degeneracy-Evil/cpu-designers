@@ -80,6 +80,7 @@ class ClkWizIpConfig:
     num_out_clks: int = 2
     clk_out1_freq: float = 100.0
     clk_out2_freq: float = 200.0
+    clk_out3_freq: float = 0.0
     reset_type: str = "ACTIVE_LOW"
 
 
@@ -228,9 +229,10 @@ def clkwiz_to_ip(cfg: ClkWizConfig) -> ClkWizIpConfig:
         mmcm_clkin_period=cfg.mmcm_clkin_period,
         mmcm_clkfbout_mult_f=cfg.mmcm_clkfbout_mult_f,
         mmcm_divclk_divide=cfg.mmcm_divclk_divide,
-        num_out_clks=cfg.num_out_clks,
-        clk_out1_freq=cfg.clk_out1_freq,
-        clk_out2_freq=cfg.clk_out2_freq,
+    num_out_clks=cfg.num_out_clks,
+    clk_out1_freq=cfg.clk_out1_freq,
+    clk_out2_freq=cfg.clk_out2_freq,
+    clk_out3_freq=cfg.clk_out3_freq,
         reset_type=cfg.reset_type,
     )
 
@@ -333,6 +335,9 @@ def generate_clkwiz_create_ip_tcl(cfg: ClkWizIpConfig, ip_dir: str) -> str:
     if cfg.num_out_clks >= 2:
         clkout_props.append(f"CONFIG.CLKOUT2_USED {{true}}")
         clkout_props.append(f"CONFIG.CLKOUT2_REQUESTED_OUT_FREQ {{{cfg.clk_out2_freq:.3f}}}")
+    if cfg.num_out_clks >= 3:
+        clkout_props.append(f"CONFIG.CLKOUT3_USED {{true}}")
+        clkout_props.append(f"CONFIG.CLKOUT3_REQUESTED_OUT_FREQ {{{cfg.clk_out3_freq:.3f}}}")
     clkout_str = " \\\n    ".join(clkout_props)
 
     return f"""\

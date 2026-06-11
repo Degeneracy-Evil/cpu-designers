@@ -167,8 +167,9 @@ class ClkWizConfig:
     mmcm_clkfbout_mult_f: float = 10.0  # VCO = 1000MHz
     mmcm_divclk_divide: int = 1
     num_out_clks: int = 2
-    clk_out1_freq: float = 100.0  # MHz (clk_system,备用)
-    clk_out2_freq: float = 200.0  # MHz (clk_ddr_ref → MIG clk_ref_i)
+    clk_out1_freq: float = 100.0  # MHz (cpu_clk)
+    clk_out2_freq: float = 200.0  # MHz (sys_clk / ddr_clk_ref)
+    clk_out3_freq: float = 0.0    # MHz (ddr_clk_ref, only if num_out_clks >= 3)
     reset_type: str = "ACTIVE_LOW"
 
 
@@ -343,6 +344,7 @@ def load_config(path: Path | str | None = None, base_dir: Path | str | None = No
         num_out_clks=clk_wiz_raw.get("num_out_clks", 2),
         clk_out1_freq=float(clk_wiz_raw.get("clk_out1_freq", 100.0)),
         clk_out2_freq=float(clk_wiz_raw.get("clk_out2_freq", 200.0)),
+        clk_out3_freq=float(clk_wiz_raw.get("clk_out3_freq", 0.0)),
         reset_type=clk_wiz_raw.get("reset_type", "ACTIVE_LOW"),
     )
     memory = MemoryConfig(

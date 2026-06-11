@@ -1445,6 +1445,7 @@ module system_top(
             display_value       <= rf_data;
         end else begin
             case(display_number)
+                // ── CPU pipeline: one PC + one INST ──────────────────
                 6'd1: begin
                     display_valid <= 1'b1;
                     display_name  <= "IF_PC";
@@ -1455,36 +1456,40 @@ module system_top(
                     display_name  <= "IF_IN";
                     display_value <= if_inst;
                 end
-                6'd3: begin
+                // ── Reset & initialization signals ───────────────────
+                // Init chain: resetn → clk_wiz_locked → ddr_aresetn
+                //           → sys_resetn → cpu_resetn → CPU boots
+                6'd3: begin  // Board reset button (active-LOW)
                     display_valid <= 1'b1;
-                    display_name  <= "ID_PC";
-                    display_value <= id_pc;
+                    display_name  <= "RSTN ";
+                    display_value <= {31'b0, resetn};
                 end
-                6'd4: begin
+                6'd4: begin  // Clocking Wizard MMCM locked
                     display_valid <= 1'b1;
-                    display_name  <= "EXEPC";
-                    display_value <= exe_pc;
+                    display_name  <= "CWLK ";
+                    display_value <= {31'b0, clk_wiz_locked};
                 end
-                6'd5: begin
+                6'd5: begin  // DDR3 MIG init_calib_complete
                     display_valid <= 1'b1;
-                    display_name  <= "MEMPC";
-                    display_value <= mem_pc;
+                    display_name  <= "DDRC ";
+                    display_value <= {31'b0, ddr_aresetn};
                 end
-                6'd6: begin
+                6'd6: begin  // Synchronized system reset (active-LOW)
                     display_valid <= 1'b1;
-                    display_name  <= "MEMIN";
-                    display_value <= mem_inst;
+                    display_name  <= "SYSR ";
+                    display_value <= {31'b0, sys_resetn};
                 end
-                6'd7: begin
+                6'd7: begin  // Synchronized CPU reset (active-LOW)
                     display_valid <= 1'b1;
-                    display_name  <= "WB_PC";
-                    display_value <= wb_pc;
+                    display_name  <= "CPUR ";
+                    display_value <= {31'b0, cpu_resetn};
                 end
-                6'd8: begin
+                6'd8: begin  // GPIO data out (bootloader LED state)
                     display_valid <= 1'b1;
-                    display_name  <= "WB_IN";
-                    display_value <= wb_inst;
+                    display_name  <= "GPIO ";
+                    display_value <= {16'b0, gpio_data_out};
                 end
+                // ── AXI debug ────────────────────────────────────────
                 6'd9: begin
                     display_valid <= 1'b1;
                     display_name  <= "DADDR";

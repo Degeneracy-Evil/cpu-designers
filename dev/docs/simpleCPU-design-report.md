@@ -1,12 +1,12 @@
 # SimpleCPU 设计报告
 
-> 生成日期: 2026-06-05 | 项目路径: `dev/rtl/`
+> 生成日期: 2026-06-11 | 项目路径: `dev/rtl/`
 
 ---
 
 ## 1. 项目概述
 
-本项目实现了一个基于 RISC-V RV32IMF 指令集的多周期 CPU，采用五级流水线结构（取指-译码-执行-访存-回写），通过有限状态机（FSM）控制器协调各级运行。CPU 通过 AHB-Lite 总线连接片上存储与外设，支持异常/中断陷阱处理、CSR 读写、M 扩展乘除法运算、F 扩展单精度浮点运算。
+本项目实现了一个基于 RISC-V RV32IMF 指令集的多周期 CPU，采用五级流水线结构（取指-译码-执行-访存-回写），通过有限状态机（FSM）控制器协调各级运行。CPU 通过 AXI4 总线连接片上存储与外设，支持异常/中断陷阱处理、CSR 读写、M 扩展乘除法运算、F 扩展单精度浮点运算。
 
 ### 1.1 核心特性
 
@@ -21,7 +21,7 @@
 | 缓存策略 | 写回（write-back）+ 写分配（write-allocate），脏行驱逐写回主存 |
 | 标签存储 | BRAM IP（icachet 32-bit×8 / dcachet 36-bit×8），配置驱动 |
 | TLB 架构 | 4 路 × 4 组组相联（16 项），BRAM IP（tlb_flag 128-bit×4 / tlb_data 128-bit×4），Tree-PLRU 替换 |
-| 总线接口 | AHB-Lite Master，支持 INCR8 突发传输 |
+| 总线接口 | AXI4 Master（cpu_bus_bridge），支持 INCR8 突发读/写；AXI4-Lite 从设备（PLIC/CLINT/BootROM/SysStatus/APB Bridge） |
 | 中断/异常 | 支持 Trap 进入/返回（mret/sret）、CLINT 定时器中断、PLIC 外部中断 |
 | 特权指令 | SRET、SFENCE.VMA 指令支持 |
 | 乘法器 | Booth 编码，32 周期迭代 |
@@ -29,6 +29,10 @@
 | 加法器 | 超前进位加法器（CLA），16-bit 级联为 32-bit |
 | 浮点单元 | IEEE 754 单精度，多周期握手协议，5 种舍入模式 |
 | 浮点寄存器 | 32×32-bit（f0-f31），f0 硬连线零 |
+| 启动 ROM | AXI4-Lite Boot ROM（0xFC00_0000），32KB BRAM，DDR3 启动引导 |
+| DDR3 SDRAM | AXI4 MIG 接口（axi_wrap_ddr），可选 SRAM 行为模型（axi_wrap_ram） |
+| 时钟域 | cpu_clk（50MHz）/ sys_clk（100MHz）/ ddr_clk_ref（200MHz），Axi_CDC 跨域 |
+| 系统状态 | AXI4-Lite Sys Status（0x0400_0000），MIG 校准/MMCM 锁定/clk_wiz 锁定 |
 | 起始地址 | `0x8000_0000` |
 
 ### 1.2 支持的指令集
@@ -84,7 +88,11 @@
 
 ```
 system_top
-├── core_top              ← CPU 核心
+├── Clock/Reset Architecture
+│   ├── clk_wiz_0 (or sim direct)     ← 100MHz→50MHz CPU + 100MHz sys + 200MHz DDR ref
+│   ├── reset_sync (×2)               ← Async assert, sync deassert (sys + cpu domains)
+│   └── ddr_data_init / ddr_aresetn   ← DDR3 init gating (sim vs FPGA)
+├── core_top              ← CPU 核心 (cpu_clk domain)
 │   ├── cpu_controller    ← FSM 状态机控制器
 │   ├── cpu_fetch         ← 取指级
 │   ├── cpu_decode        ← 译码级
@@ -94,35 +102,28 @@ system_top
 │   ├── cpu_regfile       ← 32×32bit 整数寄存器堆
 │   ├── fpu_regfile       ← 32×32bit 浮点寄存器堆（f0 硬连线零）
 │   ├── cpu_trap_csr      ← 陷阱/CSR 子系统
-│   │   ├── cpu_trap_manager
-│   │   │   └── cpu_clint
-│   │   └── cpu_csr_interface
-│   │       └── cpu_csr
 │   ├── icache_ctrl       ← 指令缓存控制器（4路组相联，VIPT）
-│   │   ├── icachet       ← ICache 标签 BRAM IP（32-bit×8，byte_size=8）
-│   │   ├── icached       ← ICache 数据 BRAM IP（256-bit×32，byte_enable）
-│   │   └── tree_plru     ← Tree-PLRU 替换策略
 │   ├── dcache_ctrl       ← 数据缓存控制器（4路组相联，写回+写分配，VIPT）
-│   │   ├── dcachet       ← DCache 标签 BRAM IP（36-bit×8，byte_size=9）
-│   │   ├── dcached       ← DCache 数据 BRAM IP（256-bit×32，byte_enable）
-│   │   └── tree_plru     ← Tree-PLRU 替换策略
 │   ├── MMU (×2)          ← Sv32 虚拟内存（TLB + PTW 页表漫游）
-│   │   ├── tlb           ← TLB（4路×4组=16项，BRAM存储，Tree-PLRU替换）
-│   │   │   ├── tlb_flag  ← TLB 标志 BRAM IP（128-bit×4）
-│   │   │   ├── tlb_data  ← TLB 数据 BRAM IP（128-bit×4）
-│   │   │   └── tree_plru ← Tree-PLRU 替换策略（每组）
-│   │   └── ptw           ← 页表漫游器（Sv32 二级页表）
-│   └── cpu_bus_bridge    ← AHB-Lite 总线桥接（MMIO + INCR8 突发）
-├── ahb_lite_bus          ← AHB-Lite 总线
-│   ├── ahb_sram_slave    ← SRAM 从设备（32KB BRAM IP）
-│   ├── ahb_default_slave ← 默认从设备（未映射地址返回 ERROR）
-│   ├── ahb_clint         ← CLINT（mtime/mtimecmp/msip）
-│   ├── ahb_plic          ← PLIC（8-source，src[1]=Timer, src[2]=UART, src[3]=SPI, src[4]=GPIO）
-│   └── ahb_lite_to_apb → apb_bus → apb_perips
-│       ├── GPIO          ← 16-bit 双向 IO，引脚变化中断（o_irq→PLIC src[4]）
-│       ├── UART (TX/RX)  ← TX/RX FIFO（16字节），中断（o_irq→PLIC src[2]），可配波特率
-│       ├── Timer          ← 32-bit 定时器，中断（o_irq→PLIC src[1]）
-│       └── SPI            ← 主模式 SPI，传输完成中断（o_irq→PLIC src[3]）
+│   └── cpu_bus_bridge    ← AXI4 总线桥接（MMIO + INCR8 突发，AW/W/B/AR/R 五通道）
+├── Axi_CDC               ← AXI4 时钟域穿越（cpu_clk → sys_clk）
+├── Address Decoder + Slave Mux  ← 手动地址译码 + 7 从设备多路复用（sys_clk domain）
+│   ├── Slave 0: DDR3/RAM (axi_wrap_ddr / axi_wrap_ram)  ← 全 AXI4，addr[31:28]==4'h8
+│   ├── Slave 1: Boot ROM (axi4lite_bootrom)              ← AXI4-Lite，addr[31:24]==8'hFC
+│   ├── Slave 2: PLIC (axi4lite_plic)                     ← AXI4-Lite，addr[31:24]==8'h0C
+│   ├── Slave 3: CLINT (axi4lite_clint)                   ← AXI4-Lite，addr[31:24]==8'h02
+│   ├── Slave 4: APB Bridge (axi4lite_to_apb)             ← AXI4-Lite，addr[31:24]==8'h10
+│   │   ├── apb_decoder
+│   │   └── apb_perips
+│   │       ├── GPIO          ← 16-bit 双向 IO，引脚变化中断（o_irq→PLIC src[4]）
+│   │       ├── UART (TX/RX)  ← TX/RX FIFO（16字节），中断（o_irq→PLIC src[2]），可配波特率
+│   │       ├── Timer          ← 32-bit 定时器，中断（o_irq→PLIC src[1]）
+│   │       └── SPI            ← 主模式 SPI，传输完成中断（o_irq→PLIC src[3]）
+│   ├── Slave 5: Sys Status (axi4lite_sys_status)         ← AXI4-Lite，addr[31:24]==8'h04
+│   └── Slave 6: Default Slave (axi4lite_default_slave)   ← AXI4-Lite，DECERR 响应
+├── DDR3 Conditional Generate
+│   ├── SIMU_USE_DDR=0: axi_wrap_ram  ← BRAM 行为模型（零延迟，快速仿真）
+│   └── SIMU_USE_DDR=1: axi_wrap_ddr  ← MIG + DDR3 SDRAM（真实硬件通路）
 └── lcd_module            ← LCD 调试显示
 ```
 
@@ -146,14 +147,17 @@ fpu_unit
 
 ### 2.2 地址映射
 
-| 地址高位 | 从设备 | 说明 |
-|----------|--------|------|
-| `0x80_xxxx_xxxx` | SRAM Slave | 主存储器（32KB，缓存映射区域） |
-| `0x02_xxxx_xxxx` | CLINT | 核心本地中断器（mtime/mtimecmp/msip 可写） |
-| `0x0C_xxxx_xxxx` | PLIC | 平台级中断控制器 |
-| `0x10_xxxx_xxxx` | APB Bridge | 外设桥（GPIO/UART/Timer/SPI） |
+| 地址高位 | 从设备 | 总线协议 | 说明 |
+|----------|--------|----------|------|
+| `0x8_xxxx_xxxx` | DDR3/RAM | AXI4 | 主存储器（DDR3 或 SRAM 行为模型，缓存映射区域） |
+| `0xFC_xxxx_xxxx` | Boot ROM | AXI4-Lite | 启动 ROM（32KB BRAM，只读，DDR3 启动引导） |
+| `0x0C_xxxx_xxxx` | PLIC | AXI4-Lite | 平台级中断控制器 |
+| `0x02_xxxx_xxxx` | CLINT | AXI4-Lite | 核心本地中断器（mtime/mtimecmp/msip 可写） |
+| `0x10_xxxx_xxxx` | APB Bridge | AXI4-Lite | 外设桥（GPIO/UART/Timer/SPI） |
+| `0x04_xxxx_xxxx` | Sys Status | AXI4-Lite | 系统状态（MIG 校准/MMCM/clk_wiz 锁定，只读） |
+| 其他 | Default Slave | AXI4-Lite | 未映射地址返回 DECERR 响应 |
 
-Cache/MMIO 判定规则：地址最高位 `addr[31] == 0` 为 MMIO 区域（走 AHB 总线旁路缓存），`addr[31] == 1` 为 Cacheable 区域（走 icache/dcache）。SRAM 从设备地址由 `0x00` 迁移至 `0x80`，所有数据访问使用 `0x8000_0000` 基址。
+Cache/MMIO 判定规则：地址最高位 `addr[31] == 0` 为 MMIO 区域（走 AXI 总线旁路缓存），`addr[31] == 1` 为 Cacheable 区域（走 icache/dcache）。DDR3/RAM 地址由 `0x00` 迁移至 `0x80`，所有数据访问使用 `0x8000_0000` 基址。
 
 ---
 
@@ -572,7 +576,7 @@ S_REFILL:        保持 refill_req，等 refill_valid，写 BRAM PortB，
 S_INVALIDATE:    逐组写零标签 BRAM，完成后回 S_IDLE
 ```
 
-- MMIO 旁路：`vaddr[31]==0` 时直接发 AHB 请求，不经过缓存（使用虚拟地址判断，因为物理地址可能在 MMU 未就绪时无效）
+- MMIO 旁路：`vaddr[31]==0` 时直接发 AXI 请求，不经过缓存（使用虚拟地址判断，因为物理地址可能在 MMU 未就绪时无效）
 - 标签比较在 S_TAG_READ 完成（BRAM 1-cycle 延迟后），命中时进 S_READ 读数据 BRAM
 - 缺失时向 `cpu_bus_bridge` 发 INCR8 读突发请求，8 拍填充整行
 - 数据 BRAM 读使能门控 `mmu_ready`，避免使用过时物理地址
@@ -620,41 +624,123 @@ S_FLUSH_INVALIDATE:  写零标签 BRAM，使所有路无效
 
 ### 5.7 总线桥接 (`cpu_bus_bridge`)
 
-将 Cache Refill/Writeback 和 MMIO 请求转换为 AHB-Lite Master 协议：
+将 Cache Refill/Writeback、MMIO 和 PTW 请求转换为 AXI4 Master 协议（五通道：AW/W/B/AR/R）：
 
 ```
-S_IDLE: 仲裁请求（优先级: MMIO > WB > IRefill > DRefill）
-S_MMIO_ADDR/S_MMIO_DATA:     单次 AHB 传输
-S_IREFILL_ADDR/S_IREFILL_DATA: INCR8 读突发，累积 HRDATA 至 refill_shift_reg
-S_DREFILL_ADDR/S_DREFILL_DATA: INCR8 读突发，同上
-S_WB_ADDR/S_WB_DATA:          INCR8 写突发，每拍移出 wb_shift_reg[31:0]
+S_IDLE: 仲裁请求（优先级: icache_mmio > dcache_mmio > ptw_i > ptw_d > dcache_wb > icache_refill > dcache_refill）
+
+MMIO 读:  S_MMIO_AR → S_MMIO_R
+MMIO 写:  S_MMIO_AW_W (AW+W 同时驱动) → S_MMIO_B
+IRefill:  S_IREFILL_AR → S_IREFILL_R (INCR8 突发，8 拍)
+DRefill:  S_DREFILL_AR → S_DREFILL_R (INCR8 突发，8 拍)
+WB:       S_WB_AW → S_WB_W (INCR8 突发，8 拍) → S_WB_B
+PTW 读:   S_PTW_AR → S_PTW_R
+PTW 写:   S_PTW_AW_W → S_PTW_B
 ```
 
-**突发传输协议**：
+**AXI4 信号映射**：
+- AW 通道：awid[3:0], awaddr[31:0], awlen[7:0], awsize[2:0], awburst[1:0], awlock, awcache[3:0], awprot[2:0], awqos[3:0], awregion[3:0], awvalid/awready
+- W 通道：wdata[31:0], wstrb[3:0], wlast, wvalid/wready
+- B 通道：bresp[1:0], bvalid/bready
+- AR 通道：arid[3:0], araddr[31:0], arlen[7:0], arsize[2:0], arburst[1:0], arlock, arcache[3:0], arprot[2:0], arqos[3:0], arregion[3:0], arvalid/arready
+- R 通道：rdata[31:0], rresp[1:0], rlast, rvalid/rready
 
-- 地址拍：HTRANS=NONSEQ，HBURST=INCR8
-- 数据拍 1-7：HTRANS=SEQ
-- 数据拍 8（最后拍）：HTRANS=IDLE（提前指示突发结束）
-- Refill 累积：`refill_shift_reg = {HRDATA, refill_shift_reg[255:32]}`，8 拍后得到完整 256-bit 行
+**突发传输**：
+- Cache Refill：ARBURST=INCR, ARLEN=7（8 拍），ARSIZE=4 字节
+- Cache Writeback：AWBURST=INCR, AWLEN=7, AWSIZE=4 字节
+- Refill 累积：`refill_shift_reg = {RDATA, refill_shift_reg[255:32]}`，8 拍后得到完整 256-bit 行
+- MMIO/PTW：单拍传输（ARLEN=0/AWLEN=0）
 
-**优先级防饿**：MMIO 最高优先（单拍完成），WB 次之（防止脏行堆积），IRefill 再次，DRefill 最低。
+**错误响应**：SLVERR/DECERR 通过 rresp/bresp 传递，触发对应错误标志
 
-### 5.8 SRAM 从设备 (`ahb_sram_slave`)
+**优先级防饿**：icache_mmio > dcache_mmio > ptw_i > ptw_d > dcache_wb > icache_refill > dcache_refill
 
-- 容量：32KB（32-bit × 8192 字）
-- 实现：Xilinx BRAM IP 核（True Dual Port，WRITE_FIRST）
-- 写使能：1-bit（Sram IP 仅支持整字写，`byte_enable: false`）
-- 基地址：`0x8000_0000`（地址译码 `HADDR[31:24] == 8'h80`）
-- 支持 INCR8 突发读写，1 等待状态
+### 5.8 存储从设备（DDR3/SRAM）
 
-### 5.9 AHB 默认从设备 (`ahb_default_slave`)
+主存储器通过条件生成选择后端，地址映射 0x8000_0000（addr[31:28]==4'h8）：
 
-- 功能：响应未映射地址空间的 AHB 传输请求
-- 行为：任何传输返回 ERROR 响应（`HRESP=1`），两拍完成（地址拍 + 错误拍）
-- 用途：防止总线无响应挂死，符合 AHB-Lite 协议要求
-- 状态机：`error_phase` 标记错误响应的第二拍
+- **SRAM 仿真模式**（`SIMU_USE_DDR=0`）：`axi_wrap_ram` 作为 AXI4 从设备，BRAM 行为模型，零延迟（awready=1, wready=1, arready=1），支持 INCR 突发，快速仿真
+- **DDR3 模式**（`SIMU_USE_DDR=1` 或 FPGA）：`axi_wrap_ddr` 封装 MIG（mig_axi_32），地址重映射基址 0x8000_0000，输出 `ddr_aresetn`（init_calib_complete），访问真实 DDR3 SDRAM
 
-### 5.10 MMU（Sv32 虚拟内存）
+### 5.9 Clock/Reset Architecture
+
+系统采用三时钟域设计：
+
+| 时钟域 | 频率 | 来源 | 用途 |
+|--------|------|------|------|
+| cpu_clk | 50MHz | clk_wiz_0 clk_out1 | CPU 核心及内部缓存 |
+| sys_clk | 100MHz | clk_wiz_0 clk_out2 / 外部晶振 | AXI 互联及从设备 |
+| ddr_clk_ref | 200MHz | clk_wiz_0 clk_out3 | DDR3 MIG 参考时钟 |
+
+**仿真模式**（`SIMULATION` 宏）：
+- `SIMU_USE_PLL=0`（默认）：testbench 直产时钟，最快
+- `SIMU_USE_PLL=1`：使用 clk_wiz_0 IP，更接近真实时钟关系
+
+**复位链**：
+- `reset_sync`（2 级移位寄存器）：异步断言、同步释放，每时钟域各一实例
+- 仿真 SRAM 模式：`sys_resetn = sync(resetn & ddr_data_init)`
+- 仿真 DDR3 模式：`sys_resetn = sync(resetn & clk_wiz_locked & ddr_data_init)`
+- FPGA 模式：`sys_resetn = sync(resetn & clk_wiz_locked & ddr_aresetn)`
+
+### 5.10 AXI4 时钟域穿越 (`Axi_CDC`)
+
+`Axi_CDC` 将 CPU 的 AXI4 Master 接口从 `cpu_clk` 域穿越至 `sys_clk` 域，使用异步 FIFO 隔离：
+- 五通道全穿越：AW/W/B/AR/R
+- QoS/Region 信号不穿越，在 sys_clk 域直接置零
+- ID 宽度：输入 4-bit（CPU），输出 4-bit（CDC）
+
+### 5.11 地址译码与从设备多路复用
+
+`system_top` 内手动实现 7 从设备地址译码（替代原 AHB-Lite 总线）：
+- AW/AR 通道：组合逻辑译码，`aw_slave_sel_comb` / `ar_slave_sel_comb`
+- W/B/R 通道：跟随锁存的 slave_sel（AW valid 时锁存，防止 CDC 管线延迟导致 W 先于 AW 到达）
+- Ready/Response 多路复用回 CDC Master
+
+### 5.12 DDR3/SRAM 条件生成
+
+通过 `SIMULATION` 宏和 `SIMU_USE_DDR` 参数选择存储后端：
+
+| 模式 | 宏配置 | 模块 | 说明 |
+|------|--------|------|------|
+| SRAM 仿真 | `SIMULATION` + `SIMU_USE_DDR=0` | `axi_wrap_ram` | BRAM 行为模型，零延迟，快速仿真 |
+| DDR3 仿真 | `SIMULATION` + `SIMU_USE_DDR=1` | `axi_wrap_ddr` | MIG + DDR3 行为模型，验证 DDR3 通路 |
+| FPGA | 非 `SIMULATION` | `axi_wrap_ddr` | MIG + 真实 DDR3 SDRAM |
+
+`axi_wrap_ram`：源自 chiplab，BRAM-based AXI4 slave 仿真模型，支持 INCR 突发，零延迟（awready=1, wready=1, arready=1）。
+`axi_wrap_ddr`：源自 chiplab，封装 MIG（mig_axi_32），地址重映射基址 0x8000_0000，输出 `ddr_aresetn`（init_calib_complete）。
+
+### 5.13 Boot ROM (`axi4lite_bootrom`)
+
+- 地址映射：0xFC00_0000（addr[31:24]==8'hFC）
+- AXI4-Lite 只读从设备，32KB BRAM（MEM_DEPTH=8192）
+- 写通道静默应答 OKAY（ROM 只读）
+- 读通道 1 周期 BRAM 延迟
+- 内容由 `$readmemh` 在 elaboration 阶段加载（bootloader.hex）
+
+### 5.14 System Status (`axi4lite_sys_status`)
+
+- 地址映射：0x0400_0000（addr[31:24]==8'h04）
+- AXI4-Lite 只读从设备
+- 寄存器映射（偏移 0x00）：
+  - [0] init_calib_complete — MIG DDR3 校准完成
+  - [1] mig_mmcm_locked — MIG 内部 MMCM 锁定
+  - [2] clk_wiz_locked — Clocking Wizard 锁定
+  - [31:3] 保留（0）
+- Bootloader 通过轮询此寄存器等待 DDR3 初始化完成
+
+### 5.15 AXI4-Lite Default Slave (`axi4lite_default_slave`)
+
+- 功能：响应未映射地址空间的 AXI4-Lite 传输请求
+- 行为：任何传输返回 DECERR 响应（`BRESP/RRESP=2'b11`）
+- 替代原 AHB-Lite Default Slave
+
+### 5.16 AXI4-Lite to APB Bridge (`axi4lite_to_apb`)
+
+- 替代原 `ahb_lite_to_apb`
+- AXI4-Lite 从接口 → APB Master 接口
+- 单拍传输转换，保持 APB 外设不变
+
+### 5.17 MMU（Sv32 虚拟内存）
 
 CPU 包含两个 MMU 实例：指令 MMU（inst MMU）和数据 MMU（data MMU），各自拥有独立的 TLB 和 PTW。
 
@@ -728,7 +814,7 @@ PTW 在页表漫游过程中自动管理访问位（A）和脏位（D）：
 
 - 首次访问某页时，若 PTE.A=0，PTW 写回 PTE 并置 A=1
 - 首次写入某页时，若 PTE.D=0，PTW 写回 PTE 并置 D=1
-- 写回通过 PTW 总线请求完成，旁路 dcache 直接到 AHB→BRAM
+- 写回通过 PTW 总线请求完成，旁路 dcache 直接到 AXI→BRAM
 
 **translate_en 输入**：
 
@@ -755,14 +841,14 @@ PTW 在页表漫游过程中自动管理访问位（A）和脏位（D）：
 1. 刷新 dcache：写回所有脏行（writeback dirty lines）
 2. 失效 icache：使所有标签 valid=0
 
-### 5.11 总线桥接 PTW 路径 (`cpu_bus_bridge`)
+### 5.18 总线桥接 PTW 路径 (`cpu_bus_bridge`)
 
-`cpu_bus_bridge` 除了处理 Cache Refill/Writeback 和 MMIO 请求外，还负责 PTW 的读写请求。PTW 请求旁路 dcache，直接通过 AHB 总线访问 BRAM 中的页表数据。
+`cpu_bus_bridge` 除了处理 Cache Refill/Writeback 和 MMIO 请求外，还负责 PTW 的读写请求。PTW 请求旁路 dcache，直接通过 AXI 总线访问 BRAM 中的页表数据。
 
 **PTW 请求处理**：
 
-- PTW 读请求：读取页表项（L1/L0 PTE），直接发 AHB 单拍读
-- PTW 写请求：A/D 位写回，直接发 AHB 单拍写
+- PTW 读请求：读取页表项（L1/L0 PTE），直接发 AXI4 单拍读
+- PTW 写请求：A/D 位写回，直接发 AXI4 单拍写
 - 旁路 dcache：PTW 请求不经过 dcache，避免缓存一致性问题和死锁
 
 **仲裁优先级**（从高到低）：
@@ -775,12 +861,12 @@ PTW 优先级高于 Cache Writeback 和 Refill，确保页表漫游不会被缓�
 
 **PTW 总线错误处理**（Bug 10/11 修复）：
 
-当 PTW 发起的 AHB 请求收到错误响应（HRESP=ERROR）时：
+当 PTW 发起的 AXI4 请求收到错误响应（RRESP/BRESP=SLVERR/DECERR）时：
 1. 置 `ptw_error_r = 1`
 2. PTW 状态机进入 S_FAULT
 3. 产生页错误异常，由陷阱管理器处理
 
-### 5.12 配置驱动的存储几何 (`cache_def.svh`)
+### 5.19 配置驱动的存储几何 (`cache_def.svh`)
 
 所有 Cache/TLB 几何参数由 `vivado_config.yaml` 的 `memory` 段统一定义，通过自动生成链保持 IP 与 RTL 同步：
 
@@ -824,17 +910,17 @@ vivado_config.yaml
 
 ## 6. 总线与外设
 
-### 6.1 AHB-Lite 总线 (`ahb_lite_bus`)
+### 6.1 AXI4 互联
 
-- 5 个从设备：SRAM、Default Slave、CLINT、PLIC、APB Bridge
-- 地址译码：按 `HADDR[31:24]` 选择从设备
-- Default Slave：未映射地址返回 ERROR 响应，防止总线挂死
-- 多路复用器回读数据与响应
-- 参数化：地址宽度、数据宽度、从设备数、SRAM 深度、等待状态数
+- 7 从设备：DDR3/RAM, Boot ROM, PLIC, CLINT, APB Bridge, Sys Status, Default Slave
+- 地址译码：按 `addr[31:28]` 或 `addr[31:24]` 选择从设备
+- Default Slave：未映射地址返回 DECERR 响应，防止总线挂死
+- 手动地址译码 + 从设备多路复用（system_top 内实现）
+- 时钟域穿越：Axi_CDC (cpu_clk → sys_clk)
 
 ### 6.2 APB 总线与外设
 
-通过 AHB-Lite to APB 桥接访问：
+通过 AXI4-Lite to APB 桥接访问：
 
 | 外设 | 说明 |
 |------|------|
@@ -901,28 +987,70 @@ vivado_config.yaml
 
 ### 8.1 测试平台
 
-| Testbench | 程序 | 测试内容 | 仿真时间 | 结果 |
-|-----------|------|----------|----------|------|
-| `tb_simple_cpu_top` | `cpu_test.hex` | 完整指令集测试（ALU + 分支 + 跳转 + Load/Store + M 扩展 + CLINT + Trap） | 10ms | 41 PASS, 0 FAIL |
-| `tb_simple_cpu_compute` | `cpu_test_compute.hex` | 算术/逻辑/移位/乘除法计算测试 | 10ms | 42 PASS, 0 FAIL |
-| `tb_simple_cpu_trap` | `cpu_test_trap.hex` | 异常/中断陷阱处理测试 | 5ms | 14 PASS, 0 FAIL |
-| `tb_simple_cpu_priv` | `cpu_test_priv.coe` | M/S/U 特权模式 + Sv32 虚拟内存测试 | 25ms | 3 PASS, 0 FAIL |
-| `tb_led_marquee` | `led_marquee.hex` | LED 跑马灯 + GPIO + CLINT MTIP 测试 | 2s | 16 PASS, 0 FAIL |
-| `tb_uart_hello` | `uart_hello.hex` | UART 输出 "Hello World" 测试 | 40ms | 12 PASS, 0 FAIL |
-| `tb_isa_f_ext` | `f_ext.hex` | F 扩展 ISA 测试（20 条浮点指令逐一测试） | 100000 周期 | 26 PASS, 0 FAIL |
-| `tb_isa_f_ext_special` | `f_ext_special.hex` | F 扩展特殊值 + 舍入模式测试（fflags/NaN/Inf/5种舍入） | 100000 周期 | 24 PASS, 0 FAIL |
-| `tb_calculator` | `calculator.hex` | 浮点计算器应用测试（UART 交互验证） | 100ms | 5 PASS, 0 FAIL |
-| `tb_ahb_bus` | — | AHB-Lite 总线功能测试 | 5000ns | — |
-| `tb_apb_perips` | — | APB 外设功能测试 | 2000ns | — |
-| `tb_non_restoring_divider` | — | 除法器单元测试 | — | — |
-| `tb_mu_unit` | — | 乘除法单元测试 | — | — |
-| `tb_alu_cpu_integration` | — | ALU 集成测试 | — | — |
-| `tb_fpu_adder` | — | FPU 加法器单元测试（FADD/FSUB 正常/特殊/溢出/下溢/5种舍入） | — | 30 PASS |
-| `tb_fpu_multiplier` | — | FPU 乘法器单元测试（FMUL 正常/符号/NaN/Inf/溢出/下溢/舍入） | — | 13 PASS |
-| `tb_fpu_divider` | — | FPU 除法器单元测试（FDIV 正常/符号/除零/NaN/Inf/溢出/下溢） | — | 12 PASS |
-| `tb_fpu_sqrt` | — | FPU 平方根单元测试（FSQRT 正常/负数/NaN/Inf/次正规/5种舍入） | — | 22 PASS |
-| `tb_fpu_cvt` | — | FPU 转换单元测试（FCVT.W.S/FCVT.WU.S/FCVT.S.W/FCVT.S.WU） | — | 20 PASS |
-| `tb_fpu_unit` | — | FPU 顶层集成测试（全 20 种操作 + 握手协议 + flush） | — | 24 PASS |
+| Testbench | 程序 | 测试内容 | 结果 |
+|-----------|------|----------|------|
+| `tb_simple_cpu_top` | `cpu_full.hex` | 完整指令集测试（ALU + 分支 + 跳转 + Load/Store + M 扩展 + CLINT + Trap） | 41 PASS, 0 FAIL |
+| `tb_simple_cpu_compute` | `cpu_compute.hex` | 算术/逻辑/移位/乘除法计算测试 | 42 PASS, 0 FAIL |
+| `tb_simple_cpu_trap` | `cpu_trap.hex` | 异常/中断陷阱处理测试 | 14 PASS, 0 FAIL |
+| `tb_isa_alu` | `alu.hex` | ALU ISA 测试 | — |
+| `tb_isa_branch` | `branch.hex` | 分支 ISA 测试 | — |
+| `tb_isa_jump` | `jump.hex` | 跳转 ISA 测试 | — |
+| `tb_isa_memory` | `memory.hex` | 访存 ISA 测试 | — |
+| `tb_isa_upper_imm` | `upper_imm.hex` | 上位立即数 ISA 测试 | — |
+| `tb_isa_m_ext` | `m_ext.hex` | M 扩展 ISA 测试 | — |
+| `tb_isa_csr` | `csr.hex` | CSR ISA 测试 | — |
+| `tb_isa_f_ext` | `f_ext.hex` | F 扩展 ISA 测试 | 26 PASS, 0 FAIL |
+| `tb_isa_f_ext_special` | `f_ext_special.hex` | F 扩展特殊值/舍入测试 | 24 PASS, 0 FAIL |
+| `tb_exception_illegal_inst` | `illegal_inst.hex` | 非法指令异常测试 | — |
+| `tb_exception_ecall` | `ecall.hex` | ECALL 异常测试 | — |
+| `tb_exception_ebreak` | `ebreak.hex` | EBREAK 异常测试 | — |
+| `tb_exception_access_fault` | `access_fault.hex` | 访问错误异常测试 | — |
+| `tb_exception_interrupt_basic` | `interrupt_basic.hex` | 基本中断测试 | — |
+| `tb_exception_timer_irq` | `timer_irq.hex` | 定时器中断测试 | — |
+| `tb_cache_icache_basic` | `icache_basic.hex` | ICache 基本功能测试 | — |
+| `tb_cache_dcache_basic` | `dcache_basic.hex` | DCache 基本功能测试 | — |
+| `tb_cache_dcache_dirty` | `dcache_dirty.hex` | DCache 脏行写回测试 | — |
+| `tb_cache_fencei` | `fencei.hex` | FENCE.I 缓存一致性测试 | — |
+| `tb_cache_cache_mmu_interact` | `cache_mmu_interact.hex` | Cache/MMU 交互测试 | — |
+| `tb_mmu_sv32_basic` | `sv32_basic.hex` | Sv32 基本翻译测试 | — |
+| `tb_mmu_sv32_edge` | `sv32_edge.hex` | Sv32 边界条件测试 | — |
+| `tb_mmu_ptw_walk` | `ptw_walk.hex` | PTW 页表漫游测试 | — |
+| `tb_mmu_tlb_basic` | `tlb_basic.hex` | TLB 基本功能测试 | — |
+| `tb_mmu_tlb_flush` | `tlb_flush.hex` | TLB 刷新测试 | — |
+| `tb_mmu_tlb_asid` | `tlb_asid.hex` | TLB ASID 感知测试 | — |
+| `tb_mmu_tlb_megapage` | `tlb_megapage.hex` | TLB 大页匹配测试 | — |
+| `tb_mmu_tlb_replace` | `tlb_replace.hex` | TLB 替换策略测试 | — |
+| `tb_mmu_tlb_stress` | `tlb_stress.hex` | TLB 压力测试 | — |
+| `tb_mmu_permission` | `permission.hex` | 页表权限检查测试 | — |
+| `tb_mmu_page_fault` | `page_fault.hex` | 页错误测试 | — |
+| `tb_mmu_unified_mmu` | `unified_mmu.hex` | 统一 MMU 测试 | — |
+| `tb_privilege_csr_access_priv` | `csr_access_priv.hex` | CSR 特权访问测试 | — |
+| `tb_privilege_delegation` | `delegation.hex` | 陷阱委托测试 | — |
+| `tb_privilege_priv_transition` | `priv_transition.hex` | 特权级转换测试 | — |
+| `tb_mmio_clint` | `clint.hex` | CLINT MMIO 测试 | — |
+| `tb_mmio_plic` | `plic.hex` | PLIC MMIO 测试 | — |
+| `tb_regression_reg_bare_no_miss` | `reg_bare_no_miss.hex` | 回归：裸机无缺失 | — |
+| `tb_regression_reg_mmio_ready` | `reg_mmio_ready.hex` | 回归：MMIO ready 时序 | — |
+| `tb_regression_reg_pf_latch` | `reg_pf_latch.hex` | 回归：页错误锁存 | — |
+| `tb_regression_reg_ptw_fault_latch` | `reg_ptw_fault_latch.hex` | 回归：PTW 错误锁存 | — |
+| `tb_regression_reg_sfence_during_walk` | `reg_sfence_during_walk.hex` | 回归：漫游中 SFENCE | — |
+| `tb_regression_reg_stale_paddr` | `reg_stale_paddr.hex` | 回归：过期物理地址 | — |
+| `tb_regression_reg_tlb_fill_way` | `reg_tlb_fill_way.hex` | 回归：TLB 填充路选择 | — |
+| `tb_led_marquee` | `led_marquee.hex` | LED 跑马灯 + GPIO + CLINT MTIP 测试 | 16 PASS, 0 FAIL |
+| `tb_uart_hello` | `uart_hello.hex` | UART 输出测试 | 12 PASS, 0 FAIL |
+| `tb_uart_echo` | `uart_echo_test.hex` | UART 回环测试 | — |
+| `tb_calculator` | `calculator.hex` | 浮点计算器应用测试 | 5 PASS, 0 FAIL |
+| `tb_ahb_bus` | — | AXI4 总线功能测试（原 AHB 总线测试已适配） | — |
+| `tb_apb_perips` | — | APB 外设功能测试 | — |
+| `tb_non_restoring_divider` | — | 除法器单元测试 | — |
+| `tb_mu_unit` | — | 乘除法单元测试 | — |
+| `tb_alu_cpu_integration` | — | ALU 集成测试 | — |
+| `tb_fpu_adder` | — | FPU 加法器单元测试 | 30 PASS |
+| `tb_fpu_multiplier` | — | FPU 乘法器单元测试 | 13 PASS |
+| `tb_fpu_divider` | — | FPU 除法器单元测试 | 12 PASS |
+| `tb_fpu_sqrt` | — | FPU 平方根单元测试 | 22 PASS |
+| `tb_fpu_cvt` | — | FPU 转换单元测试 | 20 PASS |
+| `tb_fpu_unit` | — | FPU 顶层集成测试 | 24 PASS |
 
 ### 8.2 验证方法
 
@@ -935,6 +1063,8 @@ vivado_config.yaml
 - FPU ISA 测试：自检程序（x28=pass, x30=first_fail_id），覆盖全部 22 条浮点指令 + 特殊值 + 5 种舍入模式
 - 计算器测试：testbench 内嵌 UART TX 引擎发送算式 + RX 解码器捕获输出，逐算式比对结果
 - PASS/FAIL 计数汇总
+- 共享 testbench 框架：`tb_soc_includes.svh`（system_top 实例化 + 时钟/复位 + DDR3 仿真支持 + check_reg/check_mem_word 任务 + pass/fail 计数）
+- DDR3 仿真支持：ddr3_model + axi4_write task + write_hex_file task + ddr_data_init 序列化
 
 ### 8.3 仿真环境
 
@@ -944,6 +1074,9 @@ vivado_config.yaml
   - 分层哈希增量刷新：RTL/TB/COE/FPGA 四层独立检测，仅 COE 变更时秒级刷新
   - 批处理模式：`-batch "isa_*"` 一条命令并行仿真多任务
   - 配置驱动 IP 生成：`vivado_config.yaml` → `cache_def.svh` + BRAM create_ip TCL
+- SoC 级仿真：testbench 实例化 `system_top`（而非 `core_top` + `ahb_lite_bus`），通过 `tb_soc_includes.svh` 共享框架
+- DDR3 仿真模式：`SIMU_USE_DDR=0`（SRAM 模型，快速）或 `SIMU_USE_DDR=1`（DDR3 模型，验证通路）
+- 新增 `soc_config.vh` 控制仿真行为（SIMU_USE_PLL / SIMU_USE_DDR）
 - 程序加载：`$readmemh` 在 elaboration 阶段将 hex 文件加载至 Sram BRAM IP
 - hex/coe 文件由 `tools/rv2coe.py` 从 RISC-V 汇编源码编译生成（`--base-addr 0x80000000`）
 - BRAM 行为模型：0-cycle 读延迟，不精确模拟碰撞行为
@@ -951,10 +1084,10 @@ vivado_config.yaml
 ### 8.4 已知限制
 
 - **BRAM 读延迟**：仿真中 BRAM 行为模型为组合输出（0-cycle），硬件中为寄存输出（1-cycle），仿真通过不代表硬件时序正确。Cache/TLB 控制器已新增 S_TAG_READ 等状态处理 BRAM 延迟
-- **SRAM 地址空间**：SRAM 从设备仅 32KB（8192 字），地址范围 `0x8000_0000` ~ `0x8000_7FFC`
+- **SRAM 地址空间**：SRAM 仿真模式下 `axi_wrap_ram` 容量由 BRAM 配置决定，DDR3 模式下地址范围 `0x8000_0000` 起始
 - **Cache 容量**：ICache/DCache 各 1KB（8 组 × 4 路 × 32 字节），大工作集程序可能频繁缺失
 - **TLB 容量**：4 路 × 4 组 = 16 项，大工作集或频繁上下文切换可能 TLB 抖动
-- **SRAM 字节写**：当前 `byte_enable: false`，SRAM 仅支持整字写，不支持 SB/SH 直写（需经 DCache 写分配）
+- **SRAM 字节写**：SRAM 仿真模型（axi_wrap_ram）支持 AXI4 字节写（wstrb），DDR3 通过 MIG 管理
 - **FMA 未实现**：FMADD.S / FMSUB.S / FNMSUB.S / FNMADD.S 四条融合乘加指令未实现（R4 格式译码复杂，硬件面积大）
 - **D 扩展未实现**：双精度浮点暂不支持，XLEN=32 时 D 扩展需 FLEN=64（NaN-boxing、64-bit 浮点寄存器）
 - **f0 硬连线零**：RISC-V 规范不要求 f0=0（与 x0 不同），当前实现 f0 恒为 0 为设计选择
@@ -991,7 +1124,7 @@ vivado_config.yaml
 | `dev/rtl/core/` | `MMU.sv` | Sv32 虚拟内存（TLB + PTW） |
 | `dev/rtl/core/` | `tlb.sv` | TLB（4路×4组=16项，BRAM存储，ASID感知，Tree-PLRU） |
 | `dev/rtl/core/` | `ptw.sv` | Sv32 页表漫游器 |
-| `dev/rtl/core/` | `cpu_bus_bridge.sv` | AHB-Lite 总线桥接（MMIO + INCR8 突发） |
+| `dev/rtl/core/` | `cpu_bus_bridge.sv` | AXI4 总线桥接（MMIO + INCR8 突发，AW/W/B/AR/R 五通道） |
 | `dev/rtl/ALU/` | `alu_32bit.sv` | 32-bit ALU 顶层 |
 | `dev/rtl/ALU/` | `cla_adder_4bit.sv` | 4-bit CLA |
 | `dev/rtl/ALU/` | `cla_adder_16bit.sv` | 16-bit CLA |
@@ -1017,14 +1150,20 @@ vivado_config.yaml
 | `dev/rtl/FPU/` | `fpu_cvt.sv` | 浮点↔整数转换（FCVT.W.S / FCVT.S.W / FCVT.WU.S / FCVT.S.WU） |
 | `dev/rtl/FPU/` | `fpu_round.sv` | 舍入模式逻辑（RNE / RTZ / RDN / RUP / RMM，27-bit 尾数） |
 | `dev/rtl/FPU/` | `fpu_special.sv` | NaN/Inf/零/次正规数检测与特殊处理 |
-| `dev/rtl/AHB-lite/` | `ahb_lite_bus.sv` | AHB-Lite 总线 |
-| `dev/rtl/AHB-lite/` | `ahb_decoder.sv` | 地址译码器 |
-| `dev/rtl/AHB-lite/` | `ahb_mux.sv` | 数据多路复用 |
-| `dev/rtl/AHB-lite/` | `ahb_sram_slave.sv` | SRAM 从设备（32KB，INCR8 突发） |
-| `dev/rtl/AHB-lite/` | `ahb_default_slave.sv` | 默认从设备（未映射地址返回 ERROR） |
-| `dev/rtl/AHB-lite/` | `ahb_clint.sv` | CLINT 从设备 |
-| `dev/rtl/AHB-lite/` | `ahb_plic.sv` | PLIC 从设备 |
-| `dev/rtl/APB/` | `ahb_lite_to_apb.sv` | AHB→APB 桥 |
+| `dev/rtl/` | `axi4_def.svh` | AXI4 常量定义（替代 ahb_def.svh） |
+| `dev/rtl/` | `soc_config.vh` | SoC 配置宏（SIMU_USE_PLL / SIMU_USE_DDR） |
+| `dev/rtl/` | `clk_wiz_0_passthrough.sv` | Clock Wizard 直通（仿真用） |
+| `dev/rtl/common/` | `reset_sync.sv` | 复位同步器（异步断言，同步释放） |
+| `dev/rtl/core/` | `core_bus_types.svh` | 流水线总线结构体定义（exe_mem_bus_t / wb_bus_t） |
+| `dev/rtl/AHB-lite/` | `axi4lite_bootrom.sv` | AXI4-Lite Boot ROM 从设备 |
+| `dev/rtl/AHB-lite/` | `axi4lite_clint.sv` | AXI4-Lite CLINT 从设备 |
+| `dev/rtl/AHB-lite/` | `axi4lite_default_slave.sv` | AXI4-Lite Default Slave（DECERR） |
+| `dev/rtl/AHB-lite/` | `axi4lite_plic.sv` | AXI4-Lite PLIC 从设备 |
+| `dev/rtl/AHB-lite/` | `axi4lite_sys_status.sv` | AXI4-Lite System Status 从设备 |
+| `dev/rtl/AMBA/` | `Axi_CDC.v` | AXI4 时钟域穿越 |
+| `dev/rtl/APB/` | `axi4lite_to_apb.sv` | AXI4-Lite → APB 桥 |
+| `dev/rtl/ram_wrap/` | `axi_wrap_ram.sv` | AXI4 BRAM 仿真模型（SRAM 替代） |
+| `dev/rtl/ram_wrap/` | `axi_wrap_ddr.sv` | AXI4 DDR3 包装器（MIG） |
 | `dev/rtl/APB/` | `apb_bus.sv` | APB 总线 |
 | `dev/rtl/APB/` | `apb_master.sv` | APB 主设备 |
 | `dev/rtl/APB/` | `apb_slave.sv` | APB 从设备 |
@@ -1042,7 +1181,6 @@ vivado_config.yaml
 
 | BRAM IP | 配置 | 用途 |
 |---------|------|------|
-| `Sram` | 32-bit × 8192，True Dual Port | SRAM 主存储器（32KB） |
 | `icached` | 256-bit × 32，True Dual Port，Byte_Enable | ICache 数据存储 |
 | `dcached` | 256-bit × 32，True Dual Port，Byte_Enable | DCache 数据存储 |
 | `icachet` | 32-bit × 8，True Dual Port，Byte_Enable(Byte_Size=8) | ICache 标签存储 |
@@ -1054,16 +1192,60 @@ vivado_config.yaml
 
 | 文件 | 说明 |
 |------|------|
+| `dev/tb/tb_soc_includes.svh` | 共享 testbench 框架（system_top 实例化 + DDR3 支持） |
 | `dev/tb/tb_simple_cpu_top.sv` | 完整指令集测试 |
 | `dev/tb/tb_simple_cpu_compute.sv` | 计算密集测试 |
 | `dev/tb/tb_simple_cpu_trap.sv` | 异常/中断测试 |
-| `dev/tb/tb_simple_cpu_priv.sv` | M/S/U 特权模式测试 |
-| `dev/tb/tb_ahb_bus.sv` | AHB 总线测试 |
-| `dev/tb/tb_apb_perips.sv` | APB 外设测试 |
-| `dev/tb/tb_uart_hello.sv` | UART 输出测试 |
-| `dev/tb/tb_led_marquee.sv` | LED 跑马灯测试 |
+| `dev/tb/tb_isa_alu.sv` | ALU ISA 测试 |
+| `dev/tb/tb_isa_branch.sv` | 分支 ISA 测试 |
+| `dev/tb/tb_isa_jump.sv` | 跳转 ISA 测试 |
+| `dev/tb/tb_isa_memory.sv` | 访存 ISA 测试 |
+| `dev/tb/tb_isa_upper_imm.sv` | 上位立即数 ISA 测试 |
+| `dev/tb/tb_isa_m_ext.sv` | M 扩展 ISA 测试 |
+| `dev/tb/tb_isa_csr.sv` | CSR ISA 测试 |
 | `dev/tb/tb_isa_f_ext.sv` | F 扩展 ISA 测试（26 子测试） |
 | `dev/tb/tb_isa_f_ext_special.sv` | F 扩展特殊值/舍入测试（24 子测试） |
+| `dev/tb/tb_isa_template.sv` | ISA 测试模板 |
+| `dev/tb/tb_exception_illegal_inst.sv` | 非法指令异常测试 |
+| `dev/tb/tb_exception_ecall.sv` | ECALL 异常测试 |
+| `dev/tb/tb_exception_ebreak.sv` | EBREAK 异常测试 |
+| `dev/tb/tb_exception_access_fault.sv` | 访问错误异常测试 |
+| `dev/tb/tb_exception_interrupt_basic.sv` | 基本中断测试 |
+| `dev/tb/tb_exception_timer_irq.sv` | 定时器中断测试 |
+| `dev/tb/tb_cache_icache_basic.sv` | ICache 基本测试 |
+| `dev/tb/tb_cache_dcache_basic.sv` | DCache 基本测试 |
+| `dev/tb/tb_cache_dcache_dirty.sv` | DCache 脏行测试 |
+| `dev/tb/tb_cache_fencei.sv` | FENCE.I 测试 |
+| `dev/tb/tb_cache_cache_mmu_interact.sv` | Cache/MMU 交互测试 |
+| `dev/tb/tb_mmu_sv32_basic.sv` | Sv32 基本测试 |
+| `dev/tb/tb_mmu_sv32_edge.sv` | Sv32 边界测试 |
+| `dev/tb/tb_mmu_ptw_walk.sv` | PTW 漫游测试 |
+| `dev/tb/tb_mmu_tlb_basic.sv` | TLB 基本测试 |
+| `dev/tb/tb_mmu_tlb_flush.sv` | TLB 刷新测试 |
+| `dev/tb/tb_mmu_tlb_asid.sv` | TLB ASID 测试 |
+| `dev/tb/tb_mmu_tlb_megapage.sv` | TLB 大页测试 |
+| `dev/tb/tb_mmu_tlb_replace.sv` | TLB 替换测试 |
+| `dev/tb/tb_mmu_tlb_stress.sv` | TLB 压力测试 |
+| `dev/tb/tb_mmu_permission.sv` | 页表权限测试 |
+| `dev/tb/tb_mmu_page_fault.sv` | 页错误测试 |
+| `dev/tb/tb_mmu_unified_mmu.sv` | 统一 MMU 测试 |
+| `dev/tb/tb_privilege_csr_access_priv.sv` | CSR 特权访问测试 |
+| `dev/tb/tb_privilege_delegation.sv` | 陷阱委托测试 |
+| `dev/tb/tb_privilege_priv_transition.sv` | 特权级转换测试 |
+| `dev/tb/tb_mmio_clint.sv` | CLINT MMIO 测试 |
+| `dev/tb/tb_mmio_plic.sv` | PLIC MMIO 测试 |
+| `dev/tb/tb_regression_reg_bare_no_miss.sv` | 回归：裸机无缺失 |
+| `dev/tb/tb_regression_reg_mmio_ready.sv` | 回归：MMIO ready |
+| `dev/tb/tb_regression_reg_pf_latch.sv` | 回归：页错误锁存 |
+| `dev/tb/tb_regression_reg_ptw_fault_latch.sv` | 回归：PTW 错误锁存 |
+| `dev/tb/tb_regression_reg_sfence_during_walk.sv` | 回归：漫游中 SFENCE |
+| `dev/tb/tb_regression_reg_stale_paddr.sv` | 回归：过期物理地址 |
+| `dev/tb/tb_regression_reg_tlb_fill_way.sv` | 回归：TLB 填充路 |
+| `dev/tb/tb_ahb_bus.sv` | AXI4 总线功能测试 |
+| `dev/tb/tb_apb_perips.sv` | APB 外设测试 |
+| `dev/tb/tb_uart_hello.sv` | UART 输出测试 |
+| `dev/tb/tb_uart_echo.sv` | UART 回环测试 |
+| `dev/tb/tb_led_marquee.sv` | LED 跑马灯测试 |
 | `dev/tb/tb_calculator.sv` | 浮点计算器应用测试（UART 交互） |
 | `dev/tb/ALU/tb_non_restoring_divider.sv` | 除法器单元测试 |
 | `dev/tb/ALU/tb_mu_unit.sv` | 乘除法单元测试 |
@@ -1074,6 +1256,24 @@ vivado_config.yaml
 | `dev/tb/tb_fpu_sqrt.sv` | FPU 平方根单元测试（22 子测试） |
 | `dev/tb/tb_fpu_cvt.sv` | FPU 转换单元测试（20 子测试） |
 | `dev/tb/tb_fpu_unit.sv` | FPU 顶层集成测试（24 子测试） |
+| `dev/tb/run_ddr3_sim.tcl` | DDR3 仿真 TCL 脚本 |
+
+### 9.3 程序源文件
+
+| 目录 | 说明 |
+|------|------|
+| `dev/program_source/boot/` | Bootloader（DDR3 启动引导：MIG 等待 → DDR3 自检 → UART 接收 → 跳转） |
+| `dev/program_source/app/` | 应用程序（calculator, led_marquee, uart_hello, uart_echo, ddr3_test） |
+| `dev/program_source/test/isa/` | ISA 测试（alu, branch, jump, memory, upper_imm, m_ext, csr, f_ext, f_ext_special） |
+| `dev/program_source/test/integration/` | 集成测试（cpu_full, cpu_compute, cpu_trap） |
+| `dev/program_source/test/exception/` | 异常测试（illegal_inst, ecall, ebreak, access_fault, interrupt_basic, timer_irq） |
+| `dev/program_source/test/cache/` | 缓存测试（icache_basic, dcache_basic, dcache_dirty, fencei, cache_mmu_interact） |
+| `dev/program_source/test/mmu/` | MMU 测试（sv32_basic, sv32_edge, ptw_walk, tlb_*, permission, page_fault, unified_mmu） |
+| `dev/program_source/test/privilege/` | 特权测试（csr_access_priv, delegation, priv_transition） |
+| `dev/program_source/test/mmio/` | MMIO 测试（clint, plic） |
+| `dev/program_source/test/regression/` | 回归测试（7 项回归用例） |
+| `dev/program_source/framework/` | 测试框架代码 |
+| `dev/program_source/lib/` | 公共库（sys.h 等） |
 
 ---
 
@@ -1093,25 +1293,36 @@ vivado_config.yaml
 12. **4 路组相联缓存**：ICache/DCache 各 1KB（8 组 × 4 路 × 32B 行），BRAM 标签存储
 13. **Tree-PLRU 替换**：3-bit 状态编码，无效路优先，近似 LRU 替换策略（Cache 和 TLB 均使用）
 14. **写回 + 写分配**：Store 命中仅写 BRAM + 置 dirty，缺失先 Refill 再合并写入，脏行驱逐写回主存
-15. **INCR8 突发传输**：Cache Refill/Writeback 使用 AHB INCR8 突发，8 拍传输整行 256-bit 数据
-16. **MMIO 旁路**：`vaddr[31]==0` 直接走 AHB 总线，不经过缓存，保证外设访问强序
-17. **VIPT（Virtually-Indexed Physically-Tagged）**：Cache 使用虚拟地址的页内偏移位索引，物理地址标签比较，避免 MMU 翻译延迟
+15. **INCR8 突发传输**：Cache Refill/Writeback 使用 AXI4 INCR8 突发，8 拍传输整行 256-bit 数据
+16. **MMIO 旁路**：`vaddr[31]==0` 直接走 AXI 总线，不经过缓存，保证外设访问强序
+17. **VIPT（Virtically-Indexed Physically-Tagged）**：Cache 使用虚拟地址的页内偏移位索引，物理地址标签比较，避免 MMU 翻译延迟
 18. **BRAM-based 标签存储**：Tag 使用 BRAM IP（icachet/dcachet），byte-write enable 支持单路更新，S_TAG_READ 状态处理 1-cycle 读延迟
 19. **BRAM-based TLB**：4 路×4 组组相联，tlb_flag/tlb_data 双 BRAM，双端口（i-side/d-side），Tree-PLRU 替换
-20. **AHB-Lite + APB 双总线**：高速设备挂 AHB，低速外设挂 APB，通过桥接互联
-21. **AHB Default Slave**：未映射地址返回 ERROR 响应，防止总线挂死
-22. **总线桥优先级**：MMIO > PTW > Writeback > IRefill > DRefill，防止饿死与脏行堆积
-23. **数据 MMU translate_en 门控**：mem_en 同步控制 Sv32 翻译使能，消除组合信号竞争
-24. **配置驱动存储几何**：`vivado_config.yaml` → `cache_def.svh` + BRAM create_ip TCL，IP 与 RTL 常量自动同步
-25. **外设中断路由**：UART/SPI/GPIO 中断输出经 PLIC 路由至 CPU（src[2]=UART, src[3]=SPI, src[4]=GPIO）
-26. **UART TX/RX FIFO**：各 16 字节同步 FIFO 缓冲，支持连续收发不丢数据
-27. **UART 可配波特率**：BAUD 寄存器运行时设置分频系数，0 回退默认 115200
-28. **GPIO 引脚变化中断**：逐引脚中断使能掩码 + 写 1 清除挂起状态
-29. **SPI 传输完成中断**：CTRL[4] 中断使能，传输完成置挂起，写 STATUS 清除
-30. **CLINT 可写 msip**：msip 寄存器（偏移 0x10）支持软件中断，符合 RISC-V CLINT 规范
-31. **IEEE 754 单精度浮点**：22 条 F 扩展指令，5 种舍入模式（RNE/RTZ/RDN/RUP/RMM），fflags 异常标志累积
-32. **FPU 多周期握手**：与 MU 单元统一握手协议（req_valid→fpu_ready→fpu_busy→result_valid→result_got），FSM 在 STATE_EXEC 内轮询
-33. **FPU 子模块分工**：加法器（FSM 3-5 周期）、乘法器（组合 1-2 周期）、除法器/平方根（非恢复余数 ~27 周期）、比较/分类/最值/符号注入（组合单周期）、转换（FSM 2-3 周期）
-34. **浮点寄存器堆**：32×32-bit（f0 硬连线零），双读单写 + 调试端口，参数化 FLEN 为 D 扩展预留
-35. **F 扩展 CSR**：fflags(0x001) / frm(0x002) / fcsr(0x003)，fflags 软件/硬件写合并（OR 累积），mstatus.FS 域支持
-36. **浮点计算器应用**：基于 UART IO 的递归下降表达式解析器，支持 +,-,*,/,(),sqrt(),neg()
+20. **AXI4 + AXI4-Lite + APB 三级总线**：高速主存挂 AXI4，控制寄存器挂 AXI4-Lite，低速外设挂 APB，通过桥接互联
+21. **AXI4 Master 接口**：cpu_bus_bridge 五通道 AW/W/B/AR/R，支持 INCR8 突发读/写
+22. **AXI4-Lite 从设备**：PLIC/CLINT/BootROM/SysStatus/APB Bridge，手动地址译码 + 从设备多路复用
+23. **AXI4 时钟域穿越**：Axi_CDC，cpu_clk(50MHz) → sys_clk(100MHz) 异步隔离
+24. **三时钟域架构**：cpu_clk/sys_clk/ddr_clk_ref，reset_sync 复位同步
+25. **DDR3 SDRAM 支持**：axi_wrap_ddr + MIG，可选 SRAM 行为模型（axi_wrap_ram）
+26. **Boot ROM**：0xFC00_0000，32KB BRAM，DDR3 启动引导
+27. **System Status**：0x0400_0000，MIG 校准/MMCM/clk_wiz 状态只读
+28. **AXI4-Lite Default Slave**：未映射地址返回 DECERR 响应，防止总线挂死
+29. **总线桥优先级**：icache_mmio > dcache_mmio > ptw_i > ptw_d > dcache_wb > icache_refill > dcache_refill，防止饿死与脏行堆积
+30. **数据 MMU translate_en 门控**：mem_en 同步控制 Sv32 翻译使能，消除组合信号竞争
+31. **配置驱动存储几何**：`vivado_config.yaml` → `cache_def.svh` + BRAM create_ip TCL，IP 与 RTL 常量自动同步
+32. **SoC 配置宏**：soc_config.vh，SIMU_USE_PLL / SIMU_USE_DDR 仿真模式选择
+33. **流水线总线结构体**：core_bus_types.svh，替代手工位索引
+34. **外设中断路由**：UART/SPI/GPIO 中断输出经 PLIC 路由至 CPU（src[2]=UART, src[3]=SPI, src[4]=GPIO）
+35. **UART TX/RX FIFO**：各 16 字节同步 FIFO 缓冲，支持连续收发不丢数据
+36. **UART 可配波特率**：BAUD 寄存器运行时设置分频系数，0 回退默认 115200
+37. **GPIO 引脚变化中断**：逐引脚中断使能掩码 + 写 1 清除挂起状态
+38. **SPI 传输完成中断**：CTRL[4] 中断使能，传输完成置挂起，写 STATUS 清除
+39. **CLINT 可写 msip**：msip 寄存器（偏移 0x10）支持软件中断，符合 RISC-V CLINT 规范
+40. **IEEE 754 单精度浮点**：22 条 F 扩展指令，5 种舍入模式（RNE/RTZ/RDN/RUP/RMM），fflags 异常标志累积
+41. **FPU 多周期握手**：与 MU 单元统一握手协议（req_valid→fpu_ready→fpu_busy→result_valid→result_got），FSM 在 STATE_EXEC 内轮询
+42. **FPU 子模块分工**：加法器（FSM 3-5 周期）、乘法器（组合 1-2 周期）、除法器/平方根（非恢复余数 ~27 周期）、比较/分类/最值/符号注入（组合单周期）、转换（FSM 2-3 周期）
+43. **浮点寄存器堆**：32×32-bit（f0 硬连线零），双读单写 + 调试端口，参数化 FLEN 为 D 扩展预留
+44. **F 扩展 CSR**：fflags(0x001) / frm(0x002) / fcsr(0x003)，fflags 软件/硬件写合并（OR 累积），mstatus.FS 域支持
+45. **浮点计算器应用**：基于 UART IO 的递归下降表达式解析器，支持 +,-,*,/,(),sqrt(),neg()
+46. **共享 testbench 框架**：tb_soc_includes.svh，SoC 级仿真 + DDR3 支持
+47. **测试程序分类重组**：isa/exception/cache/mmu/privilege/mmio/regression/ 目录结构

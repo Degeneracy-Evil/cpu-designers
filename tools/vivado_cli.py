@@ -37,6 +37,7 @@ import re
 import sys
 import time
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -52,6 +53,11 @@ def _default_vivado_path() -> str:
     - Linux / macOS: ``vivado``
     """
     return "vivado.bat" if sys.platform == "win32" else "vivado"
+
+
+def _now_local() -> str:
+    """Return the current local time as a human-readable string."""
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 # ---------------------------------------------------------------------------
 # YAML loading — prefer PyYAML, fall back to minimal parser
@@ -161,6 +167,13 @@ class Limits:
     max_concurrent: int = 3
     max_disk_gb: int = 20
     idle_timeout_min: int = 60
+    create_timeout: float = 300.0
+    refresh_timeout: float = 300.0
+    sim_timeout: float = 600.0
+    sim_rerun_timeout: float = 3600.0
+    bitstream_timeout: float = 3600.0
+    program_timeout: float = 120.0
+    archive_timeout: float = 300.0
 
 
 @dataclass
@@ -191,6 +204,13 @@ def load_config(path: Path) -> VivadoConfig:
         max_concurrent=int(limits_raw.get("max_concurrent", 3)),
         max_disk_gb=int(limits_raw.get("max_disk_gb", 20)),
         idle_timeout_min=int(limits_raw.get("idle_timeout_min", 60)),
+        create_timeout=float(limits_raw.get("create_timeout", 300)),
+        refresh_timeout=float(limits_raw.get("refresh_timeout", 300)),
+        sim_timeout=float(limits_raw.get("sim_timeout", 600)),
+        sim_rerun_timeout=float(limits_raw.get("sim_rerun_timeout", 3600)),
+        bitstream_timeout=float(limits_raw.get("bitstream_timeout", 3600)),
+        program_timeout=float(limits_raw.get("program_timeout", 120)),
+        archive_timeout=float(limits_raw.get("archive_timeout", 300)),
     )
     return VivadoConfig(
         limits=limits,
@@ -274,13 +294,17 @@ def format_result_text(
     output: str,
     duration: float,
     staleness: dict[str, bool] | None,
+    timed_out: bool = False,
 ) -> str:
     """Format operation result as human-readable text."""
     lines: list[str] = []
     lines.append(f"Operation : {operation}")
     lines.append(f"Session   : {session}")
     lines.append(f"Task      : {task}")
-    lines.append(f"Success   : {success}")
+    if timed_out:
+        lines.append(f"Status    : TIMEOUT")
+    else:
+        lines.append(f"Success   : {success}")
     lines.append(f"Duration  : {duration:.1f}s")
     if staleness:
         stale_layers = [k for k, v in staleness.items() if v]
@@ -299,6 +323,7 @@ def format_result_json(
     filtered_output: str,
     duration: float,
     staleness: dict[str, bool] | None,
+    timed_out: bool = False,
 ) -> str:
     """Format operation result as JSON."""
     result: dict[str, Any] = {
@@ -306,6 +331,7 @@ def format_result_json(
         "session": session,
         "task": task,
         "success": success,
+        "timed_out": timed_out,
         "output": output,
         "filtered_output": filtered_output,
         "duration": round(duration, 3),
@@ -469,6 +495,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--verbose", "-v", action="store_true", help="Verbose output"
     )
+    parser.add_argument(
+        "--log", metavar="FILE",
+        help="Log Vivado output to FILE with timestamps (real-time, line-by-line)",
+    )
 
     return parser
 
@@ -505,7 +535,12 @@ def format_batch_result_text(result: Any) -> str:
         if tr.error and status != "PASS":
             lines.append(f"    Error: {tr.error}")
         for op in tr.operations:
-            op_status = "OK" if op.get("success") else "FAIL"
+            if op.get("timed_out"):
+                op_status = "TIMEOUT"
+            elif op.get("success"):
+                op_status = "OK"
+            else:
+                op_status = "FAIL"
             op_dur = op.get("duration", 0.0)
             lines.append(f"    {op['operation']:<12s} {op_status:<5s} {op_dur:.1f}s")
     lines.append("=" * 60)
@@ -689,13 +724,34 @@ def main(argv: list[str] | None = None) -> int:
                 return EXIT_CONFIG
 
         # --- Execute batch ---
+        batch_log_fh: Any = None
+        batch_callback = None
+        if getattr(args, "log", None):
+            batch_log_path = Path(args.log)
+            batch_log_path.parent.mkdir(parents=True, exist_ok=True)
+            batch_log_fh = batch_log_path.open("a", encoding="utf-8")
+            batch_log_fh.write(f"\n{'=' * 60}\n")
+            batch_log_fh.write(f"Batch started: {_now_local()}\n")
+            batch_log_fh.write(f"{'=' * 60}\n")
+            batch_log_fh.flush()
+
+            def _batch_log_cb(line: str) -> None:
+                ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+                batch_log_fh.write(f"[{ts}] {line}\n")
+                batch_log_fh.flush()
+
+            batch_callback = _batch_log_cb
+
         try:
             executor = BatchExecutor(
-                session_mgr, task_registry, sync, layered_hash, config  # type: ignore[call-arg]
+                session_mgr, task_registry, sync, layered_hash, config,  # type: ignore[call-arg]
+                output_callback=batch_callback,
             )
             batch_result = executor.execute(batch_spec)
         except VivadoCoreError as e:
             print(f"ERROR: Batch execution failed: {e}", file=sys.stderr)
+            if batch_log_fh:
+                batch_log_fh.close()
             return EXIT_GENERAL
 
         # --- Output results ---
@@ -704,6 +760,8 @@ def main(argv: list[str] | None = None) -> int:
         else:
             print(format_batch_result_text(batch_result))
 
+        if batch_log_fh:
+            batch_log_fh.close()
         return batch_result.exit_code
 
     # =======================================================================
@@ -862,43 +920,64 @@ def main(argv: list[str] | None = None) -> int:
     # --- Runtime override ---
     runtime = args.runtime or (task_def.runtime if task_def else None)
 
+    # --- Log file setup ---
+    log_fh: Any = None
+    if getattr(args, "log", None):
+        log_path = Path(args.log)
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_fh = log_path.open("a", encoding="utf-8")
+        log_fh.write(f"\n{'=' * 60}\n")
+        log_fh.write(f"Session: {session_name}  Task: {task_name}  Started: {_now_local()}\n")
+        log_fh.write(f"{'=' * 60}\n")
+        log_fh.flush()
+
+        def _log_callback(line: str) -> None:
+            ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+            log_fh.write(f"[{ts}] {line}\n")
+            log_fh.flush()
+
+        session.output_callback = _log_callback
+
     # --- Execute operations in order ---
     results: list[dict[str, Any]] = []
 
     # -create
     if args.create:
         t0 = time.monotonic()
+        timed_out = False
         try:
             task_obj = task_registry.get(task_name)  # type: ignore[attr-defined]
             res = ops.create(session, task_obj)  # type: ignore[attr-defined]
-            output, success = res.output, res.success
+            output, success, timed_out = res.output, res.success, res.timed_out
         except VivadoCoreError as e:
             output, success = str(e), False
         duration = time.monotonic() - t0
         results.append(
-            _make_result("create", session_name, task_name, success, output, duration, None)
+            _make_result("create", session_name, task_name, success, output, duration, None, timed_out)
         )
 
     # -refresh
     if args.refresh:
         t0 = time.monotonic()
+        timed_out = False
         try:
             preflight = sync.preflight_check(session, "refresh")  # type: ignore[attr-defined]
             res = ops.refresh(session, layers=refresh_layers)  # type: ignore[attr-defined]
-            output, success = res.output, res.success
+            output, success, timed_out = res.output, res.success, res.timed_out
         except VivadoCoreError as e:
             output, success = str(e), False
             preflight = None
         duration = time.monotonic() - t0
         staleness_dict = {l: True for l in preflight.stale_layers} if preflight else None
         results.append(
-            _make_result("refresh", session_name, task_name, success, output, duration, staleness_dict)
+            _make_result("refresh", session_name, task_name, success, output, duration, staleness_dict, timed_out)
         )
 
     # -sim
     if args.sim:
         t0 = time.monotonic()
         staleness_dict = None
+        timed_out = False
         try:
             preflight = sync.preflight_check(session, "sim")  # type: ignore[attr-defined]
             if preflight.stale_layers:
@@ -906,56 +985,59 @@ def main(argv: list[str] | None = None) -> int:
             staleness_dict = {l: True for l in preflight.stale_layers}
             task_obj = task_registry.get(task_name)  # type: ignore[attr-defined]
             res = ops.sim(session, task_obj, runtime=runtime)  # type: ignore[attr-defined]
-            output, success = res.output, res.success
+            output, success, timed_out = res.output, res.success, res.timed_out
         except VivadoCoreError as e:
             output, success = str(e), False
         duration = time.monotonic() - t0
         results.append(
-            _make_result("sim", session_name, task_name, success, output, duration, staleness_dict)
+            _make_result("sim", session_name, task_name, success, output, duration, staleness_dict, timed_out)
         )
 
     # -bitstream
     if args.bitstream:
         t0 = time.monotonic()
         staleness_dict = None
+        timed_out = False
         try:
             preflight = sync.preflight_check(session, "bitstream")  # type: ignore[attr-defined]
             if preflight.stale_layers:
                 print(f"WARNING: Stale layers detected: {', '.join(preflight.stale_layers)}")
             staleness_dict = {l: True for l in preflight.stale_layers}
             res = ops.bitstream(session)  # type: ignore[attr-defined]
-            output, success = res.output, res.success
+            output, success, timed_out = res.output, res.success, res.timed_out
         except VivadoCoreError as e:
             output, success = str(e), False
         duration = time.monotonic() - t0
         results.append(
-            _make_result("bitstream", session_name, task_name, success, output, duration, staleness_dict)
+            _make_result("bitstream", session_name, task_name, success, output, duration, staleness_dict, timed_out)
         )
 
     # -program
     if args.program:
         t0 = time.monotonic()
+        timed_out = False
         try:
             res = ops.program(session)  # type: ignore[attr-defined]
-            output, success = res.output, res.success
+            output, success, timed_out = res.output, res.success, res.timed_out
         except VivadoCoreError as e:
             output, success = str(e), False
         duration = time.monotonic() - t0
         results.append(
-            _make_result("program", session_name, task_name, success, output, duration, None)
+            _make_result("program", session_name, task_name, success, output, duration, None, timed_out)
         )
 
     # -archive
     if args.archive:
         t0 = time.monotonic()
+        timed_out = False
         try:
             res = ops.archive(session)  # type: ignore[attr-defined]
-            output, success = res.output, res.success
+            output, success, timed_out = res.output, res.success, res.timed_out
         except VivadoCoreError as e:
             output, success = str(e), False
         duration = time.monotonic() - t0
         results.append(
-            _make_result("archive", session_name, task_name, success, output, duration, None)
+            _make_result("archive", session_name, task_name, success, output, duration, None, timed_out)
         )
 
     # --- Output results ---
@@ -977,6 +1059,7 @@ def main(argv: list[str] | None = None) -> int:
                     r["filtered_output"],
                     r["duration"],
                     r["staleness"],
+                    r.get("timed_out", False),
                 )
             )
         else:
@@ -989,10 +1072,20 @@ def main(argv: list[str] | None = None) -> int:
                     r["filtered_output"],
                     r["duration"],
                     r["staleness"],
+                    r.get("timed_out", False),
                 )
             )
+            if r.get("timed_out"):
+                print(
+                    f"\n⚠ TIMEOUT: {r['operation']} operation timed out after {r['duration']:.1f}s.\n"
+                    f"  The Vivado process was killed and will restart on the next command.\n"
+                    f"  See output above for operation-specific hints.",
+                    file=sys.stderr,
+                )
 
     # --- Determine exit code ---
+    if log_fh:
+        log_fh.close()
     if any(not r["success"] for r in results):
         # Check if any failure was due to staleness
         for r in results:
@@ -1010,6 +1103,7 @@ def _make_result(
     output: str,
     duration: float,
     staleness: dict[str, bool] | None,
+    timed_out: bool = False,
 ) -> dict[str, Any]:
     """Build a result dict for an operation."""
     return {
@@ -1021,6 +1115,7 @@ def _make_result(
         "filtered_output": "",
         "duration": duration,
         "staleness": staleness,
+        "timed_out": timed_out,
     }
 
 

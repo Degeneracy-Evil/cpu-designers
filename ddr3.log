@@ -1,0 +1,1070 @@
+
+============================================================
+Session: cpu_full_ddr3  Task: cpu_full_ddr3  Started: 2026-06-11 01:11:58
+============================================================
+[01:12:09.853] 
+[01:12:09.853] ****** Vivado v2018.3 (64-bit)
+[01:12:09.853]   **** SW Build 2405991 on Thu Dec  6 23:36:41 MST 2018
+[01:12:09.853]   **** IP Build 2404404 on Fri Dec  7 01:43:56 MST 2018
+[01:12:09.853]     ** Copyright 1986-2018 Xilinx, Inc. All Rights Reserved.
+[01:12:09.853] 
+[01:12:09.853] INFO: [IP_Flow 19-234] Refreshing IP repositories
+[01:12:09.855] INFO: [IP_Flow 19-1704] No user IP repositories specified
+[01:12:10.068] INFO: [IP_Flow 19-2313] Loaded Vivado IP repository '/tools/Xilinx/Vivado/2018.3/data/ip'.
+[01:12:10.518] INFO: [Device 21-403] Loading part xc7a200tfbg676-2
+[01:12:17.193] INFO: [IP_Flow 19-3484] Absolute path of file '/home/wangzy2024/cpu-designers/Reference/mig/mig_a.prj' provided. It will be converted relative to IP Instance files '../../../../../../../Reference/mig/mig_a.prj'
+[01:12:21.370] INFO: [IP_Flow 19-1686] Generating 'Instantiation Template' target for IP 'icached'...
+[01:12:21.371] INFO: [IP_Flow 19-1686] Generating 'Synthesis' target for IP 'icached'...
+[01:12:21.406] INFO: [IP_Flow 19-1686] Generating 'Simulation' target for IP 'icached'...
+[01:12:21.422] INFO: [IP_Flow 19-1686] Generating 'Miscellaneous' target for IP 'icached'...
+[01:12:21.440] INFO: [IP_Flow 19-1686] Generating 'Change Log' target for IP 'icached'...
+[01:12:21.675] INFO: [IP_Flow 19-1686] Generating 'Instantiation Template' target for IP 'dcached'...
+[01:12:21.676] INFO: [IP_Flow 19-1686] Generating 'Synthesis' target for IP 'dcached'...
+[01:12:21.711] INFO: [IP_Flow 19-1686] Generating 'Simulation' target for IP 'dcached'...
+[01:12:21.727] INFO: [IP_Flow 19-1686] Generating 'Miscellaneous' target for IP 'dcached'...
+[01:12:21.745] INFO: [IP_Flow 19-1686] Generating 'Change Log' target for IP 'dcached'...
+[01:12:21.762] INFO: [IP_Flow 19-1686] Generating 'Instantiation Template' target for IP 'icachet'...
+[01:12:21.763] INFO: [IP_Flow 19-1686] Generating 'Synthesis' target for IP 'icachet'...
+[01:12:21.796] INFO: [IP_Flow 19-1686] Generating 'Simulation' target for IP 'icachet'...
+[01:12:21.812] INFO: [IP_Flow 19-1686] Generating 'Miscellaneous' target for IP 'icachet'...
+[01:12:21.830] INFO: [IP_Flow 19-1686] Generating 'Change Log' target for IP 'icachet'...
+[01:12:21.847] INFO: [IP_Flow 19-1686] Generating 'Instantiation Template' target for IP 'dcachet'...
+[01:12:21.848] INFO: [IP_Flow 19-1686] Generating 'Synthesis' target for IP 'dcachet'...
+[01:12:21.880] INFO: [IP_Flow 19-1686] Generating 'Simulation' target for IP 'dcachet'...
+[01:12:21.897] INFO: [IP_Flow 19-1686] Generating 'Miscellaneous' target for IP 'dcachet'...
+[01:12:21.916] INFO: [IP_Flow 19-1686] Generating 'Change Log' target for IP 'dcachet'...
+[01:12:21.933] INFO: [IP_Flow 19-1686] Generating 'Instantiation Template' target for IP 'tlb_flag'...
+[01:12:21.934] INFO: [IP_Flow 19-1686] Generating 'Synthesis' target for IP 'tlb_flag'...
+[01:12:21.966] INFO: [IP_Flow 19-1686] Generating 'Simulation' target for IP 'tlb_flag'...
+[01:12:21.982] INFO: [IP_Flow 19-1686] Generating 'Miscellaneous' target for IP 'tlb_flag'...
+[01:12:22.003] INFO: [IP_Flow 19-1686] Generating 'Change Log' target for IP 'tlb_flag'...
+[01:12:22.020] INFO: [IP_Flow 19-1686] Generating 'Instantiation Template' target for IP 'tlb_data'...
+[01:12:22.021] INFO: [IP_Flow 19-1686] Generating 'Synthesis' target for IP 'tlb_data'...
+[01:12:22.054] INFO: [IP_Flow 19-1686] Generating 'Simulation' target for IP 'tlb_data'...
+[01:12:22.070] INFO: [IP_Flow 19-1686] Generating 'Miscellaneous' target for IP 'tlb_data'...
+[01:12:22.088] INFO: [IP_Flow 19-1686] Generating 'Change Log' target for IP 'tlb_data'...
+[01:12:22.108] INFO: [IP_Flow 19-1686] Generating 'Instantiation Template' target for IP 'clk_wiz_0'...
+[01:12:22.152] INFO: [IP_Flow 19-1686] Generating 'Synthesis' target for IP 'clk_wiz_0'...
+[01:12:22.339] INFO: [IP_Flow 19-1686] Generating 'Simulation' target for IP 'clk_wiz_0'...
+[01:12:22.409] INFO: [IP_Flow 19-1686] Generating 'Implementation' target for IP 'clk_wiz_0'...
+[01:12:22.424] INFO: [IP_Flow 19-1686] Generating 'Change Log' target for IP 'clk_wiz_0'...
+[01:12:22.466] INFO: [IP_Flow 19-1686] Generating 'Instantiation Template' target for IP 'mig_axi_32'...
+[01:12:22.517] INFO: [IP_Flow 19-1686] Generating 'Synthesis' target for IP 'mig_axi_32'...
+[01:12:28.397] INFO: [IP_Flow 19-1686] Generating 'Simulation' target for IP 'mig_axi_32'...
+[01:12:34.267] INFO: [IP_Flow 19-1686] Generating 'Implementation' target for IP 'mig_axi_32'...
+[01:12:37.188] INFO: [IP_Flow 19-1686] Generating 'Change Log' target for IP 'mig_axi_32'...
+[01:12:37.361] generate_target: Time (s): cpu = 00:00:14 ; elapsed = 00:00:15 . Memory (MB): peak = 1922.688 ; gain = 261.594 ; free physical = 1405 ; free virtual = 14404
+[01:12:37.384] INFO: [IP_Flow 19-1686] Generating 'Instantiation Template' target for IP 'Sram'...
+[01:12:37.385] INFO: [IP_Flow 19-1686] Generating 'Synthesis' target for IP 'Sram'...
+[01:12:37.421] INFO: [IP_Flow 19-1686] Generating 'Simulation' target for IP 'Sram'...
+[01:12:37.437] INFO: [IP_Flow 19-1686] Generating 'Miscellaneous' target for IP 'Sram'...
+[01:12:37.456] INFO: [IP_Flow 19-1686] Generating 'Change Log' target for IP 'Sram'...
+[01:12:37.473] Sram IP configured (no COE init)
+[01:12:37.924] WARNING: [filemgmt 20-354] The following file(s) were not imported. Local copy of file(s) already exists:
+[01:12:37.924] /home/wangzy2024/cpu-designers/dev/rtl/core/cache_def.svh
+[01:12:37.924] Hint: use the '-force' option to overwrite the local copies.
+[01:12:41.128] COE updated: no COE init
+[01:12:41.130] Adding MIG simulation model (using _mig_sim.v)...
+[01:12:41.135]   Added _mig_sim.v (simulation model, SIM_BYPASS_INIT_CAL=FAST)
+[01:12:41.260] CRITICAL WARNING: [Vivado 12-3645] Please note that adding or importing multiple files, one at a time, can be performance intensive.  Both add_files and import_files commands accept multiple files as input, and passing a collection of multiple files to a single add_files or import_files commands can offer significant performance improvement.
+[01:12:41.435] Adding BRAM IP simulation models...
+[01:12:41.460] Skipping glbl.v stub — XSim provides its own with proper GSR timing
+[01:12:45.964] Copied /home/wangzy2024/cpu-designers/dev/program_source/test/integration/cpu_full.hex -> /home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.sim/sim_1/behav/xsim/prog.hex
+[01:12:49.493] INFO: [Vivado 12-5698] Checking validity of IPs in the design for the 'XSim' simulator...
+[01:12:50.589] INFO: [Vivado 12-5682] Launching behavioral simulation in '/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.sim/sim_1/behav/xsim'
+[01:12:50.589] INFO: [Vivado 12-4795] Using compiled simulation libraries for IPs
+[01:12:50.590] INFO: [SIM-utils-51] Simulation object is 'sim_1'
+[01:12:50.593] INFO: [USF-XSim-7] Finding pre-compiled libraries...
+[01:12:50.594] INFO: [USF-XSim-11] File '/tools/Xilinx/Vivado/2018.3/data/xsim/xsim.ini' copied to run dir:'/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.sim/sim_1/behav/xsim'
+[01:12:50.602] INFO: [SIM-utils-54] Inspecting design source files for 'tb_simple_cpu_top' in fileset 'sim_1'...
+[01:12:50.923] INFO: [USF-XSim-97] Finding global include files...
+[01:12:50.937] INFO: [USF-XSim-98] Fetching design files from 'sim_1'...
+[01:12:51.031] INFO: [USF-XSim-2] XSim::Compile design
+[01:12:51.066] INFO: [USF-XSim-61] Executing 'COMPILE and ANALYZE' step in '/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.sim/sim_1/behav/xsim'
+[01:12:52.075] xvlog --incr --relax -prj tb_simple_cpu_top_vlog.prj
+[01:12:52.075] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/clk_wiz_0/clk_wiz_0/clk_wiz_0_clk_wiz.v" into library xil_defaultlib
+[01:12:52.075] INFO: [VRFC 10-311] analyzing module clk_wiz_0_clk_wiz
+[01:12:52.075] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/clk_wiz_0/clk_wiz_0/clk_wiz_0.v" into library xil_defaultlib
+[01:12:52.075] INFO: [VRFC 10-311] analyzing module clk_wiz_0
+[01:12:52.075] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/tlb_data/tlb_data/sim/tlb_data.v" into library xil_defaultlib
+[01:12:52.075] INFO: [VRFC 10-311] analyzing module tlb_data
+[01:12:52.075] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/tlb_flag/tlb_flag/sim/tlb_flag.v" into library xil_defaultlib
+[01:12:52.075] INFO: [VRFC 10-311] analyzing module tlb_flag
+[01:12:52.075] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/dcached/dcached/sim/dcached.v" into library xil_defaultlib
+[01:12:52.075] INFO: [VRFC 10-311] analyzing module dcached
+[01:12:52.075] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/dcachet/dcachet/sim/dcachet.v" into library xil_defaultlib
+[01:12:52.075] INFO: [VRFC 10-311] analyzing module dcachet
+[01:12:52.075] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/icached/icached/sim/icached.v" into library xil_defaultlib
+[01:12:52.075] INFO: [VRFC 10-311] analyzing module icached
+[01:12:52.076] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/icachet/icachet/sim/icachet.v" into library xil_defaultlib
+[01:12:52.076] INFO: [VRFC 10-311] analyzing module icachet
+[01:12:52.076] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/AMBA/Axi_CDC.v" into library xil_defaultlib
+[01:12:52.076] INFO: [VRFC 10-311] analyzing module Axi_CDC
+[01:12:52.076] INFO: [VRFC 10-311] analyzing module StreamFifoCC_4
+[01:12:52.076] INFO: [VRFC 10-311] analyzing module StreamFifoCC_3
+[01:12:52.076] INFO: [VRFC 10-311] analyzing module StreamFifoCC_2
+[01:12:52.076] INFO: [VRFC 10-311] analyzing module StreamFifoCC_1
+[01:12:52.076] INFO: [VRFC 10-311] analyzing module StreamFifoCC
+[01:12:52.076] INFO: [VRFC 10-311] analyzing module BufferCC_1
+[01:12:52.076] INFO: [VRFC 10-311] analyzing module BufferCC
+[01:12:52.076] INFO: [VRFC 10-311] analyzing module BufferCC_6
+[01:12:52.076] INFO: [VRFC 10-311] analyzing module BufferCC_5
+[01:12:52.076] INFO: [VRFC 10-311] analyzing module BufferCC_4
+[01:12:52.076] INFO: [VRFC 10-311] analyzing module BufferCC_8
+[01:12:52.076] INFO: [VRFC 10-311] analyzing module BufferCC_7
+[01:12:52.076] INFO: [VRFC 10-311] analyzing module BufferCC_11
+[01:12:52.076] INFO: [VRFC 10-311] analyzing module BufferCC_10
+[01:12:52.076] INFO: [VRFC 10-311] analyzing module BufferCC_9
+[01:12:52.076] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/Sram/Sram/simulation/blk_mem_gen_v8_4.v" into library xil_defaultlib
+[01:12:52.076] INFO: [VRFC 10-311] analyzing module STATE_LOGIC_v8_4
+[01:12:52.076] INFO: [VRFC 10-311] analyzing module beh_vlog_muxf7_v8_4
+[01:12:52.076] INFO: [VRFC 10-311] analyzing module beh_vlog_ff_clr_v8_4
+[01:12:52.076] INFO: [VRFC 10-311] analyzing module beh_vlog_ff_pre_v8_4
+[01:12:52.076] INFO: [VRFC 10-311] analyzing module beh_vlog_ff_ce_clr_v8_4
+[01:12:52.076] INFO: [VRFC 10-311] analyzing module write_netlist_v8_4
+[01:12:52.076] INFO: [VRFC 10-311] analyzing module read_netlist_v8_4
+[01:12:52.076] INFO: [VRFC 10-311] analyzing module blk_mem_axi_write_wrapper_beh_v8_4
+[01:12:52.076] INFO: [VRFC 10-311] analyzing module blk_mem_axi_read_wrapper_beh_v8_4
+[01:12:52.076] INFO: [VRFC 10-311] analyzing module blk_mem_axi_regs_fwd_v8_4
+[01:12:52.076] INFO: [VRFC 10-311] analyzing module blk_mem_gen_v8_4_2_output_stage
+[01:12:52.076] INFO: [VRFC 10-311] analyzing module blk_mem_gen_v8_4_2_softecc_output_reg_stage
+[01:12:52.076] INFO: [VRFC 10-311] analyzing module blk_mem_gen_v8_4_2_mem_module
+[01:12:52.076] INFO: [VRFC 10-311] analyzing module blk_mem_gen_v8_4_2
+[01:12:52.076] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/controller/mig_7series_v4_2_arb_mux.v" into library xil_defaultlib
+[01:12:52.076] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_arb_mux
+[01:12:52.076] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/controller/mig_7series_v4_2_arb_row_col.v" into library xil_defaultlib
+[01:12:52.076] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_arb_row_col
+[01:12:52.076] WARNING: [VRFC 10-2654] begin/end is required for generate-for in this mode of verilog [/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/controller/mig_7series_v4_2_arb_row_col.v:252]
+[01:12:52.076] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/controller/mig_7series_v4_2_arb_select.v" into library xil_defaultlib
+[01:12:52.076] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_arb_select
+[01:12:52.076] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/axi/mig_7series_v4_2_axi_ctrl_addr_decode.v" into library xil_defaultlib
+[01:12:52.076] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_axi_ctrl_addr_decode
+[01:12:52.076] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/axi/mig_7series_v4_2_axi_ctrl_read.v" into library xil_defaultlib
+[01:12:52.076] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_axi_ctrl_read
+[01:12:52.076] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/axi/mig_7series_v4_2_axi_ctrl_reg.v" into library xil_defaultlib
+[01:12:52.076] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_axi_ctrl_reg
+[01:12:52.076] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/axi/mig_7series_v4_2_axi_ctrl_reg_bank.v" into library xil_defaultlib
+[01:12:52.076] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_axi_ctrl_reg_bank
+[01:12:52.076] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/axi/mig_7series_v4_2_axi_ctrl_top.v" into library xil_defaultlib
+[01:12:52.076] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_axi_ctrl_top
+[01:12:52.076] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/axi/mig_7series_v4_2_axi_ctrl_write.v" into library xil_defaultlib
+[01:12:52.076] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_axi_ctrl_write
+[01:12:52.076] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/axi/mig_7series_v4_2_axi_mc.v" into library xil_defaultlib
+[01:12:52.076] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_axi_mc
+[01:12:52.076] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/axi/mig_7series_v4_2_axi_mc_ar_channel.v" into library xil_defaultlib
+[01:12:52.076] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_axi_mc_ar_channel
+[01:12:52.076] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/axi/mig_7series_v4_2_axi_mc_aw_channel.v" into library xil_defaultlib
+[01:12:52.076] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_axi_mc_aw_channel
+[01:12:52.076] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/axi/mig_7series_v4_2_axi_mc_b_channel.v" into library xil_defaultlib
+[01:12:52.076] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_axi_mc_b_channel
+[01:12:52.076] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/axi/mig_7series_v4_2_axi_mc_cmd_arbiter.v" into library xil_defaultlib
+[01:12:52.076] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_axi_mc_cmd_arbiter
+[01:12:52.076] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/axi/mig_7series_v4_2_axi_mc_cmd_fsm.v" into library xil_defaultlib
+[01:12:52.076] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_axi_mc_cmd_fsm
+[01:12:52.076] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/axi/mig_7series_v4_2_axi_mc_cmd_translator.v" into library xil_defaultlib
+[01:12:52.076] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_axi_mc_cmd_translator
+[01:12:52.076] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/axi/mig_7series_v4_2_axi_mc_fifo.v" into library xil_defaultlib
+[01:12:52.076] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_axi_mc_fifo
+[01:12:52.076] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/axi/mig_7series_v4_2_axi_mc_incr_cmd.v" into library xil_defaultlib
+[01:12:52.076] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_axi_mc_incr_cmd
+[01:12:52.076] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/axi/mig_7series_v4_2_axi_mc_r_channel.v" into library xil_defaultlib
+[01:12:52.077] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_axi_mc_r_channel
+[01:12:52.077] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/axi/mig_7series_v4_2_axi_mc_w_channel.v" into library xil_defaultlib
+[01:12:52.077] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_axi_mc_w_channel
+[01:12:52.077] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/axi/mig_7series_v4_2_axi_mc_wr_cmd_fsm.v" into library xil_defaultlib
+[01:12:52.077] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_axi_mc_wr_cmd_fsm
+[01:12:52.077] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/axi/mig_7series_v4_2_axi_mc_wrap_cmd.v" into library xil_defaultlib
+[01:12:52.077] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_axi_mc_wrap_cmd
+[01:12:52.077] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/controller/mig_7series_v4_2_bank_cntrl.v" into library xil_defaultlib
+[01:12:52.077] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_bank_cntrl
+[01:12:52.077] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/controller/mig_7series_v4_2_bank_common.v" into library xil_defaultlib
+[01:12:52.077] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_bank_common
+[01:12:52.077] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/controller/mig_7series_v4_2_bank_compare.v" into library xil_defaultlib
+[01:12:52.077] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_bank_compare
+[01:12:52.077] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/controller/mig_7series_v4_2_bank_mach.v" into library xil_defaultlib
+[01:12:52.077] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_bank_mach
+[01:12:52.077] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/controller/mig_7series_v4_2_bank_queue.v" into library xil_defaultlib
+[01:12:52.077] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_bank_queue
+[01:12:52.077] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/controller/mig_7series_v4_2_bank_state.v" into library xil_defaultlib
+[01:12:52.077] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_bank_state
+[01:12:52.077] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/clocking/mig_7series_v4_2_clk_ibuf.v" into library xil_defaultlib
+[01:12:52.077] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_clk_ibuf
+[01:12:52.077] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/controller/mig_7series_v4_2_col_mach.v" into library xil_defaultlib
+[01:12:52.077] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_col_mach
+[01:12:52.077] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/axi/mig_7series_v4_2_ddr_a_upsizer.v" into library xil_defaultlib
+[01:12:52.077] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_ddr_a_upsizer
+[01:12:52.077] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/axi/mig_7series_v4_2_ddr_axi_register_slice.v" into library xil_defaultlib
+[01:12:52.077] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_ddr_axi_register_slice
+[01:12:52.077] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/axi/mig_7series_v4_2_ddr_axi_upsizer.v" into library xil_defaultlib
+[01:12:52.077] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_ddr_axi_upsizer
+[01:12:52.077] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/axi/mig_7series_v4_2_ddr_axic_register_slice.v" into library xil_defaultlib
+[01:12:52.077] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_ddr_axic_register_slice
+[01:12:52.077] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/phy/mig_7series_v4_2_ddr_byte_group_io.v" into library xil_defaultlib
+[01:12:52.077] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_ddr_byte_group_io
+[01:12:52.077] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/phy/mig_7series_v4_2_ddr_byte_lane.v" into library xil_defaultlib
+[01:12:52.077] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_ddr_byte_lane
+[01:12:52.077] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/phy/mig_7series_v4_2_ddr_calib_top.v" into library xil_defaultlib
+[01:12:52.077] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_ddr_calib_top
+[01:12:52.077] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/axi/mig_7series_v4_2_ddr_carry_and.v" into library xil_defaultlib
+[01:12:52.077] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_ddr_carry_and
+[01:12:52.077] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/axi/mig_7series_v4_2_ddr_carry_latch_and.v" into library xil_defaultlib
+[01:12:52.077] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_ddr_carry_latch_and
+[01:12:52.077] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/axi/mig_7series_v4_2_ddr_carry_latch_or.v" into library xil_defaultlib
+[01:12:52.077] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_ddr_carry_latch_or
+[01:12:52.077] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/axi/mig_7series_v4_2_ddr_carry_or.v" into library xil_defaultlib
+[01:12:52.077] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_ddr_carry_or
+[01:12:52.077] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/axi/mig_7series_v4_2_ddr_command_fifo.v" into library xil_defaultlib
+[01:12:52.077] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_ddr_command_fifo
+[01:12:52.077] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/axi/mig_7series_v4_2_ddr_comparator.v" into library xil_defaultlib
+[01:12:52.077] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_ddr_comparator
+[01:12:52.077] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/axi/mig_7series_v4_2_ddr_comparator_sel.v" into library xil_defaultlib
+[01:12:52.077] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_ddr_comparator_sel
+[01:12:52.077] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/axi/mig_7series_v4_2_ddr_comparator_sel_static.v" into library xil_defaultlib
+[01:12:52.077] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_ddr_comparator_sel_static
+[01:12:52.077] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/phy/mig_7series_v4_2_ddr_if_post_fifo.v" into library xil_defaultlib
+[01:12:52.077] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_ddr_if_post_fifo
+[01:12:52.077] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/phy/mig_7series_v4_2_ddr_mc_phy.v" into library xil_defaultlib
+[01:12:52.077] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_ddr_mc_phy
+[01:12:52.077] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/phy/mig_7series_v4_2_ddr_mc_phy_wrapper.v" into library xil_defaultlib
+[01:12:52.077] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_ddr_mc_phy_wrapper
+[01:12:52.077] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/phy/mig_7series_v4_2_ddr_of_pre_fifo.v" into library xil_defaultlib
+[01:12:52.077] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_ddr_of_pre_fifo
+[01:12:52.077] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/phy/mig_7series_v4_2_ddr_phy_4lanes.v" into library xil_defaultlib
+[01:12:52.077] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_ddr_phy_4lanes
+[01:12:52.077] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/phy/mig_7series_v4_2_ddr_phy_ck_addr_cmd_delay.v" into library xil_defaultlib
+[01:12:52.077] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_ddr_phy_ck_addr_cmd_delay
+[01:12:52.077] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/phy/mig_7series_v4_2_ddr_phy_dqs_found_cal.v" into library xil_defaultlib
+[01:12:52.077] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_ddr_phy_dqs_found_cal
+[01:12:52.077] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/phy/mig_7series_v4_2_ddr_phy_dqs_found_cal_hr.v" into library xil_defaultlib
+[01:12:52.077] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_ddr_phy_dqs_found_cal_hr
+[01:12:52.077] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/phy/mig_7series_v4_2_ddr_phy_init.v" into library xil_defaultlib
+[01:12:52.077] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_ddr_phy_init
+[01:12:52.077] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/phy/mig_7series_v4_2_ddr_phy_ocd_cntlr.v" into library xil_defaultlib
+[01:12:52.077] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_ddr_phy_ocd_cntlr
+[01:12:52.077] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/phy/mig_7series_v4_2_ddr_phy_ocd_data.v" into library xil_defaultlib
+[01:12:52.077] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_ddr_phy_ocd_data
+[01:12:52.077] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/phy/mig_7series_v4_2_ddr_phy_ocd_edge.v" into library xil_defaultlib
+[01:12:52.077] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_ddr_phy_ocd_edge
+[01:12:52.077] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/phy/mig_7series_v4_2_ddr_phy_ocd_lim.v" into library xil_defaultlib
+[01:12:52.077] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_ddr_phy_ocd_lim
+[01:12:52.077] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/phy/mig_7series_v4_2_ddr_phy_ocd_mux.v" into library xil_defaultlib
+[01:12:52.077] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_ddr_phy_ocd_mux
+[01:12:52.077] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/phy/mig_7series_v4_2_ddr_phy_ocd_po_cntlr.v" into library xil_defaultlib
+[01:12:52.077] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_ddr_phy_ocd_po_cntlr
+[01:12:52.077] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/phy/mig_7series_v4_2_ddr_phy_ocd_samp.v" into library xil_defaultlib
+[01:12:52.077] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_ddr_phy_ocd_samp
+[01:12:52.077] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/phy/mig_7series_v4_2_ddr_phy_oclkdelay_cal.v" into library xil_defaultlib
+[01:12:52.077] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_ddr_phy_oclkdelay_cal
+[01:12:52.077] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/phy/mig_7series_v4_2_ddr_phy_prbs_rdlvl.v" into library xil_defaultlib
+[01:12:52.077] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_ddr_phy_prbs_rdlvl
+[01:12:52.077] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/phy/mig_7series_v4_2_ddr_phy_rdlvl.v" into library xil_defaultlib
+[01:12:52.077] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_ddr_phy_rdlvl
+[01:12:52.078] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/phy/mig_7series_v4_2_ddr_phy_tempmon.v" into library xil_defaultlib
+[01:12:52.078] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_ddr_phy_tempmon
+[01:12:52.078] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/phy/mig_7series_v4_2_ddr_phy_top.v" into library xil_defaultlib
+[01:12:52.078] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_ddr_phy_top
+[01:12:52.078] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/phy/mig_7series_v4_2_ddr_phy_wrcal.v" into library xil_defaultlib
+[01:12:52.078] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_ddr_phy_wrcal
+[01:12:52.078] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/phy/mig_7series_v4_2_ddr_phy_wrlvl.v" into library xil_defaultlib
+[01:12:52.078] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_ddr_phy_wrlvl
+[01:12:52.078] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/phy/mig_7series_v4_2_ddr_phy_wrlvl_off_delay.v" into library xil_defaultlib
+[01:12:52.078] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_ddr_phy_wrlvl_off_delay
+[01:12:52.078] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/phy/mig_7series_v4_2_ddr_prbs_gen.v" into library xil_defaultlib
+[01:12:52.078] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_ddr_prbs_gen
+[01:12:52.078] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/axi/mig_7series_v4_2_ddr_r_upsizer.v" into library xil_defaultlib
+[01:12:52.078] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_ddr_r_upsizer
+[01:12:52.078] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/phy/mig_7series_v4_2_ddr_skip_calib_tap.v" into library xil_defaultlib
+[01:12:52.078] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_ddr_skip_calib_tap
+[01:12:52.078] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/axi/mig_7series_v4_2_ddr_w_upsizer.v" into library xil_defaultlib
+[01:12:52.078] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_ddr_w_upsizer
+[01:12:52.078] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/ecc/mig_7series_v4_2_ecc_buf.v" into library xil_defaultlib
+[01:12:52.078] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_ecc_buf
+[01:12:52.078] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/ecc/mig_7series_v4_2_ecc_dec_fix.v" into library xil_defaultlib
+[01:12:52.078] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_ecc_dec_fix
+[01:12:52.078] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/ecc/mig_7series_v4_2_ecc_gen.v" into library xil_defaultlib
+[01:12:52.078] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_ecc_gen
+[01:12:52.078] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/ecc/mig_7series_v4_2_ecc_merge_enc.v" into library xil_defaultlib
+[01:12:52.078] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_ecc_merge_enc
+[01:12:52.078] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/ecc/mig_7series_v4_2_fi_xor.v" into library xil_defaultlib
+[01:12:52.078] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_fi_xor
+[01:12:52.078] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/clocking/mig_7series_v4_2_infrastructure.v" into library xil_defaultlib
+[01:12:52.078] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_infrastructure
+[01:12:52.078] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/clocking/mig_7series_v4_2_iodelay_ctrl.v" into library xil_defaultlib
+[01:12:52.078] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_iodelay_ctrl
+[01:12:52.078] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/controller/mig_7series_v4_2_mc.v" into library xil_defaultlib
+[01:12:52.078] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_mc
+[01:12:52.078] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/ip_top/mig_7series_v4_2_mem_intfc.v" into library xil_defaultlib
+[01:12:52.078] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_mem_intfc
+[01:12:52.078] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/ip_top/mig_7series_v4_2_memc_ui_top_axi.v" into library xil_defaultlib
+[01:12:52.078] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_memc_ui_top_axi
+[01:12:52.078] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/phy/mig_7series_v4_2_poc_cc.v" into library xil_defaultlib
+[01:12:52.078] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_poc_cc
+[01:12:52.078] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/phy/mig_7series_v4_2_poc_edge_store.v" into library xil_defaultlib
+[01:12:52.078] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_poc_edge_store
+[01:12:52.078] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/phy/mig_7series_v4_2_poc_meta.v" into library xil_defaultlib
+[01:12:52.078] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_poc_meta
+[01:12:52.078] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/phy/mig_7series_v4_2_poc_pd.v" into library xil_defaultlib
+[01:12:52.078] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_poc_pd
+[01:12:52.078] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/phy/mig_7series_v4_2_poc_tap_base.v" into library xil_defaultlib
+[01:12:52.078] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_poc_tap_base
+[01:12:52.078] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/phy/mig_7series_v4_2_poc_top.v" into library xil_defaultlib
+[01:12:52.078] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_poc_top
+[01:12:52.078] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/controller/mig_7series_v4_2_rank_cntrl.v" into library xil_defaultlib
+[01:12:52.078] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_rank_cntrl
+[01:12:52.078] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/controller/mig_7series_v4_2_rank_common.v" into library xil_defaultlib
+[01:12:52.078] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_rank_common
+[01:12:52.078] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/controller/mig_7series_v4_2_rank_mach.v" into library xil_defaultlib
+[01:12:52.078] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_rank_mach
+[01:12:52.078] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/controller/mig_7series_v4_2_round_robin_arb.v" into library xil_defaultlib
+[01:12:52.078] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_round_robin_arb
+[01:12:52.078] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/clocking/mig_7series_v4_2_tempmon.v" into library xil_defaultlib
+[01:12:52.078] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_tempmon
+[01:12:52.078] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/ui/mig_7series_v4_2_ui_cmd.v" into library xil_defaultlib
+[01:12:52.078] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_ui_cmd
+[01:12:52.078] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/ui/mig_7series_v4_2_ui_rd_data.v" into library xil_defaultlib
+[01:12:52.078] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_ui_rd_data
+[01:12:52.078] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/ui/mig_7series_v4_2_ui_top.v" into library xil_defaultlib
+[01:12:52.078] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_ui_top
+[01:12:52.078] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/ui/mig_7series_v4_2_ui_wr_data.v" into library xil_defaultlib
+[01:12:52.078] INFO: [VRFC 10-311] analyzing module mig_7series_v4_2_ui_wr_data
+[01:12:52.078] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/mig_axi_32.v" into library xil_defaultlib
+[01:12:52.078] INFO: [VRFC 10-311] analyzing module mig_axi_32
+[01:12:52.078] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/mig_axi_32_mig_sim.v" into library xil_defaultlib
+[01:12:52.078] INFO: [VRFC 10-311] analyzing module mig_axi_32_mig
+[01:12:52.078] INFO: [VRFC 10-2458] undeclared symbol dbg_sel_po_incdec, assumed default net type wire [/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/mig_axi_32_mig_sim.v:1222]
+[01:12:52.078] INFO: [VRFC 10-2458] undeclared symbol dbg_po_f_inc, assumed default net type wire [/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/mig_axi_32_mig_sim.v:1226]
+[01:12:52.078] INFO: [VRFC 10-2458] undeclared symbol dbg_po_f_stg23_sel, assumed default net type wire [/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/mig_axi_32_mig_sim.v:1227]
+[01:12:52.078] INFO: [VRFC 10-2458] undeclared symbol dbg_po_f_dec, assumed default net type wire [/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/mig_axi_32_mig_sim.v:1228]
+[01:12:52.078] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/core/MMU.sv" into library xil_defaultlib
+[01:12:52.078] INFO: [VRFC 10-311] analyzing module MMU
+[01:12:52.078] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/ALU/alu_32bit.sv" into library xil_defaultlib
+[01:12:52.078] INFO: [VRFC 10-311] analyzing module alu_32bit
+[01:12:52.078] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/ALU/alu_result_selector.sv" into library xil_defaultlib
+[01:12:52.078] INFO: [VRFC 10-311] analyzing module alu_result_selector
+[01:12:52.078] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/APB/apb_decoder.sv" into library xil_defaultlib
+[01:12:52.078] INFO: [VRFC 10-311] analyzing module apb_decoder
+[01:12:52.078] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/perips/apb_perips.sv" into library xil_defaultlib
+[01:12:52.078] INFO: [VRFC 10-311] analyzing module apb_perips
+[01:12:52.078] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/AHB-lite/axi4lite_bootrom.sv" into library xil_defaultlib
+[01:12:52.078] INFO: [VRFC 10-311] analyzing module axi4lite_bootrom
+[01:12:52.078] WARNING: [VRFC 10-3380] identifier 'bram_douta' is used before its declaration [/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/AHB-lite/axi4lite_bootrom.sv:121]
+[01:12:52.078] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/AHB-lite/axi4lite_clint.sv" into library xil_defaultlib
+[01:12:52.078] INFO: [VRFC 10-311] analyzing module axi4lite_clint
+[01:12:52.078] WARNING: [VRFC 10-986] literal value truncated to fit in 4 bits [/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/AHB-lite/axi4lite_clint.sv:142]
+[01:12:52.078] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/AHB-lite/axi4lite_default_slave.sv" into library xil_defaultlib
+[01:12:52.078] INFO: [VRFC 10-311] analyzing module axi4lite_default_slave
+[01:12:52.078] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/AHB-lite/axi4lite_plic.sv" into library xil_defaultlib
+[01:12:52.078] INFO: [VRFC 10-311] analyzing module axi4lite_plic
+[01:12:52.078] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/AHB-lite/axi4lite_sys_status.sv" into library xil_defaultlib
+[01:12:52.078] INFO: [VRFC 10-311] analyzing module axi4lite_sys_status
+[01:12:52.078] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/APB/axi4lite_to_apb.sv" into library xil_defaultlib
+[01:12:52.078] INFO: [VRFC 10-311] analyzing module axi4lite_to_apb
+[01:12:52.078] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/ram_wrap/axi_wrap_ddr.sv" into library xil_defaultlib
+[01:12:52.078] WARNING: [VRFC 10-3381] ignoring re-definition of command line macro 'SIMU_USE_PLL' [../../../../../../dev/rtl/soc_config.vh:10]
+[01:12:52.078] WARNING: [VRFC 10-3381] ignoring re-definition of command line macro 'SIMU_USE_DDR' [../../../../../../dev/rtl/soc_config.vh:15]
+[01:12:52.078] INFO: [VRFC 10-311] analyzing module axi_wrap_ddr
+[01:12:52.078] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/ram_wrap/axi_wrap_ram.sv" into library xil_defaultlib
+[01:12:52.078] INFO: [VRFC 10-311] analyzing module axi_wrap_ram
+[01:12:52.078] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/MU/booth_multiplier.sv" into library xil_defaultlib
+[01:12:52.078] INFO: [VRFC 10-311] analyzing module booth_multiplier
+[01:12:52.078] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/core/branch_comparator.sv" into library xil_defaultlib
+[01:12:52.078] INFO: [VRFC 10-311] analyzing module branch_comparator
+[01:12:52.078] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/ALU/cla_adder_16bit.sv" into library xil_defaultlib
+[01:12:52.078] INFO: [VRFC 10-311] analyzing module cla_adder_16bit
+[01:12:52.078] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/ALU/cla_adder_32bit.sv" into library xil_defaultlib
+[01:12:52.078] INFO: [VRFC 10-311] analyzing module cla_adder_32bit
+[01:12:52.078] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/ALU/cla_adder_4bit.sv" into library xil_defaultlib
+[01:12:52.078] INFO: [VRFC 10-311] analyzing module cla_adder_4bit
+[01:12:52.078] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/core/core_top.sv" into library xil_defaultlib
+[01:12:52.079] INFO: [VRFC 10-311] analyzing module core_top
+[01:12:52.079] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/core/cpu_bus_bridge.sv" into library xil_defaultlib
+[01:12:52.079] INFO: [VRFC 10-311] analyzing module cpu_bus_bridge
+[01:12:52.079] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/core/cpu_clint.sv" into library xil_defaultlib
+[01:12:52.079] INFO: [VRFC 10-311] analyzing module cpu_clint
+[01:12:52.079] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/core/cpu_controller.sv" into library xil_defaultlib
+[01:12:52.079] INFO: [VRFC 10-311] analyzing module cpu_controller
+[01:12:52.079] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/core/cpu_csr.sv" into library xil_defaultlib
+[01:12:52.079] INFO: [VRFC 10-311] analyzing module cpu_csr
+[01:12:52.079] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/core/cpu_csr_interface.sv" into library xil_defaultlib
+[01:12:52.079] INFO: [VRFC 10-311] analyzing module cpu_csr_interface
+[01:12:52.079] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/core/cpu_decode.sv" into library xil_defaultlib
+[01:12:52.079] INFO: [VRFC 10-311] analyzing module cpu_decode
+[01:12:52.079] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/core/cpu_execute.sv" into library xil_defaultlib
+[01:12:52.079] INFO: [VRFC 10-311] analyzing module cpu_execute
+[01:12:52.079] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/core/cpu_fetch.sv" into library xil_defaultlib
+[01:12:52.079] INFO: [VRFC 10-311] analyzing module cpu_fetch
+[01:12:52.079] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/core/cpu_mem.sv" into library xil_defaultlib
+[01:12:52.079] INFO: [VRFC 10-311] analyzing module cpu_mem
+[01:12:52.079] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/core/cpu_regfile.sv" into library xil_defaultlib
+[01:12:52.079] INFO: [VRFC 10-311] analyzing module cpu_regfile
+[01:12:52.079] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/core/cpu_trap_csr.sv" into library xil_defaultlib
+[01:12:52.079] INFO: [VRFC 10-311] analyzing module cpu_trap_csr
+[01:12:52.079] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/core/cpu_trap_manager.sv" into library xil_defaultlib
+[01:12:52.079] INFO: [VRFC 10-311] analyzing module cpu_trap_manager
+[01:12:52.079] WARNING: [VRFC 10-3380] identifier 'inst_access_fault_r' is used before its declaration [/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/core/cpu_trap_manager.sv:89]
+[01:12:52.079] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/core/cpu_wb.sv" into library xil_defaultlib
+[01:12:52.079] INFO: [VRFC 10-311] analyzing module cpu_wb
+[01:12:52.079] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/core/dcache_ctrl.sv" into library xil_defaultlib
+[01:12:52.079] INFO: [VRFC 10-311] analyzing module dcache_ctrl
+[01:12:52.079] WARNING: [VRFC 10-3380] identifier 'cpu_req_ready_r' is used before its declaration [/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/core/dcache_ctrl.sv:95]
+[01:12:52.079] WARNING: [VRFC 10-3380] identifier 'flush_set' is used before its declaration [/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/core/dcache_ctrl.sv:97]
+[01:12:52.079] WARNING: [VRFC 10-3380] identifier 'flush_way' is used before its declaration [/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/core/dcache_ctrl.sv:174]
+[01:12:52.079] WARNING: [VRFC 10-3380] identifier 'flush_way' is used before its declaration [/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/core/dcache_ctrl.sv:175]
+[01:12:52.079] WARNING: [VRFC 10-3380] identifier 'flush_way' is used before its declaration [/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/core/dcache_ctrl.sv:176]
+[01:12:52.079] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/ddr3_sim/ddr3_model.sv" into library xil_defaultlib
+[01:12:52.079] WARNING: [VRFC 10-3381] ignoring re-definition of command line macro 'sg125' [/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/ddr3_sim/ddr3_model.sv:100]
+[01:12:52.079] INFO: [VRFC 10-311] analyzing module ddr3_model
+[01:12:52.079] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/FPU/fpu_adder.sv" into library xil_defaultlib
+[01:12:52.079] INFO: [VRFC 10-311] analyzing module fpu_adder
+[01:12:52.079] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/FPU/fpu_classify.sv" into library xil_defaultlib
+[01:12:52.079] INFO: [VRFC 10-311] analyzing module fpu_classify
+[01:12:52.079] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/FPU/fpu_compare.sv" into library xil_defaultlib
+[01:12:52.079] INFO: [VRFC 10-311] analyzing module fpu_compare
+[01:12:52.079] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/FPU/fpu_cvt.sv" into library xil_defaultlib
+[01:12:52.079] INFO: [VRFC 10-311] analyzing module fpu_cvt
+[01:12:52.079] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/FPU/fpu_divider.sv" into library xil_defaultlib
+[01:12:52.079] INFO: [VRFC 10-311] analyzing module fpu_divider
+[01:12:52.079] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/FPU/fpu_minmax.sv" into library xil_defaultlib
+[01:12:52.079] INFO: [VRFC 10-311] analyzing module fpu_minmax
+[01:12:52.079] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/FPU/fpu_multiplier.sv" into library xil_defaultlib
+[01:12:52.079] INFO: [VRFC 10-311] analyzing module fpu_multiplier
+[01:12:52.079] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/FPU/fpu_regfile.sv" into library xil_defaultlib
+[01:12:52.079] INFO: [VRFC 10-311] analyzing module fpu_regfile
+[01:12:52.079] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/FPU/fpu_round.sv" into library xil_defaultlib
+[01:12:52.079] INFO: [VRFC 10-311] analyzing module fpu_round
+[01:12:52.079] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/FPU/fpu_sign_inject.sv" into library xil_defaultlib
+[01:12:52.079] INFO: [VRFC 10-311] analyzing module fpu_sign_inject
+[01:12:52.079] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/FPU/fpu_special.sv" into library xil_defaultlib
+[01:12:52.079] INFO: [VRFC 10-311] analyzing module fpu_special
+[01:12:52.079] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/FPU/fpu_sqrt.sv" into library xil_defaultlib
+[01:12:52.079] INFO: [VRFC 10-311] analyzing module fpu_sqrt
+[01:12:52.079] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/FPU/fpu_unit.sv" into library xil_defaultlib
+[01:12:52.079] INFO: [VRFC 10-311] analyzing module fpu_unit
+[01:12:52.079] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/perips/gpio.sv" into library xil_defaultlib
+[01:12:52.079] INFO: [VRFC 10-311] analyzing module gpio
+[01:12:52.079] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/core/icache_ctrl.sv" into library xil_defaultlib
+[01:12:52.079] INFO: [VRFC 10-311] analyzing module icache_ctrl
+[01:12:52.079] WARNING: [VRFC 10-3380] identifier 'cpu_req_ready_r' is used before its declaration [/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/core/icache_ctrl.sv:76]
+[01:12:52.079] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/tb/lcd_module_stub.sv" into library xil_defaultlib
+[01:12:52.079] INFO: [VRFC 10-311] analyzing module lcd_module
+[01:12:52.079] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/ALU/logic_unit.sv" into library xil_defaultlib
+[01:12:52.079] INFO: [VRFC 10-311] analyzing module logic_unit
+[01:12:52.079] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/ALU/lui.sv" into library xil_defaultlib
+[01:12:52.079] INFO: [VRFC 10-311] analyzing module lui
+[01:12:52.079] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/MU/mu_unit.sv" into library xil_defaultlib
+[01:12:52.079] INFO: [VRFC 10-311] analyzing module mu_unit
+[01:12:52.079] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/ALU/mux.sv" into library xil_defaultlib
+[01:12:52.079] INFO: [VRFC 10-311] analyzing module mux_2to1
+[01:12:52.079] INFO: [VRFC 10-311] analyzing module mux_4to1
+[01:12:52.079] INFO: [VRFC 10-311] analyzing module mux_8to1
+[01:12:52.079] INFO: [VRFC 10-311] analyzing module mux_16to1
+[01:12:52.079] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/MU/non_restoring_divider.sv" into library xil_defaultlib
+[01:12:52.079] INFO: [VRFC 10-311] analyzing module non_restoring_divider
+[01:12:52.079] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/core/op_regroup.sv" into library xil_defaultlib
+[01:12:52.079] INFO: [VRFC 10-311] analyzing module op_regroup
+[01:12:52.079] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/core/ptw.sv" into library xil_defaultlib
+[01:12:52.079] INFO: [VRFC 10-311] analyzing module ptw
+[01:12:52.079] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/common/reset_sync.sv" into library xil_defaultlib
+[01:12:52.079] INFO: [VRFC 10-311] analyzing module reset_sync
+[01:12:52.079] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/ALU/shifter.sv" into library xil_defaultlib
+[01:12:52.079] INFO: [VRFC 10-311] analyzing module shifter
+[01:12:52.079] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/perips/spi.sv" into library xil_defaultlib
+[01:12:52.079] INFO: [VRFC 10-311] analyzing module spi
+[01:12:52.079] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/perips/sync_fifo.sv" into library xil_defaultlib
+[01:12:52.079] INFO: [VRFC 10-311] analyzing module sync_fifo
+[01:12:52.079] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/rtl/system_top.sv" into library xil_defaultlib
+[01:12:52.079] INFO: [VRFC 10-311] analyzing module system_top
+[01:12:52.079] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/perips/timer.sv" into library xil_defaultlib
+[01:12:52.079] INFO: [VRFC 10-311] analyzing module timer
+[01:12:52.079] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/core/tlb.sv" into library xil_defaultlib
+[01:12:52.079] INFO: [VRFC 10-311] analyzing module tlb
+[01:12:52.079] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/core/tree_plru.sv" into library xil_defaultlib
+[01:12:52.079] INFO: [VRFC 10-311] analyzing module tree_plru
+[01:12:52.079] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/perips/uart_rx.sv" into library xil_defaultlib
+[01:12:52.079] INFO: [VRFC 10-311] analyzing module uart_rx
+[01:12:52.079] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/perips/uart_top.sv" into library xil_defaultlib
+[01:12:52.079] INFO: [VRFC 10-311] analyzing module uart_top
+[01:12:52.079] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/perips/uart_tx.sv" into library xil_defaultlib
+[01:12:52.079] INFO: [VRFC 10-311] analyzing module uart_tx
+[01:12:52.079] INFO: [VRFC 10-2263] Analyzing SystemVerilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/tb/tb_simple_cpu_top.sv" into library xil_defaultlib
+[01:12:52.079] INFO: [VRFC 10-311] analyzing module tb_simple_cpu_top
+[01:12:52.079] INFO: [VRFC 10-2263] Analyzing Verilog file "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.sim/sim_1/behav/xsim/glbl.v" into library xil_defaultlib
+[01:12:52.079] INFO: [VRFC 10-311] analyzing module glbl
+[01:12:52.234] INFO: [USF-XSim-69] 'compile' step finished in '1' seconds
+[01:12:52.236] INFO: [USF-XSim-3] XSim::Elaborate design
+[01:12:52.271] INFO: [USF-XSim-61] Executing 'ELABORATE' step in '/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.sim/sim_1/behav/xsim'
+[01:12:53.281] Vivado Simulator 2018.3
+[01:12:53.281] Copyright 1986-1999, 2001-2018 Xilinx, Inc. All Rights Reserved.
+[01:12:53.281] Running: /tools/Xilinx/Vivado/2018.3/bin/unwrapped/lnx64.o/xelab -wto b113592733d7467fa2b5fa7f4a727c7a --incr --debug typical --relax --mt 8 -d SIM_BYPASS_INIT_CAL=FAST -d SIMULATION=TRUE -d SIMU_USE_DDR=1 -d SIMU_USE_PLL=0 -d SIMU_DDR_MODE=1 -d sg125=1 -L xil_defaultlib -L blk_mem_gen_v8_4_2 -L unisims_ver -L unimacro_ver -L secureip -L xpm --snapshot tb_simple_cpu_top_behav xil_defaultlib.tb_simple_cpu_top xil_defaultlib.glbl -log elaborate.log 
+[01:12:53.281] Using 8 slave threads.
+[01:12:53.281] Starting static elaboration
+[01:12:53.765] WARNING: [VRFC 10-3091] actual bit length 4 differs from formal bit length 8 for port 's_axi_awid' [/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/ram_wrap/axi_wrap_ddr.sv:327]
+[01:12:53.765] WARNING: [VRFC 10-3091] actual bit length 4 differs from formal bit length 8 for port 's_axi_bid' [/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/ram_wrap/axi_wrap_ddr.sv:343]
+[01:12:53.765] WARNING: [VRFC 10-3091] actual bit length 4 differs from formal bit length 8 for port 's_axi_arid' [/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/ram_wrap/axi_wrap_ddr.sv:347]
+[01:12:53.765] WARNING: [VRFC 10-3091] actual bit length 4 differs from formal bit length 8 for port 's_axi_rid' [/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/ram_wrap/axi_wrap_ddr.sv:358]
+[01:12:53.775] WARNING: [VRFC 10-3091] actual bit length 12 differs from formal bit length 4 for port 'pi_dqs_found_lanes' [/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/phy/mig_7series_v4_2_ddr_mc_phy_wrapper.v:1671]
+[01:12:53.775] WARNING: [VRFC 10-3091] actual bit length 12 differs from formal bit length 4 for port 'pi_phase_locked_lanes' [/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/phy/mig_7series_v4_2_ddr_mc_phy_wrapper.v:1679]
+[01:12:53.787] WARNING: [VRFC 10-3091] actual bit length 12 differs from formal bit length 4 for port 'pi_dqs_found_lanes' [/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sources_1/ip/mig_axi_32/mig_axi_32/mig_axi_32/user_design/rtl/phy/mig_7series_v4_2_ddr_phy_top.v:1340]
+[01:12:54.030] WARNING: [VRFC 10-3705] select index 13 into 'addr' is out of bounds [/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/ddr3_sim/ddr3_model.sv:1136]
+[01:12:54.030] WARNING: [VRFC 10-3705] select index 13 into 'addr' is out of bounds [/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/ddr3_sim/ddr3_model.sv:1225]
+[01:12:54.030] WARNING: [VRFC 10-3283] element index 13 into 'addr' is out of bounds [/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/ddr3_sim/ddr3_model.sv:1296]
+[01:12:54.030] WARNING: [VRFC 10-3283] element index 13 into 'addr' is out of bounds [/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/ddr3_sim/ddr3_model.sv:1326]
+[01:12:54.043] Completed static elaboration
+[01:12:54.765] Starting simulation data flow analysis
+[01:12:56.230] WARNING: [XSIM 43-4328] File: ../../../../../../dev/tb/tb_soc_includes.svh Line: 207 : Sensitivity on input argument "data" of task "ddr3_tb.axi4_write" may never get triggered.
+[01:12:56.230] WARNING: [XSIM 43-4328] File: ../../../../../../dev/tb/tb_soc_includes.svh Line: 357 : Sensitivity on input argument "addr" of task "check_reg" may never get triggered.
+[01:12:56.230] Completed simulation data flow analysis
+[01:12:57.171] Time Resolution for simulation is 1fs
+[01:12:57.171] Compiling package xil_defaultlib.$unit_MMU_sv
+[01:12:57.171] Compiling module xil_defaultlib.reset_sync
+[01:12:57.171] Compiling module xil_defaultlib.cpu_controller
+[01:12:57.174] Compiling module xil_defaultlib.blk_mem_gen_v8_4_2_output_stage(...
+[01:12:57.175] Compiling module xil_defaultlib.blk_mem_gen_v8_4_2_softecc_outpu...
+[01:12:57.175] Compiling module xil_defaultlib.blk_mem_gen_v8_4_2_mem_module(C_...
+[01:12:57.181] Compiling module xil_defaultlib.blk_mem_gen_v8_4_2(C_FAMILY="art...
+[01:12:57.181] Compiling module xil_defaultlib.icachet
+[01:12:57.181] Compiling module xil_defaultlib.tree_plru
+[01:12:57.182] Compiling module xil_defaultlib.blk_mem_gen_v8_4_2_output_stage(...
+[01:12:57.182] Compiling module xil_defaultlib.blk_mem_gen_v8_4_2_softecc_outpu...
+[01:12:57.183] Compiling module xil_defaultlib.blk_mem_gen_v8_4_2_mem_module(C_...
+[01:12:57.187] Compiling module xil_defaultlib.blk_mem_gen_v8_4_2(C_FAMILY="art...
+[01:12:57.188] Compiling module xil_defaultlib.icached
+[01:12:57.188] Compiling module xil_defaultlib.icache_ctrl
+[01:12:57.191] Compiling module xil_defaultlib.cpu_fetch
+[01:12:57.193] Compiling module xil_defaultlib.op_regroup
+[01:12:57.194] Compiling module xil_defaultlib.cpu_decode
+[01:12:57.206] Compiling module xil_defaultlib.branch_comparator
+[01:12:57.206] Compiling module xil_defaultlib.cla_adder_4bit
+[01:12:57.207] Compiling module xil_defaultlib.cla_adder_16bit
+[01:12:57.207] Compiling module xil_defaultlib.cla_adder_32bit
+[01:12:57.207] Compiling module xil_defaultlib.logic_unit
+[01:12:57.207] Compiling module xil_defaultlib.shifter
+[01:12:57.208] Compiling module xil_defaultlib.lui
+[01:12:57.209] Compiling module xil_defaultlib.alu_result_selector
+[01:12:57.209] Compiling module xil_defaultlib.alu_32bit
+[01:12:57.210] Compiling module xil_defaultlib.mux_4to1(WIDTH=33)
+[01:12:57.210] Compiling module xil_defaultlib.mux_4to1(WIDTH=1)
+[01:12:57.210] Compiling module xil_defaultlib.booth_multiplier
+[01:12:57.211] Compiling module xil_defaultlib.mux_2to1
+[01:12:57.211] Compiling module xil_defaultlib.non_restoring_divider
+[01:12:57.213] Compiling module xil_defaultlib.mu_unit
+[01:12:57.214] Compiling module xil_defaultlib.fpu_special
+[01:12:57.215] Compiling module xil_defaultlib.fpu_round
+[01:12:57.216] Compiling module xil_defaultlib.fpu_adder
+[01:12:57.220] Compiling module xil_defaultlib.fpu_multiplier
+[01:12:57.223] Compiling module xil_defaultlib.fpu_divider
+[01:12:57.227] Compiling module xil_defaultlib.fpu_sqrt
+[01:12:57.231] Compiling module xil_defaultlib.fpu_cvt
+[01:12:57.235] Compiling module xil_defaultlib.fpu_compare
+[01:12:57.237] Compiling module xil_defaultlib.fpu_minmax
+[01:12:57.238] Compiling module xil_defaultlib.fpu_classify
+[01:12:57.239] Compiling module xil_defaultlib.fpu_sign_inject
+[01:12:57.239] Compiling module xil_defaultlib.fpu_unit
+[01:12:57.242] Compiling module xil_defaultlib.cpu_execute
+[01:12:57.244] Compiling module xil_defaultlib.blk_mem_gen_v8_4_2_output_stage(...
+[01:12:57.245] Compiling module xil_defaultlib.blk_mem_gen_v8_4_2_softecc_outpu...
+[01:12:57.246] Compiling module xil_defaultlib.blk_mem_gen_v8_4_2_mem_module(C_...
+[01:12:57.250] Compiling module xil_defaultlib.blk_mem_gen_v8_4_2(C_FAMILY="art...
+[01:12:57.251] Compiling module xil_defaultlib.dcachet
+[01:12:57.251] Compiling module xil_defaultlib.blk_mem_gen_v8_4_2_mem_module(C_...
+[01:12:57.256] Compiling module xil_defaultlib.blk_mem_gen_v8_4_2(C_FAMILY="art...
+[01:12:57.256] Compiling module xil_defaultlib.dcached
+[01:12:57.257] Compiling module xil_defaultlib.dcache_ctrl
+[01:12:57.379] Compiling module xil_defaultlib.cpu_mem
+[01:12:57.381] Compiling module xil_defaultlib.cpu_wb
+[01:12:57.382] Compiling module xil_defaultlib.cpu_regfile
+[01:12:57.382] Compiling module xil_defaultlib.fpu_regfile
+[01:12:57.383] Compiling module xil_defaultlib.cpu_clint
+[01:12:57.385] Compiling module xil_defaultlib.cpu_trap_manager
+[01:12:57.387] Compiling module xil_defaultlib.cpu_csr
+[01:12:57.391] Compiling module xil_defaultlib.cpu_csr_interface
+[01:12:57.392] Compiling module xil_defaultlib.cpu_trap_csr
+[01:12:57.392] Compiling module xil_defaultlib.blk_mem_gen_v8_4_2_output_stage(...
+[01:12:57.393] Compiling module xil_defaultlib.blk_mem_gen_v8_4_2_softecc_outpu...
+[01:12:57.394] Compiling module xil_defaultlib.blk_mem_gen_v8_4_2_mem_module(C_...
+[01:12:57.397] Compiling module xil_defaultlib.blk_mem_gen_v8_4_2(C_FAMILY="art...
+[01:12:57.398] Compiling module xil_defaultlib.tlb_flag
+[01:12:57.399] Compiling module xil_defaultlib.blk_mem_gen_v8_4_2_mem_module(C_...
+[01:12:57.403] Compiling module xil_defaultlib.blk_mem_gen_v8_4_2(C_FAMILY="art...
+[01:12:57.403] Compiling module xil_defaultlib.tlb_data
+[01:12:57.404] Compiling module xil_defaultlib.tlb
+[01:12:57.410] Compiling module xil_defaultlib.ptw
+[01:12:57.412] Compiling module xil_defaultlib.MMU
+[01:12:57.417] Compiling module xil_defaultlib.cpu_bus_bridge
+[01:12:57.422] Compiling module xil_defaultlib.core_top
+[01:12:57.423] Compiling module xil_defaultlib.BufferCC_9
+[01:12:57.424] Compiling module xil_defaultlib.BufferCC_10
+[01:12:57.424] Compiling module xil_defaultlib.BufferCC_11
+[01:12:57.424] Compiling module xil_defaultlib.StreamFifoCC
+[01:12:57.425] Compiling module xil_defaultlib.BufferCC_7
+[01:12:57.425] Compiling module xil_defaultlib.BufferCC_8
+[01:12:57.426] Compiling module xil_defaultlib.StreamFifoCC_1
+[01:12:57.427] Compiling module xil_defaultlib.BufferCC_4
+[01:12:57.427] Compiling module xil_defaultlib.BufferCC_5
+[01:12:57.427] Compiling module xil_defaultlib.BufferCC_6
+[01:12:57.427] Compiling module xil_defaultlib.StreamFifoCC_2
+[01:12:57.428] Compiling module xil_defaultlib.StreamFifoCC_3
+[01:12:57.429] Compiling module xil_defaultlib.BufferCC
+[01:12:57.430] Compiling module xil_defaultlib.BufferCC_1
+[01:12:57.430] Compiling module xil_defaultlib.StreamFifoCC_4
+[01:12:57.431] Compiling module xil_defaultlib.Axi_CDC
+[01:12:57.435] Compiling module unisims_ver.IDELAYCTRL_default
+[01:12:57.436] Compiling module xil_defaultlib.mig_7series_v4_2_iodelay_ctrl(IO...
+[01:12:57.436] Compiling module xil_defaultlib.mig_7series_v4_2_clk_ibuf(SYSCLK...
+[01:12:57.438] Compiling module unisims_ver.XADC(INIT_40=16'b01000000000000,...
+[01:12:57.577] Compiling module xil_defaultlib.mig_7series_v4_2_tempmon_default
+[01:12:57.580] Compiling module unisims_ver.PLLE2_ADV(CLKFBOUT_MULT=8,CLKIN1...
+[01:12:57.608] Compiling module unisims_ver.BUFG
+[01:12:57.608] Compiling module unisims_ver.BUFH
+[01:12:57.610] Compiling module unisims_ver.MMCME2_ADV(BANDWIDTH="HIGH",CLKF...
+[01:12:57.751] Compiling module xil_defaultlib.mig_7series_v4_2_infrastructure(...
+[01:12:57.752] Compiling module unisims_ver.SRLC32E_default
+[01:12:57.753] Compiling module xil_defaultlib.mig_7series_v4_2_rank_cntrl(DQRD...
+[01:12:57.755] Compiling module xil_defaultlib.mig_7series_v4_2_round_robin_arb...
+[01:12:57.756] Compiling module xil_defaultlib.mig_7series_v4_2_round_robin_arb...
+[01:12:57.756] Compiling module xil_defaultlib.mig_7series_v4_2_rank_common(MAI...
+[01:12:57.759] Compiling module xil_defaultlib.mig_7series_v4_2_rank_mach(CS_WI...
+[01:12:57.760] Compiling module xil_defaultlib.mig_7series_v4_2_bank_compare(CO...
+[01:12:57.761] Compiling module xil_defaultlib.mig_7series_v4_2_bank_state(DATA...
+[01:12:57.765] Compiling module xil_defaultlib.mig_7series_v4_2_bank_queue_defa...
+[01:12:57.769] Compiling module xil_defaultlib.mig_7series_v4_2_bank_cntrl(COL_...
+[01:12:57.769] Compiling module xil_defaultlib.mig_7series_v4_2_bank_state(DATA...
+[01:12:57.773] Compiling module xil_defaultlib.mig_7series_v4_2_bank_queue(ID=1...
+[01:12:57.776] Compiling module xil_defaultlib.mig_7series_v4_2_bank_cntrl(COL_...
+[01:12:57.777] Compiling module xil_defaultlib.mig_7series_v4_2_bank_state(DATA...
+[01:12:57.781] Compiling module xil_defaultlib.mig_7series_v4_2_bank_queue(ID=2...
+[01:12:57.785] Compiling module xil_defaultlib.mig_7series_v4_2_bank_cntrl(COL_...
+[01:12:57.785] Compiling module xil_defaultlib.mig_7series_v4_2_bank_state(DATA...
+[01:12:57.789] Compiling module xil_defaultlib.mig_7series_v4_2_bank_queue(ID=3...
+[01:12:57.792] Compiling module xil_defaultlib.mig_7series_v4_2_bank_cntrl(COL_...
+[01:12:57.793] Compiling module xil_defaultlib.mig_7series_v4_2_bank_common(LOW...
+[01:12:57.795] Compiling module xil_defaultlib.mig_7series_v4_2_round_robin_arb...
+[01:12:57.796] Compiling module xil_defaultlib.mig_7series_v4_2_arb_row_col(nCK...
+[01:12:57.797] Compiling module xil_defaultlib.mig_7series_v4_2_arb_select(CS_W...
+[01:12:57.801] Compiling module xil_defaultlib.mig_7series_v4_2_arb_mux(CS_WIDT...
+[01:12:57.802] Compiling module xil_defaultlib.mig_7series_v4_2_bank_mach(COL_W...
+[01:12:57.803] Compiling module unisims_ver.RAM32M
+[01:12:57.804] Compiling module xil_defaultlib.mig_7series_v4_2_col_mach(COL_WI...
+[01:12:57.805] Compiling module xil_defaultlib.mig_7series_v4_2_mc(CL=6,COL_WID...
+[01:12:57.805] Compiling module unisims_ver.OBUF
+[01:12:57.805] Compiling module unisims_ver.OBUFT
+[01:12:57.806] Compiling module unisims_ver.IOBUF(IBUF_LOW_PWR="FALSE")
+[01:12:57.806] Compiling module unisims_ver.IOBUFDS_DIFF_OUT_INTERMDISABLE(D...
+[01:12:57.806] Compiling module unisims_ver.IDDR
+[01:12:57.807] Compiling module xil_defaultlib.mig_7series_v4_2_poc_pd_default
+[01:12:57.807] Compiling module xil_defaultlib.mig_7series_v4_2_ddr_of_pre_fifo...
+[01:12:57.809] Compiling module xil_defaultlib.mig_7series_v4_2_ddr_of_pre_fifo...
+[01:12:57.810] Compiling module unisims_ver.BUFIO
+[01:12:57.811] Compiling module xil_defaultlib.mig_7series_v4_2_ddr_if_post_fif...
+[01:12:57.812] Compiling module xil_defaultlib.mig_7series_v4_2_ddr_of_pre_fifo...
+[01:12:57.814] Compiling secureip modules ...
+[01:12:57.954] Compiling module unisims_ver.PHASER_IN_PHY(BURST_MODE="TRUE",...
+[01:12:57.955] Compiling secureip modules ...
+[01:12:57.971] Compiling module unisims_ver.PHASER_OUT_PHY(CLKOUT_DIV=2,DATA...
+[01:12:57.971] Compiling secureip modules ...
+[01:12:57.983] Compiling module unisims_ver.IN_FIFO
+[01:12:57.983] Compiling secureip modules ...
+[01:12:57.995] Compiling module unisims_ver.OUT_FIFO
+[01:12:57.997] Compiling secureip modules ...
+[01:12:58.115] Compiling module unisims_ver.ISERDESE2(INTERFACE_TYPE="MEMORY...
+[01:12:58.116] Compiling module unisims_ver.IDELAYE2(HIGH_PERFORMANCE_MODE="...
+[01:12:58.127] Compiling secureip modules ...
+[01:12:58.143] Compiling module unisims_ver.OSERDESE2(DATA_WIDTH=32'sb0100,I...
+[01:12:58.145] Compiling secureip modules ...
+[01:12:58.150] Compiling module unisims_ver.OSERDESE2(DATA_WIDTH=32'sb0100,I...
+[01:12:58.159] Compiling module unisims_ver.ODDR(DDR_CLK_EDGE="SAME_EDGE")
+[01:12:58.161] Compiling module xil_defaultlib.mig_7series_v4_2_ddr_byte_group_...
+[01:12:58.162] Compiling module xil_defaultlib.mig_7series_v4_2_ddr_byte_lane(P...
+[01:12:58.291] Compiling module xil_defaultlib.mig_7series_v4_2_ddr_byte_lane(A...
+[01:12:58.292] Compiling module unisims_ver.PHASER_OUT_PHY(FINE_DELAY=60,MEM...
+[01:12:58.294] Compiling module unisims_ver.OUT_FIFO(ARRAY_MODE="ARRAY_MODE_...
+[01:12:58.296] Compiling secureip modules ...
+[01:12:58.301] Compiling module unisims_ver.OSERDESE2(DATA_RATE_OQ="SDR",DAT...
+[01:12:58.310] Compiling module xil_defaultlib.mig_7series_v4_2_ddr_byte_group_...
+[01:12:58.311] Compiling module unisims_ver.OBUFDS
+[01:12:58.311] Compiling module xil_defaultlib.mig_7series_v4_2_ddr_byte_lane(A...
+[01:12:58.327] Compiling module xil_defaultlib.mig_7series_v4_2_ddr_byte_group_...
+[01:12:58.327] Compiling module xil_defaultlib.mig_7series_v4_2_ddr_byte_lane(A...
+[01:12:58.328] Compiling secureip modules ...
+[01:12:58.456] Compiling module unisims_ver.PHY_CONTROL(AO_TOGGLE=1,BURST_MO...
+[01:12:58.456] Compiling module unisims_ver.PHASER_REF
+[01:12:58.458] Compiling module xil_defaultlib.mig_7series_v4_2_ddr_phy_4lanes(...
+[01:12:58.464] Compiling module xil_defaultlib.mig_7series_v4_2_ddr_mc_phy(DATA...
+[01:12:58.474] Compiling module xil_defaultlib.mig_7series_v4_2_ddr_mc_phy_wrap...
+[01:12:58.483] Compiling module xil_defaultlib.mig_7series_v4_2_ddr_prbs_gen(DQ...
+[01:12:58.493] Compiling module xil_defaultlib.mig_7series_v4_2_ddr_phy_init(tC...
+[01:12:58.647] Compiling module xil_defaultlib.mig_7series_v4_2_ddr_phy_wrcal(n...
+[01:12:58.669] Compiling module xil_defaultlib.mig_7series_v4_2_ddr_phy_wrlvl(D...
+[01:12:58.680] Compiling module xil_defaultlib.mig_7series_v4_2_ddr_phy_ck_addr...
+[01:12:58.682] Compiling module xil_defaultlib.mig_7series_v4_2_ddr_phy_dqs_fou...
+[01:12:58.693] Compiling module xil_defaultlib.mig_7series_v4_2_ddr_phy_rdlvl(n...
+[01:13:02.423] Compiling module xil_defaultlib.mig_7series_v4_2_ddr_phy_prbs_rd...
+[01:13:02.732] Compiling module xil_defaultlib.mig_7series_v4_2_ddr_phy_tempmon...
+[01:13:02.735] Compiling module xil_defaultlib.mig_7series_v4_2_ddr_calib_top(n...
+[01:13:02.739] Compiling module xil_defaultlib.mig_7series_v4_2_ddr_phy_top(DDR...
+[01:13:02.740] Compiling module xil_defaultlib.mig_7series_v4_2_mem_intfc(DDR3_...
+[01:13:02.741] Compiling module xil_defaultlib.mig_7series_v4_2_ui_cmd(ADDR_WID...
+[01:13:02.742] Compiling module xil_defaultlib.mig_7series_v4_2_ui_wr_data(APP_...
+[01:13:02.744] Compiling module xil_defaultlib.mig_7series_v4_2_ui_rd_data(APP_...
+[01:13:02.746] Compiling module xil_defaultlib.mig_7series_v4_2_ui_top(APP_DATA...
+[01:13:02.746] Compiling module xil_defaultlib.mig_7series_v4_2_ddr_axic_regist...
+[01:13:02.746] Compiling module xil_defaultlib.mig_7series_v4_2_ddr_axic_regist...
+[01:13:02.746] Compiling module xil_defaultlib.mig_7series_v4_2_ddr_axic_regist...
+[01:13:02.746] Compiling module xil_defaultlib.mig_7series_v4_2_ddr_axic_regist...
+[01:13:02.746] Compiling module xil_defaultlib.mig_7series_v4_2_ddr_axi_registe...
+[01:13:02.747] Compiling module xil_defaultlib.mig_7series_v4_2_ddr_axic_regist...
+[01:13:02.747] Compiling module xil_defaultlib.mig_7series_v4_2_ddr_axic_regist...
+[01:13:02.747] Compiling module xil_defaultlib.mig_7series_v4_2_ddr_axic_regist...
+[01:13:02.747] Compiling module xil_defaultlib.mig_7series_v4_2_ddr_axic_regist...
+[01:13:02.748] Compiling module xil_defaultlib.mig_7series_v4_2_ddr_axi_registe...
+[01:13:02.749] Compiling module xil_defaultlib.mig_7series_v4_2_ddr_axic_regist...
+[01:13:02.749] Compiling module xil_defaultlib.mig_7series_v4_2_ddr_axic_regist...
+[01:13:02.749] Compiling module xil_defaultlib.mig_7series_v4_2_ddr_axic_regist...
+[01:13:02.749] Compiling module xil_defaultlib.mig_7series_v4_2_ddr_axi_registe...
+[01:13:02.750] Compiling module unisims_ver.MUXCY
+[01:13:02.750] Compiling module unisims_ver.XORCY
+[01:13:02.750] Compiling module unisims_ver.AND2B1L
+[01:13:02.751] Compiling module xil_defaultlib.mig_7series_v4_2_ddr_carry_latch...
+[01:13:02.751] Compiling module xil_defaultlib.mig_7series_v4_2_ddr_carry_and(C...
+[01:13:02.751] Compiling module unisims_ver.OR2L
+[01:13:02.751] Compiling module xil_defaultlib.mig_7series_v4_2_ddr_carry_latch...
+[01:13:02.751] Compiling module unisims_ver.FDRE_default
+[01:13:02.752] Compiling module xil_defaultlib.mig_7series_v4_2_ddr_command_fif...
+[01:13:02.754] Compiling module xil_defaultlib.mig_7series_v4_2_ddr_a_upsizer(C...
+[01:13:02.758] Compiling module xil_defaultlib.mig_7series_v4_2_ddr_comparator_...
+[01:13:02.758] Compiling module xil_defaultlib.mig_7series_v4_2_ddr_carry_or(C_...
+[01:13:02.758] Compiling module unisims_ver.LUT6_2(INIT=64'b0101101001011010...
+[01:13:02.761] Compiling module unisims_ver.LUT6_2(INIT=64'b0110011001111000...
+[01:13:02.763] Compiling module unisims_ver.LUT4
+[01:13:02.764] Compiling module unisims_ver.LUT6
+[01:13:02.766] Compiling module unisims_ver.FDSE_default
+[01:13:02.766] Compiling module xil_defaultlib.mig_7series_v4_2_ddr_comparator_...
+[01:13:02.767] Compiling module xil_defaultlib.mig_7series_v4_2_ddr_comparator_...
+[01:13:02.778] Compiling module xil_defaultlib.mig_7series_v4_2_ddr_w_upsizer(C...
+[01:13:02.787] Compiling module xil_defaultlib.mig_7series_v4_2_ddr_a_upsizer(C...
+[01:13:02.792] Compiling module xil_defaultlib.mig_7series_v4_2_ddr_r_upsizer(C...
+[01:13:02.793] Compiling module xil_defaultlib.mig_7series_v4_2_ddr_axi_upsizer...
+[01:13:02.793] Compiling module xil_defaultlib.mig_7series_v4_2_ddr_axic_regist...
+[01:13:02.793] Compiling module xil_defaultlib.mig_7series_v4_2_ddr_axic_regist...
+[01:13:02.794] Compiling module xil_defaultlib.mig_7series_v4_2_ddr_axi_registe...
+[01:13:02.794] Compiling module xil_defaultlib.mig_7series_v4_2_axi_mc_incr_cmd...
+[01:13:02.795] Compiling module xil_defaultlib.mig_7series_v4_2_axi_mc_wrap_cmd...
+[01:13:02.795] Compiling module xil_defaultlib.mig_7series_v4_2_axi_mc_cmd_tran...
+[01:13:02.796] Compiling module xil_defaultlib.mig_7series_v4_2_axi_mc_wr_cmd_f...
+[01:13:02.796] Compiling module xil_defaultlib.mig_7series_v4_2_axi_mc_aw_chann...
+[01:13:02.796] Compiling module xil_defaultlib.mig_7series_v4_2_axi_mc_w_channe...
+[01:13:02.797] Compiling module xil_defaultlib.mig_7series_v4_2_axi_mc_fifo(C_A...
+[01:13:02.797] Compiling module xil_defaultlib.mig_7series_v4_2_axi_mc_b_channe...
+[01:13:02.797] Compiling module xil_defaultlib.mig_7series_v4_2_axi_mc_incr_cmd...
+[01:13:02.798] Compiling module xil_defaultlib.mig_7series_v4_2_axi_mc_wrap_cmd...
+[01:13:02.798] Compiling module xil_defaultlib.mig_7series_v4_2_axi_mc_cmd_tran...
+[01:13:02.799] Compiling module xil_defaultlib.mig_7series_v4_2_axi_mc_cmd_fsm(...
+[01:13:02.799] Compiling module xil_defaultlib.mig_7series_v4_2_axi_mc_ar_chann...
+[01:13:02.799] Compiling module xil_defaultlib.mig_7series_v4_2_axi_mc_fifo(C_W...
+[01:13:02.799] Compiling module xil_defaultlib.mig_7series_v4_2_axi_mc_fifo(C_W...
+[01:13:02.800] Compiling module xil_defaultlib.mig_7series_v4_2_axi_mc_r_channe...
+[01:13:02.801] Compiling module xil_defaultlib.mig_7series_v4_2_axi_mc_cmd_arbi...
+[01:13:02.802] Compiling module xil_defaultlib.mig_7series_v4_2_axi_mc(C_FAMILY...
+[01:13:02.803] Compiling module xil_defaultlib.mig_7series_v4_2_memc_ui_top_axi...
+[01:13:02.803] Compiling module xil_defaultlib.mig_axi_32_mig_default
+[01:13:02.803] Compiling module xil_defaultlib.mig_axi_32
+[01:13:02.804] Compiling module xil_defaultlib.axi_wrap_ddr
+[01:13:02.804] Compiling module xil_defaultlib.axi4lite_plic
+[01:13:02.871] Compiling module xil_defaultlib.axi4lite_clint
+[01:13:02.872] Compiling module xil_defaultlib.axi4lite_bootrom_default
+[01:13:02.873] Compiling module xil_defaultlib.axi4lite_default_slave
+[01:13:02.873] Compiling module xil_defaultlib.axi4lite_sys_status
+[01:13:02.874] Compiling module xil_defaultlib.axi4lite_to_apb
+[01:13:02.875] Compiling module xil_defaultlib.apb_decoder_default
+[01:13:02.876] Compiling module xil_defaultlib.gpio_default
+[01:13:02.881] Compiling module xil_defaultlib.timer
+[01:13:02.881] Compiling module xil_defaultlib.sync_fifo_default
+[01:13:02.882] Compiling module xil_defaultlib.uart_tx_default
+[01:13:02.883] Compiling module xil_defaultlib.uart_rx_default
+[01:13:02.883] Compiling module xil_defaultlib.uart_top
+[01:13:02.884] Compiling module xil_defaultlib.spi
+[01:13:02.886] Compiling module xil_defaultlib.apb_perips
+[01:13:02.886] Compiling module xil_defaultlib.lcd_module
+[01:13:02.886] Compiling module xil_defaultlib.system_top_default
+[01:13:02.892] Compiling module xil_defaultlib.ddr3_model_default
+[01:13:02.924] Compiling module xil_defaultlib.tb_simple_cpu_top
+[01:13:02.926] Compiling module xil_defaultlib.glbl
+[01:13:06.338] Built simulation snapshot tb_simple_cpu_top_behav
+[01:13:06.976] 
+[01:13:06.976] ****** Webtalk v2018.3 (64-bit)
+[01:13:06.976]   **** SW Build 2405991 on Thu Dec  6 23:36:41 MST 2018
+[01:13:06.977]   **** IP Build 2404404 on Fri Dec  7 01:43:56 MST 2018
+[01:13:06.977]     ** Copyright 1986-2018 Xilinx, Inc. All Rights Reserved.
+[01:13:06.977] 
+[01:13:06.977] source /home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.sim/sim_1/behav/xsim/xsim.dir/tb_simple_cpu_top_behav/webtalk/xsim_webtalk.tcl -notrace
+[01:13:10.166] INFO: [Common 17-206] Exiting Webtalk at Thu Jun 11 01:13:10 2026...
+[01:13:10.541] run_program: Time (s): cpu = 00:00:36 ; elapsed = 00:00:18 . Memory (MB): peak = 2082.766 ; gain = 0.000 ; free physical = 1754 ; free virtual = 14223
+[01:13:10.542] INFO: [USF-XSim-69] 'elaborate' step finished in '18' seconds
+[01:13:10.544] INFO: [USF-XSim-4] XSim::Simulate design
+[01:13:10.549] INFO: [USF-XSim-61] Executing 'SIMULATE' step in '/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.sim/sim_1/behav/xsim'
+[01:13:10.549] INFO: [USF-XSim-98] *** Running xsim
+[01:13:10.549]    with args "tb_simple_cpu_top_behav -key {Behavioral:sim_1:Functional:tb_simple_cpu_top} -tclbatch {tb_simple_cpu_top.tcl} -log {simulate.log}"
+[01:13:10.575] INFO: [USF-XSim-8] Loading simulator feature
+[01:13:10.590] Vivado Simulator 2018.3
+[01:13:11.628] Time resolution is 1 fs
+[01:13:11.630] source tb_simple_cpu_top.tcl
+[01:13:11.630] # set curr_wave [current_wave_config]
+[01:13:11.630] # if { [string length $curr_wave] == 0 } {
+[01:13:11.630] #   if { [llength [get_objects]] > 0} {
+[01:13:11.630] #     add_wave /
+[01:13:11.630] #     set_property needs_save false [current_wave_config]
+[01:13:11.631] #   } else {
+[01:13:11.631] #      send_msg_id Add_Wave-1 WARNING "No top level signals found. Simulator will start without a wave window. If you want to open a wave window go to 'File->New Waveform Configuration' or type 'create_wave_config' in the TCL console."
+[01:13:11.631] #   }
+[01:13:11.631] # }
+[01:13:11.635] # run 1s
+[01:13:11.649] Block Memory Generator module tb_simple_cpu_top.u_soc.cpu.u_icache_wrap.u_icachet.inst.native_mem_module.blk_mem_gen_v8_4_2_inst is using a behavioral model for simulation which will not precisely model memory collision behavior.
+[01:13:11.649] Block Memory Generator module tb_simple_cpu_top.u_soc.cpu.u_icache_wrap.u_icached.inst.native_mem_module.blk_mem_gen_v8_4_2_inst is using a behavioral model for simulation which will not precisely model memory collision behavior.
+[01:13:11.649] Block Memory Generator module tb_simple_cpu_top.u_soc.cpu.u_dcache_wrap.u_dcachet.inst.native_mem_module.blk_mem_gen_v8_4_2_inst is using a behavioral model for simulation which will not precisely model memory collision behavior.
+[01:13:11.649] Block Memory Generator module tb_simple_cpu_top.u_soc.cpu.u_dcache_wrap.u_dcached.inst.native_mem_module.blk_mem_gen_v8_4_2_inst is using a behavioral model for simulation which will not precisely model memory collision behavior.
+[01:13:11.649] Block Memory Generator module tb_simple_cpu_top.u_soc.cpu.u_mmu.u_tlb.u_tlb_flag.inst.native_mem_module.blk_mem_gen_v8_4_2_inst is using a behavioral model for simulation which will not precisely model memory collision behavior.
+[01:13:11.649] Block Memory Generator module tb_simple_cpu_top.u_soc.cpu.u_mmu.u_tlb.u_tlb_data.inst.native_mem_module.blk_mem_gen_v8_4_2_inst is using a behavioral model for simulation which will not precisely model memory collision behavior.
+[01:13:11.649] WARNING: file design.txt could not be opened
+[01:13:11.649]  *** Warning: The analog data file design.txt for XADC instance tb_simple_cpu_top.u_soc.ddr3.u_axi_wrap_ddr.mig_axi.u_mig_axi_32_mig.temp_mon_enabled.u_tempmon.xadc_supplied_temperature.XADC_inst was not found. Use the SIM_MONITOR_FILE parameter to specify the analog data file name or use the default name: design.txt.
+[01:13:11.649] 
+[01:13:11.649] ############# Write Clocks PLLE2_ADV Parameters #############
+[01:13:11.650] 
+[01:13:11.650] nCK_PER_CLK      =       4
+[01:13:11.650] CLK_PERIOD       =   10000
+[01:13:11.650] CLKIN1_PERIOD    =  10.000
+[01:13:11.650] DIVCLK_DIVIDE    =       1
+[01:13:11.650] CLKFBOUT_MULT    =       8
+[01:13:11.650] VCO_PERIOD       =  1250.0
+[01:13:11.650] CLKOUT0_DIVIDE_F =       1
+[01:13:11.650] CLKOUT1_DIVIDE   =       2
+[01:13:11.650] CLKOUT2_DIVIDE   =      32
+[01:13:11.650] CLKOUT3_DIVIDE   =       8
+[01:13:11.650] CLKOUT0_PERIOD   =    1250
+[01:13:11.650] CLKOUT1_PERIOD   =    2500
+[01:13:11.650] CLKOUT2_PERIOD   =   40000
+[01:13:11.650] CLKOUT3_PERIOD   =   10000
+[01:13:11.650] CLKOUT4_PERIOD   =    5000
+[01:13:11.650] ############################################################
+[01:13:11.650] 
+[01:13:11.650] ############# MMCME2_ADV Parameters #############
+[01:13:11.650] 
+[01:13:11.650] MMCM_MULT_F           =           8
+[01:13:11.650] MMCM_VCO_FREQ (MHz)   = 800.000
+[01:13:11.650] MMCM_VCO_PERIOD       = 1250.000
+[01:13:11.650] #################################################
+[01:13:11.650] 
+[01:13:11.650] tb_simple_cpu_top.u_soc.ddr3.u_axi_wrap_ddr.mig_axi.u_mig_axi_32_mig.u_memc_ui_top_axi.mem_intfc0.ddr_phy_top0.u_ddr_mc_phy_wrapper.u_ddr_mc_phy : BYTE_LANES_B0 = f BYTE_LANES_B1 = 0 DATA_CTL_B0 = 3 DATA_CTL_B1 = 0
+[01:13:11.650] tb_simple_cpu_top.u_soc.ddr3.u_axi_wrap_ddr.mig_axi.u_mig_axi_32_mig.u_memc_ui_top_axi.mem_intfc0.ddr_phy_top0.u_ddr_mc_phy_wrapper.u_ddr_mc_phy : HIGHEST_LANE =           4 HIGHEST_LANE_B0 =           4 HIGHEST_LANE_B1 =           0
+[01:13:11.650] tb_simple_cpu_top.u_soc.ddr3.u_axi_wrap_ddr.mig_axi.u_mig_axi_32_mig.u_memc_ui_top_axi.mem_intfc0.ddr_phy_top0.u_ddr_mc_phy_wrapper.u_ddr_mc_phy : HIGHEST_BANK =           1
+[01:13:11.650] tb_simple_cpu_top.u_soc.ddr3.u_axi_wrap_ddr.mig_axi.u_mig_axi_32_mig.u_memc_ui_top_axi.mem_intfc0.ddr_phy_top0.u_ddr_mc_phy_wrapper.u_ddr_mc_phy : FREQ_REF_PERIOD         = 1250.00 
+[01:13:11.650] tb_simple_cpu_top.u_soc.ddr3.u_axi_wrap_ddr.mig_axi.u_mig_axi_32_mig.u_memc_ui_top_axi.mem_intfc0.ddr_phy_top0.u_ddr_mc_phy_wrapper.u_ddr_mc_phy : DDR_TCK                 = 2500 
+[01:13:11.650] tb_simple_cpu_top.u_soc.ddr3.u_axi_wrap_ddr.mig_axi.u_mig_axi_32_mig.u_memc_ui_top_axi.mem_intfc0.ddr_phy_top0.u_ddr_mc_phy_wrapper.u_ddr_mc_phy : PO_S2_TAPS_SIZE         = 9.77 
+[01:13:11.650] tb_simple_cpu_top.u_soc.ddr3.u_axi_wrap_ddr.mig_axi.u_mig_axi_32_mig.u_memc_ui_top_axi.mem_intfc0.ddr_phy_top0.u_ddr_mc_phy_wrapper.u_ddr_mc_phy : PO_CIRC_BUF_EARLY       = 1 
+[01:13:11.650] tb_simple_cpu_top.u_soc.ddr3.u_axi_wrap_ddr.mig_axi.u_mig_axi_32_mig.u_memc_ui_top_axi.mem_intfc0.ddr_phy_top0.u_ddr_mc_phy_wrapper.u_ddr_mc_phy : PO_CIRC_BUF_OFFSET      = 1219.75 
+[01:13:11.650] tb_simple_cpu_top.u_soc.ddr3.u_axi_wrap_ddr.mig_axi.u_mig_axi_32_mig.u_memc_ui_top_axi.mem_intfc0.ddr_phy_top0.u_ddr_mc_phy_wrapper.u_ddr_mc_phy : PO_CIRC_BUF_META_ZONE   = 200.00 
+[01:13:11.650] tb_simple_cpu_top.u_soc.ddr3.u_axi_wrap_ddr.mig_axi.u_mig_axi_32_mig.u_memc_ui_top_axi.mem_intfc0.ddr_phy_top0.u_ddr_mc_phy_wrapper.u_ddr_mc_phy : PO_STG2_FINE_INTR_DLY   = 769.25 
+[01:13:11.650] tb_simple_cpu_top.u_soc.ddr3.u_axi_wrap_ddr.mig_axi.u_mig_axi_32_mig.u_memc_ui_top_axi.mem_intfc0.ddr_phy_top0.u_ddr_mc_phy_wrapper.u_ddr_mc_phy : PO_STG2_COARSE_INTR_DLY = 511.00 
+[01:13:11.650] tb_simple_cpu_top.u_soc.ddr3.u_axi_wrap_ddr.mig_axi.u_mig_axi_32_mig.u_memc_ui_top_axi.mem_intfc0.ddr_phy_top0.u_ddr_mc_phy_wrapper.u_ddr_mc_phy : PO_STG2_INTRINSIC_DELAY = 1280.25 
+[01:13:11.650] tb_simple_cpu_top.u_soc.ddr3.u_axi_wrap_ddr.mig_axi.u_mig_axi_32_mig.u_memc_ui_top_axi.mem_intfc0.ddr_phy_top0.u_ddr_mc_phy_wrapper.u_ddr_mc_phy : PO_CIRC_BUF_DELAY       = 60 
+[01:13:11.650] tb_simple_cpu_top.u_soc.ddr3.u_axi_wrap_ddr.mig_axi.u_mig_axi_32_mig.u_memc_ui_top_axi.mem_intfc0.ddr_phy_top0.u_ddr_mc_phy_wrapper.u_ddr_mc_phy : PO_INTRINSIC_DELAY      = 1280.25 
+[01:13:11.651] tb_simple_cpu_top.u_soc.ddr3.u_axi_wrap_ddr.mig_axi.u_mig_axi_32_mig.u_memc_ui_top_axi.mem_intfc0.ddr_phy_top0.u_ddr_mc_phy_wrapper.u_ddr_mc_phy : PO_DELAY                = 1866.19 
+[01:13:11.651] tb_simple_cpu_top.u_soc.ddr3.u_axi_wrap_ddr.mig_axi.u_mig_axi_32_mig.u_memc_ui_top_axi.mem_intfc0.ddr_phy_top0.u_ddr_mc_phy_wrapper.u_ddr_mc_phy : PO_OCLK_DELAY           = 0 
+[01:13:11.651] tb_simple_cpu_top.u_soc.ddr3.u_axi_wrap_ddr.mig_axi.u_mig_axi_32_mig.u_memc_ui_top_axi.mem_intfc0.ddr_phy_top0.u_ddr_mc_phy_wrapper.u_ddr_mc_phy : L_PHY_0_PO_FINE_DELAY   = 60 
+[01:13:11.651] tb_simple_cpu_top.u_soc.ddr3.u_axi_wrap_ddr.mig_axi.u_mig_axi_32_mig.u_memc_ui_top_axi.mem_intfc0.ddr_phy_top0.u_ddr_mc_phy_wrapper.u_ddr_mc_phy : PI_STG1_INTRINSIC_DELAY = 0.00 
+[01:13:11.651] tb_simple_cpu_top.u_soc.ddr3.u_axi_wrap_ddr.mig_axi.u_mig_axi_32_mig.u_memc_ui_top_axi.mem_intfc0.ddr_phy_top0.u_ddr_mc_phy_wrapper.u_ddr_mc_phy : PI_STG2_INTRINSIC_DELAY = 744.00 
+[01:13:11.651] tb_simple_cpu_top.u_soc.ddr3.u_axi_wrap_ddr.mig_axi.u_mig_axi_32_mig.u_memc_ui_top_axi.mem_intfc0.ddr_phy_top0.u_ddr_mc_phy_wrapper.u_ddr_mc_phy : PI_INTRINSIC_DELAY      = 744.00 
+[01:13:11.651] tb_simple_cpu_top.u_soc.ddr3.u_axi_wrap_ddr.mig_axi.u_mig_axi_32_mig.u_memc_ui_top_axi.mem_intfc0.ddr_phy_top0.u_ddr_mc_phy_wrapper.u_ddr_mc_phy : PI_MAX_STG2_DELAY       = 615.23 
+[01:13:11.651] tb_simple_cpu_top.u_soc.ddr3.u_axi_wrap_ddr.mig_axi.u_mig_axi_32_mig.u_memc_ui_top_axi.mem_intfc0.ddr_phy_top0.u_ddr_mc_phy_wrapper.u_ddr_mc_phy : PI_OFFSET               = -78.00 
+[01:13:11.651] tb_simple_cpu_top.u_soc.ddr3.u_axi_wrap_ddr.mig_axi.u_mig_axi_32_mig.u_memc_ui_top_axi.mem_intfc0.ddr_phy_top0.u_ddr_mc_phy_wrapper.u_ddr_mc_phy : a negative PI_OFFSET means that rclk path is longer than oclk path so rclk will be delayed to next oclk edge and the negedge of rclk may be used.
+[01:13:11.651] tb_simple_cpu_top.u_soc.ddr3.u_axi_wrap_ddr.mig_axi.u_mig_axi_32_mig.u_memc_ui_top_axi.mem_intfc0.ddr_phy_top0.u_ddr_mc_phy_wrapper.u_ddr_mc_phy : PI_STG2_DELAY           = 615.23 
+[01:13:11.651] tb_simple_cpu_top.u_soc.ddr3.u_axi_wrap_ddr.mig_axi.u_mig_axi_32_mig.u_memc_ui_top_axi.mem_intfc0.ddr_phy_top0.u_ddr_mc_phy_wrapper.u_ddr_mc_phy :PI_STG2_DELAY_CAND       = 1172.00 
+[01:13:11.651] tb_simple_cpu_top.u_soc.ddr3.u_axi_wrap_ddr.mig_axi.u_mig_axi_32_mig.u_memc_ui_top_axi.mem_intfc0.ddr_phy_top0.u_ddr_mc_phy_wrapper.u_ddr_mc_phy : DEFAULT_RCLK_DELAY      = 63 
+[01:13:11.651] tb_simple_cpu_top.u_soc.ddr3.u_axi_wrap_ddr.mig_axi.u_mig_axi_32_mig.u_memc_ui_top_axi.mem_intfc0.ddr_phy_top0.u_ddr_mc_phy_wrapper.u_ddr_mc_phy : RCLK_SELECT_EDGE        = 0 
+[01:13:11.651] WARNING: tb_simple_cpu_top.u_soc.ddr3.u_axi_wrap_ddr.mig_axi.u_mig_axi_32_mig.u_memc_ui_top_axi.mem_intfc0.ddr_phy_top0.u_ddr_mc_phy_wrapper.u_ddr_mc_phy: The required delay though the phaser_in to internally match the aux_out clock  to ddr clock exceeds the maximum allowable delay. The clock edge  will occur at the output registers of aux_out 556.77 ps before the ddr clock  edge. If aux_out is used for memory inputs, this may violate setup or hold time.
+[01:13:11.651] [PROBE] 0.0 ps: Waiting for MIG init_calib_complete...
+[01:13:11.651] [PROBE] 0.0 ps: Test body waiting for ddr_data_init...
+[01:13:11.676] tb_simple_cpu_top.ddr3_tb.u_ddr3_model.reset at time 45000.0 ps WARNING: 200 us is required before RST_N goes inactive.
+[01:13:12.376] tb_simple_cpu_top.ddr3_tb.u_ddr3_model.cmd_task at time 1570814.0 ps WARNING: 500 us is required after RST_N goes inactive before CKE goes active.
+[01:13:18.104] PHY_INIT: Memory Initialization completed at 9505100.0 ps
+[01:13:19.222] PHY_INIT: Phaser_In Phase Locked at 11035100.0 ps
+[01:13:36.556] PHY_INIT: Phaser_In DQSFOUND completed at 34845100.0 ps
+[01:13:40.654] PHY_INIT: Write Leveling completed at 40435100.0 ps
+[01:13:51.422] PHY_INIT: Write Calibration completed at 54965100.0 ps
+[01:14:14.155] PHY_INIT: Read Leveling Stage 1 completed at 85075100.0 ps
+[01:14:14.155] PHY_INIT : PRBS/PER_BIT calibration completed at 85075100.0 ps
+[01:14:14.155] PHY_INIT : COMPLEX OCLKDELAY calibration completed at 85075100.0 ps
+[01:14:28.366] PHY_INIT: Write Calibration completed at 103875100.0 ps
+[01:14:30.081] [PROBE] 106155000.0 ps: MIG init_calib_complete = 1, loading hex file...
+[01:14:30.088] [AXI-W] 106165000.0 ps: #0 AW addr=0x80000000 awready=0 wready=0
+[01:14:30.176] [AXI-W] 106275000.0 ps: #1 DONE addr=0x80000000
+[01:14:30.176] [PROBE] 106275000.0 ps: AXI write progress: word 1 addr=0x80000004 awready=1 wready=0 bvalid=1
+[01:14:30.185] [AXI-W] 106285000.0 ps: #1 AW addr=0x80000004 awready=1 wready=0
+[01:14:30.241] [AXI-W] 106355000.0 ps: #2 DONE addr=0x80000004
+[01:14:30.249] [AXI-W] 106365000.0 ps: #2 AW addr=0x80000008 awready=1 wready=0
+[01:14:30.306] [AXI-W] 106435000.0 ps: #3 DONE addr=0x80000008
+[01:14:30.314] [AXI-W] 106445000.0 ps: #3 AW addr=0x8000000c awready=1 wready=0
+[01:14:30.377] [AXI-W] 106515000.0 ps: #4 DONE addr=0x8000000c
+[01:14:30.386] [AXI-W] 106525000.0 ps: #4 AW addr=0x80000010 awready=1 wready=0
+[01:14:30.442] [AXI-W] 106595000.0 ps: #5 DONE addr=0x80000010
+[01:15:04.599] [PROBE] 147265000.0 ps: AXI write progress: word 513 addr=0x80000804 awready=1 wready=0 bvalid=1
+[01:15:38.777] [AXI-W] 188145000.0 ps: #1024 DONE addr=0x80000ffc
+[01:15:38.786] [AXI-W] 188155000.0 ps: #1024 AW addr=0x80001000 awready=1 wready=0
+[01:15:38.848] [PROBE] 188225000.0 ps: AXI write progress: word 1025 addr=0x80001004 awready=1 wready=0 bvalid=1
+[01:16:13.105] [PROBE] 229185000.0 ps: AXI write progress: word 1537 addr=0x80001804 awready=1 wready=0 bvalid=1
+[01:16:47.285] [AXI-W] 270065000.0 ps: #2048 DONE addr=0x80001ffc
+[01:16:47.293] [AXI-W] 270075000.0 ps: #2048 AW addr=0x80002000 awready=1 wready=0
+[01:16:47.351] [PROBE] 270145000.0 ps: AXI write progress: word 2049 addr=0x80002004 awready=1 wready=0 bvalid=1
+[01:17:21.629] [PROBE] 311105000.0 ps: AXI write progress: word 2561 addr=0x80002804 awready=1 wready=0 bvalid=1
+[01:17:55.703] [AXI-W] 351985000.0 ps: #3072 DONE addr=0x80002ffc
+[01:17:55.711] [AXI-W] 351995000.0 ps: #3072 AW addr=0x80003000 awready=1 wready=0
+[01:17:55.771] [PROBE] 352065000.0 ps: AXI write progress: word 3073 addr=0x80003004 awready=1 wready=0 bvalid=1
+[01:18:30.057] [PROBE] 393025000.0 ps: AXI write progress: word 3585 addr=0x80003804 awready=1 wready=0 bvalid=1
+[01:19:04.214] [AXI-W] 433905000.0 ps: #4096 DONE addr=0x80003ffc
+[01:19:04.223] [AXI-W] 433915000.0 ps: #4096 AW addr=0x80004000 awready=1 wready=0
+[01:19:04.282] [PROBE] 433985000.0 ps: AXI write progress: word 4097 addr=0x80004004 awready=1 wready=0 bvalid=1
+[01:19:38.536] [PROBE] 474945000.0 ps: AXI write progress: word 4609 addr=0x80004804 awready=1 wready=0 bvalid=1
+[01:20:12.699] [AXI-W] 515825000.0 ps: #5120 DONE addr=0x80004ffc
+[01:20:12.709] [AXI-W] 515835000.0 ps: #5120 AW addr=0x80005000 awready=1 wready=0
+[01:20:12.765] [PROBE] 515905000.0 ps: AXI write progress: word 5121 addr=0x80005004 awready=1 wready=0 bvalid=1
+[01:20:46.956] [PROBE] 556865000.0 ps: AXI write progress: word 5633 addr=0x80005804 awready=1 wready=0 bvalid=1
+[01:21:21.120] [AXI-W] 597745000.0 ps: #6144 DONE addr=0x80005ffc
+[01:21:21.127] [AXI-W] 597755000.0 ps: #6144 AW addr=0x80006000 awready=1 wready=0
+[01:21:21.186] [PROBE] 597825000.0 ps: AXI write progress: word 6145 addr=0x80006004 awready=1 wready=0 bvalid=1
+[01:21:55.453] [PROBE] 638785000.0 ps: AXI write progress: word 6657 addr=0x80006804 awready=1 wready=0 bvalid=1
+[01:22:29.660] [AXI-W] 679665000.0 ps: #7168 DONE addr=0x80006ffc
+[01:22:29.669] [AXI-W] 679675000.0 ps: #7168 AW addr=0x80007000 awready=1 wready=0
+[01:22:29.730] [PROBE] 679745000.0 ps: AXI write progress: word 7169 addr=0x80007004 awready=1 wready=0 bvalid=1
+[01:23:04.043] [PROBE] 720705000.0 ps: AXI write progress: word 7681 addr=0x80007804 awready=1 wready=0 bvalid=1
+[01:23:38.264] [AXI-W] 761585000.0 ps: #8192 DONE addr=0x80007ffc
+[01:23:38.264] write_hex_file:                                                                                                                                                                                                                                                         prog.hex loaded, 32768 bytes total
+[01:23:38.264] [PROBE] 761585000.0 ps: Hex file loaded, resetting Axi_CDC...
+[01:23:38.281] [PROBE] 761605000.0 ps: ddr_data_init released, CPU starting!
+[01:23:38.281] [PROBE] 761605000.0 ps: ddr_data_init=1, starting 600K cycle wait (5ms)...
+[01:23:48.665] blk_mem_gen_v8_4_2 collision detected at time: 775153500, Instance: tb_simple_cpu_top.u_soc.cpu.u_dcache_wrap.u_dcachet.inst.native_mem_module.blk_mem_gen_v8_4_2_inst, A read address: 0, B write address: 0
+[01:23:53.053] blk_mem_gen_v8_4_2 collision detected at time: 780884500, Instance: tb_simple_cpu_top.u_soc.cpu.u_dcache_wrap.u_dcachet.inst.native_mem_module.blk_mem_gen_v8_4_2_inst, A read address: 0, B write address: 0
+[01:24:09.770] blk_mem_gen_v8_4_2 collision detected at time: 802840500, Instance: tb_simple_cpu_top.u_soc.cpu.u_dcache_wrap.u_dcachet.inst.native_mem_module.blk_mem_gen_v8_4_2_inst, A read address: 0, B write address: 0
+[01:24:10.419] blk_mem_gen_v8_4_2 collision detected at time: 803665500, Instance: tb_simple_cpu_top.u_soc.cpu.u_dcache_wrap.u_dcachet.inst.native_mem_module.blk_mem_gen_v8_4_2_inst, A read address: 1, B write address: 1
+[01:24:10.739] blk_mem_gen_v8_4_2 collision detected at time: 804072500, Instance: tb_simple_cpu_top.u_soc.cpu.u_dcache_wrap.u_dcachet.inst.native_mem_module.blk_mem_gen_v8_4_2_inst, A read address: 2, B write address: 2
+[02:16:47.523] [PROBE] 4999995000.0 ps: cycle=500000 PC=0x80000460 inst=0x0000006f ddr_init=1 | AXI ar_cnt=46 aw_cnt=8196 arvalid=0 arready=1 rvalid=0 awvalid=0 awready=1
+[02:38:51.812]   PASS x1 = 0x00000008
+[02:38:51.813]   PASS x2 = 0x00001800
+[02:38:51.814]   PASS x3 = 0x00000000
+[02:38:51.814]   PASS x4 = 0x00000000
+[02:38:51.815]   PASS x5 = 0xffffffff
+[02:38:51.816]   PASS x6 = 0x00000007
+[02:38:51.817]   PASS x7 = 0x00000003
+[02:38:51.818]   PASS x8 = 0x00005555
+[02:38:51.818]   PASS x9 = 0x00005555
+[02:38:51.819]   PASS x10 = 0x00000080
+[02:38:51.821]   FAIL x11 expected=0x0001952f got=0x00019a18
+[02:38:51.821]   PASS x12 = 0x000186a0
+[02:38:51.823]   PASS x13 = 0x00000000
+[02:38:51.824]   PASS x14 = 0x00000000
+[02:38:51.826]   PASS x15 = 0x00000005
+[02:38:51.826]   PASS x16 = 0x00000007
+[02:38:51.827]   PASS x17 = 0x00000007
+[02:38:51.828]   PASS x18 = 0x00000006
+[02:38:51.828]   PASS x19 = 0x00000002
+[02:38:51.829]   PASS x20 = 0x80000230
+[02:38:51.831]   PASS x21 = 0x80001000
+[02:38:51.831]   PASS x22 = 0x80001050
+[02:38:51.832]   PASS x23 = 0x00000000
+[02:38:51.833]   PASS x24 = 0x00000000
+[02:38:51.834]   PASS x25 = 0xffffffff
+[02:38:51.835]   PASS x26 = 0x00000007
+[02:38:51.835]   PASS x27 = 0x00000007
+[02:38:51.836]   PASS x28 = 0x00000000
+[02:38:51.837]   PASS x29 = 0x00000000
+[02:38:51.837]   PASS x30 = 0x00000000
+[02:38:51.839]   PASS x31 = 0x800000b0
+[02:38:51.839]   WARN: check_mem_word skipped in DDR3 mode
+[02:38:51.839]   WARN: check_mem_word skipped in DDR3 mode
+[02:38:51.839]   WARN: check_mem_word skipped in DDR3 mode
+[02:38:51.839]   WARN: check_mem_word skipped in DDR3 mode
+[02:38:51.839]   WARN: check_mem_word skipped in DDR3 mode
+[02:38:51.839]   WARN: check_mem_word skipped in DDR3 mode
+[02:38:51.839]   WARN: check_mem_word skipped in DDR3 mode
+[02:38:51.839]   WARN: check_mem_word skipped in DDR3 mode
+[02:38:51.839]   WARN: check_mem_word skipped in DDR3 mode
+[02:38:51.839]   WARN: check_mem_word skipped in DDR3 mode
+[02:38:51.839]   WARN: check_mem_word skipped in DDR3 mode
+[02:38:51.839] ========================================
+[02:38:51.839] simpleCPU test summary
+[02:38:51.839] pass=41 fail=1
+[02:38:51.839] TEST FAILED
+[02:38:51.839] ========================================
+[02:38:51.839] $finish called at time : 6761636 ns : File "/home/wangzy2024/cpu-designers/project/cpu_full_ddr3/simplecpu_soc.srcs/sim_1/imports/tb/tb_simple_cpu_top.sv" Line 117
+[02:38:51.853] run: Time (s): cpu = 00:00:11 ; elapsed = 01:25:40 . Memory (MB): peak = 2082.766 ; gain = 0.000 ; free physical = 1745 ; free virtual = 14325
+[02:38:51.853] xsim: Time (s): cpu = 00:00:11 ; elapsed = 01:25:41 . Memory (MB): peak = 2082.766 ; gain = 0.000 ; free physical = 1745 ; free virtual = 14325
+[02:38:51.853] INFO: [USF-XSim-96] XSim completed. Design snapshot 'tb_simple_cpu_top_behav' loaded.
+[02:38:51.853] INFO: [USF-XSim-97] XSim simulation ran for 1s
+[02:38:51.854] launch_simulation: Time (s): cpu = 00:00:50 ; elapsed = 01:26:02 . Memory (MB): peak = 2082.766 ; gain = 0.000 ; free physical = 1745 ; free virtual = 14325
+[02:38:51.855] Vivado Simulator 2018.3
+[02:38:51.855] Time resolution is 1 fs
+[02:38:51.855] Block Memory Generator module tb_simple_cpu_top.u_soc.cpu.u_icache_wrap.u_icachet.inst.native_mem_module.blk_mem_gen_v8_4_2_inst is using a behavioral model for simulation which will not precisely model memory collision behavior.
+[02:38:51.855] Block Memory Generator module tb_simple_cpu_top.u_soc.cpu.u_icache_wrap.u_icached.inst.native_mem_module.blk_mem_gen_v8_4_2_inst is using a behavioral model for simulation which will not precisely model memory collision behavior.
+[02:38:51.855] Block Memory Generator module tb_simple_cpu_top.u_soc.cpu.u_dcache_wrap.u_dcachet.inst.native_mem_module.blk_mem_gen_v8_4_2_inst is using a behavioral model for simulation which will not precisely model memory collision behavior.
+[02:38:51.855] Block Memory Generator module tb_simple_cpu_top.u_soc.cpu.u_dcache_wrap.u_dcached.inst.native_mem_module.blk_mem_gen_v8_4_2_inst is using a behavioral model for simulation which will not precisely model memory collision behavior.
+[02:38:51.855] Block Memory Generator module tb_simple_cpu_top.u_soc.cpu.u_mmu.u_tlb.u_tlb_flag.inst.native_mem_module.blk_mem_gen_v8_4_2_inst is using a behavioral model for simulation which will not precisely model memory collision behavior.
+[02:38:51.855] Block Memory Generator module tb_simple_cpu_top.u_soc.cpu.u_mmu.u_tlb.u_tlb_data.inst.native_mem_module.blk_mem_gen_v8_4_2_inst is using a behavioral model for simulation which will not precisely model memory collision behavior.
+[02:38:51.855] WARNING: file design.txt could not be opened
+[02:38:51.855]  *** Warning: The analog data file design.txt for XADC instance tb_simple_cpu_top.u_soc.ddr3.u_axi_wrap_ddr.mig_axi.u_mig_axi_32_mig.temp_mon_enabled.u_tempmon.xadc_supplied_temperature.XADC_inst was not found. Use the SIM_MONITOR_FILE parameter to specify the analog data file name or use the default name: design.txt.
+[02:38:51.855] 
+[02:38:51.855] ############# Write Clocks PLLE2_ADV Parameters #############
+[02:38:51.855] 
+[02:38:51.855] nCK_PER_CLK      =       4
+[02:38:51.855] CLK_PERIOD       =   10000
+[02:38:51.855] CLKIN1_PERIOD    =  10.000
+[02:38:51.855] DIVCLK_DIVIDE    =       1
+[02:38:51.855] CLKFBOUT_MULT    =       8
+[02:38:51.855] VCO_PERIOD       =  1250.0
+[02:38:51.855] CLKOUT0_DIVIDE_F =       1
+[02:38:51.855] CLKOUT1_DIVIDE   =       2
+[02:38:51.855] CLKOUT2_DIVIDE   =      32
+[02:38:51.855] CLKOUT3_DIVIDE   =       8
+[02:38:51.855] CLKOUT0_PERIOD   =    1250
+[02:38:51.855] CLKOUT1_PERIOD   =    2500
+[02:38:51.855] CLKOUT2_PERIOD   =   40000
+[02:38:51.855] CLKOUT3_PERIOD   =   10000
+[02:38:51.855] CLKOUT4_PERIOD   =    5000
+[02:38:51.855] ############################################################
+[02:38:51.855] 
+[02:38:51.855] ############# MMCME2_ADV Parameters #############
+[02:38:51.855] 
+[02:38:51.855] MMCM_MULT_F           =           8
+[02:38:51.855] MMCM_VCO_FREQ (MHz)   = 800.000
+[02:38:51.855] MMCM_VCO_PERIOD       = 1250.000
+[02:38:51.855] #################################################
+[02:38:51.855] 
+[02:38:51.855] tb_simple_cpu_top.u_soc.ddr3.u_axi_wrap_ddr.mig_axi.u_mig_axi_32_mig.u_memc_ui_top_axi.mem_intfc0.ddr_phy_top0.u_ddr_mc_phy_wrapper.u_ddr_mc_phy : BYTE_LANES_B0 = f BYTE_LANES_B1 = 0 DATA_CTL_B0 = 3 DATA_CTL_B1 = 0
+[02:38:51.855] tb_simple_cpu_top.u_soc.ddr3.u_axi_wrap_ddr.mig_axi.u_mig_axi_32_mig.u_memc_ui_top_axi.mem_intfc0.ddr_phy_top0.u_ddr_mc_phy_wrapper.u_ddr_mc_phy : HIGHEST_LANE =           4 HIGHEST_LANE_B0 =           4 HIGHEST_LANE_B1 =           0
+[02:38:51.855] tb_simple_cpu_top.u_soc.ddr3.u_axi_wrap_ddr.mig_axi.u_mig_axi_32_mig.u_memc_ui_top_axi.mem_intfc0.ddr_phy_top0.u_ddr_mc_phy_wrapper.u_ddr_mc_phy : HIGHEST_BANK =           1
+[02:38:51.855] tb_simple_cpu_top.u_soc.ddr3.u_axi_wrap_ddr.mig_axi.u_mig_axi_32_mig.u_memc_ui_top_axi.mem_intfc0.ddr_phy_top0.u_ddr_mc_phy_wrapper.u_ddr_mc_phy : FREQ_REF_PERIOD         = 1250.00 
+[02:38:51.855] tb_simple_cpu_top.u_soc.ddr3.u_axi_wrap_ddr.mig_axi.u_mig_axi_32_mig.u_memc_ui_top_axi.mem_intfc0.ddr_phy_top0.u_ddr_mc_phy_wrapper.u_ddr_mc_phy : DDR_TCK                 = 2500 
+[02:38:51.855] tb_simple_cpu_top.u_soc.ddr3.u_axi_wrap_ddr.mig_axi.u_mig_axi_32_mig.u_memc_ui_top_axi.mem_intfc0.ddr_phy_top0.u_ddr_mc_phy_wrapper.u_ddr_mc_phy : PO_S2_TAPS_SIZE         = 9.77 
+[02:38:51.855] tb_simple_cpu_top.u_soc.ddr3.u_axi_wrap_ddr.mig_axi.u_mig_axi_32_mig.u_memc_ui_top_axi.mem_intfc0.ddr_phy_top0.u_ddr_mc_phy_wrapper.u_ddr_mc_phy : PO_CIRC_BUF_EARLY       = 1 
+[02:38:51.855] tb_simple_cpu_top.u_soc.ddr3.u_axi_wrap_ddr.mig_axi.u_mig_axi_32_mig.u_memc_ui_top_axi.mem_intfc0.ddr_phy_top0.u_ddr_mc_phy_wrapper.u_ddr_mc_phy : PO_CIRC_BUF_OFFSET      = 1219.75 
+[02:38:51.855] tb_simple_cpu_top.u_soc.ddr3.u_axi_wrap_ddr.mig_axi.u_mig_axi_32_mig.u_memc_ui_top_axi.mem_intfc0.ddr_phy_top0.u_ddr_mc_phy_wrapper.u_ddr_mc_phy : PO_CIRC_BUF_META_ZONE   = 200.00 
+[02:38:51.855] tb_simple_cpu_top.u_soc.ddr3.u_axi_wrap_ddr.mig_axi.u_mig_axi_32_mig.u_memc_ui_top_axi.mem_intfc0.ddr_phy_top0.u_ddr_mc_phy_wrapper.u_ddr_mc_phy : PO_STG2_FINE_INTR_DLY   = 769.25 
+[02:38:51.855] tb_simple_cpu_top.u_soc.ddr3.u_axi_wrap_ddr.mig_axi.u_mig_axi_32_mig.u_memc_ui_top_axi.mem_intfc0.ddr_phy_top0.u_ddr_mc_phy_wrapper.u_ddr_mc_phy : PO_STG2_COARSE_INTR_DLY = 511.00 
+[02:38:51.855] tb_simple_cpu_top.u_soc.ddr3.u_axi_wrap_ddr.mig_axi.u_mig_axi_32_mig.u_memc_ui_top_axi.mem_intfc0.ddr_phy_top0.u_ddr_mc_phy_wrapper.u_ddr_mc_phy : PO_STG2_INTRINSIC_DELAY = 1280.25 
+[02:38:51.855] tb_simple_cpu_top.u_soc.ddr3.u_axi_wrap_ddr.mig_axi.u_mig_axi_32_mig.u_memc_ui_top_axi.mem_intfc0.ddr_phy_top0.u_ddr_mc_phy_wrapper.u_ddr_mc_phy : PO_CIRC_BUF_DELAY       = 60 
+[02:38:51.855] tb_simple_cpu_top.u_soc.ddr3.u_axi_wrap_ddr.mig_axi.u_mig_axi_32_mig.u_memc_ui_top_axi.mem_intfc0.ddr_phy_top0.u_ddr_mc_phy_wrapper.u_ddr_mc_phy : PO_INTRINSIC_DELAY      = 1280.25 
+[02:38:51.855] tb_simple_cpu_top.u_soc.ddr3.u_axi_wrap_ddr.mig_axi.u_mig_axi_32_mig.u_memc_ui_top_axi.mem_intfc0.ddr_phy_top0.u_ddr_mc_phy_wrapper.u_ddr_mc_phy : PO_DELAY                = 1866.19 
+[02:38:51.855] tb_simple_cpu_top.u_soc.ddr3.u_axi_wrap_ddr.mig_axi.u_mig_axi_32_mig.u_memc_ui_top_axi.mem_intfc0.ddr_phy_top0.u_ddr_mc_phy_wrapper.u_ddr_mc_phy : PO_OCLK_DELAY           = 0 
+[02:38:51.855] tb_simple_cpu_top.u_soc.ddr3.u_axi_wrap_ddr.mig_axi.u_mig_axi_32_mig.u_memc_ui_top_axi.mem_intfc0.ddr_phy_top0.u_ddr_mc_phy_wrapper.u_ddr_mc_phy : L_PHY_0_PO_FINE_DELAY   = 60 
+[02:38:51.855] tb_simple_cpu_top.u_soc.ddr3.u_axi_wrap_ddr.mig_axi.u_mig_axi_32_mig.u_memc_ui_top_axi.mem_intfc0.ddr_phy_top0.u_ddr_mc_phy_wrapper.u_ddr_mc_phy : PI_STG1_INTRINSIC_DELAY = 0.00 
+[02:38:51.855] tb_simple_cpu_top.u_soc.ddr3.u_axi_wrap_ddr.mig_axi.u_mig_axi_32_mig.u_memc_ui_top_axi.mem_intfc0.ddr_phy_top0.u_ddr_mc_phy_wrapper.u_ddr_mc_phy : PI_STG2_INTRINSIC_DELAY = 744.00 
+[02:38:51.855] tb_simple_cpu_top.u_soc.ddr3.u_axi_wrap_ddr.mig_axi.u_mig_axi_32_mig.u_memc_ui_top_axi.mem_intfc0.ddr_phy_top0.u_ddr_mc_phy_wrapper.u_ddr_mc_phy : PI_INTRINSIC_DELAY      = 744.00 
+[02:38:51.855] tb_simple_cpu_top.u_soc.ddr3.u_axi_wrap_ddr.mig_axi.u_mig_axi_32_mig.u_memc_ui_top_axi.mem_intfc0.ddr_phy_top0.u_ddr_mc_phy_wrapper.u_ddr_mc_phy : PI_MAX_STG2_DELAY       = 615.23 
+[02:38:51.855] tb_simple_cpu_top.u_soc.ddr3.u_axi_wrap_ddr.mig_axi.u_mig_axi_32_mig.u_memc_ui_top_axi.mem_intfc0.ddr_phy_top0.u_ddr_mc_phy_wrapper.u_ddr_mc_phy : PI_OFFSET               = -78.00 
+[02:38:51.855] tb_simple_cpu_top.u_soc.ddr3.u_axi_wrap_ddr.mig_axi.u_mig_axi_32_mig.u_memc_ui_top_axi.mem_intfc0.ddr_phy_top0.u_ddr_mc_phy_wrapper.u_ddr_mc_phy : a negative PI_OFFSET means that rclk path is longer than oclk path so rclk will be delayed to next oclk edge and the negedge of rclk may be used.
+[02:38:51.856] tb_simple_cpu_top.u_soc.ddr3.u_axi_wrap_ddr.mig_axi.u_mig_axi_32_mig.u_memc_ui_top_axi.mem_intfc0.ddr_phy_top0.u_ddr_mc_phy_wrapper.u_ddr_mc_phy : PI_STG2_DELAY           = 615.23 
+[02:38:51.856] tb_simple_cpu_top.u_soc.ddr3.u_axi_wrap_ddr.mig_axi.u_mig_axi_32_mig.u_memc_ui_top_axi.mem_intfc0.ddr_phy_top0.u_ddr_mc_phy_wrapper.u_ddr_mc_phy :PI_STG2_DELAY_CAND       = 1172.00 
+[02:38:51.856] tb_simple_cpu_top.u_soc.ddr3.u_axi_wrap_ddr.mig_axi.u_mig_axi_32_mig.u_memc_ui_top_axi.mem_intfc0.ddr_phy_top0.u_ddr_mc_phy_wrapper.u_ddr_mc_phy : DEFAULT_RCLK_DELAY      = 63 
+[02:38:51.856] tb_simple_cpu_top.u_soc.ddr3.u_axi_wrap_ddr.mig_axi.u_mig_axi_32_mig.u_memc_ui_top_axi.mem_intfc0.ddr_phy_top0.u_ddr_mc_phy_wrapper.u_ddr_mc_phy : RCLK_SELECT_EDGE        = 0 
+[02:38:51.856] WARNING: tb_simple_cpu_top.u_soc.ddr3.u_axi_wrap_ddr.mig_axi.u_mig_axi_32_mig.u_memc_ui_top_axi.mem_intfc0.ddr_phy_top0.u_ddr_mc_phy_wrapper.u_ddr_mc_phy: The required delay though the phaser_in to internally match the aux_out clock  to ddr clock exceeds the maximum allowable delay. The clock edge  will occur at the output registers of aux_out 556.77 ps before the ddr clock  edge. If aux_out is used for memory inputs, this may violate setup or hold time.
+[02:38:51.856] [PROBE] 0.0 ps: Waiting for MIG init_calib_complete...
+[02:38:51.856] [PROBE] 0.0 ps: Test body waiting for ddr_data_init...
+[02:38:51.856] tb_simple_cpu_top.ddr3_tb.u_ddr3_model.reset at time 45000.0 ps WARNING: 200 us is required before RST_N goes inactive.
+[02:38:51.856] 

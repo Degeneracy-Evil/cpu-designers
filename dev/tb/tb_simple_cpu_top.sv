@@ -53,11 +53,11 @@ module tb_simple_cpu_top;
         $display("[PROBE] %0t: Test body waiting for ddr_data_init...", $time);
         $fflush;
         wait(u_soc.ddr_data_init);
-        $display("[PROBE] %0t: ddr_data_init=1, starting 4M cycle wait...", $time);
+        $display("[PROBE] %0t: ddr_data_init=1, starting 600K cycle wait (5ms)...", $time);
         $fflush;
 `endif
 
-         repeat (4000000) @(posedge clk);
+         repeat (600000) @(posedge clk);
 
         check_reg(5'd1,  32'h00000008);
         check_reg(5'd2,  32'h00001800);

@@ -26,7 +26,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 import yaml
 
@@ -301,12 +301,14 @@ class BatchExecutor:
         sync: SyncPolicy,
         layered_hash: LayeredHash,
         config: GlobalConfig,
+        output_callback: Callable[[str], None] | None = None,
     ) -> None:
         self._session_mgr = session_mgr
         self._task_registry = task_registry
         self._sync = sync
         self._layered_hash = layered_hash
         self._config = config
+        self._output_callback = output_callback
 
     def execute(self, spec: BatchSpec) -> BatchResult:
         """Execute a batch specification.
@@ -527,6 +529,8 @@ class BatchExecutor:
             )
 
         # --- Execute operations ---
+        if self._output_callback is not None:
+            session.output_callback = self._output_callback
         ops = self._get_operations()
         task_obj = self._task_registry.get(batch_task.task_name)
         runtime = spec.runtime_override or batch_task.runtime or task_obj.runtime or None
@@ -557,6 +561,7 @@ class BatchExecutor:
                     "success": res.success,
                     "output": res.output,
                     "duration": step_duration,
+                    "timed_out": res.timed_out,
                 })
                 if not res.success:
                     all_success = False

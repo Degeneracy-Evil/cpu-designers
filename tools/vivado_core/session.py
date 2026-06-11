@@ -18,7 +18,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 import yaml
 
@@ -136,6 +136,7 @@ class Session:
         self._lock = threading.Lock()
         self._sem_held: bool = False  # track whether we acquired the semaphore
         self.meta = SessionMeta(name=name, task="")
+        self.output_callback: Callable[[str], None] | None = None
 
     # ------------------------------------------------------------------
     # Metadata I/O
@@ -335,6 +336,11 @@ if {{ [catch {{current_project}} cur_proj] != 0 }} {{
                 if stripped == marker:
                     break
                 output_lines.append(stripped)
+                if self.output_callback is not None:
+                    try:
+                        self.output_callback(stripped)
+                    except Exception:
+                        pass
 
 
             duration = time.monotonic() - start
@@ -345,8 +351,17 @@ if {{ [catch {{current_project}} cur_proj] != 0 }} {{
 
             if timed_out:
                 self.stop_vivado()  # Force restart on next command (H6)
+                timeout_msg = (
+                    f"TIMEOUT: Vivado command did not complete within {timeout:.0f}s "
+                    f"(waited {duration:.1f}s).\n"
+                    f"The Vivado process has been terminated and will restart on the next command.\n"
+                    f"Possible causes: complex design, long simulation, or Vivado hang.\n"
+                    f"Hint: If this happens repeatedly, consider increasing the timeout "
+                    f"or checking for infinite loops / Vivado deadlocks."
+                )
+                combined = f"{timeout_msg}\n{output}" if output else timeout_msg
                 return ExecuteResult(
-                    output=output,
+                    output=combined,
                     success=False,
                     timed_out=True,
                     duration=duration,

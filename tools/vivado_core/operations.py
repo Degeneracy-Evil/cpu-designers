@@ -612,6 +612,11 @@ class Operations:
         self.sync = sync
         self.layered_hash = layered_hash
 
+    @property
+    def _limits(self):
+        """Shortcut to the limits config from the session manager."""
+        return self.session_mgr.config.limits
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
@@ -662,6 +667,51 @@ class Operations:
         """Recompute and persist the current source hashes."""
         session.meta.hashes = self.layered_hash.compute_current()
         session.save_meta()
+
+    _TIMEOUT_HINTS: dict[str, str] = {
+        "create": (
+            "Hint (create): Project creation can be slow for large designs. "
+            "If this repeats, try -refresh --layers coe for incremental updates instead."
+        ),
+        "refresh": (
+            "Hint (refresh): Full refresh rebuilds everything. "
+            "Use --layers coe or --layers tb for faster incremental refresh."
+        ),
+        "sim": (
+            "Hint (sim): Simulation may timeout due to long runtime or infinite loops. "
+            "Try: 1) -runtime <shorter_time>, 2) check testbench for $finish, "
+            "3) increase sim_timeout in vivado_config.yaml limits section."
+        ),
+        "bitstream": (
+            "Hint (bitstream): Synthesis + implementation can take 10+ minutes. "
+            "If this repeats, the design may be too complex for the current timeout."
+        ),
+        "program": (
+            "Hint (program): FPGA programming timeout usually means a hardware issue. "
+            "Check: JTAG cable connection, board power, Vivado HW server."
+        ),
+        "archive": (
+            "Hint (archive): Large projects take longer to archive. "
+            "Consider cleaning up unused runs first."
+        ),
+    }
+
+    def _append_timeout_hint(self, result: ExecuteResult, operation: str) -> ExecuteResult:
+        """Append an operation-specific timeout hint to the result output.
+
+        If the result did not time out, returns it unchanged.
+        """
+        if not result.timed_out:
+            return result
+        hint = self._TIMEOUT_HINTS.get(operation, "")
+        if hint:
+            return ExecuteResult(
+                output=f"{result.output}\n{hint}",
+                success=result.success,
+                timed_out=result.timed_out,
+                duration=result.duration,
+            )
+        return result
 
     def _regenerate_cache_header(self) -> None:
         """Regenerate ``cache_def.svh`` from the current memory config."""
@@ -719,7 +769,8 @@ class Operations:
 
         tcl = "\n".join(tcl_parts)
 
-        result = session.execute(tcl, timeout=300.0)
+        result = session.execute(tcl, timeout=self._limits.create_timeout)
+        result = self._append_timeout_hint(result, "create")
         self._update_hashes(session)
         session.update_last_used()
         return result
@@ -882,7 +933,8 @@ class Operations:
 
         tcl = "\n".join(tcl_parts)
 
-        result = session.execute(tcl, timeout=300.0)
+        result = session.execute(tcl, timeout=self._limits.refresh_timeout)
+        result = self._append_timeout_hint(result, "refresh")
         self._update_hashes(session)
         session.update_last_used()
         return result
@@ -956,7 +1008,8 @@ class Operations:
         tcl_parts.append(_tcl_run_sim(task.tb, sim_runtime, proj_dir, proj_name))
         tcl = "\n".join(tcl_parts)
 
-        result = session.execute(tcl, timeout=600.0)
+        result = session.execute(tcl, timeout=self._limits.sim_timeout)
+        result = self._append_timeout_hint(result, "sim")
 
         # --- prj patching ---
         # Vivado 2018.3's dependency resolver frequently produces an
@@ -1133,7 +1186,8 @@ if {{ [file exists $sim_log_file] }} {{
 
         # BUG-55d: Full system simulation with CPU + MIG + DDR3 model needs
         # much longer than 10 minutes to reach MIG calibration (~200µs sim time).
-        rerun_result = session.execute(tcl_rerun, timeout=3600.0)
+        rerun_result = session.execute(tcl_rerun, timeout=self._limits.sim_rerun_timeout)
+        rerun_result = self._append_timeout_hint(rerun_result, "sim")
 
         combined_output = f"Patched prj with {total} sources_1 entries\n{rerun_result.output}"
         success = "ALL TESTS PASSED" in combined_output or "PASS" in combined_output
@@ -1187,7 +1241,8 @@ if {{ [file exists $bit_file] }} {{
 """,
         ])
 
-        result = session.execute(tcl, timeout=3600.0)
+        result = session.execute(tcl, timeout=self._limits.bitstream_timeout)
+        result = self._append_timeout_hint(result, "bitstream")
         session.update_last_used()
         return result
 
@@ -1233,7 +1288,8 @@ if {{ [file exists "{bit_file}"] }} {{
 """,
         ])
 
-        result = session.execute(tcl, timeout=120.0)
+        result = session.execute(tcl, timeout=self._limits.program_timeout)
+        result = self._append_timeout_hint(result, "program")
         session.update_last_used()
         return result
 
@@ -1274,6 +1330,7 @@ if {{ [catch {{archive_project $archive_path -force -include_local_ip_cache -inc
 """,
         ])
 
-        result = session.execute(tcl, timeout=300.0)
+        result = session.execute(tcl, timeout=self._limits.archive_timeout)
+        result = self._append_timeout_hint(result, "archive")
         session.update_last_used()
         return result

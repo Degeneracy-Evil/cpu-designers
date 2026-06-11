@@ -48,6 +48,28 @@ class LimitsConfig:
     idle_timeout_min: int = 60
     """Minutes of inactivity before a Vivado process is auto-stopped."""
 
+    # --- Operation timeouts (seconds) ---
+    create_timeout: float = 300.0
+    """Timeout in seconds for the *create* operation."""
+
+    refresh_timeout: float = 300.0
+    """Timeout in seconds for the *refresh* operation."""
+
+    sim_timeout: float = 600.0
+    """Timeout in seconds for the *sim* operation."""
+
+    sim_rerun_timeout: float = 3600.0
+    """Timeout in seconds for the *sim* prj-patch rerun (DDR3 calibration needs longer)."""
+
+    bitstream_timeout: float = 3600.0
+    """Timeout in seconds for the *bitstream* operation."""
+
+    program_timeout: float = 120.0
+    """Timeout in seconds for the *program* operation."""
+
+    archive_timeout: float = 300.0
+    """Timeout in seconds for the *archive* operation."""
+
 
 @dataclass(frozen=True)
 class SramConfig:
@@ -244,6 +266,13 @@ def load_config(path: Path | str | None = None, base_dir: Path | str | None = No
         max_concurrent=limits_raw.get("max_concurrent", 3),
         max_disk_gb=float(limits_raw.get("max_disk_gb", 20)),
         idle_timeout_min=limits_raw.get("idle_timeout_min", 60),
+        create_timeout=float(limits_raw.get("create_timeout", 300)),
+        refresh_timeout=float(limits_raw.get("refresh_timeout", 300)),
+        sim_timeout=float(limits_raw.get("sim_timeout", 600)),
+        sim_rerun_timeout=float(limits_raw.get("sim_rerun_timeout", 3600)),
+        bitstream_timeout=float(limits_raw.get("bitstream_timeout", 3600)),
+        program_timeout=float(limits_raw.get("program_timeout", 120)),
+        archive_timeout=float(limits_raw.get("archive_timeout", 300)),
     )
 
     # --- memory sub-dict ---

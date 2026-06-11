@@ -4,7 +4,15 @@ limits:
   max_sessions: 10
   max_concurrent: 6
   max_disk_gb: 20
-  idle_timeout_min: 180
+  idle_timeout_min: 1200    # session idle timeout (minutes)
+  # Operation timeouts (seconds)
+  create_timeout: 300       # create project + add sources
+  refresh_timeout: 300      # incremental/full refresh
+  sim_timeout: 72000         # simulation (was 600, increased for DDR3 calib)
+  sim_rerun_timeout: 72000   # sim prj-patch rerun (MIG calib needs ~1h)
+  bitstream_timeout: 3600   # synthesis + implementation
+  program_timeout: 120      # FPGA programming via JTAG
+  archive_timeout: 300      # project archiving
 
 vivado_path: vivado
 proj_name: simplecpu_soc

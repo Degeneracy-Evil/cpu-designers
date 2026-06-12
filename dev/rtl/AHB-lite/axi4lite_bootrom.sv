@@ -120,7 +120,7 @@ module axi4lite_bootrom #(
                     s_axi_rvalid <= 1'b1;
                     s_axi_rdata  <= bram_douta;
                     s_axi_rresp  <= `AXI_RESP_OKAY;
-                    if (s_axi_rready) begin
+                    if (s_axi_rready && s_axi_rvalid) begin
                         rd_state     <= RD_IDLE;
                         s_axi_rvalid <= 1'b0;
                     end
@@ -142,9 +142,17 @@ module axi4lite_bootrom #(
     // Without this, the entire 8K-entry array starts as X, causing the CPU
     // to fetch X instructions → X propagates through the entire pipeline
     // every cycle → massive event storm in XSim (5000x slowdown).
+    // Then load bootloader.hex (placed by orchestrator into xsim dir) so
+    // the CPU fetches real instructions from Boot ROM on reset.
     initial begin
         for (integer i = 0; i < MEM_DEPTH; i = i + 1)
             mem[i] = {DATA_WIDTH{1'b0}};
+        $readmemh("bootloader.hex", mem);
+        #1;
+        $display("[BOOTROM] mem[0]=0x%08h mem[1]=0x%08h", mem[0], mem[1]);
+        if (mem[0] == {DATA_WIDTH{1'b0}}) begin
+            $display("[BOOTROM] WARNING: bootloader.hex not loaded or empty!");
+        end
     end
     wire [31:0] bram_douta = mem[bram_addra];
 `else

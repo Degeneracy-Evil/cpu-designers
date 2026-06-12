@@ -124,7 +124,7 @@ CMD='set_property include_dirs [list E:/Xprogram/FPGA/tmp/ip/Asyncsys_bus_bus4LZ
 
 ```bash
 # 创建 IP 核
-CMD='create_ip -name blk_mem_gen -vendor xilinx.com -library ip -module_name Sram_icache -dir E:/Xprogram/FPGA/tmp/simplecpu_ip_sim/simplecpu_ip_sim.srcs/sources_1/ip/Sram_icache'
+CMD='create_ip -name blk_mem_gen -vendor xilinx.com -library ip -module_name ROM_icache -dir E:/Xprogram/FPGA/tmp/simplecpu_ip_sim/simplecpu_ip_sim.srcs/sources_1/ip/ROM_icache'
 
 # 配置 IP 核参数（分号分隔多条 set_property）
 CMD='set_property -dict [list \
@@ -139,10 +139,10 @@ CMD='set_property -dict [list \
   CONFIG.Coe_File {E:/Xprogram/FPGA/tmp/program/icache_init.coe} \
   CONFIG.Fill_Remaining_Memory_Locations {true} \
   CONFIG.Primitive {8kx2} \
-] [get_ips Sram_icache]'
+] [get_ips ROM_icache]'
 
 # 生成 IP 输出产物
-CMD='generate_target all [get_ips Sram_icache]'
+CMD='generate_target all [get_ips ROM_icache]'
 ```
 
 **COE 文件路径注意：**
@@ -294,9 +294,9 @@ force u_bus.init_sig = 1'b0; // 跳过 UART 加载，BRAM 已通过 COE 初始�
 
 ### 6.3 ICache 与 DCache 必须使用不同的 IP 实例
 
-原始 Bus4LZU 设计中 ICache 和 DCache 使用同一个 `Sram` 模块。如果 ICache 配置了 COE 初始化，DCache 也会被初始化为同样的指令数据，导致数据区被错误预填充。
+原始 Bus4LZU 设计中 ICache 和 DCache 使用同一个 `ROM` 模块。如果 ICache 配置了 COE 初始化，DCache 也会被初始化为同样的指令数据，导致数据区被错误预填充。
 
-**解决方案：** 创建两个独立的 blk_mem_gen IP（`Sram_icache` 和 `Sram_dcache`），修改 `memory_slot.sv` 分别实例化。
+**解决方案：** 创建两个独立的 blk_mem_gen IP（`ROM_icache` 和 `ROM_dcache`），修改 `memory_slot.sv` 分别实例化。
 
 ---
 
@@ -384,7 +384,7 @@ curl -s -X POST ".../execute" -d '{"command":"add_files [glob -directory $BASE/r
 curl -s -X POST ".../execute" -d '{"command":"add_files [glob -directory $BASE/ip/.../new *.sv]; add_files [glob -directory $BASE/ip/.../new/slot *.sv]; add_files [glob -directory $BASE/ip/.../new/perips *.sv]; set_property include_dirs [list $BASE/ip/.../sources_1/new] [current_fileset]"}'
 
 # 4. 创建 BRAM IP（ICache + DCache）
-curl -s -X POST ".../execute" -d '{"command":"create_ip -name blk_mem_gen -vendor xilinx.com -library ip -module_name Sram_icache -dir ...; set_property -dict [list CONFIG.Memory_Type {Single_Port_RAM} ...] [get_ips Sram_icache]; generate_target all [get_ips Sram_icache]","timeout_seconds":300}'
+curl -s -X POST ".../execute" -d '{"command":"create_ip -name blk_mem_gen -vendor xilinx.com -library ip -module_name ROM_icache -dir ...; set_property -dict [list CONFIG.Memory_Type {Single_Port_RAM} ...] [get_ips ROM_icache]; generate_target all [get_ips ROM_icache]","timeout_seconds":300}'
 
 # 5. 添加 testbench
 curl -s -X POST ".../execute" -d '{"command":"add_files -fileset sim_1 $BASE/tb/tb.sv; set_property top tb [get_filesets sim_1]; update_compile_order -fileset sim_1"}'
@@ -419,7 +419,7 @@ curl -s -X POST ".../execute" -d '{"command":"reset_simulation; launch_simulatio
 
 8. **`$readmemh` 路径必须使用 Windows 绝对路径**：xsim 的 `$readmemh` 从 xsim 工作目录（`${proj_dir}/${proj_name}.sim/sim_1/behav/xsim/`）解析相对路径，该目录与项目源码目录相距甚远，相对路径必然无法找到文件。必须使用 Windows 绝对路径如 `E:/Xprogram/FPGA/tmp/dev/.../icache_init.hex`。
 
-9. **testbench 必须包含 `$readmemh` 初始化内存**：行为级仿真中，RTL 行为模型（如 `icache.sv`、`dcache.sv`、`Sram.sv`）的 `mem` 数组默认全零。即使 IP 核配置了 COE 初始化文件，行为模型也不会自动加载。testbench 必须通过 `$readmemh` 显式加载程序到 SRAM、ICache 和 DCache 的 `mem` 数组，否则 CPU 取到全零指令，所有寄存器保持 0。
+9. **testbench 必须包含 `$readmemh` 初始化内存**：行为级仿真中，RTL 行为模型（如 `icache.sv`、`dcache.sv`、`ROM.sv`）的 `mem` 数组默认全零。即使 IP 核配置了 COE 初始化文件，行为模型也不会自动加载。testbench 必须通过 `$readmemh` 显式加载程序到 ROM、ICache 和 DCache 的 `mem` 数组，否则 CPU 取到全零指令，所有寄存器保持 0。
 
 10. **WSL2 工作区与 Windows 共享目录可能不同步**：`/home/wood/cpu-designers/` 和 `/mnt/e/Xprogram/FPGA/tmp/` 可能是不同的目录树，编辑前者不会影响后者。通过 tcl-tunnel 运行 Vivado 时，Vivado 读取的是 Windows 端文件（`E:/Xprogram/FPGA/tmp/...` 即 `/mnt/e/Xprogram/FPGA/tmp/...`）。修改文件时务必确认操作的是 Vivado 实际使用的路径。
 
@@ -475,7 +475,7 @@ curl -s -X POST "http://127.0.0.1:8000/sessions/$SID/execute" \
 
 | 问题 | 现象 | 根因 | 解决 |
 |---|---|---|---|
-| testbench 缺少 `$readmemh` | 所有寄存器为 0，pass=6 fail=27 | 行为模型 `mem` 数组默认全零，程序未加载 | 在 testbench 中添加 `$readmemh` 初始化 SRAM、ICache、DCache |
+| testbench 缺少 `$readmemh` | 所有寄存器为 0，pass=6 fail=27 | 行为模型 `mem` 数组默认全零，程序未加载 | 在 testbench 中添加 `$readmemh` 初始化 ROM、ICache、DCache |
 | `$readmemh` 相对路径失效 | 添加 `$readmemh` 后仍全零 | xsim 工作目录为 `.../behav/xsim/`，相对路径无法解析 | 改用 Windows 绝对路径 `E:/Xprogram/FPGA/tmp/dev/.../icache_init.hex` |
 | WSL2/Windows 文件不同步 | 编辑了 testbench 但仿真行为未变 | `/home/wood/cpu-designers/` ≠ `/mnt/e/Xprogram/FPGA/tmp/` | 编辑 `/mnt/e/Xprogram/FPGA/tmp/...` 下的文件 |
 | 仿真时间不足 | pass_count=0，testbench 检查未执行 | `launch_simulation` 默认 runtime 不够 | 用 `run 200us` 继续运行 |

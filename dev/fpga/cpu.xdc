@@ -325,14 +325,16 @@ set_property CLOCK_DEDICATED_ROUTE BACKBONE [get_nets clk]
 #   - cpu_clk (from clk_wiz_0 clk_out1, 50MHz)
 #   - sys_clk (from clk_wiz_0 clk_out2, 100MHz)
 #   - ddr_clk_ref (from clk_wiz_0 clk_out3, 200MHz)
-#   - MIG ui_clk (from MIG internal MMCM, 100MHz)
+#   - MIG ui_clk (from MIG internal PLLE2_ADV, 100MHz)
 # MIG generates its own clock constraints internally.
+# NOTE: Vivado auto-generates clock names as clk_out{N}_clk_wiz_0 (not clk_wiz_0/clk_out{N}).
+#       MIG uses PLLE2_ADV (plle2_i), not MMCM (u_mmcm_i).
 set_clock_groups -asynchronous \
   -group [get_clocks clk] \
-  -group [get_clocks -include_generated_clocks clk_wiz_0/clk_out1] \
-  -group [get_clocks -include_generated_clocks clk_wiz_0/clk_out2] \
-  -group [get_clocks -include_generated_clocks clk_wiz_0/clk_out3] \
-  -group [get_clocks -include_generated_clocks -of_objects [get_pins -hierarchical -filter {name =~ */u_ddr3_infrastructure/u_mmcm_i/CLKOUT*}]]
+  -group [get_clocks -include_generated_clocks clk_out1_clk_wiz_0] \
+  -group [get_clocks -include_generated_clocks clk_out2_clk_wiz_0] \
+  -group [get_clocks -include_generated_clocks clk_out3_clk_wiz_0] \
+  -group [get_clocks -include_generated_clocks -of_objects [get_pins -hierarchical -filter {name =~ */u_ddr3_infrastructure/plle2_i/CLKOUT*}]]
 
 # Bitstream configuration
 set_property CFGBVS VCCO [current_design]

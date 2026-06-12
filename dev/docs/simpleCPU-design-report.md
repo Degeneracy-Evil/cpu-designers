@@ -19,7 +19,7 @@
 | 地址空间 | 32-bit，Sv32 页表虚拟内存（MMU + TLB + PTW） |
 | 存储架构 | 哈佛结构（icache / dcache 分离），4 路组相联，Tree-PLRU 替换，VIPT |
 | 缓存策略 | 写回（write-back）+ 写分配（write-allocate），脏行驱逐写回主存 |
-| 标签存储 | BRAM IP（icachet 32-bit×8 / dcachet 36-bit×8），配置驱动 |
+| 标签存储 | BRAM IP（icachet 144-bit×8 / dcachet 144-bit×8），19-bit tag 覆盖 128MB DDR3，配置驱动 |
 | TLB 架构 | 4 路 × 4 组组相联（16 项），BRAM IP（tlb_flag 128-bit×4 / tlb_data 128-bit×4），Tree-PLRU 替换 |
 | 总线接口 | AXI4 Master（cpu_bus_bridge），支持 INCR8 突发读/写；AXI4-Lite 从设备（PLIC/CLINT/BootROM/SysStatus/APB Bridge） |
 | 中断/异常 | 支持 Trap 进入/返回（mret/sret）、CLINT 定时器中断、PLIC 外部中断 |
@@ -30,7 +30,7 @@
 | 浮点单元 | IEEE 754 单精度，多周期握手协议，5 种舍入模式 |
 | 浮点寄存器 | 32×32-bit（f0-f31），f0 硬连线零 |
 | 启动 ROM | AXI4-Lite Boot ROM（0xFC00_0000），32KB BRAM，DDR3 启动引导 |
-| DDR3 SDRAM | AXI4 MIG 接口（axi_wrap_ddr），可选 SRAM 行为模型（axi_wrap_ram） |
+| DDR3 SDRAM | AXI4 MIG 接口（axi_wrap_ddr），可选 ROM 行为模型（axi_wrap_ram） |
 | 时钟域 | cpu_clk（50MHz）/ sys_clk（100MHz）/ ddr_clk_ref（200MHz），Axi_CDC 跨域 |
 | 系统状态 | AXI4-Lite Sys Status（0x0400_0000），MIG 校准/MMCM 锁定/clk_wiz 锁定 |
 | 起始地址 | `0x8000_0000` |
@@ -872,14 +872,14 @@ PTW 优先级高于 Cache Writeback 和 Refill，确保页表漫游不会被缓�
 
 ```
 vivado_config.yaml
-  ├─→ ip_gen.py           → create_ip TCL（BRAM 几何参数：Sram/icached/dcached/icachet/dcachet/tlb_flag/tlb_data）
+  ├─→ ip_gen.py           → create_ip TCL（BRAM 几何参数：ROM/icached/dcached/icachet/dcachet/tlb_flag/tlb_data）
   ├─→ cache_header_gen.py → cache_def.svh（`define 宏：地址切片、宽度常量、存储模式）
   └─→ operations.py       → _tcl_setup_ip() 在 create/refresh 时执行
 ```
 
 **`cache_def.svh`** 为自动生成文件（勿手动编辑），包含：
 
-- SRAM 参数：`SRAM_DATA_WIDTH`、`SRAM_DEPTH`、`SRAM_ADDR_WIDTH`
+- ROM 参数：`ROM_DATA_WIDTH`、`ROM_DEPTH`、`ROM_ADDR_WIDTH`
 - ICache/DCache 参数：`NUM_SETS`、`NUM_WAYS`、`TAG_WIDTH`、`LINE_WORDS`、`LINE_WIDTH`、`DEPTH`、`ADDR_WIDTH`、`WEA_WIDTH`
 - 地址切片：`WORD_OFF_LO/HI`、`SET_IDX_LO/HI`、`TAG_LO/HI`
 - 标签 BRAM 参数：`TAG_ENTRY_WIDTH`、`TAG_BRAM_WIDTH/DEPTH/ADDR_WIDTH/WEA_WIDTH/BYTE_SIZE`
@@ -893,9 +893,9 @@ vivado_config.yaml
 
 | 参数 | 当前值 | 说明 |
 |------|--------|------|
-| `sram.data_width` | 32 | SRAM 字宽 |
-| `sram.depth` | 8192 | SRAM 深度（32KB） |
-| `sram.byte_enable` | false | SRAM 字节写使能（当前关闭） |
+| `rom.data_width` | 32 | ROM 字宽 |
+| `rom.depth` | 8192 | ROM 深度（32KB） |
+| `rom.byte_enable` | false | ROM 字节写使能（当前关闭） |
 | `icache/dcache.num_sets` | 8 | 组数 |
 | `icache/dcache.num_ways` | 4 | 相联度（⚠ tree_plru 硬编码，勿改） |
 | `icache/dcache.tag_width` | 7 | 标签位宽（⚠ tree_plru 硬编码，勿改） |
@@ -1077,7 +1077,7 @@ vivado_config.yaml
 - SoC 级仿真：testbench 实例化 `system_top`（而非 `core_top` + `ahb_lite_bus`），通过 `tb_soc_includes.svh` 共享框架
 - DDR3 仿真模式：`SIMU_USE_DDR=0`（SRAM 模型，快速）或 `SIMU_USE_DDR=1`（DDR3 模型，验证通路）
 - 新增 `soc_config.vh` 控制仿真行为（SIMU_USE_PLL / SIMU_USE_DDR）
-- 程序加载：`$readmemh` 在 elaboration 阶段将 hex 文件加载至 Sram BRAM IP
+- 程序加载：`$readmemh` 在 elaboration 阶段将 hex 文件加载至 ROM BRAM IP
 - hex/coe 文件由 `tools/rv2coe.py` 从 RISC-V 汇编源码编译生成（`--base-addr 0x80000000`）
 - BRAM 行为模型：0-cycle 读延迟，不精确模拟碰撞行为
 

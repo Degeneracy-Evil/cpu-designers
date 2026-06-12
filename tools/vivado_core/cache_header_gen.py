@@ -108,15 +108,27 @@ def _derive_tag_bram_defines(cfg: CacheConfig, prefix: str, has_dirty: bool) -> 
     """Derive tag BRAM ``define`` macros for one cache (when use_tag_bram=true).
 
     Tag BRAM packs all ways of a set into one BRAM line:
-      - data_width = num_ways * tag_entry_width
+      - tag_entry_width = extra_bits + tag_width (actual bits used per way)
+      - data_width = num_ways * tag_bram_byte_size (BRAM line width, may include padding)
       - depth = num_sets
-      - Byte write enable: 1 bit per way (byte_size = tag_entry_width)
+      - WEA width = packed_width / xilinx_byte_size
+      - WEA bits per way = tag_bram_byte_size / xilinx_byte_size
+
+    Two byte-size concepts:
+      - tag_bram_byte_size: way stride in the packed BRAM word (e.g. 36 bits/way)
+      - tag_bram_xilinx_byte_size: Xilinx BRAM Byte_Size parameter (e.g. 9)
+    Vivado 2018.3 blk_mem_gen v8.4 only accepts Byte_Size 8 or 9 for True Dual Port.
+    When tag_bram_byte_size > tag_entry_width, each way has unused padding bits.
     """
     extra_bits = 2 if has_dirty else 1
     tag_entry_width = extra_bits + cfg.tag_width
-    packed_width = cfg.num_ways * tag_entry_width
+    # BRAM data width = num_ways * byte_size (byte_size from config, may pad each way)
+    packed_width = cfg.num_ways * cfg.tag_bram_byte_size
     depth = cfg.num_sets
-    wea_width = cfg.num_ways  # 1 WEA bit per way
+    # WEA width uses the Xilinx byte size (not the way stride)
+    xilinx_bs = cfg.tag_bram_xilinx_byte_size
+    wea_width = packed_width // xilinx_bs
+    wea_bits_per_way = cfg.tag_bram_byte_size // xilinx_bs
 
     lines: list[str] = []
     p = prefix
@@ -124,8 +136,12 @@ def _derive_tag_bram_defines(cfg: CacheConfig, prefix: str, has_dirty: bool) -> 
     lines.append(f"`define {p}_TAG_BRAM_DEPTH      {depth}")
     lines.append(f"`define {p}_TAG_BRAM_ADDR_WIDTH {_clog2(depth)}")
     lines.append(f"`define {p}_TAG_BRAM_WEA_WIDTH  {wea_width}")
-    # Per-way byte size within the packed BRAM line (matches Byte_Size in IP config)
-    lines.append(f"`define {p}_TAG_BRAM_BYTE_SIZE  {tag_entry_width}")
+    # Per-way byte size within the packed BRAM line (way stride for extraction)
+    lines.append(f"`define {p}_TAG_BRAM_BYTE_SIZE  {cfg.tag_bram_byte_size}")
+    # Xilinx BRAM Byte_Size parameter (determines WEA granularity)
+    lines.append(f"`define {p}_TAG_BRAM_XILINX_BYTE_SIZE  {xilinx_bs}")
+    # WEA bits per way (used to construct per-way write-enable mask)
+    lines.append(f"`define {p}_TAG_BRAM_WEA_BITS_PER_WAY  {wea_bits_per_way}")
 
     return lines
 
@@ -176,17 +192,17 @@ def _derive_tlb_bram_defines(cfg: TlbConfig) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# SRAM defines
+# ROM defines
 # ---------------------------------------------------------------------------
 
-def _derive_sram_defines(mem: MemoryConfig) -> list[str]:
-    """Derive ``define`` macros for SRAM."""
+def _derive_rom_defines(mem: MemoryConfig) -> list[str]:
+    """Derive ``define`` macros for ROM."""
     lines: list[str] = []
-    lines.append(f"`define SRAM_DATA_WIDTH  {mem.sram.data_width}")
-    lines.append(f"`define SRAM_DEPTH       {mem.sram.depth}")
-    lines.append(f"`define SRAM_ADDR_WIDTH  {_clog2(mem.sram.depth)}")
-    wea_width = mem.sram.data_width // mem.sram.byte_size if mem.sram.byte_enable else 1
-    lines.append(f"`define SRAM_WEA_WIDTH   {wea_width}")
+    lines.append(f"`define ROM_DATA_WIDTH  {mem.rom.data_width}")
+    lines.append(f"`define ROM_DEPTH       {mem.rom.depth}")
+    lines.append(f"`define ROM_ADDR_WIDTH  {_clog2(mem.rom.depth)}")
+    wea_width = mem.rom.data_width // mem.rom.byte_size if mem.rom.byte_enable else 1
+    lines.append(f"`define ROM_WEA_WIDTH   {wea_width}")
     return lines
 
 
@@ -243,9 +259,9 @@ def generate_cache_header(mem: MemoryConfig) -> str:
     lines.append("`define CACHE_DEF_SVH")
     lines.append("")
 
-    # SRAM
-    lines.append("// --- SRAM (Main Memory) ---")
-    lines.extend(_derive_sram_defines(mem))
+    # ROM
+    lines.append("// --- ROM (Boot ROM) ---")
+    lines.extend(_derive_rom_defines(mem))
     lines.append("")
 
     # DDR3 / Clocking Wizard

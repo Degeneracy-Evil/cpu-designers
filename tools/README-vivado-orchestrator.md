@@ -295,7 +295,7 @@ device_part: xc7a200tfbg676-2
 
 # 内存/Cache 配置（修改后运行 --gen-config 同步 IP 和 RTL）
 memory:
-  sram:
+  rom:
     data_width: 32
     depth: 8192
   icache:
@@ -313,7 +313,7 @@ memory:
 
 ## 配置驱动的 IP 生成
 
-BRAM IP（Sram、icached、dcached）通过 `vivado_config.yaml` 的 `memory` 段动态生成 `create_ip` TCL，替代静态 XCI 文件导入。同时自动生成 `dev/rtl/core/cache_def.svh`（`` `define`` 宏），使 IP 几何与 RTL 常量始终同步。
+BRAM IP（ROM、icached、dcached）通过 `vivado_config.yaml` 的 `memory` 段动态生成 `create_ip` TCL，替代静态 XCI 文件导入。同时自动生成 `dev/rtl/core/cache_def.svh`（`` `define`` 宏），使 IP 几何与 RTL 常量始终同步。
 
 ### 工作流
 

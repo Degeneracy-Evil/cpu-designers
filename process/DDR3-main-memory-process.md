@@ -640,7 +640,7 @@ MIG mi_stalling=0 wr_cmd_valid=0  ← MIG 未转发写命令到 MC
 | 步骤 | 内容 | 状态 | 备注 |
 |------|------|------|------|
 | 5.1 | 评估移除 BRAM SRAM IP | ⏳ | 完全依赖 DDR3 |
-| 5.2 | 更新 `vivado_config.yaml` | ⏳ | sram 段 → Boot ROM 配置 |
+| 5.2 | 更新 `vivado_config.yaml` | ⏳ | rom 段 → Boot ROM 配置 |
 | 5.3 | 更新 `ip_gen.py` | ⏳ | 生成 Boot ROM BRAM IP |
 | 5.4 | 更新设计报告 | ⏳ | `simpleCPU-design-report.md` |
 

@@ -150,7 +150,7 @@ module axi4lite_bootrom #(
 `else
     wire [31:0] bram_douta;
 
-    Sram u_bram (
+    ROM u_bram (
         .clka   (s_axi_aclk),
         .ena    (bram_ena),
         .wea    (1'b0),             // Always read-only — tie WE off

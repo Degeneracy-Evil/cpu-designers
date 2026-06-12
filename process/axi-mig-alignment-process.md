@@ -1,8 +1,8 @@
 # AXI 总线迁移 + chiplab 架构对齐 进度
 
-> **日期**: 2026-06-11 | **关联计划**: `plan/axi-mig-alignment-plan.md`
+> **日期**: 2026-06-12 | **关联计划**: `plan/axi-mig-alignment-plan.md`
 > **目标 FPGA**: xc7a200t-fbg676-2
-> **状态**: Phase 5.6 完成（AXI4协议合规审计修复），DDR3 仿真 cpu_full 41/42 PASS（x11 mtime偏移已知），Phase 6 对上板无影响可跳过，Phase 7 bitstream已生成（WNS=-2.998 MIG内部已知问题）
+> **状态**: Phase 5.8 完成（Cache Tag 19-bit 扩展 + SRAM→ROM 重命名），非DDR仿真 cpu_full 41/42 PASS（x11 off-by-one 已知），DDR3仿真 41/42 PASS
 
 ---
 
@@ -20,6 +20,7 @@
 | 5.5 | 时钟/复位体系对齐 chiplab + DDR3 仿真准备 | ✅ 完成 | 复位链补 clk_wiz_locked + ddr_aresetn, XSim elaboration 修复, cpu_full_ddr3 elaborate 通过 |
 | 5.6 | AXI4 协议合规审计修复 | ✅ 完成 | F1: B通道路由统一, F2: WRAP突发断言, F3: WVALID独立于AWREADY |
 | 5.7 | DDR3 全系统仿真验证 | ✅ 基本完成 | cpu_full_ddr3: 41/42 PASS, x11 mtime偏移(DDR3延迟导致采样点偏移,非功能bug) |
+| 5.8 | Cache Tag 19-bit 扩展 + SRAM→ROM 重命名 | ✅ 完成 | tag 7→19, BRAM 32/36→144, is_mmio 修正, 地址解码 128MB 精确匹配, Sram→ROM 全链路重命名; 非DDR仿真 41/42 PASS |
 | 6 | 延迟展宽 | ⏳ 跳过 | 对上板无影响，可安全跳过 |
 | 7 | FPGA 上板 | 🔶 进行中 | bitstream已生成(含bootloader COE), 时序WNS=-2.998(MIG内部), 待上板验证 |
 
@@ -466,11 +467,11 @@ sg125: 1                      # DDR3-1600 速度等级（匹配 MT41J64M16XX-125
 ### 7.4 IP 配置
 - [x] clk_wiz_0 (clk_wiz:6.0) — 100MHz → 50MHz + 100MHz + 200MHz
 - [x] mig_axi_32 (mig_7series:4.2) — DDR3 控制器
-- [x] BRAM IPs (Sram, icache/dcache data+tag, tlb flag+data)
+- [x] BRAM IPs (ROM, icache/dcache data+tag, tlb flag+data)
 
 ### 7.5 Bootloader COE 配置
 - [x] tasks.yaml fpga 任务添加 `coe: boot/bootloader.coe`
-- [x] Sram IP 配置 `Load_Init_File=true`, `Coe_File=bootloader.coe`
+- [x] ROM IP 配置 `Load_Init_File=true`, `Coe_File=bootloader.coe`
 - [x] Bootloader 功能: DDR3自检(DEADBEEF/CAFEBABE) → UART接收程序 → 跳转执行
 - [x] Bootloader 地址映射验证: SYS_STATUS(0x0400_0000), DDR3(0x8000_0000), GPIO(0x1000_0000), UART(0x1000_8000) — 全部匹配
 

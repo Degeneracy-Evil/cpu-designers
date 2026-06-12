@@ -10,11 +10,11 @@
 `ifndef CACHE_DEF_SVH
 `define CACHE_DEF_SVH
 
-// --- SRAM (Main Memory) ---
-`define SRAM_DATA_WIDTH  32
-`define SRAM_DEPTH       8192
-`define SRAM_ADDR_WIDTH  13
-`define SRAM_WEA_WIDTH   4
+// --- ROM (Boot ROM) ---
+`define ROM_DATA_WIDTH  32
+`define ROM_DEPTH       8192
+`define ROM_ADDR_WIDTH  13
+`define ROM_WEA_WIDTH   4
 
 // --- DDR3 Main Memory (via MIG) ---
 `define DDR3_ENABLED        1
@@ -34,7 +34,7 @@
 // --- I-Cache ---
 `define ICACHE_NUM_SETS    8
 `define ICACHE_NUM_WAYS    4
-`define ICACHE_TAG_WIDTH   7
+`define ICACHE_TAG_WIDTH   19
 `define ICACHE_LINE_WORDS  8
 `define ICACHE_LINE_WIDTH  256
 `define ICACHE_DEPTH       32
@@ -47,20 +47,22 @@
 `define ICACHE_SET_IDX_LO 5
 `define ICACHE_SET_IDX_HI 7
 `define ICACHE_TAG_LO     8
-`define ICACHE_TAG_HI     14
-`define ICACHE_TAG_ENTRY_WIDTH 8
+`define ICACHE_TAG_HI     26
+`define ICACHE_TAG_ENTRY_WIDTH 20
 `define ICACHE_SET_IDX_WIDTH 3
 `define ICACHE_WAY_WIDTH    2
-`define ICACHE_TAG_BRAM_WIDTH      32
+`define ICACHE_TAG_BRAM_WIDTH      144
 `define ICACHE_TAG_BRAM_DEPTH      8
 `define ICACHE_TAG_BRAM_ADDR_WIDTH 3
-`define ICACHE_TAG_BRAM_WEA_WIDTH  4
-`define ICACHE_TAG_BRAM_BYTE_SIZE  8
+`define ICACHE_TAG_BRAM_WEA_WIDTH  16
+`define ICACHE_TAG_BRAM_BYTE_SIZE  36
+`define ICACHE_TAG_BRAM_XILINX_BYTE_SIZE  9
+`define ICACHE_TAG_BRAM_WEA_BITS_PER_WAY  4
 
 // --- D-Cache ---
 `define DCACHE_NUM_SETS    8
 `define DCACHE_NUM_WAYS    4
-`define DCACHE_TAG_WIDTH   7
+`define DCACHE_TAG_WIDTH   19
 `define DCACHE_LINE_WORDS  8
 `define DCACHE_LINE_WIDTH  256
 `define DCACHE_DEPTH       32
@@ -73,15 +75,17 @@
 `define DCACHE_SET_IDX_LO 5
 `define DCACHE_SET_IDX_HI 7
 `define DCACHE_TAG_LO     8
-`define DCACHE_TAG_HI     14
-`define DCACHE_TAG_ENTRY_WIDTH 9
+`define DCACHE_TAG_HI     26
+`define DCACHE_TAG_ENTRY_WIDTH 21
 `define DCACHE_SET_IDX_WIDTH 3
 `define DCACHE_WAY_WIDTH    2
-`define DCACHE_TAG_BRAM_WIDTH      36
+`define DCACHE_TAG_BRAM_WIDTH      144
 `define DCACHE_TAG_BRAM_DEPTH      8
 `define DCACHE_TAG_BRAM_ADDR_WIDTH 3
-`define DCACHE_TAG_BRAM_WEA_WIDTH  4
-`define DCACHE_TAG_BRAM_BYTE_SIZE  9
+`define DCACHE_TAG_BRAM_WEA_WIDTH  16
+`define DCACHE_TAG_BRAM_BYTE_SIZE  36
+`define DCACHE_TAG_BRAM_XILINX_BYTE_SIZE  9
+`define DCACHE_TAG_BRAM_WEA_BITS_PER_WAY  4
 
 // --- Tag storage mode ---
 `define USE_TAG_BRAM 1

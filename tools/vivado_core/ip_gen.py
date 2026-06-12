@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from .config import CacheConfig, Ddr3Config, ClkWizConfig, MemoryConfig, SramConfig, TlbConfig
+from .config import CacheConfig, Ddr3Config, ClkWizConfig, MemoryConfig, RomConfig, TlbConfig
 
 
 # ---------------------------------------------------------------------------
@@ -21,11 +21,11 @@ class BramConfig:
     """Fully resolved blk_mem_gen IP configuration.
 
     All width/depth values are derived from the high-level
-    ``SramConfig`` / ``CacheConfig`` and are ready for TCL emission.
+    ``RomConfig`` / ``CacheConfig`` and are ready for TCL emission.
     """
 
     name: str
-    """IP instance name (e.g. ``"icached"``, ``"Sram"``)."""
+    """IP instance name (e.g. ``"icached"``, ``"ROM"``)."""
 
     data_width: int
     """Port A/B data width in bits."""
@@ -88,10 +88,10 @@ class ClkWizIpConfig:
 # Derivation helpers
 # ---------------------------------------------------------------------------
 
-def sram_to_bram(cfg: SramConfig) -> BramConfig:
-    """Derive BRAM config for the main-memory SRAM."""
+def rom_to_bram(cfg: RomConfig) -> BramConfig:
+    """Derive BRAM config for the boot ROM."""
     return BramConfig(
-        name="Sram",
+        name="ROM",
         data_width=cfg.data_width,
         depth=cfg.depth,
         byte_enable=cfg.byte_enable,
@@ -139,9 +139,9 @@ def cache_tag_to_bram(name: str, cfg: CacheConfig, has_dirty: bool = False) -> B
     """
     # Tag entry per way: valid(1) [+ dirty(1)] + tag(tag_width)
     extra_bits = 2 if has_dirty else 1
-    tag_entry_width = extra_bits + cfg.tag_width  # 8 for icache, 9 for dcache
-    # Packed: all ways in one BRAM line
-    packed_width = cfg.num_ways * tag_entry_width  # 32 for icache, 36 for dcache
+    tag_entry_width = extra_bits + cfg.tag_width  # 20 for icache, 22 for dcache
+    # BRAM data width = num_ways * byte_size (byte_size from config, may pad each way)
+    packed_width = cfg.num_ways * cfg.tag_bram_byte_size  # 144 for both (4*36)
     # Depth = number of sets (one BRAM address per set)
     depth = cfg.num_sets
     return BramConfig(
@@ -149,7 +149,7 @@ def cache_tag_to_bram(name: str, cfg: CacheConfig, has_dirty: bool = False) -> B
         data_width=packed_width,
         depth=depth,
         byte_enable=cfg.tag_bram_byte_enable,
-        byte_size=cfg.tag_bram_byte_size,
+        byte_size=cfg.tag_bram_xilinx_byte_size,
         register_output=False,
     )
 
@@ -370,7 +370,7 @@ export_ip_user_files -of_objects [get_ips {name}] -no_script -sync -force -quiet
 def get_bram_ip_names(mem: MemoryConfig) -> list[str]:
     """Derive the list of BRAM IP names from the memory configuration.
 
-    This replaces the hardcoded ``["Sram", "icached", "dcached", ...]``
+    This replaces the hardcoded ``["ROM", "icached", "dcached", ...]``
     list, ensuring the BRAM simulation model set always matches the
     actual IPs created by :func:`generate_all_ip_tcl`.
 
@@ -384,7 +384,7 @@ def get_bram_ip_names(mem: MemoryConfig) -> list[str]:
     list[str]
         Ordered list of BRAM IP instance names.
     """
-    names: list[str] = ["Sram", "icached", "dcached"]
+    names: list[str] = ["ROM", "icached", "dcached"]
     if mem.use_tag_bram:
         names.extend(["icachet", "dcachet"])
     if mem.use_tlb_bram:
@@ -410,15 +410,15 @@ def generate_all_ip_tcl(mem: MemoryConfig, ip_dir: str, base_dir: str = "") -> t
         Combined TCL script for IP creation + property configuration,
         and a list of IP names in creation order.
         Callers must call ``_tcl_generate_target()`` separately
-        (Sram after COE config, others immediately).
+        (ROM after COE config, others immediately).
     """
     parts: list[str] = []
     names: list[str] = []
 
-    # Sram (main memory)
-    cfg_sram = sram_to_bram(mem.sram)
-    parts.append(generate_bram_create_ip_tcl(cfg_sram, ip_dir))
-    names.append(cfg_sram.name)
+    # ROM (boot ROM)
+    cfg_rom = rom_to_bram(mem.rom)
+    parts.append(generate_bram_create_ip_tcl(cfg_rom, ip_dir))
+    names.append(cfg_rom.name)
 
     # icached (I-cache data)
     cfg_ic = cache_data_to_bram("icached", mem.icache)

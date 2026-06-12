@@ -189,7 +189,7 @@ Xilinx IP（BRAM、MIG、Bridge、ClkWiz）由 `create_ip` 生成，但 XSim 的
 
 **2. BRAM 仿真模型自动注入（所有仿真任务）**
 
-BRAM IP（Sram、icached、dcached、icachet、dcachet、tlb_flag、tlb_data）由 CPU 核心直接实例化，无法通过 generate 块绕过。orchestrator 自动为**所有仿真任务**添加 BRAM 行为仿真模型到 `sim_1`：
+BRAM IP（ROM、icached、dcached、icachet、dcachet、tlb_flag、tlb_data）由 CPU 核心直接实例化，无法通过 generate 块绕过。orchestrator 自动为**所有仿真任务**添加 BRAM 行为仿真模型到 `sim_1`：
 
 - `sim/<IP>.v` — IP 包装器（每个 IP 独有）
 - `simulation/blk_mem_gen_v8_4.v` — 行为仿真模型（所有 BRAM IP 共享，仅添加一次）
@@ -376,7 +376,7 @@ python -m tools.vivado_cli -task fpga -program
 
 | IP | 类型 | 版本 | 配置来源 |
 |----|------|------|----------|
-| Sram | blk_mem_gen | v8.4 | memory.sram |
+| ROM | blk_mem_gen | v8.4 | memory.rom |
 | icached / dcached | blk_mem_gen | v8.4 | memory.icache / memory.dcache |
 | icachet / dcachet | blk_mem_gen | v8.4 | memory.icache / memory.dcache (use_tag_bram=true) |
 | tlb_flag / tlb_data | blk_mem_gen | v8.4 | memory.tlb (use_tlb_bram=true) |
@@ -399,7 +399,7 @@ ops.gen_config()  # → 返回 cache_def.svh 路径
 
 ```yaml
 memory:
-  sram:
+  rom:
     data_width: 32
     depth: 8192
   icache:

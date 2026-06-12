@@ -91,6 +91,9 @@ module axi_wrap_ram(
 // MEM_DEPTH = 262144 => 1MB / 4bytes = 256K words
 // Address bits [19:2] index into BRAM (18-bit index for 256K entries)
 localparam MEM_DEPTH = 262144;
+// WARNING: MEM_DEPTH=256K words = 1MB. With 128MB DDR3 address space (0x8000_0000-0x87FF_FFFF),
+// only the first 1MB is accessible via BRAM. Addresses beyond 1MB wrap around.
+// For full DDR3 coverage, use axi_wrap_ddr (MIG) instead.
 
 reg [31:0] BRAM [0:MEM_DEPTH-1];
 
@@ -112,10 +115,10 @@ wire [31:0] remapped_awaddr;
 assign remapped_araddr = axi_araddr;
 assign remapped_awaddr = axi_awaddr;
 `else
-assign remapped_araddr = (axi_araddr[31:28] == 4'h8) ? axi_araddr :
-                          {12'b0, 4'hf, axi_araddr[31:28], axi_araddr[11:0]};
-assign remapped_awaddr = (axi_awaddr[31:28] == 4'h8) ? axi_awaddr :
-                          {12'b0, 4'hf, axi_awaddr[31:28], axi_awaddr[11:0]};
+// Address decoder in system_top ensures only 0x8xxxxxxx addresses reach this slave.
+// No remapping needed — pass through directly.
+assign remapped_araddr = axi_araddr;
+assign remapped_awaddr = axi_awaddr;
 `endif
 
 // ===========================================================================
@@ -132,7 +135,7 @@ reg [7:0]  r_len;        // total burst length (arlen)
 reg [2:0]  r_size;       // burst size
 reg [1:0]  r_burst;      // burst type
 reg [3:0]  r_id;         // transaction ID
-reg [18:0] r_word_addr;  // word-aligned address for BRAM indexing
+reg [17:0] r_word_addr;  // word-aligned address for BRAM indexing
 
 // Computed next address for INCR burst
 wire [31:0] r_next_addr;
@@ -150,7 +153,7 @@ always_ff @(posedge aclk or negedge aresetn) begin
         r_size      <= 3'd0;
         r_burst     <= 2'd0;
         r_id        <= 4'd0;
-        r_word_addr <= 19'd0;
+        r_word_addr <= 18'd0;
 
     end else begin
         case (r_state)
@@ -164,7 +167,7 @@ always_ff @(posedge aclk or negedge aresetn) begin
                     r_size  <= axi_arsize;
                     r_burst <= axi_arburst;
                     r_id    <= axi_arid;
-                    r_word_addr <= remapped_araddr[20:2];  // word index
+                    r_word_addr <= remapped_araddr[19:2];  // word index
                     // WRAP burst assertion — this model does not implement WRAP
                     `ifdef SIMULATION
                     assert (axi_arburst != 2'b10) else
@@ -182,7 +185,7 @@ always_ff @(posedge aclk or negedge aresetn) begin
                         r_count <= r_count - 8'd1;
                         if (r_burst == 2'b01) begin  // INCR
                             r_addr      <= r_next_addr;
-                            r_word_addr <= r_next_addr[20:2];
+                            r_word_addr <= r_next_addr[19:2];
                         end
                         // FIXED burst: address stays the same
                         // WRAP burst: not supported in this model, treat as INCR
@@ -268,10 +271,10 @@ always_ff @(posedge aclk or negedge aresetn) begin
             W_DATA: begin
                 if (axi_wvalid) begin
                     // Write data to BRAM
-                    if (axi_wstrb[3]) BRAM[w_addr[20:2]][31:24] <= axi_wdata[31:24];
-                    if (axi_wstrb[2]) BRAM[w_addr[20:2]][23:16] <= axi_wdata[23:16];
-                    if (axi_wstrb[1]) BRAM[w_addr[20:2]][15:8]  <= axi_wdata[15:8];
-                    if (axi_wstrb[0]) BRAM[w_addr[20:2]][7:0]   <= axi_wdata[7:0];
+                    if (axi_wstrb[3]) BRAM[w_addr[19:2]][31:24] <= axi_wdata[31:24];
+                    if (axi_wstrb[2]) BRAM[w_addr[19:2]][23:16] <= axi_wdata[23:16];
+                    if (axi_wstrb[1]) BRAM[w_addr[19:2]][15:8]  <= axi_wdata[15:8];
+                    if (axi_wstrb[0]) BRAM[w_addr[19:2]][7:0]   <= axi_wdata[7:0];
 
 
                     if (axi_wlast) begin

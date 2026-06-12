@@ -24,31 +24,33 @@ device_part: xc7a200tfbg676-2
 # RTL header (cache_def.svh) to keep them in sync.
 # ---------------------------------------------------------------------------
 memory:
-  sram:
-    data_width: 32        # SRAM word width (bits)
-    depth: 8192           # SRAM depth (words) — 32KB for 32-bit width
-    byte_enable: true     # Byte-write enable for SRAM (4-bit WEA for byte/halfword writes)
+  rom:
+    data_width: 32        # ROM word width (bits)
+    depth: 8192           # ROM depth (words) — 32KB for 32-bit width
+    byte_enable: true     # Byte-write enable for ROM (4-bit WEA for byte/halfword writes)
     byte_size: 8          # Byte size (WEA width = data_width / byte_size = 4)
 
   icache:
     num_sets: 8           # Number of cache sets
     num_ways: 4           # Associativity (ways per set) — ⚠ FIXED: do not change (tree_plru hardcoded)
-    tag_width: 7          # Tag field width (bits) — ⚠ FIXED: do not change (tree_plru hardcoded)
+    tag_width: 19         # Tag field width (bits) — covers 128MB DDR3 address space
     line_words: 8         # Words per cache line (line_width = line_words * 32)
     byte_enable: true     # Byte-write enable for data BRAM
     byte_size: 8          # Byte size for write-enable granularity
     tag_bram_byte_enable: true   # Byte-write enable for tag BRAM
-    tag_bram_byte_size: 8       # Byte size = 8 for icache (V1+tag7 = 8 bits/way)
+    tag_bram_byte_size: 36      # Way stride = 36 for icache (V1+tag19=20 bits/way, padded to 36)
+    tag_bram_xilinx_byte_size: 9  # Xilinx BRAM Byte_Size param (Vivado 2018.3 only accepts 8 or 9)
 
   dcache:
     num_sets: 8
     num_ways: 4           # ⚠ FIXED: do not change (tree_plru hardcoded)
-    tag_width: 7          # ⚠ FIXED: do not change (tree_plru hardcoded)
+    tag_width: 19         # covers 128MB DDR3 address space
     line_words: 8
     byte_enable: true
     byte_size: 8
     tag_bram_byte_enable: true   # Byte-write enable for tag BRAM
-    tag_bram_byte_size: 9       # Byte size = 9 for dcache (V1+D1+tag7 = 9 bits/way)
+    tag_bram_byte_size: 36      # Way stride = 36 for dcache (V1+D1+tag19=22 bits/way, padded to 36)
+    tag_bram_xilinx_byte_size: 9  # Xilinx BRAM Byte_Size param (Vivado 2018.3 only accepts 8 or 9)
 
   # Tag storage: false = register arrays (current), true = BRAM IPs (icachet/dcachet)
   use_tag_bram: true

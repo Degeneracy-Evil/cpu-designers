@@ -445,7 +445,7 @@ module system_top(
     // Manual Address Decoder + Slave Mux (sys_clk domain, after CDC)
     // ========================================================================
     // Slave indices:
-    //   0: DDR3/RAM   (addr[31:28] == 4'h8)
+    //   0: DDR3/RAM   (addr[31:27] == 5'h10, 0x8000_0000~0x87FF_FFFF = 128MB)
     //   1: Boot ROM   (addr[31:24] == 8'hFC)
     //   2: PLIC       (addr[31:24] == 8'h0C)
     //   3: CLINT      (addr[31:24] == 8'h02)
@@ -455,7 +455,7 @@ module system_top(
 
     // AW channel address decode (combinational)
     wire [2:0] aw_slave_sel_comb;
-    assign aw_slave_sel_comb = (cdc_awaddr[31:28] == 4'h8)  ? 3'd0 :
+    assign aw_slave_sel_comb = (cdc_awaddr[31:27] == 5'h10) ? 3'd0 :
                                (cdc_awaddr[31:24] == 8'hFC) ? 3'd1 :
                                (cdc_awaddr[31:24] == 8'h0C) ? 3'd2 :
                                (cdc_awaddr[31:24] == 8'h02) ? 3'd3 :
@@ -465,7 +465,7 @@ module system_top(
 
     // AR channel address decode (combinational)
     wire [2:0] ar_slave_sel_comb;
-    assign ar_slave_sel_comb = (cdc_araddr[31:28] == 4'h8)  ? 3'd0 :
+    assign ar_slave_sel_comb = (cdc_araddr[31:27] == 5'h10) ? 3'd0 :
                                (cdc_araddr[31:24] == 8'hFC) ? 3'd1 :
                                (cdc_araddr[31:24] == 8'h0C) ? 3'd2 :
                                (cdc_araddr[31:24] == 8'h02) ? 3'd3 :

@@ -39,6 +39,7 @@ module icache_ctrl(
     localparam TAG_BRAM_W    = `ICACHE_TAG_BRAM_WIDTH;
     localparam TAG_BRAM_WEA  = `ICACHE_TAG_BRAM_WEA_WIDTH;
     localparam TAG_BRAM_BS   = `ICACHE_TAG_BRAM_BYTE_SIZE;
+    localparam TAG_BRAM_BPW  = `ICACHE_TAG_BRAM_WEA_BITS_PER_WAY;
     // Derived: address layout
     localparam ADDR_UPPER_ZEROS = 30 - `ICACHE_TAG_HI;
     localparam ADDR_LOWER_ZEROS = `ICACHE_SET_IDX_LO;
@@ -49,10 +50,17 @@ module icache_ctrl(
     localparam S_REFILL     = 3'd3;
     localparam S_INVALIDATE = 3'd4;
 
-    // Use vaddr for MMIO check: paddr may be stale when mmu_ready=0
-    // (BRAM MMU latches inputs, so paddr uses latched_vaddr which is 0 after reset)
-    // Safe because VA[31]=PA[31] for all translated addresses in this system
-    wire is_mmio = ~cpu_req_vaddr[31];
+    // Address map:
+    //   0x00000000-0x7FFFFFFF: MMIO (peripherals)     — bit[31]=0
+    //   0x80000000-0x87FFFFFF: Cacheable (DDR3, 128MB) — bit[31]=1, bit[30]=0, bits[29:27]=0
+    //   0x88000000-0xBFFFFFFF: Unmapped (no physical memory; tag aliasing risk if accessed)
+    //   0xC0000000-0xFFFFFFFF: MMIO (boot ROM, etc.)  — bit[31]=1, bit[30]=1
+    // Boot ROM at 0xFC000000 MUST be uncached: addresses with bit[30]=1
+    // are classified as MMIO, so they bypass the cache entirely.
+    // Tag width (19 bits) covers exactly 128MB; bits[29:27] are forced zero
+    // in refill addresses (ADDR_UPPER_ZEROS=4), so only 0x8000_0000–0x87FF_FFFF
+    // is safely cacheable without aliasing.
+    wire is_mmio = ~cpu_req_vaddr[31] | cpu_req_vaddr[30];
 
     // VIPT: use vaddr for set index (bits within page offset), paddr for tag
     wire [TAG_WIDTH-1:0]   req_tag  = cpu_req_addr[`ICACHE_TAG_HI:`ICACHE_TAG_LO];
@@ -65,9 +73,9 @@ module icache_ctrl(
     reg [NUM_WAYS-2:0] plru_state [0:NUM_SETS-1];
 
     // =========================================================================
-    // Tag BRAM (icachet) — 32-bit × 8 deep, Byte_Size=8, 4-bit WEA
+    // Tag BRAM (icachet) — 144-bit × 8 deep, Byte_Size=36, 4-bit WEA
     // Each address = 1 set, data = 4 ways packed: {Way3, Way2, Way1, Way0}
-    //   Way N bits: [N*8 +: 8] = {V(1), tag(7)}
+    //   Way N bits: [N*36 +: 36], lower 20 bits = {V(1), tag(19)}, upper 16 = padding
     // =========================================================================
     wire [TAG_BRAM_W-1:0] tag_bram_douta;
     wire [TAG_BRAM_W-1:0] tag_bram_doutb;
@@ -98,10 +106,16 @@ module icache_ctrl(
     );
 
     // --- Tag comparison from BRAM Port A output (valid in S_TAG_READ) ---
-    wire [TAG_ENTRY_W-1:0] tag_r0 = tag_bram_douta[TAG_ENTRY_W*1-1:TAG_ENTRY_W*0];
-    wire [TAG_ENTRY_W-1:0] tag_r1 = tag_bram_douta[TAG_ENTRY_W*2-1:TAG_ENTRY_W*1];
-    wire [TAG_ENTRY_W-1:0] tag_r2 = tag_bram_douta[TAG_ENTRY_W*3-1:TAG_ENTRY_W*2];
-    wire [TAG_ENTRY_W-1:0] tag_r3 = tag_bram_douta[TAG_ENTRY_W*4-1:TAG_ENTRY_W*3];
+    // Each way occupies TAG_BRAM_BS bits in the BRAM word, but only the lower
+    // TAG_ENTRY_W bits are meaningful (valid bit + tag). Upper padding is zero.
+    wire [TAG_BRAM_BS-1:0] way0_raw = tag_bram_douta[TAG_BRAM_BS*1-1:TAG_BRAM_BS*0];
+    wire [TAG_BRAM_BS-1:0] way1_raw = tag_bram_douta[TAG_BRAM_BS*2-1:TAG_BRAM_BS*1];
+    wire [TAG_BRAM_BS-1:0] way2_raw = tag_bram_douta[TAG_BRAM_BS*3-1:TAG_BRAM_BS*2];
+    wire [TAG_BRAM_BS-1:0] way3_raw = tag_bram_douta[TAG_BRAM_BS*4-1:TAG_BRAM_BS*3];
+    wire [TAG_ENTRY_W-1:0] tag_r0 = way0_raw[TAG_ENTRY_W-1:0];
+    wire [TAG_ENTRY_W-1:0] tag_r1 = way1_raw[TAG_ENTRY_W-1:0];
+    wire [TAG_ENTRY_W-1:0] tag_r2 = way2_raw[TAG_ENTRY_W-1:0];
+    wire [TAG_ENTRY_W-1:0] tag_r3 = way3_raw[TAG_ENTRY_W-1:0];
 
     wire hit0 = tag_r0[TAG_ENTRY_W-1] && (tag_r0[TAG_WIDTH-1:0] == req_tag);
     wire hit1 = tag_r1[TAG_ENTRY_W-1] && (tag_r1[TAG_WIDTH-1:0] == req_tag);
@@ -289,7 +303,7 @@ module icache_ctrl(
                         cpu_req_ready_r <= 1'b1;
                         // Write tag BRAM Port B: update only the refilled way
                         tag_bram_enb_r   <= 1'b1;
-                        tag_bram_web_r   <= (1 << refill_way);  // per-way byte write enable
+                        tag_bram_web_r   <= ((1 << TAG_BRAM_BPW) - 1) << (refill_way * TAG_BRAM_BPW);
                         tag_bram_addrb_r <= latched_set;
                         tag_bram_dinb_r  <= refill_tag_din;
                         plru_state[latched_set] <= plru_next_refill;

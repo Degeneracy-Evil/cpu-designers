@@ -139,13 +139,13 @@ def _tcl_setup_ip(
     coe_file: str,
     mem_config: MemoryConfig,
 ) -> str:
-    """Generate TCL for IP creation and Sram COE configuration.
+    """Generate TCL for IP creation and ROM COE configuration.
 
     Uses ``create_ip`` from :mod:`ip_gen` to dynamically create BRAM IPs
     based on the memory configuration, replacing the old static XCI import.
 
-    Target generation order: icached/dcached first, then Sram (after COE
-    config) to avoid double ``generate_target`` on Sram.
+    Target generation order: icached/dcached first, then ROM (after COE
+    config) to avoid double ``generate_target`` on ROM.
     """
     from .ip_gen import _tcl_generate_target
 
@@ -154,40 +154,40 @@ def _tcl_setup_ip(
     # --- Dynamic IP creation from config (create + set_property only) ---
     ip_tcl, ip_names = generate_all_ip_tcl(mem_config, ip_dir, base_dir)
 
-    # Generate targets for non-Sram IPs immediately.
-    gen_others = "\n".join(_tcl_generate_target(n) for n in ip_names if n != "Sram")
+    # Generate targets for non-ROM IPs immediately.
+    gen_others = "\n".join(_tcl_generate_target(n) for n in ip_names if n != "ROM")
 
-    # --- Sram COE configuration + generate_target ---
+    # --- ROM COE configuration + generate_target ---
     if coe_file:
         coe_tail = Path(coe_file).name
-        sram_block = f"""\
-set ip_sram [get_ips -all Sram]
-file copy -force {coe_file} "{ip_dir}/Sram/"
+        rom_block = f"""\
+set ip_rom [get_ips -all ROM]
+file copy -force {coe_file} "{ip_dir}/ROM/"
 set_property -dict [list \\
     CONFIG.Load_Init_File {{true}} \\
-    CONFIG.Coe_File "{ip_dir}/Sram/{coe_tail}" \\
-] $ip_sram
-{_tcl_generate_target("Sram")}
-puts "Sram IP configured (COE: {coe_file})\""""
+    CONFIG.Coe_File "{ip_dir}/ROM/{coe_tail}" \\
+] $ip_rom
+{_tcl_generate_target("ROM")}
+puts "ROM IP configured (COE: {coe_file})\""""
     else:
-        sram_block = f"""\
-set ip_sram [get_ips -all Sram]
+        rom_block = f"""\
+set ip_rom [get_ips -all ROM]
 set_property -dict [list \\
     CONFIG.Load_Init_File {{false}} \\
-] $ip_sram
-{_tcl_generate_target("Sram")}
-puts "Sram IP configured (no COE init)\""""
+] $ip_rom
+{_tcl_generate_target("ROM")}
+puts "ROM IP configured (no COE init)\""""
 
     return f"""\
 # --- setup IP (dynamic create_ip from config) ---
 update_compile_order -fileset sources_1
 {ip_tcl}
 
-# --- Generate targets for all non-Sram IPs (cache BRAMs + DDR3 IPs) ---
+# --- Generate targets for all non-ROM IPs (cache BRAMs + DDR3 IPs) ---
 {gen_others}
 
-# --- Sram COE configuration + generate target ---
-{sram_block}"""
+# --- ROM COE configuration + generate target ---
+{rom_block}"""
 
 
 def _tcl_add_constrs(base_dir: str) -> str:
@@ -406,12 +406,20 @@ set_property verilog_define {{{define_str}}} [get_filesets sim_1]
 """
 
 
-def _tcl_copy_hex_file(hex_src: str, proj_dir: str, proj_name: str) -> str:
-    """Generate TCL for copying a HEX file for ``$readmemh`` access.
+def _tcl_copy_hex_file(hex_src: str, proj_dir: str, proj_name: str, base_dir: str = "") -> str:
+    """Generate TCL for copying HEX files for ``$readmemh`` access.
 
-    Copies to the xsim run directory so $readmemh("prog.hex") can find it.
+    Copies prog.hex (ROM) and bootloader.hex (bootrom) to the xsim run directory.
     """
     xsim_dir = f"{proj_dir}/{proj_name}.sim/sim_1/behav/xsim"
+    bl_src = f"{base_dir}/dev/program_source/boot/bootloader.hex" if base_dir else ""
+    bl_copy = ""
+    if bl_src:
+        bl_copy = f"""
+if {{ [file exists "{bl_src}"] }} {{
+    file copy -force "{bl_src}" "{xsim_dir}/bootloader.hex"
+    puts "Copied {bl_src} -> {xsim_dir}/bootloader.hex"
+}}"""
     return f"""\
 # --- copy hex file for $readmemh ---
 file mkdir "{xsim_dir}"
@@ -420,7 +428,7 @@ if {{ [file exists "{hex_src}"] }} {{
     puts "Copied {hex_src} -> {xsim_dir}/prog.hex"
 }} else {{
     puts "WARNING: HEX file not found: {hex_src}"
-}}
+}}{bl_copy}
 """
 
 
@@ -455,21 +463,21 @@ def _tcl_add_tb(
     if coe_file:
         coe_tail = Path(coe_file).name
         coe_update = f"""\
-if {{ [catch {{get_ips Sram}} ip_sram] == 0 && $ip_sram ne "" }} {{
-    file copy -force {coe_file} "{ip_xci_dir}/Sram/"
+if {{ [catch {{get_ips ROM}} ip_rom] == 0 && $ip_rom ne "" }} {{
+    file copy -force {coe_file} "{ip_xci_dir}/ROM/"
     set_property -dict [list \\
         CONFIG.Load_Init_File {{true}} \\
-        CONFIG.Coe_File "{ip_xci_dir}/Sram/{coe_tail}" \\
-    ] $ip_sram
+        CONFIG.Coe_File "{ip_xci_dir}/ROM/{coe_tail}" \\
+    ] $ip_rom
     puts "COE updated: {coe_file}"
-    generate_target all $ip_sram
+    generate_target all $ip_rom
 }}"""
     else:
         coe_update = """\
-if { [catch {get_ips Sram} ip_sram] == 0 && $ip_sram ne "" } {
-    set_property -dict [list CONFIG.Load_Init_File {false}] $ip_sram
+if { [catch {get_ips ROM} ip_rom] == 0 && $ip_rom ne "" } {
+    set_property -dict [list CONFIG.Load_Init_File {false}] $ip_rom
     puts "COE updated: no COE init"
-    generate_target all $ip_sram
+    generate_target all $ip_rom
 }"""
 
     return f"""\
@@ -880,36 +888,36 @@ class Operations:
                     if coe_file:
                         coe_tail = Path(coe_file).name
                         tcl_parts.append(
-                            f'file copy -force {coe_file} "{ip_xci_dir}/Sram/"; '
-                            f'set ip_sram [get_ips -all Sram]; '
+                            f'file copy -force {coe_file} "{ip_xci_dir}/ROM/"; '
+                            f'set ip_rom [get_ips -all ROM]; '
                             f'set_property -dict [list CONFIG.Load_Init_File {{true}} '
-                            f'CONFIG.Coe_File "{ip_xci_dir}/Sram/{coe_tail}"] $ip_sram; '
-                            f"generate_target all $ip_sram"
+                            f'CONFIG.Coe_File "{ip_xci_dir}/ROM/{coe_tail}"] $ip_rom; '
+                            f"generate_target all $ip_rom"
                         )
                     else:
                         tcl_parts.append(
-                            "set ip_sram [get_ips -all Sram]; "
-                            "set_property -dict [list CONFIG.Load_Init_File {false}] $ip_sram; "
-                            "generate_target all $ip_sram"
+                            "set ip_rom [get_ips -all ROM]; "
+                            "set_property -dict [list CONFIG.Load_Init_File {false}] $ip_rom; "
+                            "generate_target all $ip_rom"
                         )
                 elif step == "set_property_coe":
                     if coe_file:
                         coe_tail = Path(coe_file).name
                         tcl_parts.append(
-                            f'set ip_sram [get_ips -all Sram]; '
-                            f'file copy -force {coe_file} "{ip_xci_dir}/Sram/"; '
+                            f'set ip_rom [get_ips -all ROM]; '
+                            f'file copy -force {coe_file} "{ip_xci_dir}/ROM/"; '
                             f'set_property -dict [list CONFIG.Load_Init_File {{true}} '
-                            f'CONFIG.Coe_File "{ip_xci_dir}/Sram/{coe_tail}"] $ip_sram'
+                            f'CONFIG.Coe_File "{ip_xci_dir}/ROM/{coe_tail}"] $ip_rom'
                         )
                     else:
                         tcl_parts.append(
-                            "set ip_sram [get_ips -all Sram]; "
-                            "set_property -dict [list CONFIG.Load_Init_File {false}] $ip_sram"
+                            "set ip_rom [get_ips -all ROM]; "
+                            "set_property -dict [list CONFIG.Load_Init_File {false}] $ip_rom"
                         )
                 elif step == "generate_target":
                     tcl_parts.append(
-                        "set ip_sram [get_ips -all Sram]; "
-                        "generate_target all $ip_sram"
+                        "set ip_rom [get_ips -all ROM]; "
+                        "generate_target all $ip_rom"
                     )
                 elif step == "remove_constrs":
                     tcl_parts.append(
@@ -1003,7 +1011,7 @@ class Operations:
         # HEX file copy for $readmemh (legacy — kept for backward compat)
         if task.hex_file:
             hex_path = self._resolve_hex_path(task)
-            tcl_parts.append(_tcl_copy_hex_file(hex_path, proj_dir, proj_name))
+            tcl_parts.append(_tcl_copy_hex_file(hex_path, proj_dir, proj_name, _tcl_path(self.session_mgr.base_dir)))
 
         tcl_parts.append(_tcl_run_sim(task.tb, sim_runtime, proj_dir, proj_name))
         tcl = "\n".join(tcl_parts)

@@ -51,6 +51,7 @@ module dcache_ctrl(
     localparam TAG_BRAM_W    = `DCACHE_TAG_BRAM_WIDTH;
     localparam TAG_BRAM_WEA  = `DCACHE_TAG_BRAM_WEA_WIDTH;
     localparam TAG_BRAM_BS   = `DCACHE_TAG_BRAM_BYTE_SIZE;
+    localparam TAG_BRAM_BPW  = `DCACHE_TAG_BRAM_WEA_BITS_PER_WAY;
     // Derived: address layout
     localparam ADDR_UPPER_ZEROS = 30 - `DCACHE_TAG_HI;
     localparam ADDR_LOWER_ZEROS = `DCACHE_SET_IDX_LO;
@@ -68,10 +69,14 @@ module dcache_ctrl(
     localparam S_FLUSH_WB_SD      = 4'd9;
     localparam S_FLUSH_INVALIDATE = 4'd10;
 
-    // Use vaddr for MMIO check: paddr may be stale when mmu_ready=0
-    // (BRAM MMU latches inputs, so paddr uses latched_vaddr which is 0 after reset)
-    // Safe because VA[31]=PA[31] for all translated addresses in this system
-    wire is_mmio = ~cpu_req_vaddr[31];
+    // Address map (same as icache):
+    //   0x00000000-0x7FFFFFFF: MMIO (peripherals)     — bit[31]=0
+    //   0x80000000-0x87FFFFFF: Cacheable (DDR3, 128MB) — bit[31]=1, bit[30]=0, bits[29:27]=0
+    //   0x88000000-0xBFFFFFFF: Unmapped (no physical memory; tag aliasing risk if accessed)
+    //   0xC0000000-0xFFFFFFFF: MMIO (boot ROM, etc.)  — bit[31]=1, bit[30]=1
+    // Tag width (19 bits) covers exactly 128MB; bits[29:27] are forced zero
+    // in refill/writeback addresses (ADDR_UPPER_ZEROS=4).
+    wire is_mmio = ~cpu_req_vaddr[31] | cpu_req_vaddr[30];
 
     // VIPT: use vaddr for set index (bits within page offset), paddr for tag
     wire [TAG_WIDTH-1:0]   req_tag  = cpu_req_addr[`DCACHE_TAG_HI:`DCACHE_TAG_LO];
@@ -84,9 +89,9 @@ module dcache_ctrl(
     reg [NUM_WAYS-2:0] plru_state [0:NUM_SETS-1];
 
     // =========================================================================
-    // Tag BRAM (dcachet) — 36-bit × 8 deep, Byte_Size=9, 4-bit WEA
+    // Tag BRAM (dcachet) — 144-bit × 8 deep, Byte_Size=36, 4-bit WEA
     // Each address = 1 set, data = 4 ways packed: {Way3, Way2, Way1, Way0}
-    //   Way N bits: [N*9 +: 9] = {V(1), D(1), tag(7)}
+    //   Way N bits: [N*36 +: 36] = {15'b0, V(1), D(1), tag(19)}
     // =========================================================================
     wire [TAG_BRAM_W-1:0] tag_bram_douta;
     wire [TAG_BRAM_W-1:0] tag_bram_doutb;
@@ -119,10 +124,17 @@ module dcache_ctrl(
     );
 
     // --- Tag comparison from BRAM Port A output (valid in S_TAG_READ / S_FLUSH_CHECK) ---
-    wire [TAG_ENTRY_W-1:0] tag_r0 = tag_bram_douta[TAG_ENTRY_W*1-1:TAG_ENTRY_W*0];
-    wire [TAG_ENTRY_W-1:0] tag_r1 = tag_bram_douta[TAG_ENTRY_W*2-1:TAG_ENTRY_W*1];
-    wire [TAG_ENTRY_W-1:0] tag_r2 = tag_bram_douta[TAG_ENTRY_W*3-1:TAG_ENTRY_W*2];
-    wire [TAG_ENTRY_W-1:0] tag_r3 = tag_bram_douta[TAG_ENTRY_W*4-1:TAG_ENTRY_W*3];
+    // Two-step extraction: BRAM is organized in TAG_BRAM_BS-byte slots (36 bits),
+    // but each way's tag entry is only TAG_ENTRY_W bits (21 bits: V+D+tag).
+    // First extract the full BRAM byte slot, then slice the tag entry from it.
+    wire [TAG_BRAM_BS-1:0] way0_raw = tag_bram_douta[TAG_BRAM_BS*1-1:TAG_BRAM_BS*0];
+    wire [TAG_BRAM_BS-1:0] way1_raw = tag_bram_douta[TAG_BRAM_BS*2-1:TAG_BRAM_BS*1];
+    wire [TAG_BRAM_BS-1:0] way2_raw = tag_bram_douta[TAG_BRAM_BS*3-1:TAG_BRAM_BS*2];
+    wire [TAG_BRAM_BS-1:0] way3_raw = tag_bram_douta[TAG_BRAM_BS*4-1:TAG_BRAM_BS*3];
+    wire [TAG_ENTRY_W-1:0] tag_r0 = way0_raw[TAG_ENTRY_W-1:0];
+    wire [TAG_ENTRY_W-1:0] tag_r1 = way1_raw[TAG_ENTRY_W-1:0];
+    wire [TAG_ENTRY_W-1:0] tag_r2 = way2_raw[TAG_ENTRY_W-1:0];
+    wire [TAG_ENTRY_W-1:0] tag_r3 = way3_raw[TAG_ENTRY_W-1:0];
 
     // Tag entry layout: [TAG_ENTRY_W-1]=V, [TAG_ENTRY_W-2]=D, [TAG_WIDTH-1:0]=tag
     wire hit0 = tag_r0[TAG_ENTRY_W-1] && (tag_r0[TAG_WIDTH-1:0] == req_tag);
@@ -406,7 +418,7 @@ module dcache_ctrl(
                         if (cpu_req_hwrite) begin
                             // Store hit: write data BRAM + set dirty in tag BRAM
                             tag_bram_enb_r   <= 1'b1;
-                            tag_bram_web_r   <= (1 << hit_way);
+                            tag_bram_web_r   <= ((1 << TAG_BRAM_BPW) - 1) << (hit_way * TAG_BRAM_BPW);
                             tag_bram_addrb_r <= set_idx;
                             tag_bram_dinb_r  <= store_hit_tag_din;
                             plru_state[set_idx] <= plru_next;
@@ -455,7 +467,7 @@ module dcache_ctrl(
                         wb_req_r      <= 1'b0;
                         // Clear dirty bit in tag BRAM
                         tag_bram_enb_r   <= 1'b1;
-                        tag_bram_web_r   <= (1 << latched_victim_way);
+                        tag_bram_web_r   <= ((1 << TAG_BRAM_BPW) - 1) << (latched_victim_way * TAG_BRAM_BPW);
                         tag_bram_addrb_r <= latched_set;
                         tag_bram_dinb_r  <= wb_clear_tag_din;
                         refill_req_r  <= 1'b1;
@@ -472,7 +484,7 @@ module dcache_ctrl(
                         cpu_req_ready_r <= 1'b1;
                         // Write tag BRAM: set valid, dirty=latched_hwrite, tag
                         tag_bram_enb_r   <= 1'b1;
-                        tag_bram_web_r   <= (1 << latched_victim_way);
+                        tag_bram_web_r   <= ((1 << TAG_BRAM_BPW) - 1) << (latched_victim_way * TAG_BRAM_BPW);
                         tag_bram_addrb_r <= latched_set;
                         tag_bram_dinb_r  <= refill_tag_din;
                         plru_state[latched_set] <= plru_next_miss;
@@ -525,7 +537,7 @@ module dcache_ctrl(
                         wb_req_r <= 1'b0;
                         // Clear dirty bit in tag BRAM
                         tag_bram_enb_r   <= 1'b1;
-                        tag_bram_web_r   <= (1 << latched_victim_way);
+                        tag_bram_web_r   <= ((1 << TAG_BRAM_BPW) - 1) << (latched_victim_way * TAG_BRAM_BPW);
                         tag_bram_addrb_r <= latched_set;
                         tag_bram_dinb_r  <= wb_clear_tag_din;
                         // Advance to next way/set

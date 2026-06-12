@@ -72,8 +72,8 @@ class LimitsConfig:
 
 
 @dataclass(frozen=True)
-class SramConfig:
-    """SRAM (main memory) BRAM configuration."""
+class RomConfig:
+    """ROM (boot ROM) BRAM configuration."""
 
     data_width: int = 32
     """Word width in bits."""
@@ -114,7 +114,10 @@ class CacheConfig:
     """Whether byte-write enable is active for tag BRAM (when use_tag_bram=true)."""
 
     tag_bram_byte_size: int = 8
-    """Byte size for tag BRAM write-enable granularity (8 for icache, 9 for dcache)."""
+    """Way stride in packed tag BRAM word (bits per way, must be multiple of xilinx_byte_size)."""
+
+    tag_bram_xilinx_byte_size: int = 9
+    """Xilinx BRAM Byte_Size parameter. Vivado 2018.3 only accepts 8 or 9 for True Dual Port."""
 
 
 @dataclass(frozen=True)
@@ -177,8 +180,8 @@ class ClkWizConfig:
 class MemoryConfig:
     """Top-level memory/cache configuration."""
 
-    sram: SramConfig = field(default_factory=SramConfig)
-    """Main memory SRAM configuration."""
+    rom: RomConfig = field(default_factory=RomConfig)
+    """Boot ROM configuration."""
 
     icache: CacheConfig = field(default_factory=CacheConfig)
     """I-cache configuration."""
@@ -278,16 +281,16 @@ def load_config(path: Path | str | None = None, base_dir: Path | str | None = No
 
     # --- memory sub-dict ---
     mem_raw: dict = raw.get("memory", {}) or {}
-    sram_raw: dict = mem_raw.get("sram", {}) or {}
+    rom_raw: dict = mem_raw.get("rom", {}) or {}
     icache_raw: dict = mem_raw.get("icache", {}) or {}
     dcache_raw: dict = mem_raw.get("dcache", {}) or {}
     tlb_raw: dict = mem_raw.get("tlb", {}) or {}
 
-    sram = SramConfig(
-        data_width=sram_raw.get("data_width", 32),
-        depth=sram_raw.get("depth", 8192),
-        byte_enable=sram_raw.get("byte_enable", False),
-        byte_size=sram_raw.get("byte_size", 8),
+    rom = RomConfig(
+        data_width=rom_raw.get("data_width", 32),
+        depth=rom_raw.get("depth", 8192),
+        byte_enable=rom_raw.get("byte_enable", False),
+        byte_size=rom_raw.get("byte_size", 8),
     )
     icache = CacheConfig(
         num_sets=icache_raw.get("num_sets", 8),
@@ -297,7 +300,8 @@ def load_config(path: Path | str | None = None, base_dir: Path | str | None = No
         byte_enable=icache_raw.get("byte_enable", True),
         byte_size=icache_raw.get("byte_size", 8),
         tag_bram_byte_enable=icache_raw.get("tag_bram_byte_enable", True),
-        tag_bram_byte_size=icache_raw.get("tag_bram_byte_size", 8),
+        tag_bram_byte_size=icache_raw.get("tag_bram_byte_size", 36),
+        tag_bram_xilinx_byte_size=icache_raw.get("tag_bram_xilinx_byte_size", 9),
     )
     dcache = CacheConfig(
         num_sets=dcache_raw.get("num_sets", 8),
@@ -307,7 +311,8 @@ def load_config(path: Path | str | None = None, base_dir: Path | str | None = No
         byte_enable=dcache_raw.get("byte_enable", True),
         byte_size=dcache_raw.get("byte_size", 8),
         tag_bram_byte_enable=dcache_raw.get("tag_bram_byte_enable", True),
-        tag_bram_byte_size=dcache_raw.get("tag_bram_byte_size", 9),
+        tag_bram_byte_size=dcache_raw.get("tag_bram_byte_size", 36),
+        tag_bram_xilinx_byte_size=dcache_raw.get("tag_bram_xilinx_byte_size", 9),
     )
     tlb = TlbConfig(
         num_ways=tlb_raw.get("num_ways", 4),
@@ -348,7 +353,7 @@ def load_config(path: Path | str | None = None, base_dir: Path | str | None = No
         reset_type=clk_wiz_raw.get("reset_type", "ACTIVE_LOW"),
     )
     memory = MemoryConfig(
-        sram=sram,
+        rom=rom,
         icache=icache,
         dcache=dcache,
         tlb=tlb,

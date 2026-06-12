@@ -12,7 +12,7 @@
 
 | 项目 | 值 |
 |------|-----|
-| 实现 | BRAM IP `Sram`（Vivado blk_mem_gen） |
+| 实现 | BRAM IP `ROM`（Vivado blk_mem_gen） |
 | 容量 | 32-bit × 8192 = **32KB** |
 | 接口 | `ahb_sram_slave.sv` → AHB-Lite @ `0x8000_0000` |
 | 程序加载 | COE 文件烧入 BRAM（综合时固定） |

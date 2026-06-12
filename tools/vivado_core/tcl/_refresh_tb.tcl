@@ -58,40 +58,40 @@ update_compile_order -fileset sim_1
 puts "Testbench 刷新完成: $tb_name"
 
 # ---------------------------------------------------------------------------
-# Step 6: 更新 Sram COE 配置 (同 _refresh_coe.tcl 逻辑)
+# Step 6: 更新 ROM COE 配置 (同 _refresh_coe.tcl 逻辑)
 # ---------------------------------------------------------------------------
-if { [catch {get_ips Sram} ip_sram] == 0 && $ip_sram ne "" } {
+if { [catch {get_ips ROM} ip_rom] == 0 && $ip_rom ne "" } {
     set ip_xci_dir "${proj_dir}/${proj_name}.srcs/sources_1/ip"
 
     if { $icache_coe_file ne "" } {
         if { ![file exists $icache_coe_file] } {
-            puts "WARNING: COE 文件不存在: $icache_coe_file, Sram 将不加载 COE"
+            puts "WARNING: COE 文件不存在: $icache_coe_file, ROM 将不加载 COE"
             set_property -dict [list \
                 CONFIG.Load_Init_File {false} \
-            ] $ip_sram
+            ] $ip_rom
         } else {
             set coe_tail [file tail $icache_coe_file]
-            if { [catch {file copy -force $icache_coe_file "${ip_xci_dir}/Sram/"} err] } {
+            if { [catch {file copy -force $icache_coe_file "${ip_xci_dir}/ROM/"} err] } {
                 puts "WARNING: 复制 COE 文件失败: $err"
             }
             set_property -dict [list \
                 CONFIG.Load_Init_File {true} \
-                CONFIG.Coe_File "${ip_xci_dir}/Sram/${coe_tail}" \
-            ] $ip_sram
-            puts "Sram COE 已更新: $icache_coe_file"
+                CONFIG.Coe_File "${ip_xci_dir}/ROM/${coe_tail}" \
+            ] $ip_rom
+            puts "ROM COE 已更新: $icache_coe_file"
         }
     } else {
         set_property -dict [list \
-            CONFIG.Load_Init_File {false} \
-        ] $ip_sram
-        puts "Sram COE 已更新: 无 COE 初始化"
+        CONFIG.Load_Init_File {false} \
+        ] $ip_rom
+    puts "ROM COE 已更新: 无 COE 初始化"
     }
 
-    if { [catch {generate_target all $ip_sram} err] } {
-        puts "WARNING: generate_target Sram 失败: $err"
+    if { [catch {generate_target all $ip_rom} err] } {
+        puts "WARNING: generate_target ROM 失败: $err"
     }
 } else {
-    puts "WARNING: 未找到 Sram IP, 跳过 COE 更新"
+    puts "WARNING: 未找到 ROM IP, 跳过 COE 更新"
 }
 
 puts "Testbench + COE 刷新完成 (增量, 未重建工程)"

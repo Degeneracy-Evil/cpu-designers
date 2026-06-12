@@ -1,6 +1,6 @@
 # SimpleCPU 设计报告
 
-> 生成日期: 2026-06-11 | 项目路径: `dev/rtl/`
+> 生成日期: 2026-06-12 | 项目路径: `dev/rtl/`
 
 ---
 
@@ -29,11 +29,11 @@
 | 加法器 | 超前进位加法器（CLA），16-bit 级联为 32-bit |
 | 浮点单元 | IEEE 754 单精度，多周期握手协议，5 种舍入模式 |
 | 浮点寄存器 | 32×32-bit（f0-f31），f0 硬连线零 |
-| 启动 ROM | AXI4-Lite Boot ROM（0xFC00_0000），32KB BRAM，DDR3 启动引导 |
+| 启动 ROM | AXI4-Lite Boot ROM（0xFC00_0000），32KB BRAM，CPU 复位起始地址，bootloader 跳转至 DDR3/SRAM |
 | DDR3 SDRAM | AXI4 MIG 接口（axi_wrap_ddr），可选 ROM 行为模型（axi_wrap_ram） |
 | 时钟域 | cpu_clk（50MHz）/ sys_clk（100MHz）/ ddr_clk_ref（200MHz），Axi_CDC 跨域 |
 | 系统状态 | AXI4-Lite Sys Status（0x0400_0000），MIG 校准/MMCM 锁定/clk_wiz 锁定 |
-| 起始地址 | `0x8000_0000` |
+| 起始地址 | `0xFC00_0000`（Boot ROM，复位后跳转至 `0x8000_0000`） |
 
 ### 1.2 支持的指令集
 
@@ -150,14 +150,14 @@ fpu_unit
 | 地址高位 | 从设备 | 总线协议 | 说明 |
 |----------|--------|----------|------|
 | `0x8_xxxx_xxxx` | DDR3/RAM | AXI4 | 主存储器（DDR3 或 SRAM 行为模型，缓存映射区域） |
-| `0xFC_xxxx_xxxx` | Boot ROM | AXI4-Lite | 启动 ROM（32KB BRAM，只读，DDR3 启动引导） |
+| `0xFC_xxxx_xxxx` | Boot ROM | AXI4-Lite | 启动 ROM（32KB BRAM，只读，CPU 复位起始地址） |
 | `0x0C_xxxx_xxxx` | PLIC | AXI4-Lite | 平台级中断控制器 |
 | `0x02_xxxx_xxxx` | CLINT | AXI4-Lite | 核心本地中断器（mtime/mtimecmp/msip 可写） |
 | `0x10_xxxx_xxxx` | APB Bridge | AXI4-Lite | 外设桥（GPIO/UART/Timer/SPI） |
 | `0x04_xxxx_xxxx` | Sys Status | AXI4-Lite | 系统状态（MIG 校准/MMCM/clk_wiz 锁定，只读） |
 | 其他 | Default Slave | AXI4-Lite | 未映射地址返回 DECERR 响应 |
 
-Cache/MMIO 判定规则：地址最高位 `addr[31] == 0` 为 MMIO 区域（走 AXI 总线旁路缓存），`addr[31] == 1` 为 Cacheable 区域（走 icache/dcache）。DDR3/RAM 地址由 `0x00` 迁移至 `0x80`，所有数据访问使用 `0x8000_0000` 基址。
+Cache/MMIO 判定规则：`addr[31]==0 || addr[30]==1` 为 MMIO 区域（走 AXI 总线旁路缓存），其余为 Cacheable 区域（走 icache/dcache）。DDR3/RAM 地址由 `0x00` 迁移至 `0x80`，所有数据访问使用 `0x8000_0000` 基址。CPU 复位从 Boot ROM（0xFC00_0000）启动，bootloader 跳转至 0x8000_0000 执行主程序。
 
 ---
 
@@ -714,8 +714,9 @@ PTW 写:   S_PTW_AW_W → S_PTW_B
 - 地址映射：0xFC00_0000（addr[31:24]==8'hFC）
 - AXI4-Lite 只读从设备，32KB BRAM（MEM_DEPTH=8192）
 - 写通道静默应答 OKAY（ROM 只读）
-- 读通道 1 周期 BRAM 延迟
+- 读通道 1 周期 BRAM 延迟，R 通道 FSM 握手需 `rvalid && rready` 双条件（BUG-83 修复）
 - 内容由 `$readmemh` 在 elaboration 阶段加载（bootloader.hex）
+- **启动流程**：CPU 复位 PC=0xFC00_0000 → Boot ROM 取 bootloader → bootloader 跳转至 0x8000_0000（DDR3/SRAM）→ 执行主程序
 
 ### 5.14 System Status (`axi4lite_sys_status`)
 
@@ -1294,7 +1295,7 @@ vivado_config.yaml
 13. **Tree-PLRU 替换**：3-bit 状态编码，无效路优先，近似 LRU 替换策略（Cache 和 TLB 均使用）
 14. **写回 + 写分配**：Store 命中仅写 BRAM + 置 dirty，缺失先 Refill 再合并写入，脏行驱逐写回主存
 15. **INCR8 突发传输**：Cache Refill/Writeback 使用 AXI4 INCR8 突发，8 拍传输整行 256-bit 数据
-16. **MMIO 旁路**：`vaddr[31]==0` 直接走 AXI 总线，不经过缓存，保证外设访问强序
+16. **MMIO 旁路**：`vaddr[31]==0 || vaddr[30]==1` 直接走 AXI 总线，不经过缓存，保证外设访问强序（含 Boot ROM 0xFC000000）
 17. **VIPT（Virtically-Indexed Physically-Tagged）**：Cache 使用虚拟地址的页内偏移位索引，物理地址标签比较，避免 MMU 翻译延迟
 18. **BRAM-based 标签存储**：Tag 使用 BRAM IP（icachet/dcachet），byte-write enable 支持单路更新，S_TAG_READ 状态处理 1-cycle 读延迟
 19. **BRAM-based TLB**：4 路×4 组组相联，tlb_flag/tlb_data 双 BRAM，双端口（i-side/d-side），Tree-PLRU 替换
@@ -1304,7 +1305,7 @@ vivado_config.yaml
 23. **AXI4 时钟域穿越**：Axi_CDC，cpu_clk(50MHz) → sys_clk(100MHz) 异步隔离
 24. **三时钟域架构**：cpu_clk/sys_clk/ddr_clk_ref，reset_sync 复位同步
 25. **DDR3 SDRAM 支持**：axi_wrap_ddr + MIG，可选 SRAM 行为模型（axi_wrap_ram）
-26. **Boot ROM**：0xFC00_0000，32KB BRAM，DDR3 启动引导
+26. **Boot ROM**：0xFC00_0000，32KB BRAM，CPU 复位起始地址，bootloader 跳转至 0x8000_0000
 27. **System Status**：0x0400_0000，MIG 校准/MMCM/clk_wiz 状态只读
 28. **AXI4-Lite Default Slave**：未映射地址返回 DECERR 响应，防止总线挂死
 29. **总线桥优先级**：icache_mmio > dcache_mmio > ptw_i > ptw_d > dcache_wb > icache_refill > dcache_refill，防止饿死与脏行堆积
@@ -1326,3 +1327,4 @@ vivado_config.yaml
 45. **浮点计算器应用**：基于 UART IO 的递归下降表达式解析器，支持 +,-,*,/,(),sqrt(),neg()
 46. **共享 testbench 框架**：tb_soc_includes.svh，SoC 级仿真 + DDR3 支持
 47. **测试程序分类重组**：isa/exception/cache/mmu/privilege/mmio/regression/ 目录结构
+48. **Boot ROM 启动流程**：CPU 复位 PC=0xFC000000 → bootloader（LUI+JR）→ 跳转 0x80000000 → 主程序执行

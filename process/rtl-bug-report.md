@@ -3,11 +3,12 @@
 > 扫描日期: 2026-06-05 ~ 2026-06-12
 > 扫描范围: dev/rtl/ + dev/tb/ 全部 SystemVerilog 文件
 > 扫描方法: 6 路并行深度扫描 + 直接代码审查 + 3 路并行 DDR3 读通路追踪 + AXI4-Lite 外设 WSTRB/协议审查
-> 扫描状态: Core Pipeline ✅ | Bus/Peripherals ✅ | MMU/TLB/Cache ✅ | System Top ✅ | FPU ✅ | ALU/MU ✅ | DDR3 AHB ✅ | DDR3 System ✅ | AXI4-Lite ✅
+> 扫描状态: Core Pipeline ✅ | Bus/Peripherals ✅ | MMU/TLB/Cache ✅ | System Top ✅ | FPU ✅ | ALU/MU ✅ | DDR3 AHB ✅ | DDR3 System ✅ | AXI4-Lite ✅ | Boot ROM Boot ✅
 > HIGH 级修复状态: BUG-1 ✅ | BUG-2 ✅ | BUG-3 ✅ | BUG-4 ✅ | BUG-5 ✅ | BUG-6 ✅ | BUG-7 ✅ | BUG-8 ✅ | BUG-45 ✅ | BUG-47 ✅ | BUG-48 ✅ | BUG-49 ✅ | BUG-50 ✅ | BUG-51 ✅ | BUG-52 ✅ | BUG-53 ✅ | BUG-54 ✅ | BUG-55 ✅ | BUG-55b ✅ | BUG-55c ✅ | BUG-55d ✅ | BUG-56 ✅
 > 第二轮修复状态: BUG-57 ✅ | BUG-58 ✅ | BUG-59 ✅ | BUG-60 ✅ | BUG-61 ✅ | BUG-62 ✅ | BUG-63 ✅ | BUG-64 ✅ | BUG-65 ✅ | BUG-66 ✅ | BUG-67 ✅ | BUG-68 ✅
 > 第三轮修复状态 (Cache+CDC): BUG-69 ✅ | BUG-70 ✅ | BUG-71 ✅ | BUG-72 ✅ | BUG-73 ✅ | BUG-74 ✅ | BUG-75 ✅ | BUG-76 ✅ | BUG-77 ✅
 > 第四轮修复状态 (Cache Tag+ROM): BUG-78 ✅ | BUG-79 ✅ | BUG-80 ✅ | BUG-81 ✅ | BUG-82 ✅
+> 第五轮修复状态 (Boot ROM 启动): BUG-83 ✅ | BUG-84 ✅ | BUG-85 ✅
 
 ---
 
@@ -1355,5 +1356,60 @@ ddr3_model (Micron 行为模型)
 
 ---
 
+## 🟡 第五轮 — Boot ROM 启动通路修复 (2026-06-12)
+
+### BUG-83: Boot ROM R 通道 FSM 握手条件错误 — RVALID 永不为 1
+
+**文件**: `dev/rtl/AHB-lite/axi4lite_bootrom.sv:119-127`
+
+**描述**: Boot ROM 读通道 FSM 的 `RD_DATA` 状态中，RVALID 握手完成条件为 `if (s_axi_rready)`，缺少 `&& s_axi_rvalid` 守卫。由于 `s_axi_rvalid` 是寄存器输出（1 周期延迟），FSM 从 `RD_IDLE` 进入 `RD_DATA` 时 `rvalid` 仍为 0。若此时 `rready=1`（CDC R FIFO 未满），`if(rready)` 分支立即执行，`s_axi_rvalid <= 1'b0` 覆盖了 `s_axi_rvalid <= 1'b1`（Verilog 非阻塞赋值后者胜出），导致 **RVALID 始终为 0**，R 通道响应被静默吞没。
+
+逐周期追踪：
+```
+Cycle N:   RD_IDLE, arvalid=1 → rd_state<=RD_DATA, rvalid<=0
+Cycle N+1: RD_DATA, rvalid=0, rready=1 → rvalid<=1 (被 rvalid<=0 覆盖), rd_state<=RD_IDLE
+Cycle N+2: RD_IDLE, rvalid=0 — 响应丢失！
+```
+
+**影响**: CPU 从 Boot ROM（0xFC000000）取指时，AR 请求发出但 R 响应永远不返回，CPU 卡死在 PC=0xFC000000。此 bug 在此前配置（复位 PC=0x80000000，走 icache refill 路径）中不触发，因为 Boot ROM 的 MMIO 读路径从未被使用。
+
+**修复**: `if (s_axi_rready)` → `if (s_axi_rready && s_axi_rvalid)`，与 B 通道（`if (bvalid && bready)`）保持一致。修复后 rvalid 正确置 1 一个周期，AXI 握手完成。
+
+**验证**: cpu_full 仿真 ALL TESTS PASSED (41/41)。
+
+### BUG-84: cpu_bus_bridge mmio_inst_served 死锁 — 重复 MMIO 取指无法完成
+
+**文件**: `dev/rtl/core/cpu_bus_bridge.sv:~297`
+
+**描述**: `mmio_inst_served` 清除条件为 `if (!icache_mmio_req)`，即仅当 icache 撤销 MMIO 请求时才清除。但 CPU 在等待 MMIO 指令返回期间持续保持 `icache_mmio_req=1`（直到 `mmio_inst_served=1`），形成循环依赖：
+
+```
+CPU 等待 mmio_inst_served=1 → 保持 icache_mmio_req=1
+mmio_inst_served 等待 icache_mmio_req=0 → 永远不清除
+→ 死锁
+```
+
+首次 MMIO 取指可以成功（`mmio_inst_served` 初始为 0，AR 请求发出），但第二次及后续 MMIO 取指永远卡住。
+
+**影响**: Boot ROM 连续取两条指令（LUI + JR）时，第二条指令的 AR 请求无法发出，CPU 卡死。
+
+**修复**: 清除条件改为 `if (!icache_mmio_req || ahb_inst_valid_r)`，即当 AR 请求撤销 **或** R 通道返回有效数据时均清除 `mmio_inst_served`，打破循环依赖。数据通道做相同修复。
+
+**验证**: cpu_full 仿真 ALL TESTS PASSED (41/41)。
+
+### BUG-85: core_top 复位 PC 硬编码 0x80000000 — Boot ROM 启动流程不可用
+
+**文件**: `dev/rtl/core/core_top.sv:~274`
+
+**描述**: `core_top` 复位时 PC 初始化为 `32'h80000000`（SRAM/DDR3 起始地址），绕过了 Boot ROM（0xFC000000）。Boot ROM 的设计意图是 CPU 复位后从 ROM 取 bootloader，bootloader 完成初始化后跳转至 DDR3。硬编码 PC=0x80000000 使 Boot ROM 启动流程完全失效。
+
+**影响**: FPGA 上电后无法执行 bootloader（DDR3 初始化、UART 下载等），直接从可能未初始化的 DDR3 取指。
+
+**修复**: 统一复位 PC 为 `32'hFC000000`，移除 `ifdef SIMULATION` 分支（仿真与 FPGA 行为一致）。配合 phase-1 bootloader（`lui t0, 0x80000; jr t0`）实现复位→ROM→SRAM 的启动流程。
+
+**验证**: cpu_full 仿真 ALL TESTS PASSED (41/41)，CPU 正确从 0xFC000000 取 bootloader 后跳转至 0x80000000 执行主程序。
+
+---
+
 *报告由 Sisyphus RTL 审计系统生成。*
-*全部扫描完成: Core Pipeline ✅ | Bus/Peripherals ✅ | MMU/TLB/Cache ✅ | System Top ✅ | FPU ✅ | ALU/MU ✅ | DDR3 AHB ✅ | DDR3 System ✅ | AXI4-Lite ✅ (BUG-54/55 修复后仿真提速 500x, BUG-56 5层修复+force workaround 验证通过, 第二轮 12 项修复全部 LSP 验证通过, 第三轮 Cache+CDC 9 项修复 SRAM仿真 ALL TESTS PASSED, 第四轮 Cache Tag+ROM 5 项修复 cpu_full 41/42 PASS)*
+*全部扫描完成: Core Pipeline ✅ | Bus/Peripherals ✅ | MMU/TLB/Cache ✅ | System Top ✅ | FPU ✅ | ALU/MU ✅ | DDR3 AHB ✅ | DDR3 System ✅ | AXI4-Lite ✅ (BUG-54/55 修复后仿真提速 500x, BUG-56 5层修复+force workaround 验证通过, 第二轮 12 项修复全部 LSP 验证通过, 第三轮 Cache+CDC 9 项修复 SRAM仿真 ALL TESTS PASSED, 第四轮 Cache Tag+ROM 5 项修复 cpu_full 41/42 PASS, 第五轮 Boot ROM 启动 3 项修复 cpu_full 41/41 ALL TESTS PASSED)*

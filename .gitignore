@@ -40,6 +40,9 @@ vivado*.jou
 .Xil/
 xsim.dir/
 *.bit
+webtalk*.log
+webtalk*.jou
+*.ltx
 
 #omo
 .omo/

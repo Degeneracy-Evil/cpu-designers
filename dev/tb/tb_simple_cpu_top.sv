@@ -8,7 +8,113 @@ module tb_simple_cpu_top;
 
 
     // ----------------------------------------------------------------
-    // Progress probe: print PC + AXI bus activity every 500k cycles
+    // Debug probe: trace MMIO valid/data and IF→ID captures
+    // ----------------------------------------------------------------
+`ifndef SIMU_DDR_MODE
+    // UART debug probe: report when the bootloader actually enables UART RX
+    initial begin
+        wait (u_soc.u_apb_perips.u_uart.rx_en === 1'b1);
+        @(posedge clk);
+        $display("[UART-DBG] %0t: RX enabled uart_rx=%b ctrl=0x%h baud=0x%h rx_state=%0d",
+                 $time,
+                 uart_rx,
+                 u_soc.u_apb_perips.u_uart.rx_en,
+                 u_soc.u_apb_perips.u_uart.uart_ctrl,
+                 u_soc.u_apb_perips.u_uart.uart_baud,
+                 u_soc.u_apb_perips.u_uart.uart_rx_inst.state);
+        repeat (100) @(posedge clk);
+        $display("[UART-DBG] %0t: RX+100 uart_rx=%b ctrl=0x%h baud=0x%h rx_state=%0d",
+                 $time,
+                 uart_rx,
+                 u_soc.u_apb_perips.u_uart.rx_en,
+                 u_soc.u_apb_perips.u_uart.uart_ctrl,
+                 u_soc.u_apb_perips.u_uart.uart_baud,
+                 u_soc.u_apb_perips.u_uart.uart_rx_inst.state);
+    end
+`endif
+`ifndef SIMU_DDR_MODE
+    integer dbg_cnt;
+    initial begin
+        dbg_cnt = 0;
+        forever begin
+            @(posedge clk);
+            dbg_cnt = dbg_cnt + 1;
+            if (dbg_cnt <= 5000) begin
+                // Show MMIO valid pulses from bus bridge
+                if (u_soc.cpu.u_bus_bridge.ahb_inst_valid_r) begin
+                    $display("[MMIO-VLD] cycle=%0d data=0x%08h addr_r=0x%08h is_inst=%b", dbg_cnt,
+                             u_soc.cpu.u_bus_bridge.ahb_inst_data_r,
+                             u_soc.cpu.u_bus_bridge.addr_r,
+                             u_soc.cpu.u_bus_bridge.is_inst_r);
+                end
+                // Show IF→ID captures
+                if (u_soc.cpu.if_done) begin
+                    $display("[IF→ID] cycle=%0d PC=0x%08h inst=0x%08h mmio_v=%b mmio_d=0x%08h", dbg_cnt,
+                             u_soc.cpu.if_id_bus[63:32], u_soc.cpu.if_id_bus[31:0],
+                             u_soc.cpu.ahb_inst_valid, u_soc.cpu.ahb_inst_data);
+                end
+                // Show EX completions with branches
+                if (u_soc.cpu.exe_done && u_soc.cpu.exe_branch_taken) begin
+                    $display("[EX-BR] cycle=%0d PC=0x%08h →0x%08h", dbg_cnt,
+                             u_soc.cpu.exe_pc, u_soc.cpu.exe_branch_target);
+                end
+                // Show UART RX valid pulses (first 200 only)
+                if (u_soc.u_apb_perips.u_uart.rx_data_valid && dbg_cnt <= 200000) begin
+                    $display("[UART-RX] cycle=%0d rx_valid=1 byte=0x%02h fifo_cnt=%0d", dbg_cnt,
+                             u_soc.u_apb_perips.u_uart.rx_data_from_engine,
+                             u_soc.u_apb_perips.u_uart.rx_fifo_count);
+                end
+                // Show UART RX start-bit detection (first 20)
+                if (u_soc.u_apb_perips.u_uart.uart_rx_inst.rx_negedge && dbg_cnt <= 200000) begin
+                    $display("[UART-RX-NE] cycle=%0d rx_d0=%b rx_d1=%b state=%0d fifo_cnt=%0d", dbg_cnt,
+                             u_soc.u_apb_perips.u_uart.uart_rx_inst.rx_d0,
+                             u_soc.u_apb_perips.u_uart.uart_rx_inst.rx_d1,
+                             u_soc.u_apb_perips.u_uart.uart_rx_inst.state,
+                             u_soc.u_apb_perips.u_uart.rx_fifo_count);
+                end
+                // Show uart_rx signal around the point where the bootloader should start polling RX
+                if (dbg_cnt >= 19970 && dbg_cnt <= 20020) begin
+                    $display("[UART-SIG] cycle=%0d uart_rx=%b", dbg_cnt, uart_rx);
+                end
+            end
+        end
+    end
+    // Periodic UART FIFO state probe (every 500K cycles after initial 50K)
+    initial begin
+        integer fifo_probe_cnt;
+        integer fifo_cnt;
+        integer last_fifo_cnt;
+        fifo_probe_cnt = 0;
+        last_fifo_cnt = 0;
+        forever begin
+            @(posedge clk);
+            fifo_probe_cnt = fifo_probe_cnt + 1;
+            fifo_cnt = u_soc.u_apb_perips.u_uart.rx_fifo_count;
+            // Show every time FIFO count changes (first 5K cycles only)
+            if (fifo_probe_cnt <= 5000 && fifo_cnt != last_fifo_cnt) begin
+                $display("[FIFO-CHG] cycle=%0d fifo_cnt=%0d→%0d PC=0x%08h gpio_data=0x%04h rd_data=0x%02h",
+                         fifo_probe_cnt, last_fifo_cnt, fifo_cnt, if_pc,
+                         u_soc.u_apb_perips.o_gpioData[15:0],
+                         u_soc.u_apb_perips.u_uart.rx_fifo_rd_data);
+                $fflush;
+            end
+            last_fifo_cnt = fifo_cnt;
+            if (fifo_probe_cnt > 200000 && fifo_probe_cnt % 500000 == 0) begin
+                $display("[FIFO-MON] cycle=%0d rx_fifo_count=%0d rx_fifo_full=%b rx_data_valid=%b rx_state=%0d PC=0x%08h gpio_data=0x%04h",
+                         fifo_probe_cnt, fifo_cnt,
+                         u_soc.u_apb_perips.u_uart.rx_fifo_full,
+                         u_soc.u_apb_perips.u_uart.rx_data_valid,
+                         u_soc.u_apb_perips.u_uart.uart_rx_inst.state,
+                         if_pc,
+                         u_soc.u_apb_perips.o_gpioData[15:0]);
+                $fflush;
+            end
+        end
+    end
+`endif
+
+    // ----------------------------------------------------------------
+    // Progress probe: print PC + AXI bus activity every 500k cycles (DDR3 mode)
     // ----------------------------------------------------------------
 `ifdef SIMU_DDR_MODE
     integer probe_cnt;
@@ -55,9 +161,14 @@ module tb_simple_cpu_top;
         wait(u_soc.ddr_data_init);
         $display("[PROBE] %0t: ddr_data_init=1, starting 600K cycle wait (5ms)...", $time);
         $fflush;
+        repeat (600000) @(posedge clk);
+`else
+        // SRAM mode: wait for full bootloader + UART download + program execution
+        // CPU duplicate AXI transactions slow UART download; need 16M cycle wait.
+        $display("[PROBE] %0t: SRAM mode: waiting 16M cycles for bootloader + UART + program...", $time);
+        $fflush;
+        repeat (16000000) @(posedge clk);
 `endif
-
-         repeat (600000) @(posedge clk);
 
         check_reg(5'd1,  32'h00000008);
         check_reg(5'd2,  32'h00001800);

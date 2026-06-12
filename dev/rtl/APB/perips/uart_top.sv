@@ -34,9 +34,10 @@ module uart_top #(
                                        // [2]=TX_FIFO_FULL, [3]=RX_FIFO_EMPTY,
                                        // [4]=TX_FIFO_EMPTY, [5]=RX_FIFO_FULL
     localparam UART_TXDATA   = 8'h08;  // Write: push to TX FIFO
-    localparam UART_RXDATA   = 8'h0C;  // Read: pop from RX FIFO
+    localparam UART_RXDATA   = 8'h0C;  // Read: peek RX FIFO head (NO pop)
     localparam UART_BAUD     = 8'h10;  // Baud rate divider (0 = default 115200)
     localparam UART_IRQ_STAT = 8'h14;  // [0]=TX_DONE_IRQ, [1]=RX_VALID_IRQ (W1C)
+    localparam UART_RXPOP    = 8'h18;  // Write: pop RX FIFO (any value triggers pop)
 
     // -----------------------------------------------------------------------
     // APB access signals (declared early for use throughout)
@@ -101,14 +102,21 @@ module uart_top #(
     wire [7:0] rx_data_from_engine;
     wire       rx_data_valid;
 
-    // CPU reads RXDATA register → pop from RX FIFO
-    // Note: pop happens on read_access (combinational), but actual read enable
-    // is gated to only pop when FIFO is not empty
+    // CPU reads RXDATA register:
+    //   - If rx_pop_armed=1: pop FIFO, clear rx_pop_armed, return popped byte
+    //   - If rx_pop_armed=0: peek FIFO head (no pop)
+    // CPU reads UART_STATUS when !rx_fifo_empty: arms the pop flag.
+    //
+    // Handles CPU bug where each lw/sw triggers two AXI transactions:
+    //   1. lw STATUS (RX_VALID=1, arm)   → sets flag
+    //   2. lw STATUS (dup, arm again)    → flag already set, no-op
+    //   3. lw RXDATA (pop)               → pops, clears flag, returns byte
+    //   4. lw RXDATA (dup, peek)         → flag clear, peeks at next byte (CPU ignores)
+    reg rx_pop_armed;
+
     always_comb begin
-        rx_fifo_rd_en = 1'b0;
-        if (read_access && (PADDR[7:0] == UART_RXDATA) && !rx_fifo_empty) begin
-            rx_fifo_rd_en = 1'b1;
-        end
+        rx_fifo_rd_en = read_access && (PADDR[7:0] == UART_RXDATA)
+                        && rx_pop_armed && !rx_fifo_empty;
     end
 
     sync_fifo #(
@@ -174,6 +182,22 @@ module uart_top #(
     // -----------------------------------------------------------------------
     // Interrupt logic
     // -----------------------------------------------------------------------
+    // RX pop arm flag: armed by STATUS read (when RX_VALID), cleared by RXDATA pop
+    always_ff @(posedge PCLK or negedge PRESETn) begin
+        if (!PRESETn) begin
+            rx_pop_armed <= 1'b0;
+        end else begin
+            // Arm on STATUS read when byte available (RX_VALID)
+            if (read_access && (PADDR[7:0] == UART_STATUS) && !rx_fifo_empty) begin
+                rx_pop_armed <= 1'b1;
+            end
+            // Clear when RXDATA read pops the FIFO
+            if (rx_fifo_rd_en) begin
+                rx_pop_armed <= 1'b0;
+            end
+        end
+    end
+
     // TX_DONE_IRQ: TX FIFO transitions from non-empty to empty
     //   (i.e., all queued bytes have been sent)
     reg tx_fifo_was_nonempty;
@@ -236,6 +260,10 @@ module uart_top #(
                     end
                     UART_BAUD: begin
                         uart_baud <= PWDATA;
+                    end
+                    UART_RXPOP: begin
+                        // Pop is handled by rx_fifo_rd_en (combinational).
+                        // This case prevents the default no-op.
                     end
                     default: ;
                 endcase

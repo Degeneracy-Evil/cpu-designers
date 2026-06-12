@@ -149,9 +149,20 @@ module axi4lite_bootrom #(
             mem[i] = {DATA_WIDTH{1'b0}};
         $readmemh("bootloader.hex", mem);
         #1;
-        $display("[BOOTROM] mem[0]=0x%08h mem[1]=0x%08h", mem[0], mem[1]);
+        $display("[BOOTROM] mem[0]=0x%08h mem[1]=0x%08h mem[63]=0x%08h mem[87]=0x%08h mem[92]=0x%08h",
+                 mem[0], mem[1], mem[63], mem[87], mem[92]);
         if (mem[0] == {DATA_WIDTH{1'b0}}) begin
             $display("[BOOTROM] WARNING: bootloader.hex not loaded or empty!");
+        end
+    end
+    // Debug: log every read transaction (address, index, data)
+    integer rom_rd_cnt;
+    initial rom_rd_cnt = 0;
+    always @(posedge s_axi_aclk) begin
+        if (rd_state == RD_DATA && s_axi_rvalid && s_axi_rready && rom_rd_cnt < 200) begin
+            $display("[BOOTROM-RD] #%0d addr=0x%08h idx=%0d data=0x%08h",
+                     rom_rd_cnt, {latch_addra, 2'b00} + 32'hFC000000, latch_addra, bram_douta);
+            rom_rd_cnt = rom_rd_cnt + 1;
         end
     end
     wire [31:0] bram_douta = mem[bram_addra];

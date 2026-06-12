@@ -116,7 +116,7 @@ system_top
 │   │   ├── apb_decoder
 │   │   └── apb_perips
 │   │       ├── GPIO          ← 16-bit 双向 IO，引脚变化中断（o_irq→PLIC src[4]）
-│   │       ├── UART (TX/RX)  ← TX/RX FIFO（16字节），中断（o_irq→PLIC src[2]），可配波特率
+│   │       ├── UART (TX/RX)  ← TX/RX FIFO（16字节），中断（o_irq→PLIC src[2]），可配波特率，RXDATA peek + STATUS-read auto-arm
 │   │       ├── Timer          ← 32-bit 定时器，中断（o_irq→PLIC src[1]）
 │   │       └── SPI            ← 主模式 SPI，传输完成中断（o_irq→PLIC src[3]）
 │   ├── Slave 5: Sys Status (axi4lite_sys_status)         ← AXI4-Lite，addr[31:24]==8'h04
@@ -716,7 +716,7 @@ PTW 写:   S_PTW_AW_W → S_PTW_B
 - 写通道静默应答 OKAY（ROM 只读）
 - 读通道 1 周期 BRAM 延迟，R 通道 FSM 握手需 `rvalid && rready` 双条件（BUG-83 修复）
 - 内容由 `$readmemh` 在 elaboration 阶段加载（bootloader.hex）
-- **启动流程**：CPU 复位 PC=0xFC00_0000 → Boot ROM 取 bootloader → bootloader 跳转至 0x8000_0000（DDR3/SRAM）→ 执行主程序
+- **启动流程**：CPU 复位 PC=0xFC00_0000 → Boot ROM 取 bootloader → bootloader 初始化 sp → DDR3 自检 → UART 接收程序镜像 → fence.i 刷新缓存 → 跳转至 load_addr → 执行主程序
 
 ### 5.14 System Status (`axi4lite_sys_status`)
 
@@ -926,7 +926,7 @@ vivado_config.yaml
 | 外设 | 说明 |
 |------|------|
 | GPIO | 16-bit 双向 IO，引脚变化中断，中断使能/状态寄存器 |
-| UART | TX/RX FIFO（16 字节），中断输出，运行时波特率配置 |
+| UART | TX/RX FIFO（16 字节），中断输出，运行时波特率配置，RXDATA peek + STATUS-read auto-arm（应对 CPU 重复 AXI 事务 bug） |
 | Timer | 32-bit 定时器，产生中断，单次/周期模式 |
 | SPI | 主模式 SPI 控制器，传输完成中断 |
 
@@ -935,11 +935,14 @@ vivado_config.yaml
 | 偏移 | 名称 | 位定义 | 说明 |
 |------|------|--------|------|
 | 0x00 | CTRL | [0]=TX_EN [1]=RX_EN [2]=TX_IE [3]=RX_IE | 控制/中断使能 |
-| 0x04 | STATUS | [0]=TX_BUSY [1]=RX_VALID [2]=TX_FIFO_FULL [3]=RX_FIFO_EMPTY [4]=TX_FIFO_EMPTY [5]=RX_FIFO_FULL | FIFO 状态 |
+| 0x04 | STATUS | [0]=TX_BUSY [1]=RX_VALID [2]=TX_FIFO_FULL [3]=RX_FIFO_EMPTY [4]=TX_FIFO_EMPTY [5]=RX_FIFO_FULL | FIFO 状态；**读取时若 RX_VALID=1 自动武装下次 RXDATA 弹出** |
 | 0x08 | TXDATA | [7:0] | 写入推入 TX FIFO |
-| 0x0C | RXDATA | [7:0] | 读取弹出 RX FIFO |
+| 0x0C | RXDATA | [7:0] | 读取：若 `rx_pop_armed=1` 弹出 FIFO 并清标志；否则仅 peek（不弹出） |
 | 0x10 | BAUD | [15:0] | 波特率分频系数（0=默认 115200） |
 | 0x14 | IRQ_STAT | [0]=TX_DONE_IRQ [1]=RX_VALID_IRQ | 中断挂起（写 1 清除） |
+| 0x18 | RXPOP | — | 保留（写 1 弹出 RX FIFO，当前 bootloader 未使用） |
+
+**STATUS-read auto-arm 机制**：由于 CPU 数据总线存在每条 `lw`/`sw` 指令触发两次 AXI4-Lite 事务的 bug，直接弹出 RXDATA 会导致每隔一字节丢失。解决方案：读取 STATUS 且 `RX_VALID=1` 时置 `rx_pop_armed=1`，后续 RXDATA 读取在该标志有效时弹出 FIFO 并清标志，重复读取仅 peek 不弹。此机制使重复总线事务对 FIFO 无副作用。
 
 #### 6.2.2 GPIO 寄存器映射
 
@@ -990,7 +993,7 @@ vivado_config.yaml
 
 | Testbench | 程序 | 测试内容 | 结果 |
 |-----------|------|----------|------|
-| `tb_simple_cpu_top` | `cpu_full.hex` | 完整指令集测试（ALU + 分支 + 跳转 + Load/Store + M 扩展 + CLINT + Trap） | 41 PASS, 0 FAIL |
+| `tb_simple_cpu_top` | `cpu_full.hex` | 完整指令集测试 + UART Bootloader 程序下载 + SRAM 内存验证 | 41 PASS, 0 FAIL |
 | `tb_simple_cpu_compute` | `cpu_compute.hex` | 算术/逻辑/移位/乘除法计算测试 | 42 PASS, 0 FAIL |
 | `tb_simple_cpu_trap` | `cpu_trap.hex` | 异常/中断陷阱处理测试 | 14 PASS, 0 FAIL |
 | `tb_isa_alu` | `alu.hex` | ALU ISA 测试 | — |
@@ -1093,6 +1096,7 @@ vivado_config.yaml
 - **D 扩展未实现**：双精度浮点暂不支持，XLEN=32 时 D 扩展需 FLEN=64（NaN-boxing、64-bit 浮点寄存器）
 - **f0 硬连线零**：RISC-V 规范不要求 f0=0（与 x0 不同），当前实现 f0 恒为 0 为设计选择
 - **mstatus.FS 未强制**：FS=Off 时浮点指令未触发异常，为简化设计
+- **CPU 重复 AXI 事务 bug**：每条 `lw`/`sw` 指令触发两次 AXI4-Lite 总线事务（间隔约 15 周期）。对普通内存无影响（读无副作用），对有副作用的寄存器（如 UART RXDATA）需 RTL workaround（STATUS-read auto-arm 机制）。根本修复需排查 CPU 总线桥接逻辑
 
 ---
 
@@ -1263,7 +1267,7 @@ vivado_config.yaml
 
 | 目录 | 说明 |
 |------|------|
-| `dev/program_source/boot/` | Bootloader（DDR3 启动引导：MIG 等待 → DDR3 自检 → UART 接收 → 跳转） |
+| `dev/program_source/boot/` | Bootloader（DDR3 启动引导：sp 初始化 → MIG 等待 → DDR3 自检 → UART 接收程序镜像 → fence.i → 跳转执行） |
 | `dev/program_source/app/` | 应用程序（calculator, led_marquee, uart_hello, uart_echo, ddr3_test） |
 | `dev/program_source/test/isa/` | ISA 测试（alu, branch, jump, memory, upper_imm, m_ext, csr, f_ext, f_ext_special） |
 | `dev/program_source/test/integration/` | 集成测试（cpu_full, cpu_compute, cpu_trap） |
@@ -1316,6 +1320,7 @@ vivado_config.yaml
 34. **外设中断路由**：UART/SPI/GPIO 中断输出经 PLIC 路由至 CPU（src[2]=UART, src[3]=SPI, src[4]=GPIO）
 35. **UART TX/RX FIFO**：各 16 字节同步 FIFO 缓冲，支持连续收发不丢数据
 36. **UART 可配波特率**：BAUD 寄存器运行时设置分频系数，0 回退默认 115200
+37. **UART RXDATA peek + STATUS-read auto-arm**：RXDATA 读取为 peek（不弹 FIFO），STATUS 读取自动武装下次 RXDATA 弹出，应对 CPU 重复 AXI 事务 bug
 37. **GPIO 引脚变化中断**：逐引脚中断使能掩码 + 写 1 清除挂起状态
 38. **SPI 传输完成中断**：CTRL[4] 中断使能，传输完成置挂起，写 STATUS 清除
 39. **CLINT 可写 msip**：msip 寄存器（偏移 0x10）支持软件中断，符合 RISC-V CLINT 规范
@@ -1327,4 +1332,4 @@ vivado_config.yaml
 45. **浮点计算器应用**：基于 UART IO 的递归下降表达式解析器，支持 +,-,*,/,(),sqrt(),neg()
 46. **共享 testbench 框架**：tb_soc_includes.svh，SoC 级仿真 + DDR3 支持
 47. **测试程序分类重组**：isa/exception/cache/mmu/privilege/mmio/regression/ 目录结构
-48. **Boot ROM 启动流程**：CPU 复位 PC=0xFC000000 → bootloader（LUI+JR）→ 跳转 0x80000000 → 主程序执行
+48. **Boot ROM 启动流程**：CPU 复位 PC=0xFC000000 → bootloader（sp 初始化 + DDR3 自检 + UART 接收程序镜像 + fence.i + 跳转）→ 主程序执行

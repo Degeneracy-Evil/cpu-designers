@@ -189,6 +189,13 @@ module icache_ctrl(
 
     reg [31:0] bypass_data;
 
+    // BUG-86 fix is in the bus bridge (cpu_bus_bridge.sv): when a stale
+    // MMIO instruction response arrives after a branch redirect, the bus
+    // bridge detects addr_r != icache_mmio_addr and discards the stale
+    // response, then restarts with the new address.  No icache changes
+    // needed — the bus bridge guarantees that ahb_inst_valid is only
+    // asserted for the *current* icache_mmio_addr.
+
     wire [SET_IDX_W-1:0] sel_word_off = (state == S_REFILL) ? latched_addr[`ICACHE_WORD_OFF_HI:`ICACHE_WORD_OFF_LO] : word_off;
     wire [LINE_WIDTH-1:0] sel_line     = (state == S_REFILL) ? refill_data : bram_douta;
     wire [31:0]  sel_word;
@@ -256,6 +263,9 @@ module icache_ctrl(
                         invalidate_set <= {SET_IDX_W{1'b0}};
                     end else if (cpu_req_valid && !cpu_req_ready_r) begin
                         if (is_mmio) begin
+                            // BUG-86 fix is in the bus bridge: it discards
+                            // stale MMIO responses when addr_r != icache_mmio_addr,
+                            // so mmio_valid here is always for the current PC.
                             if (mmio_valid) begin
                                 bypass_data     <= mmio_data;
                                 cpu_req_ready_r <= 1'b1;

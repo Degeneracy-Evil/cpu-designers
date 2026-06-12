@@ -39,6 +39,7 @@
 .equ UART_TXDATA,      0x08
 .equ UART_RXDATA,      0x0C
 .equ UART_BAUD,        0x10
+.equ UART_RXPOP,       0x18
 
 .equ MAGIC,            0x52495343      # "RISC" in little-endian
 
@@ -48,6 +49,9 @@
 .globl _start
 
 _start:
+    # ── Step 0: Init stack pointer ───────────────────────────────────
+    lui  sp, 0x80008          # sp = 0x80008000 (top of 32KB SRAM, grows down)
+
     # ── Step 1: Init GPIO (all pins output) ───────────────────────
     lui  t0, 0x10000          # t0 = GPIO_BASE
     li   t1, 0xFFFF
@@ -127,7 +131,11 @@ uart_init:
     j    1b
 
 load_done:
-    # ── Step 7: Jump to entry address ─────────────────────────────
+    # ── Step 7: Flush caches before jumping ──────────────────────────
+    fence.i                    # Flush dcache write-back + icache invalidate
+                               # Ensures CPU fetches freshly-written program from SRAM, not stale icache lines
+
+    # ── Step 8: Jump to entry address ─────────────────────────────
     jr   s3                    # Jump to program entry in DDR3
 
 hdr_err:
@@ -139,26 +147,30 @@ hdr_err:
 
 # ── UART helper: receive one byte ─────────────────────────────────
 # Returns: a0 = byte (zero-extended)
+# STATUS read auto-arms RXDATA pop; duplicate bus transactions harmless.
 uart_recv_byte:
 1:
     lw   t0, UART_STATUS(s10)
     andi t0, t0, 0x02          # Bit 1 = RX_VALID
     beqz t0, 1b                # Wait until byte available
-    lw   a0, UART_RXDATA(s10)  # Read byte
+    lw   a0, UART_RXDATA(s10)  # Read byte + pop (STATUS read armed the pop)
     ret
 
 # ── UART helper: receive 4 bytes → word (little-endian) ──────────
 # Returns: a0 = 32-bit word
+# Uses sb+lw instead of slli/or to avoid CPU pipeline hazard
 uart_recv_word:
+    addi sp, sp, -8          # Save ra + word buffer on stack
+    sw   ra, 0(sp)
     jal  ra, uart_recv_byte    # byte 0 (LSB)
-    mv   t1, a0
+    sb   a0, 4(sp)
     jal  ra, uart_recv_byte    # byte 1
-    slli a0, a0, 8
-    or   t1, t1, a0
+    sb   a0, 5(sp)
     jal  ra, uart_recv_byte    # byte 2
-    slli a0, a0, 16
-    or   t1, t1, a0
+    sb   a0, 6(sp)
     jal  ra, uart_recv_byte    # byte 3 (MSB)
-    slli a0, a0, 24
-    or   a0, t1, a0
+    sb   a0, 7(sp)
+    lw   a0, 4(sp)             # Load full 32-bit word (little-endian)
+    lw   ra, 0(sp)            # Restore ra from stack
+    addi sp, sp, 8
     ret

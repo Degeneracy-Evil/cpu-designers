@@ -137,8 +137,143 @@ end
 generate if (`SIMU_USE_DDR == 0) begin: sim_ram_tb
 
     // SRAM mode: release ddr_data_init immediately after reset
+    // Also force SYS_STATUS signals so full bootloader can proceed
+    // (In SRAM mode there is no MIG, so init_calib_complete is hardcoded 0;
+    //  the force overrides this so the bootloader's poll succeeds.)
     initial begin
         force u_soc.ddr_data_init = 1'b1;
+        force u_soc.mig_init_calib_complete_proxy = 1'b1;
+        force u_soc.mig_mmcm_locked_proxy        = 1'b1;
+    end
+
+    // ----------------------------------------------------------------
+    // UART TX simulation — drive uart_rx to send bytes to CPU
+    // Accelerated baud rate for simulation (divider=16 vs default 868)
+    // ----------------------------------------------------------------
+    localparam SIM_UART_CYCLE = 16;  // cycles per bit (must match forced baud divider)
+                                       // 16 ≈ 54× faster than real 115200 (868 cycles/bit)
+                                       // FIFO-count flow control prevents overflow
+
+    task uart_send_byte;
+        input [7:0] byte_data;
+        integer i;
+        begin
+            // Start bit
+            uart_rx = 1'b0;
+            repeat(SIM_UART_CYCLE) @(posedge clk);
+            // Data bits (LSB first)
+            for (i = 0; i < 8; i = i + 1) begin
+                uart_rx = byte_data[i];
+                repeat(SIM_UART_CYCLE) @(posedge clk);
+            end
+            // Stop bit
+            uart_rx = 1'b1;
+            repeat(SIM_UART_CYCLE) @(posedge clk);
+
+            // Flow control: wait for FIFO to have space before next byte.
+            // CPU bug causes duplicate AXI transactions, slowing consumption
+            // to ~270 cycles/byte.  We need headroom: wait until FIFO
+            // count drops below 12 (of 16) to avoid overflow.
+            // Use while+@(posedge clk) for XSim robustness.
+            while (u_soc.u_apb_perips.u_uart.rx_fifo_count >= 4'd14) begin
+                @(posedge clk);
+            end
+        end
+    endtask
+
+    task uart_send_word;
+        input [31:0] word_data;
+        begin
+            // Little-endian: LSB byte first
+            uart_send_byte(word_data[7:0]);
+            uart_send_byte(word_data[15:8]);
+            uart_send_byte(word_data[23:16]);
+            uart_send_byte(word_data[31:24]);
+        end
+    endtask
+
+    // ----------------------------------------------------------------
+    // uart_send_program — send program hex file via UART to bootloader
+    // Protocol: magic(4B) + length(4B) + load_addr(4B) + entry_addr(4B) + data
+    // ----------------------------------------------------------------
+    task uart_send_program;
+        input [256*8-1:0] filename;
+        reg  [31:0] data;
+        integer fd, code, word_cnt, total_words;
+        begin
+            // First pass: count words
+            fd = $fopen(filename, "r");
+            if (fd == 0) begin
+                $display("[UART-TB] ERROR: Cannot open %s", filename);
+                return;
+            end
+            total_words = 0;
+            while (!$feof(fd)) begin
+                code = $fscanf(fd, "%h\n", data);
+                if (code == 1) total_words = total_words + 1;
+            end
+            $fclose(fd);
+
+            $display("[UART-TB] Sending header: magic=0x52495343 length=%0d load=0x80000000 entry=0x80000000",
+                     total_words * 4);
+            $fflush;
+
+            // Send header
+            uart_send_word(32'h52495343);     // Magic "RISC"
+            uart_send_word(total_words * 4);  // Length in bytes
+            uart_send_word(32'h80000000);     // Load address
+            uart_send_word(32'h80000000);     // Entry address
+
+            // Second pass: send program data
+            fd = $fopen(filename, "r");
+            word_cnt = 0;
+            while (!$feof(fd)) begin
+                code = $fscanf(fd, "%h\n", data);
+                if (code == 1) begin
+                    uart_send_word(data);
+                    word_cnt = word_cnt + 1;
+                    if (word_cnt % 200 == 0) begin
+                        $display("[UART-TB] Sent %0d/%0d words via UART", word_cnt, total_words);
+                        $fflush;
+                    end
+                end
+            end
+            $fclose(fd);
+            $display("[UART-TB] Program delivery complete: %0d words (%0d bytes)",
+                     word_cnt, word_cnt * 4);
+            $fflush;
+        end
+    endtask
+
+    // ----------------------------------------------------------------
+    // UART program delivery initial block
+    // Waits for bootloader to initialize UART, then sends program
+    // ----------------------------------------------------------------
+    initial begin
+        // Wait for reset to fully propagate
+        repeat (100) @(posedge clk);
+
+        // Force accelerated UART baud divider for simulation speedup
+        // (Default 868 cycles/bit → 16 cycles/bit, ~54× faster)
+        force u_soc.u_apb_perips.u_uart.uart_baud = 32'd16;
+
+        // Wait for the bootloader to actually enable UART RX before sending.
+        // A fixed delay is fragile because the boot path length changes with
+        // reset timing, BRAM latency, and extra bootloader instrumentation.
+        wait (u_soc.u_apb_perips.u_uart.rx_en === 1'b1);
+        repeat (4) @(posedge clk);
+
+        $display("[UART-TB] %0t: Starting UART program delivery (rx_en=1 ctrl=0x%h baud=0x%h)...",
+                 $time,
+                 u_soc.u_apb_perips.u_uart.uart_ctrl,
+                 u_soc.u_apb_perips.u_uart.uart_baud);
+        $fflush;
+
+        // Send program via UART
+        uart_send_program("prog.hex");
+
+        $display("[UART-TB] %0t: UART delivery done, CPU should start executing program", $time);
+        $fflush;
     end
 
 end

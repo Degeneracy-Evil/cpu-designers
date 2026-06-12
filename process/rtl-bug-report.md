@@ -9,6 +9,7 @@
 > 第三轮修复状态 (Cache+CDC): BUG-69 ✅ | BUG-70 ✅ | BUG-71 ✅ | BUG-72 ✅ | BUG-73 ✅ | BUG-74 ✅ | BUG-75 ✅ | BUG-76 ✅ | BUG-77 ✅
 > 第四轮修复状态 (Cache Tag+ROM): BUG-78 ✅ | BUG-79 ✅ | BUG-80 ✅ | BUG-81 ✅ | BUG-82 ✅
 > 第五轮修复状态 (Boot ROM 启动): BUG-83 ✅ | BUG-84 ✅ | BUG-85 ✅
+> 第六轮修复状态 (UART RX Bootloader): BUG-86 ✅ | BUG-87 ✅ | BUG-88 ✅ | BUG-89 ✅ | BUG-90 ✅
 
 ---
 
@@ -1189,6 +1190,11 @@ ddr3_model (Micron 行为模型)
 | **P1** | BUG-75 | TB BRAM索引位宽不匹配 | addr[20:2]→addr[19:2] | **✅ 已修复** |
 | **P1** | BUG-76 | is_mmio遗漏0xC0000000+区域 | `~vaddr[31]|vaddr[30]` | **✅ 已修复** |
 | **P1** | BUG-77 | APB decoder缺少高位地址守卫 | PADDR[31:16]==16'h0010 | **✅ 已修复** |
+| **P0** | BUG-86 | UART RXDATA直接弹出FIFO，CPU重复AXI事务导致每隔一字节丢失 | STATUS-read auto-arm + RXDATA peek/pop | **✅ 已修复** |
+| **P1** | BUG-87 | Bootloader uart_recv_word未保存/恢复ra | 添加sw ra/lw ra | **✅ 已修复** |
+| **P1** | BUG-88 | Bootloader sp未初始化，sw ra写入地址0 | lui sp,0x80008 | **✅ 已修复** |
+| **P1** | BUG-89 | Bootloader跳转前缺少fence.i | jr前添加fence.i | **✅ 已修复** |
+| **P1** | BUG-90 | Bootloader slli/or字组装受重复AXI事务影响 | 改用sb+lw组装 | **✅ 已修复** |
 
 ---
 
@@ -1196,10 +1202,10 @@ ddr3_model (Micron 行为模型)
 
 | 严重度 | 数量 | Bug 编号 |
 |--------|------|---------|
-| 🔴 HIGH | 32 | BUG-1 ~ BUG-8, BUG-45, BUG-47 ~ BUG-55, BUG-55b ~ BUG-55d, BUG-56, BUG-57 ~ BUG-59, BUG-69 ~ BUG-73 |
-| 🟡 MEDIUM | 27 | BUG-9 ~ BUG-25, BUG-46, BUG-60 ~ BUG-63, BUG-74 ~ BUG-77 |
+| 🔴 HIGH | 37 | BUG-1 ~ BUG-8, BUG-45, BUG-47 ~ BUG-55, BUG-55b ~ BUG-55d, BUG-56, BUG-57 ~ BUG-59, BUG-69 ~ BUG-73, BUG-86 |
+| 🟡 MEDIUM | 29 | BUG-9 ~ BUG-25, BUG-46, BUG-60 ~ BUG-63, BUG-74 ~ BUG-77, BUG-87 ~ BUG-90 |
 | 🟢 LOW | 24 | BUG-26 ~ BUG-44, BUG-64 ~ BUG-68 |
-| **总计** | **83** | |
+| **总计** | **90** | |
 
 ---
 
@@ -1278,6 +1284,11 @@ ddr3_model (Micron 行为模型)
 | BUG-64 | 🟢 LOW | UART TX/RX always@ 风格 (**✅ 已修复**) |
 | BUG-66 | 🟢 LOW | CLINT mtimecmp=0 时 MTIP 被抑制 (**✅ 已修复**) |
 | BUG-68 | 🟢 LOW | AXI4-Lite PLIC/CLINT 未检查 WSTRB (**✅ 已修复**) |
+| BUG-86 | 🔴 HIGH | UART RXDATA直接弹出FIFO，CPU重复AXI事务导致每隔一字节丢失 (**✅ 已修复**) |
+| BUG-87 | 🟡 MED | Bootloader uart_recv_word未保存/恢复ra (**✅ 已修复**) |
+| BUG-88 | 🟡 MED | Bootloader sp未初始化 (**✅ 已修复**) |
+| BUG-89 | 🟡 MED | Bootloader跳转前缺少fence.i (**✅ 已修复**) |
+| BUG-90 | 🟡 MED | Bootloader slli/or字组装受重复AXI事务影响 (**✅ 已修复**) |
 
 ### 全局性
 | Bug # | 严重度 | 描述 |
@@ -1411,5 +1422,86 @@ mmio_inst_served 等待 icache_mmio_req=0 → 永远不清除
 
 ---
 
+## 🔴 第六轮 — UART RX Bootloader 数据接收修复 (2026-06-12)
+
+> 聚焦 UART RX 数据接收失败：bootloader 无法通过 UART 接收程序镜像，cpu_full 集成测试内存检查全部失败
+> 最终结果: ✅ ALL TESTS PASSED (pass=41, fail=0)
+
+### BUG-86: UART RXDATA 读取直接弹出 FIFO — CPU 重复 AXI 事务导致每隔一字节丢失
+
+**文件**: `dev/rtl/APB/perips/uart_top.sv`
+
+**状态**: ✅ 已修复 (2026-06-12)
+
+**描述**: UART RXDATA 寄存器（偏移 0x0C）读取时直接弹出 RX FIFO 头部。但 CPU 数据总线存在每条 `lw` 指令触发两次 AXI4-Lite 事务的 bug（两次 AR 握手，间隔约 15 周期）。对普通内存无影响（读无副作用），但对 RXDATA 是致命的——第二次读额外弹出 FIFO 中的一个字节。
+
+**逐周期追踪**:
+```
+lw RXDATA → AXI AR#1 (pop byte N) → AXI AR#2 (pop byte N+1!) ← 丢失一字节
+```
+
+**修复**: 实现 STATUS-read auto-arm 机制：
+1. 读 STATUS 且 `rx_valid=1` 时置 `rx_pop_armed=1`
+2. 读 RXDATA 时：若 `rx_pop_armed=1` 则弹出 FIFO 并清标志；否则仅 peek（不弹出）
+3. 重复读 STATUS 幂等（`rx_pop_armed` 已为 1），重复读 RXDATA 安全（peek only）
+
+**修复后执行序列**:
+```
+lw STATUS → AR#1 (arm)  → AR#2 (re-arm, idempotent)
+lw RXDATA → AR#3 (pop)  → AR#4 (peek only) ← 无丢失
+```
+
+**验证**: cpu_full ALL TESTS PASSED (41/41)
+
+---
+
+### BUG-87: Bootloader `uart_recv_word` 未保存/恢复 ra — 返回地址被覆盖
+
+**文件**: `dev/program_source/boot/bootloader.s`
+
+**状态**: ✅ 已修复 (2026-06-12)
+
+**描述**: `uart_recv_word` 调用 `uart_recv_byte`（`jal ra, uart_recv_byte`），但未在栈上保存 ra。4 次 `jal` 后 ra 被最后一次调用的返回地址覆盖，`uart_recv_word` 的 `ret` 跳转到错误地址。
+
+**修复**: 添加 `addi sp, sp, -4; sw ra, 0(sp)` / `lw ra, 0(sp); addi sp, sp, 4`。
+
+---
+
+### BUG-88: Bootloader sp 未初始化 — `sw ra, 0(sp)` 写入地址 0 覆盖程序数据
+
+**文件**: `dev/program_source/boot/bootloader.s`
+
+**状态**: ✅ 已修复 (2026-06-12)
+
+**描述**: `_start` 中未初始化 sp，默认为 0。`sw ra, 0(sp)` 写入地址 0x80000000（SRAM 基址），覆盖程序数据。后续 `lw ra, 0(sp)` 读回被覆盖的值，ra 错误。
+
+**修复**: 在 `_start` 开头添加 `lui sp, 0x80008`（sp = 0x80008000，SRAM 高地址作为栈顶）。
+
+---
+
+### BUG-89: Bootloader 跳转执行前缺少 `fence.i` — icache 缓存旧数据
+
+**文件**: `dev/program_source/boot/bootloader.s`
+
+**状态**: ✅ 已修复 (2026-06-12)
+
+**描述**: bootloader 将程序写入 SRAM 后直接 `jr s3` 跳转执行。icache 中可能缓存了旧数据（全零或随机值），dcache 中可能有脏行未写回。CPU 取到旧指令，执行错误。
+
+**修复**: 在 `jr s3` 前添加 `fence.i`，刷新 dcache 脏行写回 + icache 标签失效。
+
+---
+
+### BUG-90: Bootloader `slli`/`or` 字组装受重复 AXI 事务影响产生错误结果
+
+**文件**: `dev/program_source/boot/bootloader.s`
+
+**状态**: ✅ 已修复 (2026-06-12)
+
+**描述**: bootloader 用 `slli` + `or` 将 4 个字节组装成 32 位字。由于 CPU 重复 AXI 事务 bug，即使 STATUS-arm 修复了 FIFO 弹出，字节到达顺序仍可能因时序差异导致 `slli`/`or` 组装出错误的字。
+
+**修复**: 改用 `sb` + `lw` 方式组装字——将 4 个字节逐个 `sb` 写入栈上连续地址，然后 `lw` 一次性读出 32 位字。`sb` 写入不受重复读影响（写是幂等的），`lw` 从 SRAM 读普通内存（无副作用）。
+
+---
+
 *报告由 Sisyphus RTL 审计系统生成。*
-*全部扫描完成: Core Pipeline ✅ | Bus/Peripherals ✅ | MMU/TLB/Cache ✅ | System Top ✅ | FPU ✅ | ALU/MU ✅ | DDR3 AHB ✅ | DDR3 System ✅ | AXI4-Lite ✅ (BUG-54/55 修复后仿真提速 500x, BUG-56 5层修复+force workaround 验证通过, 第二轮 12 项修复全部 LSP 验证通过, 第三轮 Cache+CDC 9 项修复 SRAM仿真 ALL TESTS PASSED, 第四轮 Cache Tag+ROM 5 项修复 cpu_full 41/42 PASS, 第五轮 Boot ROM 启动 3 项修复 cpu_full 41/41 ALL TESTS PASSED)*
+*全部扫描完成: Core Pipeline ✅ | Bus/Peripherals ✅ | MMU/TLB/Cache ✅ | System Top ✅ | FPU ✅ | ALU/MU ✅ | DDR3 AHB ✅ | DDR3 System ✅ | AXI4-Lite ✅ (BUG-54/55 修复后仿真提速 500x, BUG-56 5层修复+force workaround 验证通过, 第二轮 12 项修复全部 LSP 验证通过, 第三轮 Cache+CDC 9 项修复 SRAM仿真 ALL TESTS PASSED, 第四轮 Cache Tag+ROM 5 项修复 cpu_full 41/42 PASS, 第五轮 Boot ROM 启动 3 项修复 cpu_full 41/41 ALL TESTS PASSED, 第六轮 UART RX Bootloader 5 项修复 cpu_full 41/41 ALL TESTS PASSED)*

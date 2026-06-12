@@ -271,11 +271,7 @@ module core_top(
 
     always_ff @(posedge clk or negedge resetn) begin
         if (!resetn) begin
-`ifdef SIMULATION
-            pc <= 32'h80000000;  // Simulation: skip bootloader, start from main memory
-`else
-            pc <= 32'hFC000000;  // FPGA: Boot ROM @ 0xFC00_0000 (DDR3 bootloader)
-`endif
+            pc <= 32'hFC000000;  // Boot ROM @ 0xFC00_0000 (both sim and FPGA)
             priv_mode <= PRIV_M;
             if_id_bus_r <= 96'b0;
             id_exe_bus_r <= 334'b0;

@@ -294,8 +294,8 @@ module cpu_bus_bridge(
             dcache_error_is_store_r <= 1'b0;
             ptw_done_r             <= 1'b0;
             ptw_error_r            <= 1'b0;
-            if (!icache_mmio_req) mmio_inst_served <= 1'b0;
-            if (!dcache_mmio_req) mmio_data_served <= 1'b0;
+            if (!icache_mmio_req || ahb_inst_valid_r) mmio_inst_served <= 1'b0;
+            if (!dcache_mmio_req || ahb_data_valid_r) mmio_data_served <= 1'b0;
 
             case (state)
                 // =====================================================

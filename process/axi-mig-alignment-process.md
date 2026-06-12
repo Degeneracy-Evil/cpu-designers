@@ -96,6 +96,7 @@
 
 ### 3.1 复制 Axi_CDC
 - [x] 从 chiplab 复制 Axi_CDC.v 到 dev/rtl/AMBA/
+- ⚠️ **xpm_fifo_async 重写已回退** (2026-06-12): 曾将 Axi_CDC.v 替换为 xpm_fifo_async 原语实现（4通道 FIFO，删除全部 BufferCC 辅助模块），后为隔离验证 Cache Tag 变更而回退至 SpinalHDL 原始实现。xpm_fifo_async 重写需单独验证后重新提交。
 
 ### 3.2 创建 axi_wrap_ddr.sv
 - [x] 模块端口 (与 chiplab 一致)

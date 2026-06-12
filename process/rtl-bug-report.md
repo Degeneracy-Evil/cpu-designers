@@ -958,6 +958,8 @@ end
 1. `system_top.sv` SIMU_USE_PLL=0: `cpu_clk = clk_91m`(~91MHz) → `cpu_clk = clk`(100MHz, 同sys_clk)
 2. `system_top.sv` `ifdef SIMULATION: 替换 Axi_CDC 实例化为直接连线旁路（FPGA路径保留真实 Axi_CDC）
 
+> ⚠️ **Axi_CDC xpm_fifo_async 重写已回退** (2026-06-12): 曾尝试将 Axi_CDC.v 从 SpinalHDL 生成的手写异步 FIFO + BufferCC 链（~1800行）替换为 Xilinx `xpm_fifo_async` 原语实现（4通道各一个 xpm_fifo_async），以获得更好的时序和可靠性。但该重写与 Cache Tag 扩展 + SRAM→ROM 变更混合在同一批未提交修改中，为隔离验证 Cache Tag 变更的影响，已将 `dev/rtl/AMBA/Axi_CDC.v` 回退到上次提交版本（SpinalHDL 原始实现 + 仿真旁路）。xpm_fifo_async 重写需单独验证后重新提交。
+
 **验证**: isa_alu ALL TESTS PASSED (20/20), cpu_full 41/42 PASS
 
 ---

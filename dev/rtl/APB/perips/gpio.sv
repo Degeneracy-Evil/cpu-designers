@@ -51,7 +51,7 @@ module gpio #(
     wire [GPIO_NUM-1:0] gpio_pin_changed;
 
     wire write_access = PSEL & PENABLE & PWRITE & PREADY;
-    wire read_access  = PSEL & PENABLE & !PWRITE;
+    wire read_access  = PSEL & PENABLE & !PWRITE & PREADY;
 
     assign o_gpioCtrl = gpio_ctrl;
     assign o_gpioData = gpio_data;
@@ -87,14 +87,14 @@ module gpio #(
         end
     endgenerate
 
-    // IRQ status: set on pin change, write-1-to-clear
+    // IRQ status: set on pin change, write-1-to-clear with PSTRB gating
     generate
         for (i = 0; i < GPIO_NUM; i = i + 1) begin : gen_irq_stat
             always_ff @(posedge PCLK or negedge PRESETn) begin
                 if (!PRESETn) begin
                     gpio_irq_stat[i] <= 1'b0;
                 end else begin
-                    if (write_access && (PADDR[3:0] == GPIO_IRQ_STAT) && PWDATA[i]) begin
+                    if (write_access && (PADDR[3:0] == GPIO_IRQ_STAT) && PSTRB[i/8] && PWDATA[i]) begin
                         gpio_irq_stat[i] <= 1'b0;  // write-1-to-clear
                     end else if (gpio_pin_changed[i] && gpio_irq_en[i]) begin
                         gpio_irq_stat[i] <= 1'b1;  // set on change
@@ -113,13 +113,23 @@ module gpio #(
             if (write_access) begin
                 case (PADDR[3:0])
                     GPIO_CTRL: begin
-                        gpio_ctrl <= PWDATA;
+                        // Full 32-bit with PSTRB byte-lane masking
+                        if (PSTRB[0]) gpio_ctrl[7:0]   <= PWDATA[7:0];
+                        if (PSTRB[1]) gpio_ctrl[15:8]  <= PWDATA[15:8];
+                        if (PSTRB[2]) gpio_ctrl[23:16] <= PWDATA[23:16];
+                        if (PSTRB[3]) gpio_ctrl[31:24] <= PWDATA[31:24];
                     end
                     GPIO_DATA: begin
-                        gpio_data_hi <= PWDATA[`APB_DATA_WIDTH-1:GPIO_NUM];
+                        // gpio_data_hi: upper non-pin bits with PSTRB masking
+                        if (PSTRB[2]) gpio_data_hi[23:GPIO_NUM] <= PWDATA[23:GPIO_NUM];
+                        if (PSTRB[3]) gpio_data_hi[31:24]       <= PWDATA[31:24];
                     end
                     GPIO_IRQ_EN: begin
-                        gpio_irq_en <= PWDATA;
+                        // Full 32-bit with PSTRB byte-lane masking
+                        if (PSTRB[0]) gpio_irq_en[7:0]   <= PWDATA[7:0];
+                        if (PSTRB[1]) gpio_irq_en[15:8]  <= PWDATA[15:8];
+                        if (PSTRB[2]) gpio_irq_en[23:16] <= PWDATA[23:16];
+                        if (PSTRB[3]) gpio_irq_en[31:24] <= PWDATA[31:24];
                     end
                     default: ;
                 endcase
@@ -147,7 +157,7 @@ module gpio #(
                 if (!PRESETn) begin
                     gpio_data_lo[i] <= 1'b0;
                 end else begin
-                    if (write_access && (PADDR[3:0] == GPIO_DATA) && gpio_ctrl[i]) begin
+                    if (write_access && (PADDR[3:0] == GPIO_DATA) && gpio_ctrl[i] && PSTRB[i/8]) begin
                         gpio_data_lo[i] <= PWDATA[i];
                     end else if (!gpio_ctrl[i]) begin
                         gpio_data_lo[i] <= io_gpioPin[i];

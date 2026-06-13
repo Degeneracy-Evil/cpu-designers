@@ -44,7 +44,7 @@ module spi(
     wire [8:0] div_cnt;
 
     wire write_access = PSEL & PENABLE & PWRITE & PREADY;
-    wire read_access  = PSEL & PENABLE & !PWRITE;
+    wire read_access  = PSEL & PENABLE & !PWRITE & PREADY;
 
     assign o_spiSs  = ~spi_ctrl[3];
     assign div_cnt  = spi_ctrl[15:8];
@@ -167,14 +167,14 @@ module spi(
     end
 
     // Interrupt pending: set on transfer complete when IRQ enabled,
-    // cleared by writing to SPI_STATUS register
+    // cleared by writing to SPI_STATUS register (PSTRB[0] gated, bit in byte 0)
     always_ff @(posedge PCLK or negedge PRESETn) begin
         if (!PRESETn) begin
             spi_irq_pending <= 1'b0;
         end else begin
             if (done && spi_ctrl[4]) begin
                 spi_irq_pending <= 1'b1;
-            end else if (write_access && (PADDR[3:0] == SPI_STATUS)) begin
+            end else if (write_access && (PADDR[3:0] == SPI_STATUS) && PSTRB[0]) begin
                 spi_irq_pending <= 1'b0;
             end
         end
@@ -191,9 +191,21 @@ module spi(
 
             if (write_access) begin
                 case (PADDR[3:0])
-                    SPI_CTRL:   spi_ctrl <= PWDATA;
-                    SPI_DATA:   spi_data <= PWDATA;
-                    SPI_STATUS: ;  // write clears irq_pending (handled above)
+                    SPI_CTRL: begin
+                        // Full 32-bit with PSTRB byte-lane masking
+                        if (PSTRB[0]) spi_ctrl[7:0]   <= PWDATA[7:0];
+                        if (PSTRB[1]) spi_ctrl[15:8]  <= PWDATA[15:8];
+                        if (PSTRB[2]) spi_ctrl[23:16] <= PWDATA[23:16];
+                        if (PSTRB[3]) spi_ctrl[31:24] <= PWDATA[31:24];
+                    end
+                    SPI_DATA: begin
+                        // Full 32-bit with PSTRB byte-lane masking
+                        if (PSTRB[0]) spi_data[7:0]   <= PWDATA[7:0];
+                        if (PSTRB[1]) spi_data[15:8]  <= PWDATA[15:8];
+                        if (PSTRB[2]) spi_data[23:16] <= PWDATA[23:16];
+                        if (PSTRB[3]) spi_data[31:24] <= PWDATA[31:24];
+                    end
+                    SPI_STATUS: ;  // write clears irq_pending (handled above with PSTRB gating)
                     default: ;
                 endcase
             end

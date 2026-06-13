@@ -187,6 +187,14 @@ module fpu_divider(
     wire [7:0]  final_exp  = result_overflow ? 8'hFE : final_exp_raw[7:0];
     wire [31:0] packed_result = {sign_res, final_exp, final_mant[22:0]};
 
+    // BUG-22 fix: overflow result depends on rounding mode (IEEE 754)
+    wire ovf_to_inf = (rm_r == 3'b000) |  // RNE → ±Infinity
+                      (rm_r == 3'b100) |  // RMM → ±Infinity
+                      ((rm_r == 3'b011) & ~sign_res) |  // RUP & positive → +Infinity
+                      ((rm_r == 3'b010) & sign_res);    // RDN & negative → -Infinity
+    wire [31:0] packed_max    = {sign_res, 8'hFE, 23'h7FFFFF};  // ±Max finite float
+    wire [31:0] overflow_res  = ovf_to_inf ? (sign_res ? NEG_INF : POS_INF) : packed_max;
+
     // Flags for normal path
     wire flag_of = result_overflow;
     wire flag_uf = is_underflow & grs;
@@ -326,8 +334,8 @@ module fpu_divider(
                         flags_r[1]     <= is_underflow & (mantissa_27 != 27'b0);  // UF
                         flags_r[0]     <= (mantissa_27 != 27'b0);                  // NX
                     end else if (result_overflow) begin
-                        // Overflow => Inf
-                        result_r       <= sign_res ? NEG_INF : POS_INF;
+                        // BUG-22 fix: overflow result depends on rounding mode
+                        result_r       <= overflow_res;
                         flags_r[2]     <= 1'b1;  // OF
                         flags_r[0]     <= 1'b1;  // NX
                     end else begin

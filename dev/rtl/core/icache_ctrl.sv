@@ -13,6 +13,7 @@ module icache_ctrl(
     output wire        cpu_req_ready,
 
     output wire        mmio_req,
+    input  wire        mmio_accept,
     output wire [31:0] mmio_addr,
     input  wire [31:0] mmio_data,
     input  wire        mmio_valid,
@@ -188,6 +189,8 @@ module icache_ctrl(
     );
 
     reg [31:0] bypass_data;
+    reg        mmio_pending_r;
+    reg [31:0] mmio_addr_r;
 
     // BUG-86 fix is in the bus bridge (cpu_bus_bridge.sv): when a stale
     // MMIO instruction response arrives after a branch redirect, the bus
@@ -209,11 +212,8 @@ module icache_ctrl(
     assign refill_req  = refill_req_r;
     assign refill_addr = refill_addr_r;
 
-    // BUG-86 fix (Approach A): gate with !cpu_req_ready_r to deassert mmio_req
-    // as soon as the response is captured.  Prevents duplicate AXI transactions
-    // when the bus bridge re-enters S_IDLE while this level signal is still high.
-    assign mmio_req  = is_mmio ? (cpu_req_valid && mmu_ready && !cpu_req_ready_r) : 1'b0;
-    assign mmio_addr = cpu_req_addr;
+    assign mmio_req  = mmio_pending_r;
+    assign mmio_addr = mmio_addr_r;
 
     assign cpu_req_ready = cpu_req_ready_r;
     assign invalidate_done = invalidate_done_r;
@@ -244,6 +244,8 @@ module icache_ctrl(
             latched_addr     <= 32'b0;
             bypass_data      <= 32'b0;
             cpu_req_ready_r  <= 1'b0;
+            mmio_pending_r   <= 1'b0;
+            mmio_addr_r      <= 32'b0;
             invalidate_done_r <= 1'b0;
             invalidate_set   <= {SET_IDX_W{1'b0}};
             tag_bram_enb_r   <= 1'b0;
@@ -257,6 +259,8 @@ module icache_ctrl(
             cpu_req_ready_r  <= 1'b0;
             invalidate_done_r <= 1'b0;
             tag_bram_enb_r   <= 1'b0;  // default: no tag BRAM write
+            if (mmio_accept)
+                mmio_pending_r <= 1'b0;
 
             case (state)
                 S_IDLE: begin
@@ -266,9 +270,10 @@ module icache_ctrl(
                         invalidate_set <= {SET_IDX_W{1'b0}};
                     end else if (cpu_req_valid && !cpu_req_ready_r) begin
                         if (is_mmio) begin
-                            // BUG-86 fix is in the bus bridge: it discards
-                            // stale MMIO responses when addr_r != icache_mmio_addr,
-                            // so mmio_valid here is always for the current PC.
+                            if (mmu_ready && !mmio_pending_r) begin
+                                mmio_pending_r <= 1'b1;
+                                mmio_addr_r    <= cpu_req_addr;
+                            end
                             if (mmio_valid) begin
                                 bypass_data     <= mmio_data;
                                 cpu_req_ready_r <= 1'b1;

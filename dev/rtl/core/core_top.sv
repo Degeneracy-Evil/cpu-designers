@@ -369,6 +369,7 @@ module core_top(
     wire [31:0] instData_32_mux;
     wire        inst_valid_mux;
     wire        icache_mmio_req;
+    wire        icache_mmio_accept;
 
     wire [31:0] ahb_inst_data;
     wire        ahb_inst_valid;
@@ -422,6 +423,7 @@ module core_top(
         .cpu_req_ready(inst_valid_mux),
 
         .mmio_req(icache_mmio_req),
+        .mmio_accept(icache_mmio_accept),
         .mmio_addr(),
         .mmio_data(ahb_inst_data),
         .mmio_valid(ahb_inst_valid),
@@ -493,6 +495,7 @@ module core_top(
         .csr_frm(csr_frm),
         .frs1_value(frs1_value),
         .frs2_value(frs2_value),
+        .trap_pending(trap_pending),
         .exe_done(exe_done),
         .exe_mem_bus(exe_mem_bus),
         .exe_branch_taken(exe_branch_taken),
@@ -523,6 +526,7 @@ module core_top(
     wire        dcache_mmio_hwrite;
     wire [2:0]  dcache_mmio_hsize;
     wire        dcache_mmio_req;
+    wire        dcache_mmio_accept;
 
     wire [31:0] ahb_data_rdata;
     wire        ahb_data_valid;
@@ -557,6 +561,7 @@ module core_top(
         .cpu_req_ready(data_valid_mux),
 
         .mmio_req(dcache_mmio_req),
+        .mmio_accept(dcache_mmio_accept),
         .mmio_addr(dcache_mmio_addr),
         .mmio_wdata(dcache_mmio_wdata),
         .mmio_hwrite(dcache_mmio_hwrite),
@@ -774,8 +779,10 @@ module core_top(
         .clk              (clk),
         .resetn            (resetn),
         .icache_mmio_req  (icache_mmio_req),
+        .icache_mmio_accept(icache_mmio_accept),
         .icache_mmio_addr (mmu_inst_paddr),
         .dcache_mmio_req  (dcache_mmio_req),
+        .dcache_mmio_accept(dcache_mmio_accept),
         .dcache_mmio_addr (dcache_mmio_addr),
         .dcache_mmio_wdata(dcache_mmio_wdata),
         .dcache_mmio_hwrite(dcache_mmio_hwrite),

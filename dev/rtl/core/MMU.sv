@@ -327,8 +327,8 @@ module MMU #(
     end
 
     assign i_page_fault = i_pf_r;
-    assign i_pf_cause   = i_pf_r ? (i_pf_from_ptw_r ? ptw_fault_cause_out : i_pf_cause_r) : 4'b0;
-    assign i_pf_vaddr   = i_pf_r ? (i_pf_from_ptw_r ? ptw_fault_vaddr_out : i_pf_vaddr_r) : 32'b0;
+    assign i_pf_cause   = i_pf_r ? i_pf_cause_r : 4'b0;    // BUG-9 fix: always use latched value
+    assign i_pf_vaddr   = i_pf_r ? i_pf_vaddr_r : 32'b0;    // BUG-9 fix: always use latched value
 
     // d-side page fault
     reg d_pf_r;
@@ -364,8 +364,8 @@ module MMU #(
     end
 
     assign d_page_fault = d_pf_r;
-    assign d_pf_cause   = d_pf_r ? (d_pf_from_ptw_r ? ptw_fault_cause_out : d_pf_cause_r) : 4'b0;
-    assign d_pf_vaddr   = d_pf_r ? (d_pf_from_ptw_r ? ptw_fault_vaddr_out : d_pf_vaddr_r) : 32'b0;
+    assign d_pf_cause   = d_pf_r ? d_pf_cause_r : 4'b0;    // BUG-9 fix: always use latched value
+    assign d_pf_vaddr   = d_pf_r ? d_pf_vaddr_r : 32'b0;    // BUG-9 fix: always use latched value
 
     // =========================================================================
     // i-side FSM
@@ -749,19 +749,42 @@ module MMU #(
     // ── Walk active tracking + walk side (single shared walker) ──
     reg walk_active_r;
     reg walk_is_d_r;    // BUG-3: track which side triggered the walk
+    reg pending_i_walk; // BUG-10: capture i-side miss when d-walk wins arbitration
+    reg pending_d_walk; // BUG-10: capture d-side miss when i-walk wins arbitration
 
     always_ff @(posedge clk or negedge resetn) begin
         if (!resetn) begin
-            walk_active_r <= 1'b0;
-            walk_is_d_r   <= 1'b0;
+            walk_active_r  <= 1'b0;
+            walk_is_d_r    <= 1'b0;
+            pending_i_walk <= 1'b0;
+            pending_d_walk <= 1'b0;
         end else if (sfence_vma) begin
-            walk_active_r <= 1'b0;
-            walk_is_d_r   <= 1'b0;
+            walk_active_r  <= 1'b0;
+            walk_is_d_r    <= 1'b0;
+            pending_i_walk <= 1'b0;
+            pending_d_walk <= 1'b0;
         end else if ((i_tlb_miss || d_tlb_miss) && !walk_active_r) begin
             walk_active_r <= 1'b1;
-            walk_is_d_r   <= d_tlb_miss;   // d-miss wins on simultaneous miss
+            if (d_tlb_miss) begin
+                walk_is_d_r    <= 1'b1;     // d-miss wins
+                pending_i_walk <= i_tlb_miss; // BUG-10: capture i-miss if simultaneous
+            end else begin
+                walk_is_d_r    <= 1'b0;     // i-miss wins
+                pending_d_walk <= d_tlb_miss; // BUG-10: capture d-miss if simultaneous
+            end
         end else if (ptw_walk_done || ptw_walk_fault) begin
-            walk_active_r <= 1'b0;
+            // BUG-10: service pending walk after current walk completes
+            if (pending_i_walk) begin
+                walk_active_r  <= 1'b1;
+                walk_is_d_r    <= 1'b0;
+                pending_i_walk <= 1'b0;
+            end else if (pending_d_walk) begin
+                walk_active_r  <= 1'b1;
+                walk_is_d_r    <= 1'b1;
+                pending_d_walk <= 1'b0;
+            end else begin
+                walk_active_r <= 1'b0;
+            end
         end
     end
 
@@ -770,8 +793,8 @@ module MMU #(
     wire [1:0]  nb_walk_access  = walk_is_d_r ? d_access_type : ACCESS_FETCH;
     wire [19:0] nb_fill_vpn     = walk_is_d_r ? d_vaddr[31:12] : i_vaddr[31:12];
 
-    assign i_miss = i_tlb_miss && !walk_active_r;
-    assign d_miss = d_tlb_miss && !walk_active_r;
+    assign i_miss = (i_tlb_miss && !walk_active_r) || pending_i_walk;  // BUG-10: include pending
+    assign d_miss = (d_tlb_miss && !walk_active_r) || pending_d_walk;  // BUG-10: include pending
     assign i_ready = !i_miss;
     assign d_ready = !d_miss;
 
@@ -805,8 +828,8 @@ module MMU #(
     end
 
     assign i_page_fault = i_pf_r;
-    assign i_pf_cause   = i_pf_r ? (i_pf_from_ptw_r ? ptw_fault_cause_out : i_pf_cause_r) : 4'b0;
-    assign i_pf_vaddr   = i_pf_r ? (i_pf_from_ptw_r ? ptw_fault_vaddr_out : i_pf_vaddr_r) : 32'b0;
+    assign i_pf_cause   = i_pf_r ? i_pf_cause_r : 4'b0;    // BUG-9 fix: always use latched value
+    assign i_pf_vaddr   = i_pf_r ? i_pf_vaddr_r : 32'b0;    // BUG-9 fix: always use latched value
 
     // ── d-side page fault ──
     reg d_pf_r;
@@ -841,8 +864,8 @@ module MMU #(
     end
 
     assign d_page_fault = d_pf_r;
-    assign d_pf_cause   = d_pf_r ? (d_pf_from_ptw_r ? ptw_fault_cause_out : d_pf_cause_r) : 4'b0;
-    assign d_pf_vaddr   = d_pf_r ? (d_pf_from_ptw_r ? ptw_fault_vaddr_out : d_pf_vaddr_r) : 32'b0;
+    assign d_pf_cause   = d_pf_r ? d_pf_cause_r : 4'b0;    // BUG-9 fix: always use latched value
+    assign d_pf_vaddr   = d_pf_r ? d_pf_vaddr_r : 32'b0;    // BUG-9 fix: always use latched value
 
     // ── Single PTW instance ──
     ptw u_ptw(

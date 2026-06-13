@@ -14,13 +14,14 @@ module fpu_multiplier(
 );
 
     // ===================================================================
-    // FSM states
+    // FSM states (BUG-93 fix: S_COMPUTE split into S_MUL + S_NORM)
     // ===================================================================
-    localparam S_IDLE    = 2'd0;
-    localparam S_COMPUTE = 2'd1;
-    localparam S_DONE    = 2'd2;
+    localparam S_IDLE = 3'd0;
+    localparam S_MUL  = 3'd1;   // compute product, extract normalized values
+    localparam S_NORM = 3'd2;   // subnormal handling, rounding, pack result
+    localparam S_DONE = 3'd3;
 
-    reg [1:0] state;
+    reg [2:0] state;
 
     // ===================================================================
     // Latched inputs
@@ -54,7 +55,7 @@ module fpu_multiplier(
     );
 
     // ===================================================================
-    // Combinational computation
+    // Combinational computation (S_MUL stage)
     // ===================================================================
 
     // Result sign
@@ -79,7 +80,7 @@ module fpu_multiplier(
     wire [4:0] special_flags = {(any_snan | inf_times_zero), 4'b0};
 
     // ===================================================================
-    // Normal multiplication path
+    // Normal multiplication path (S_MUL stage)
     // ===================================================================
 
     // Biased exponent: subnormals use 1, normals use exp
@@ -98,7 +99,6 @@ module fpu_multiplier(
     wire [47:0] product = mant1 * mant2;
 
     // Exponent: bexp1 + bexp2 - 127 (bias adjustment)
-    // Use 10-bit to avoid overflow: max bexp1+bexp2 = 510, 510-127 = 383
     wire [9:0] exp_sum_10  = {2'b0, bexp1} + {2'b0, bexp2};
     wire [9:0] exp_raw_10  = exp_sum_10 - 10'd127;
 
@@ -106,8 +106,6 @@ module fpu_multiplier(
     wire prod_carry = product[47];
 
     // Extract mantissa and rounding bits based on carry
-    // Carry case: product[47]=1, result mant = product[47:24], G/R/S from product[23:0]
-    // Normal case: product[47]=0, result mant = product[46:23], G/R/S from product[22:0]
     wire [23:0] norm_mant24 = prod_carry ? product[47:24] : product[46:23];
     wire        norm_g      = prod_carry ? product[23]    : product[22];
     wire        norm_r      = prod_carry ? product[22]    : product[21];
@@ -119,47 +117,63 @@ module fpu_multiplier(
     // Exponent after normalization (10-bit)
     wire [9:0] exp_normed_10 = prod_carry ? (exp_raw_10 + 10'd1) : exp_raw_10;
 
-    // Overflow: exponent >= 255 before rounding (result too large)
+    // Overflow: exponent >= 255 before rounding
     wire exp_overflow_pre = (exp_normed_10 >= 10'd255);
 
     // Underflow: exponent <= 0
-    // In 10-bit unsigned, values >= 512 represent "negative" (wrap-around from
-    // the subtraction exp_sum - 127 when exp_sum < 127).  bit[9] detects this.
     wire exp_le_zero = exp_normed_10[9] | (exp_normed_10 == 10'd0);
 
     // For subnormal: denormalize by shifting mantissa right
-    // right_shift = 1 - exp_normed (when exp_normed <= 0)
-    // Modular arithmetic: 1 - exp_normed_10[7:0] gives correct result
     wire [7:0] denorm_rshift = 8'd1 - exp_normed_10[7:0];
 
     // Guard: if denorm_rshift >= 27, all mantissa bits are shifted out
     wire denorm_too_small = (denorm_rshift >= 8'd27);
 
-    // Denormalize: shift the 27-bit mantissa right
-    // Extend to 51 bits for the shift: {norm_mant, 24'b0}
-    wire [50:0] denorm_extended = {norm_mant, 24'b0};
-    wire [50:0] denorm_shifted  = denorm_extended >> denorm_rshift[4:0];
+    // ===================================================================
+    // Pipeline registers (S_MUL → S_NORM)
+    // BUG-93 fix: register derived values to break the long combinational
+    // path from DSP48 output through barrel shifter + rounding.
+    // ===================================================================
+    reg        mul_res_sign;
+    reg        mul_is_special;
+    reg [31:0] mul_spec_res;
+    reg [4:0]  mul_spec_flags;
+    reg [26:0] mul_norm_mant;
+    reg [9:0]  mul_exp_normed_10;
+    reg        mul_exp_overflow_pre;
+    reg        mul_exp_le_zero;
+    reg [7:0]  mul_denorm_rshift;
+    reg        mul_denorm_too_small;
+    reg [2:0]  mul_rm_r;
 
-    wire [23:0] denorm_mant24 = denorm_too_small ? 24'b0         : denorm_shifted[50:27];
-    wire        denorm_g      = denorm_too_small ? 1'b0          : denorm_shifted[26];
-    wire        denorm_r      = denorm_too_small ? 1'b0          : denorm_shifted[25];
-    wire        denorm_s      = denorm_too_small ? (|norm_mant)  : (|denorm_shifted[24:0]);
+    // ===================================================================
+    // S_NORM stage combinational logic
+    // ===================================================================
+
+    // Denormalize: shift the 27-bit mantissa right
+    wire [50:0] denorm_extended = {mul_norm_mant, 24'b0};
+    wire [50:0] denorm_shifted  = denorm_extended >> mul_denorm_rshift[4:0];
+
+    wire [23:0] denorm_mant24 = mul_denorm_too_small ? 24'b0         : denorm_shifted[50:27];
+    wire        denorm_g      = mul_denorm_too_small ? 1'b0          : denorm_shifted[26];
+    wire        denorm_r      = mul_denorm_too_small ? 1'b0          : denorm_shifted[25];
+    wire        denorm_s      = mul_denorm_too_small ? (|mul_norm_mant)  : (|denorm_shifted[24:0]);
     wire [26:0] denorm_mant   = {denorm_mant24, denorm_g, denorm_r, denorm_s};
 
     // Select between normal and subnormal
-    wire [26:0] final_mant = exp_le_zero ? denorm_mant : norm_mant;
-    wire [7:0]  final_exp  = exp_le_zero ? 8'b0 : exp_normed_10[7:0];
+    wire [26:0] final_mant = mul_exp_le_zero ? denorm_mant : mul_norm_mant;
+    wire [7:0]  final_exp  = mul_exp_le_zero ? 8'b0 : mul_exp_normed_10[7:0];
 
     // ===================================================================
-    // Rounding
+    // Rounding (S_NORM stage)
     // ===================================================================
     wire [23:0] rounded_mant;
     wire        round_up_w;
     wire        round_overflow;
 
     fpu_round rnd(
-        .rm(rm_r),
-        .sign(res_sign),
+        .rm(mul_rm_r),
+        .sign(mul_res_sign),
         .mantissa(final_mant),
         .rounded(rounded_mant),
         .round_up(round_up_w),
@@ -171,29 +185,29 @@ module fpu_multiplier(
     wire [7:0] exp_after_round   = exp_after_round_9[7:0];
 
     // Detect exponent overflow (from rounding or pre-existing)
-    wire exp_overflow = (exp_after_round_9 >= 9'd255) | exp_overflow_pre;
+    wire exp_overflow = (exp_after_round_9 >= 9'd255) | mul_exp_overflow_pre;
 
     // Detect inexact
     wire inexact = (final_mant[2] | final_mant[1] | final_mant[0]) | round_up_w;
 
     // Underflow: subnormal result and inexact
-    wire underflow = exp_le_zero & inexact;
+    wire underflow = mul_exp_le_zero & inexact;
 
     // Pack result
-    wire [31:0] packed_normal = {res_sign, exp_after_round, rounded_mant[22:0]};
-    wire [31:0] packed_inf    = {res_sign, 8'hFF, 23'b0};
+    wire [31:0] packed_normal = {mul_res_sign, exp_after_round, rounded_mant[22:0]};
+    wire [31:0] packed_inf    = {mul_res_sign, 8'hFF, 23'b0};
 
     // Overflow result depends on rounding mode
-    wire ovf_to_inf = (rm_r == 3'b000) |  // RNE
-                      (rm_r == 3'b100) |  // RMM
-                      ((rm_r == 3'b011) & ~res_sign) |  // RUP & positive
-                      ((rm_r == 3'b010) & res_sign);    // RDN & negative
-    wire [31:0] packed_max    = {res_sign, 8'hFE, 23'h7FFFFF};
+    wire ovf_to_inf = (mul_rm_r == 3'b000) |  // RNE
+                      (mul_rm_r == 3'b100) |  // RMM
+                      ((mul_rm_r == 3'b011) & ~mul_res_sign) |  // RUP & positive
+                      ((mul_rm_r == 3'b010) & mul_res_sign);    // RDN & negative
+    wire [31:0] packed_max    = {mul_res_sign, 8'hFE, 23'h7FFFFF};
     wire [31:0] overflow_res  = ovf_to_inf ? packed_inf : packed_max;
 
     // Zero result (from subnormal that rounds to zero)
-    wire [31:0] packed_zero = {res_sign, 31'b0};
-    wire result_is_zero = (rounded_mant == 24'b0) & exp_le_zero;
+    wire [31:0] packed_zero = {mul_res_sign, 31'b0};
+    wire result_is_zero = (rounded_mant == 24'b0) & mul_exp_le_zero;
 
     // Final result and flags
     wire [31:0] compute_res = result_is_zero  ? packed_zero :
@@ -221,15 +235,41 @@ module fpu_multiplier(
     // ===================================================================
     always_ff @(posedge clk or negedge resetn) begin
         if (!resetn) begin
-            state    <= S_IDLE;
-            done_r   <= 1'b0;
-            result_r <= 32'b0;
-            fflags_r <= 5'b0;
-            src1_r   <= 32'b0;
-            src2_r   <= 32'b0;
-            rm_r     <= 3'b0;
+            state              <= S_IDLE;
+            done_r             <= 1'b0;
+            result_r           <= 32'b0;
+            fflags_r           <= 5'b0;
+            src1_r             <= 32'b0;
+            src2_r             <= 32'b0;
+            rm_r               <= 3'b0;
+            // Pipeline registers
+            mul_res_sign       <= 1'b0;
+            mul_is_special     <= 1'b0;
+            mul_spec_res       <= 32'b0;
+            mul_spec_flags     <= 5'b0;
+            mul_norm_mant      <= 27'b0;
+            mul_exp_normed_10  <= 10'b0;
+            mul_exp_overflow_pre <= 1'b0;
+            mul_exp_le_zero    <= 1'b0;
+            mul_denorm_rshift  <= 8'b0;
+            mul_denorm_too_small <= 1'b0;
+            mul_rm_r           <= 3'b0;
         end else if (flush) begin
-            state    <= S_IDLE;
+            state              <= S_IDLE;
+            done_r             <= 1'b0;
+            // BUG-6 fix: clear pipeline registers on flush to prevent
+            // stale data leakage after flush→idle transition
+            mul_is_special     <= 1'b0;
+            mul_spec_res       <= 32'b0;
+            mul_spec_flags     <= 5'b0;
+            mul_norm_mant      <= 27'b0;
+            mul_exp_normed_10  <= 10'b0;
+            mul_res_sign       <= 1'b0;
+            mul_exp_overflow_pre <= 1'b0;
+            mul_exp_le_zero    <= 1'b0;
+            mul_denorm_rshift  <= 8'b0;
+            mul_denorm_too_small <= 1'b0;
+            mul_rm_r           <= 3'b0;
         end else begin
             done_r <= 1'b0;
 
@@ -240,15 +280,45 @@ module fpu_multiplier(
                         src1_r <= src1;
                         src2_r <= src2;
                         rm_r   <= rm;
-                        state  <= S_COMPUTE;
+                        state  <= S_MUL;
                     end
                 end
 
                 // -------------------------------------------------------
-                S_COMPUTE: begin
+                // BUG-93 fix: S_MUL — compute product and extract
+                // normalized intermediate values into pipeline registers.
+                // This breaks the long combinational path from DSP48
+                // output through barrel shifter + rounding.
+                // -------------------------------------------------------
+                S_MUL: begin
+                    mul_res_sign       <= res_sign;
+                    mul_rm_r           <= rm_r;
                     if (is_special) begin
-                        result_r <= special_res;
-                        fflags_r <= special_flags;
+                        mul_is_special <= 1'b1;
+                        mul_spec_res   <= special_res;
+                        mul_spec_flags <= special_flags;
+                    end else begin
+                        mul_is_special     <= 1'b0;
+                        mul_norm_mant      <= norm_mant;
+                        mul_exp_normed_10  <= exp_normed_10;
+                        mul_exp_overflow_pre <= exp_overflow_pre;
+                        mul_exp_le_zero    <= exp_le_zero;
+                        mul_denorm_rshift  <= denorm_rshift;
+                        mul_denorm_too_small <= denorm_too_small;
+                    end
+                    state <= S_NORM;
+                end
+
+                // -------------------------------------------------------
+                // BUG-93 fix: S_NORM — subnormal denormalization,
+                // rounding, overflow/underflow, result packing.
+                // All inputs come from pipeline registers (mul_*),
+                // breaking the previous single-cycle critical path.
+                // -------------------------------------------------------
+                S_NORM: begin
+                    if (mul_is_special) begin
+                        result_r <= mul_spec_res;
+                        fflags_r <= mul_spec_flags;
                     end else begin
                         result_r <= compute_res;
                         fflags_r <= compute_flags;

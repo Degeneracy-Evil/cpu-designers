@@ -43,7 +43,7 @@ module uart_top #(
     // APB access signals (declared early for use throughout)
     // -----------------------------------------------------------------------
     wire write_access = PSEL & PENABLE & PWRITE & PREADY;
-    wire read_access  = PSEL & PENABLE & !PWRITE;
+    wire read_access  = PSEL & PENABLE & !PWRITE & PREADY;
 
     // -----------------------------------------------------------------------
     // Control & status registers
@@ -218,7 +218,7 @@ module uart_top #(
         end
     end
 
-    // IRQ pending bits: set on event, write-1-to-clear
+    // IRQ pending bits: set on event, write-1-to-clear (handled in APB write logic above)
     always_ff @(posedge PCLK or negedge PRESETn) begin
         if (!PRESETn) begin
             uart_irq_stat <= 2'b0;
@@ -230,11 +230,6 @@ module uart_top #(
             // RX valid event
             if (rx_valid_event) begin
                 uart_irq_stat[1] <= 1'b1;
-            end
-            // Write-1-to-clear via IRQ_STAT register
-            if (write_access && (PADDR[7:0] == UART_IRQ_STAT)) begin
-                if (PWDATA[0]) uart_irq_stat[0] <= 1'b0;
-                if (PWDATA[1]) uart_irq_stat[1] <= 1'b0;
             end
         end
     end
@@ -256,10 +251,22 @@ module uart_top #(
             if (write_access) begin
                 case (PADDR[7:0])
                     UART_CTRL: begin
-                        uart_ctrl <= {24'b0, PWDATA[7:0]};
+                        // Only [7:0] are defined; PSTRB byte-lane masking
+                        if (PSTRB[0]) uart_ctrl[7:0] <= PWDATA[7:0];
                     end
                     UART_BAUD: begin
-                        uart_baud <= PWDATA;
+                        // Full 32-bit register with PSTRB byte-lane masking
+                        if (PSTRB[0]) uart_baud[7:0]   <= PWDATA[7:0];
+                        if (PSTRB[1]) uart_baud[15:8]  <= PWDATA[15:8];
+                        if (PSTRB[2]) uart_baud[23:16] <= PWDATA[23:16];
+                        if (PSTRB[3]) uart_baud[31:24] <= PWDATA[31:24];
+                    end
+                    UART_IRQ_STAT: begin
+                        // Write-1-to-clear, gated by PSTRB[0] (both bits in byte 0)
+                        if (PSTRB[0]) begin
+                            if (PWDATA[0]) uart_irq_stat[0] <= 1'b0;
+                            if (PWDATA[1]) uart_irq_stat[1] <= 1'b0;
+                        end
                     end
                     UART_RXPOP: begin
                         // Pop is handled by rx_fifo_rd_en (combinational).

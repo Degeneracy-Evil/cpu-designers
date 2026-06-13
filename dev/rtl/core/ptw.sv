@@ -121,6 +121,10 @@ module ptw(
     reg [31:0] bus_wdata_r;
     reg bus_req_pending_r;  // stays high until bus bridge accepts (ptw_bus_done/error)
 
+    // BUG-15: bus response timeout counter — prevents permanent hang if bus never responds
+    localparam PTW_TIMEOUT = 16'd256;   // 256 cycles per bus beat
+    reg [15:0] timeout_cnt;
+
     assign ptw_bus_req   = bus_req_pending_r;
     assign ptw_bus_addr  = bus_addr_r;
     assign ptw_bus_we    = bus_we_r;
@@ -172,11 +176,24 @@ module ptw(
             bus_we_r         <= 1'b0;
             bus_wdata_r      <= 32'b0;
             bus_req_pending_r <= 1'b0;
+            timeout_cnt      <= 16'd0;
         end else begin
             bus_req_r <= 1'b0;
             // Clear pending on bus response
             if (ptw_bus_done || ptw_bus_error)
                 bus_req_pending_r <= 1'b0;
+
+            // BUG-15: timeout counter — increments while waiting for bus response
+            // in S_L1_CHECK/S_L0_CHECK/S_AD_WAIT. On expiry, force S_FAULT.
+            if (state == S_L1_CHECK || state == S_L0_CHECK || state == S_AD_WAIT) begin
+                if (ptw_bus_done) begin
+                    timeout_cnt <= 16'd0;   // normal response — reset
+                end else begin
+                    timeout_cnt <= timeout_cnt + 16'd1;
+                end
+            end else begin
+                timeout_cnt <= 16'd0;
+            end
 
             // BUG-7: walk_abort (sfence_vma) forces PTW back to S_IDLE
             if (walk_abort && state != S_IDLE) begin
@@ -219,6 +236,9 @@ module ptw(
                                 state <= S_L0_READ;
                             end
                         end
+                    end else if (timeout_cnt >= PTW_TIMEOUT) begin  // BUG-15: timeout
+                        state <= S_FAULT;
+                        bus_req_pending_r <= 1'b0;
                     end
                 end
 
@@ -247,6 +267,9 @@ module ptw(
                                 state <= S_FAULT;
                             end
                         end
+                    end else if (timeout_cnt >= PTW_TIMEOUT) begin  // BUG-15: timeout
+                        state <= S_FAULT;
+                        bus_req_pending_r <= 1'b0;
                     end
                 end
 
@@ -286,6 +309,9 @@ module ptw(
                                 pte_r[7] <= 1'b1;
                             state <= S_DONE;
                         end
+                    end else if (timeout_cnt >= PTW_TIMEOUT) begin  // BUG-15: timeout
+                        state <= S_FAULT;
+                        bus_req_pending_r <= 1'b0;
                     end
                 end
 

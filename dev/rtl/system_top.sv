@@ -242,9 +242,30 @@ module system_top(
     wire        plic_eip;
     wire        clint_mtip;
     wire        clint_msip;
+    logic       plic_eip_cpuclk_ff1, plic_eip_cpuclk_ff2;
+    logic       clint_mtip_cpuclk_ff1, clint_mtip_cpuclk_ff2;
+    logic       clint_msip_cpuclk_ff1, clint_msip_cpuclk_ff2;
     wire        gpio_irq;
     wire        uart_irq;
     wire        spi_irq;
+
+    always_ff @(posedge cpu_clk or negedge cpu_resetn) begin
+        if (!cpu_resetn) begin
+            plic_eip_cpuclk_ff1   <= 1'b0;
+            plic_eip_cpuclk_ff2   <= 1'b0;
+            clint_mtip_cpuclk_ff1 <= 1'b0;
+            clint_mtip_cpuclk_ff2 <= 1'b0;
+            clint_msip_cpuclk_ff1 <= 1'b0;
+            clint_msip_cpuclk_ff2 <= 1'b0;
+        end else begin
+            plic_eip_cpuclk_ff1   <= plic_eip;
+            plic_eip_cpuclk_ff2   <= plic_eip_cpuclk_ff1;
+            clint_mtip_cpuclk_ff1 <= clint_mtip;
+            clint_mtip_cpuclk_ff2 <= clint_mtip_cpuclk_ff1;
+            clint_msip_cpuclk_ff1 <= clint_msip;
+            clint_msip_cpuclk_ff2 <= clint_msip_cpuclk_ff1;
+        end
+    end
 
     core_top cpu(
         .clk          (cpu_clk),
@@ -306,9 +327,9 @@ module system_top(
         .rready       (cpu_rready),
         // IRQ
         .init_sig     (1'b0),
-        .timer_irq    (clint_mtip),
-        .ext_meip_in  (plic_eip),
-        .ext_msip_in  (clint_msip)
+        .timer_irq    (clint_mtip_cpuclk_ff2),
+        .ext_meip_in  (plic_eip_cpuclk_ff2),
+        .ext_msip_in  (clint_msip_cpuclk_ff2)
     );
 
     // ========================================================================

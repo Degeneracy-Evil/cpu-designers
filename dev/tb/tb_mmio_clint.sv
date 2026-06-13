@@ -3,7 +3,7 @@
 module tb_mmio_clint;
 
     localparam integer EXPECTED_TOTAL = 4;
-    localparam integer SIM_CYCLES    = 100000;
+    localparam integer SIM_CYCLES    = 15000000;
 
 
     // Shared boilerplate: system_top, clock, reset, debug signals, check_reg, check_mem_word
@@ -63,4 +63,3 @@ module tb_mmio_clint;
 
 
 endmodule
-

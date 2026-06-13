@@ -27,7 +27,7 @@ module timer(
     reg [31:0] counter;
 
     wire write_access = PSEL & PENABLE & PWRITE & PREADY;
-    wire read_access  = PSEL & PENABLE & !PWRITE;
+    wire read_access  = PSEL & PENABLE & !PWRITE & PREADY;
 
     wire expr_flag = (start && (counter >= expr_val) && (expr_val != 32'b0));
 
@@ -42,25 +42,35 @@ module timer(
             expr_val <= 32'h0;
             counter  <= 32'h0;
         end else begin
+            // expr_val: full 32-bit with PSTRB byte-lane masking
             if (write_access && (PADDR[3:2] == 2'd0)) begin
-                expr_val <= PWDATA;
+                if (PSTRB[0]) expr_val[7:0]   <= PWDATA[7:0];
+                if (PSTRB[1]) expr_val[15:8]  <= PWDATA[15:8];
+                if (PSTRB[2]) expr_val[23:16] <= PWDATA[23:16];
+                if (PSTRB[3]) expr_val[31:24] <= PWDATA[31:24];
             end
 
-            if (write_access && (PADDR[3:2] == 2'd1)) begin
+            // start/mode: both in byte 0, gated by PSTRB[0]
+            if (write_access && (PADDR[3:2] == 2'd1) && PSTRB[0]) begin
                 start <= PWDATA[`TimerStartLoc];
                 mode  <= PWDATA[`TimerModeLoc];
             end else if (expr_flag && (mode == `TIMER_MODE_ONE_SHOT)) begin
                 start <= 1'b0;
             end
 
+            // o_irq clear: bit 0 in byte 0, gated by PSTRB[0]
             if (expr_flag) begin
                 o_irq <= 1'b1;
-            end else if (write_access && (PADDR[3:2] == 2'd2)) begin
+            end else if (write_access && (PADDR[3:2] == 2'd2) && PSTRB[0]) begin
                 o_irq <= PWDATA[`TimerIrqLoc];
             end
 
+            // counter: full 32-bit with PSTRB byte-lane masking
             if (write_access && (PADDR[3:2] == 2'd3)) begin
-                counter <= PWDATA;
+                if (PSTRB[0]) counter[7:0]   <= PWDATA[7:0];
+                if (PSTRB[1]) counter[15:8]  <= PWDATA[15:8];
+                if (PSTRB[2]) counter[23:16] <= PWDATA[23:16];
+                if (PSTRB[3]) counter[31:24] <= PWDATA[31:24];
             end else if (expr_flag) begin
                 counter <= 32'h0;
             end else if (start) begin

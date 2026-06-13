@@ -179,6 +179,15 @@ module fpu_sqrt(
     wire [7:0]  final_exp  = result_overflow ? 8'hFE : final_exp_raw[7:0];
     wire [31:0] packed_result = {sign_res, final_exp, final_mant[22:0]};
 
+    // BUG-22 fix: overflow result depends on rounding mode (IEEE 754)
+    // sqrt result is always non-negative (sign_res=0), so:
+    // RNE/RMM/RUP → +Infinity; RTZ/RDN → +Max finite
+    wire ovf_to_inf = (rm_r == 3'b000) |  // RNE
+                      (rm_r == 3'b100) |  // RMM
+                      (rm_r == 3'b011);    // RUP (positive → +Inf)
+    wire [31:0] packed_max    = {1'b0, 8'hFE, 23'h7FFFFF};  // +Max finite float
+    wire [31:0] overflow_res  = ovf_to_inf ? POS_INF : packed_max;
+
     wire flag_of = result_overflow;
     wire flag_uf = is_underflow & grs;
     wire flag_nx = grs | round_up;
@@ -289,7 +298,8 @@ module fpu_sqrt(
                         flags_r[1] <= is_underflow & (mantissa_27 != 27'b0);
                         flags_r[0] <= (mantissa_27 != 27'b0);
                     end else if (result_overflow) begin
-                        result_r   <= POS_INF;
+                        // BUG-22 fix: overflow result depends on rounding mode
+                        result_r   <= overflow_res;
                         flags_r[2] <= 1'b1;  // OF
                         flags_r[0] <= 1'b1;  // NX
                     end else begin

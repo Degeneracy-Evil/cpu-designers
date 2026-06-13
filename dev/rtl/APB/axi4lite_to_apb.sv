@@ -65,7 +65,7 @@ module axi4lite_to_apb #(
 
     logic [2:0] state;
 
-    // Latched transaction fields (stable throughout APB access)
+    // Active transaction fields driven onto APB and AXI responses
     logic [ADDR_WIDTH-1:0]   latch_addr;
     logic [2:0]              latch_prot;
     logic [DATA_WIDTH-1:0]   latch_wdata;
@@ -73,7 +73,13 @@ module axi4lite_to_apb #(
     logic [DATA_WIDTH-1:0]   latch_rdata;
     logic                    latch_slverr;
 
-    // Independent AW/W channel latching flags
+    // Pending write channel storage. AXI4-Lite allows AW and W to arrive
+    // independently, so keep them separate until a complete write request is
+    // assembled, then copy into the active APB transaction latches.
+    logic [ADDR_WIDTH-1:0]   pending_awaddr;
+    logic [2:0]              pending_awprot;
+    logic [DATA_WIDTH-1:0]   pending_wdata;
+    logic [DATA_WIDTH/8-1:0] pending_wstrb;
     logic aw_latched;
     logic w_latched;
 
@@ -104,7 +110,11 @@ module axi4lite_to_apb #(
     // -------------------------------------------------------------------------
     always_comb begin
         PADDR  = latch_addr;
-        PPROT  = latch_prot;
+        // AXI4 AxPROT[0] and APB4 PPROT[0] have opposite polarity:
+        //   AXI4: 0=Privileged, 1=Unprivileged
+        //   APB4: 0=Unprivileged, 1=Privileged
+        // Bits [2:1] are identical polarity in both protocols.
+        PPROT  = {latch_prot[2], latch_prot[1], ~latch_prot[0]};
         PWDATA = latch_wdata;
         PSTRB  = latch_wstrb;
 
@@ -149,6 +159,10 @@ module axi4lite_to_apb #(
             latch_wstrb  <= {(DATA_WIDTH/8){1'b0}};
             latch_rdata  <= {DATA_WIDTH{1'b0}};
             latch_slverr <= 1'b0;
+            pending_awaddr <= {ADDR_WIDTH{1'b0}};
+            pending_awprot <= 3'b0;
+            pending_wdata  <= {DATA_WIDTH{1'b0}};
+            pending_wstrb  <= {(DATA_WIDTH/8){1'b0}};
             aw_latched   <= 1'b0;
             w_latched    <= 1'b0;
         end else begin
@@ -171,20 +185,26 @@ module axi4lite_to_apb #(
                     end else begin
                         // Latch AW channel if valid and not already latched
                         if (s_axi_awvalid && !aw_latched) begin
-                            latch_addr  <= s_axi_awaddr;
-                            latch_prot  <= s_axi_awprot;
+                            pending_awaddr <= s_axi_awaddr;
+                            pending_awprot <= s_axi_awprot;
                             aw_latched  <= 1'b1;
                         end
                         // Latch W channel if valid and not already latched
                         if (s_axi_wvalid && !w_latched) begin
-                            latch_wdata <= s_axi_wdata;
-                            latch_wstrb <= s_axi_wstrb;
+                            pending_wdata <= s_axi_wdata;
+                            pending_wstrb <= s_axi_wstrb;
                             w_latched   <= 1'b1;
                         end
                         // When both channels are (or will be) latched,
                         // proceed to APB write setup phase
                         if ((aw_latched || s_axi_awvalid) &&
                             (w_latched  || s_axi_wvalid)) begin
+                            latch_addr  <= aw_latched ? pending_awaddr : s_axi_awaddr;
+                            latch_prot  <= aw_latched ? pending_awprot : s_axi_awprot;
+                            latch_wdata <= w_latched  ? pending_wdata  : s_axi_wdata;
+                            latch_wstrb <= w_latched  ? pending_wstrb  : s_axi_wstrb;
+                            aw_latched  <= 1'b0;
+                            w_latched   <= 1'b0;
                             state <= ST_WRITE_SETUP;
                         end
                     end
@@ -240,8 +260,6 @@ module axi4lite_to_apb #(
                 ST_WRITE_RESP: begin
                     if (s_axi_bready) begin
                         state       <= ST_IDLE;
-                        aw_latched  <= 1'b0;
-                        w_latched   <= 1'b0;
                     end
                 end
 

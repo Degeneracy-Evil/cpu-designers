@@ -18,9 +18,11 @@ module cpu_bus_bridge(
 
     // ---------- Cache / MMIO request inputs (unchanged) ----------
     input         icache_mmio_req,
+    output        icache_mmio_accept,
     input  [31:0] icache_mmio_addr,
 
     input         dcache_mmio_req,
+    output        dcache_mmio_accept,
     input  [31:0] dcache_mmio_addr,
     input  [31:0] dcache_mmio_wdata,
     input         dcache_mmio_hwrite,
@@ -159,8 +161,8 @@ module cpu_bus_bridge(
     reg [31:0] ahb_data_rdata_r;
     reg        ahb_data_valid_r;
 
-    reg        mmio_inst_served;
-    reg        mmio_data_served;
+    reg        icache_mmio_accept_r;
+    reg        dcache_mmio_accept_r;
 
     reg        icache_refill_valid_r;
     reg        dcache_refill_valid_r;
@@ -184,8 +186,10 @@ module cpu_bus_bridge(
     // =====================================================================
     assign ahb_inst_data     = ahb_inst_data_r;
     assign ahb_inst_valid    = ahb_inst_valid_r;
+    assign icache_mmio_accept = icache_mmio_accept_r;
     assign ahb_data_rdata    = ahb_data_rdata_r;
     assign ahb_data_valid    = ahb_data_valid_r;
+    assign dcache_mmio_accept = dcache_mmio_accept_r;
     assign icache_refill_data  = refill_shift_reg;
     assign icache_refill_valid = icache_refill_valid_r;
     assign dcache_refill_data  = refill_shift_reg;
@@ -258,8 +262,8 @@ module cpu_bus_bridge(
             ahb_inst_valid_r       <= 1'b0;
             ahb_data_rdata_r       <= 32'b0;
             ahb_data_valid_r       <= 1'b0;
-            mmio_inst_served       <= 1'b0;
-            mmio_data_served       <= 1'b0;
+            icache_mmio_accept_r   <= 1'b0;
+            dcache_mmio_accept_r   <= 1'b0;
             icache_refill_valid_r  <= 1'b0;
             dcache_refill_valid_r  <= 1'b0;
             dcache_wb_valid_r      <= 1'b0;
@@ -305,18 +309,8 @@ module cpu_bus_bridge(
             dcache_error_is_store_r <= 1'b0;
             ptw_done_r             <= 1'b0;
             ptw_error_r            <= 1'b0;
-            // BUG-86 fix (Approach C — defense-in-depth):
-            // Only clear mmio_*_served when the request source deasserts its req
-            // signal.  This prevents the bus bridge from re-accepting the same
-            // request during the 1-cycle window between ahb_*_valid_r pulse and
-            // the source's mmio_req going low (which Approach A guarantees).
-            // Safe with Approach A: mmio_req deasserts on response capture,
-            // so mmio_*_served is cleared promptly.  Also improves fairness:
-            // blocks same-source re-entry, giving lower-priority sources a
-            // service window.
-            if (!icache_mmio_req) mmio_inst_served <= 1'b0;
-            if (!dcache_mmio_req) mmio_data_served <= 1'b0;
-
+            icache_mmio_accept_r   <= 1'b0;
+            dcache_mmio_accept_r   <= 1'b0;
             case (state)
                 // =====================================================
                 // S_IDLE — Arbitrate among request sources
@@ -327,15 +321,16 @@ module cpu_bus_bridge(
                     wvalid  <= 1'b0;
                     arvalid <= 1'b0;
 
-                    if (icache_mmio_req && !ahb_inst_valid_r && !mmio_inst_served) begin
+                    if (icache_mmio_req && !ahb_inst_valid_r) begin
                         // MMIO instruction read → AR channel
                         state       <= S_MMIO_AR;
                         addr_r      <= icache_mmio_addr;
                         write_r     <= 1'b0;
                         size_r      <= `AXI_SIZE_4B;
                         is_inst_r   <= 1'b1;
+                        icache_mmio_accept_r <= 1'b1;
                     end
-                    else if (dcache_mmio_req && !ahb_data_valid_r && !mmio_data_served) begin
+                    else if (dcache_mmio_req && !ahb_data_valid_r) begin
                         if (dcache_mmio_hwrite) begin
                             // MMIO data write → AW+W channels
                             state         <= S_MMIO_AW_W;
@@ -346,6 +341,7 @@ module cpu_bus_bridge(
                             latch_wdata_r <= dcache_mmio_wdata;
                             aw_hs_done_r  <= 1'b0;
                             w_hs_done_r   <= 1'b0;
+                            dcache_mmio_accept_r <= 1'b1;
                         end else begin
                             // MMIO data read → AR channel
                             state       <= S_MMIO_AR;
@@ -353,6 +349,7 @@ module cpu_bus_bridge(
                             write_r     <= 1'b0;
                             size_r      <= dcache_mmio_hsize;
                             is_inst_r   <= 1'b0;
+                            dcache_mmio_accept_r <= 1'b1;
                         end
                     end
                     else if (ptw_req && !ptw_done_r) begin
@@ -463,11 +460,9 @@ module cpu_bus_bridge(
                             if (is_inst_r) begin
                                 ahb_inst_data_r  <= rdata;
                                 ahb_inst_valid_r <= 1'b1;
-                                mmio_inst_served <= 1'b1;
                             end else begin
                                 ahb_data_rdata_r <= rdata;
                                 ahb_data_valid_r <= 1'b1;
-                                mmio_data_served <= 1'b1;
                             end
                         end
                     end
@@ -526,7 +521,6 @@ module cpu_bus_bridge(
                             state <= S_IDLE;
                             // For MMIO write, data_valid signals completion
                             ahb_data_valid_r <= 1'b1;
-                            mmio_data_served <= 1'b1;
                         end
                     end
                 end
@@ -727,7 +721,7 @@ module cpu_bus_bridge(
                         if (r_error) begin
                             state       <= S_IDLE;
                             ptw_rdata_r <= 32'b0;
-                            ptw_done_r  <= 1'b0;
+                            ptw_done_r  <= 1'b1;   // BUG-14 fix: set done on error so PTW advances
                             ptw_error_r <= 1'b1;
                         end else begin
                             state       <= S_IDLE;
@@ -779,7 +773,7 @@ module cpu_bus_bridge(
                         if (b_error) begin
                             state       <= S_IDLE;
                             ptw_rdata_r <= 32'b0;
-                            ptw_done_r  <= 1'b0;
+                            ptw_done_r  <= 1'b1;   // BUG-14 fix: set done on error so PTW advances
                             ptw_error_r <= 1'b1;
                         end else begin
                             state       <= S_IDLE;

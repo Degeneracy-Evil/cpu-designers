@@ -13,6 +13,11 @@ module tb_ahb_bus;
     wire [15:0] gpio_io;
 
     // ----------------------------------------------------------------
+    // BFM clock — must use cpu_clk domain, not top-level clk
+    // ----------------------------------------------------------------
+    wire        axi_mst_clk;
+
+    // ----------------------------------------------------------------
     // Inout wires for DDR3 and peripheral ports (cannot connect constants to inout)
     // ----------------------------------------------------------------
     wire [15:0] lcd_data_io_wire;
@@ -76,15 +81,16 @@ module tb_ahb_bus;
         forever #5 clk = ~clk;
     end
 
+    // BFM clock domain binding — CPU-side AXI signals are in cpu_clk domain
+    assign axi_mst_clk = u_soc.cpu_clk;
+
     integer pass_count;
     integer fail_count;
 
     // ----------------------------------------------------------------
     // AXI4-Lite Master BFM: Write task
-    // Forces CPU's AXI4 master outputs to perform a single write.
-    // AW channel is driven first; W channel follows after AW handshake
-    // to ensure the crossbar latches the correct slave select
-    // (aw_slave_sel is registered on AW handshake).
+    // Forces CPU-side AXI4 master signals.
+    // This interface is in u_soc.cpu_clk domain, not the top-level clk domain.
     // ----------------------------------------------------------------
     task axi4_write;
         input [31:0] addr;
@@ -99,7 +105,7 @@ module tb_ahb_bus;
 
             // Wait for AW handshake
             wait (u_soc.cpu_awready == 1'b1);
-            @(posedge clk);
+            @(posedge axi_mst_clk);
             force u_soc.cpu_awvalid = 1'b0;
 
             // W channel: drive data after AW accepted
@@ -110,13 +116,13 @@ module tb_ahb_bus;
 
             // Wait for W handshake
             wait (u_soc.cpu_wready == 1'b1);
-            @(posedge clk);
+            @(posedge axi_mst_clk);
             force u_soc.cpu_wvalid = 1'b0;
 
             // B channel: wait for write response
             force u_soc.cpu_bready = 1'b1;
             wait (u_soc.cpu_bvalid == 1'b1);
-            @(posedge clk);
+            @(posedge axi_mst_clk);
             force u_soc.cpu_bready = 1'b0;
         end
     endtask
@@ -141,14 +147,14 @@ module tb_ahb_bus;
 
             // Wait for AR handshake
             wait (u_soc.cpu_arready == 1'b1);
-            @(posedge clk);
+            @(posedge axi_mst_clk);
             force u_soc.cpu_arvalid = 1'b0;
 
             // Wait for R data
             wait (u_soc.cpu_rvalid == 1'b1);
             #1;
             data = u_soc.cpu_rdata;
-            @(posedge clk);
+            @(posedge axi_mst_clk);
             force u_soc.cpu_rready = 1'b0;
         end
     endtask

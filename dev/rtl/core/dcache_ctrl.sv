@@ -17,6 +17,7 @@ module dcache_ctrl(
     output wire        cpu_req_ready,
 
     output wire        mmio_req,
+    input  wire        mmio_accept,
     output wire [31:0] mmio_addr,
     output wire [31:0] mmio_wdata,
     output wire        mmio_hwrite,
@@ -299,6 +300,11 @@ module dcache_ctrl(
     );
 
     reg [31:0] bypass_data;
+    reg        mmio_pending_r;
+    reg [31:0] mmio_addr_r;
+    reg [31:0] mmio_wdata_r;
+    reg        mmio_hwrite_r;
+    reg [2:0]  mmio_hsize_r;
 
     wire [31:0] rdata_word = bram_douta[word_off*32 +: 32];
     wire [31:0] refill_word = refill_data[latched_word_off*32 +: 32];
@@ -320,16 +326,11 @@ module dcache_ctrl(
 
     assign flush_done  = flush_done_r;
 
-    // BUG-86 fix (Approach A): gate with !cpu_req_ready_r to deassert mmio_req
-    // as soon as the response is captured.  Without this gate, mmio_req stays
-    // high for 2 extra cycles (until cpu_mem clears mem_en), creating a
-    // 1-cycle window where the bus bridge misinterprets the sustained level
-    // as a new request and issues a duplicate AXI transaction.
-    assign mmio_req    = (state == S_IDLE) && cpu_req_valid && is_mmio && mmu_ready && !cpu_req_ready_r;
-    assign mmio_addr   = cpu_req_addr;
-    assign mmio_wdata  = cpu_req_wdata;
-    assign mmio_hwrite = cpu_req_hwrite;
-    assign mmio_hsize  = cpu_req_hsize;
+    assign mmio_req    = mmio_pending_r;
+    assign mmio_addr   = mmio_addr_r;
+    assign mmio_wdata  = mmio_wdata_r;
+    assign mmio_hwrite = mmio_hwrite_r;
+    assign mmio_hsize  = mmio_hsize_r;
 
     wire [NUM_WAYS-2:0] plru_next_miss;
     tree_plru u_plru_miss(
@@ -376,6 +377,11 @@ module dcache_ctrl(
             latched_victim_tag <= {TAG_WIDTH{1'b0}};
             bypass_data      <= 32'b0;
             cpu_req_ready_r  <= 1'b0;
+            mmio_pending_r   <= 1'b0;
+            mmio_addr_r      <= 32'b0;
+            mmio_wdata_r     <= 32'b0;
+            mmio_hwrite_r    <= 1'b0;
+            mmio_hsize_r     <= 3'b0;
             flush_set        <= {SET_IDX_W{1'b0}};
             flush_way        <= {WAY_W{1'b0}};
             flush_done_r     <= 1'b0;
@@ -391,6 +397,8 @@ module dcache_ctrl(
             cpu_req_ready_r <= 1'b0;
             flush_done_r    <= 1'b0;
             tag_bram_enb_r  <= 1'b0;  // default: no tag BRAM write
+            if (mmio_accept)
+                mmio_pending_r <= 1'b0;
 
             case (state)
                 S_IDLE: begin
@@ -403,6 +411,13 @@ module dcache_ctrl(
 
                     end else if (cpu_req_valid && !cpu_req_ready_r) begin
                         if (is_mmio) begin
+                            if (mmu_ready && !mmio_pending_r) begin
+                                mmio_pending_r <= 1'b1;
+                                mmio_addr_r    <= cpu_req_addr;
+                                mmio_wdata_r   <= cpu_req_wdata;
+                                mmio_hwrite_r  <= cpu_req_hwrite;
+                                mmio_hsize_r   <= cpu_req_hsize;
+                            end
                             if (mmio_valid) begin
                                 bypass_data     <= mmio_rdata;
                                 cpu_req_ready_r <= 1'b1;

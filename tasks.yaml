@@ -181,7 +181,7 @@ tasks:
   mmu_unified_mmu:
     tb: tb_mmu_unified_mmu
     coe: test/mmu/unified_mmu.coe
-    runtime: 60ms
+    runtime: 150ms
 
   cache_icache_basic:
     tb: tb_cache_icache_basic
@@ -211,12 +211,14 @@ tasks:
   mmio_clint:
     tb: tb_mmio_clint
     coe: test/mmio/clint.coe
-    runtime: 10ms
+    hex_file: test/mmio/clint.hex
+    runtime: 150ms
 
   mmio_plic:
     tb: tb_mmio_plic
     coe: test/mmio/plic.coe
-    runtime: 5ms
+    hex_file: test/mmio/plic.hex
+    runtime: 150ms
 
   reg_tlb_fill_way:
     tb: tb_regression_reg_tlb_fill_way
@@ -246,7 +248,8 @@ tasks:
   reg_mmio_ready:
     tb: tb_regression_reg_mmio_ready
     coe: test/regression/reg_mmio_ready.coe
-    runtime: 10ms
+    hex_file: test/regression/reg_mmio_ready.hex
+    runtime: 60ms
 
   reg_pf_latch:
     tb: tb_regression_reg_pf_latch

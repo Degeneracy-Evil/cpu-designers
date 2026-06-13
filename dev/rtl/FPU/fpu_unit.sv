@@ -317,6 +317,11 @@ module fpu_unit(
         cvt_busy         <= 1'b0;
         req_hold         <= 1'b0;
         result_valid_reg <= 1'b0;
+        // BUG-6 fix: clear hold registers on flush to prevent stale data
+        // leakage after flush→idle transition
+        result_hold_reg  <= 32'b0;
+        fflags_reg       <= 5'b0;
+        rd_is_int_reg    <= 1'b0;
       end
       else
       begin

@@ -158,6 +158,10 @@ module axi4lite_bootrom #(
     // Debug: log every read transaction (address, index, data)
     integer rom_rd_cnt;
     initial rom_rd_cnt = 0;
+    // BUG-4 fix: simulation-only debug log — uses `always` (not `always_ff`)
+    // because `rom_rd_cnt` is also driven by `initial`, and xvlog prohibits
+    // mixed `initial`+`always_ff` drivers (VRFC 10-3818). This block is
+    // inside `ifdef SIMULATION` and never reaches synthesis/FPGA.
     always @(posedge s_axi_aclk) begin
         if (rd_state == RD_DATA && s_axi_rvalid && s_axi_rready && rom_rd_cnt < 200) begin
             $display("[BOOTROM-RD] #%0d addr=0x%08h idx=%0d data=0x%08h",

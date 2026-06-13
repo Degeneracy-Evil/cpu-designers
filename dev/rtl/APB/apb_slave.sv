@@ -53,7 +53,7 @@ module apb_slave #(
                 end
             end
 
-            if (PSEL & PENABLE) begin
+            if (PSEL & PENABLE & PREADY) begin
                 if (!PWRITE) begin
                     PRDATA <= regs[reg_idx];
                 end

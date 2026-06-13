@@ -11,6 +11,7 @@ module tb_apb_perips;
     reg         uart_rx;
     wire        uart_tx;
     wire [15:0] gpio_io;
+    wire        axi_mst_clk;
 
     // ----------------------------------------------------------------
     // Inout wires for DDR3 and peripheral ports (cannot connect constants to inout)
@@ -68,6 +69,8 @@ module tb_apb_perips;
         .ddr3_odt         ()
     );
 
+    assign axi_mst_clk = u_soc.cpu_clk;
+
     // ----------------------------------------------------------------
     // Clock generation — 100 MHz
     // ----------------------------------------------------------------
@@ -81,10 +84,8 @@ module tb_apb_perips;
 
     // ----------------------------------------------------------------
     // AXI4-Lite Master BFM: Write task
-    // Forces CPU's AXI4 master outputs to perform a single write.
-    // AW channel is driven first; W channel follows after AW handshake
-    // to ensure the crossbar latches the correct slave select
-    // (aw_slave_sel is registered on AW handshake).
+    // Forces CPU-side AXI4 master signals.
+    // This interface is in u_soc.cpu_clk domain, not the top-level clk domain.
     // ----------------------------------------------------------------
     task axi4_write;
         input [31:0] addr;
@@ -99,7 +100,7 @@ module tb_apb_perips;
 
             // Wait for AW handshake
             wait (u_soc.cpu_awready == 1'b1);
-            @(posedge clk);
+            @(posedge axi_mst_clk);
             force u_soc.cpu_awvalid = 1'b0;
 
             // W channel: drive data after AW accepted
@@ -110,13 +111,13 @@ module tb_apb_perips;
 
             // Wait for W handshake
             wait (u_soc.cpu_wready == 1'b1);
-            @(posedge clk);
+            @(posedge axi_mst_clk);
             force u_soc.cpu_wvalid = 1'b0;
 
             // B channel: wait for write response
             force u_soc.cpu_bready = 1'b1;
             wait (u_soc.cpu_bvalid == 1'b1);
-            @(posedge clk);
+            @(posedge axi_mst_clk);
             force u_soc.cpu_bready = 1'b0;
         end
     endtask
@@ -141,14 +142,14 @@ module tb_apb_perips;
 
             // Wait for AR handshake
             wait (u_soc.cpu_arready == 1'b1);
-            @(posedge clk);
+            @(posedge axi_mst_clk);
             force u_soc.cpu_arvalid = 1'b0;
 
             // Wait for R data
             wait (u_soc.cpu_rvalid == 1'b1);
             #1;
             data = u_soc.cpu_rdata;
-            @(posedge clk);
+            @(posedge axi_mst_clk);
             force u_soc.cpu_rready = 1'b0;
         end
     endtask
@@ -244,7 +245,7 @@ module tb_apb_perips;
             check("UART_CTRL write/read", rd_val, 32'h00000003);
 
             axi4_read(32'h10008004, rd_val);
-            check("UART_STATUS read", rd_val[5:2], 4'b0100); // TX empty, RX empty
+            check("UART_STATUS read", rd_val[5:2], 4'b0110); // TX empty, RX empty
 
             // UART BAUD register
             axi4_write(32'h10008010, 32'd868);

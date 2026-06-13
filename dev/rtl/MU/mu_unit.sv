@@ -115,6 +115,8 @@ module mu_unit(
         req_hold <= 1'b0;
         result_valid_reg <= 1'b0;
         div_by_zero_reg <= 1'b0;
+        // BUG-6 fix: clear hold register on flush to prevent stale data
+        result_hold_reg <= 32'b0;
       end
       else
       begin

@@ -650,9 +650,9 @@ MIG mi_stalling=0 wr_cmd_valid=0  ← MIG 未转发写命令到 MC
 
 | 文件 | 操作 | 关键修改 |
 |------|------|----------|
-| `dev/rtl/AHB-lite/ddr3_bridge_wrapper.sv` | 新建 | Bridge+MIG 实例, AXI 宽度适配 |
-| `dev/rtl/AHB-lite/ahb_bootrom_slave.sv` | 新建 | 只读 BRAM 从设备 |
-| `dev/rtl/AHB-lite/ahb_sys_status.sv` | 新建 | 只读系统状态: init_calib_complete, mmcm_locked, clk_wiz_locked |
+| `dev/rtl/axi/ddr3_bridge_wrapper.sv` | 新建 | Bridge+MIG 实例, AXI 宽度适配 |
+| `dev/rtl/axi/ahb_bootrom_slave.sv` | 新建 | 只读 BRAM 从设备 |
+| `dev/rtl/axi/ahb_sys_status.sv` | 新建 | 只读系统状态: init_calib_complete, mmcm_locked, clk_wiz_locked |
 | `dev/tb/tb_ddr3_basic.sv` | 新建 | DDR3 基本测试台 (无 WireDelay) |
 | `dev/tb/tb_ddr3_mig_ex.sv` | 新建 | Phase 1: MIG+ddr3_model+WireDelay+AXI4 BFM |
 | `dev/tb/tb_ddr3_ahb_ex.sv` | 新建 | Phase 2: AHB→Bridge→MIG+WireDelay+AHB BFM |
@@ -662,7 +662,7 @@ MIG mi_stalling=0 wr_cmd_valid=0  ← MIG 未转发写命令到 MC
 | `dev/program_source/boot/bootloader.hex` | 新建 | 编译后 hex |
 | `tools/uart_load.py` | 新建 | 主机端 UART 程序加载脚本 |
 | `dev/rtl/clk_wiz_0_passthrough.sv` | 新建 | 仿真用 clk_wiz_0 替代: 200MHz direct `always #2.5`, `timescale 1ns/1ps` |
-| `dev/rtl/AHB-lite/ahb_lite_bus.sv` | 修改 | SLAVE_NUM=7, DDR3 索引 0, Boot ROM 索引 1, SysStatus 索引 5; mux_HSELx HTRANS 门控更新 + DDR3 初始选择 |
+| `dev/rtl/axi/ahb_lite_bus.sv` | 修改 | SLAVE_NUM=7, DDR3 索引 0, Boot ROM 索引 1, SysStatus 索引 5; mux_HSELx HTRANS 门控更新 + DDR3 初始选择 |
 | `dev/rtl/system_top.sv` | 修改 | DDR3 引脚, clk_wiz, mig_ui_clk, SLAVE_NUM=7, i_clk_wiz_locked; `DDR3_BYPASS_CLK_WIZ` 条件编译选 passthrough; `mig_aresetn`/`ahb_hresetn` 等待 init_calib_complete && mmcm_locked |
 | `dev/fpga/cpu.xdc` | 修改 | DDR3 IOSTANDARD (SSTL15/DIFF_SSTL15) |
 | `dev/rtl/core/core_top.sv` | 修改 | 复位向量 0x80000000 → 0xFC000000 (Boot ROM) |

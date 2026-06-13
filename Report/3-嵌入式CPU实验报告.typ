@@ -124,7 +124,7 @@ dev/
 │  │    booth_multiplier.sv       Booth乘法器
 │  │    non_restoring_divider.sv  非恢复余数除法器
 │  │
-│  ├─AHB-lite/                    AHB-Lite系统总线
+│  ├─axi/                         AXI4-Lite系统总线
 │  │    ahb_lite_bus.sv           AHB外设总线顶层
 │  │    ahb_decoder.sv            AHB地址译码 (未实例化)
 │  │    ahb_mux.sv                AHB读数据MUX

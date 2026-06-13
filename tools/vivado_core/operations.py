@@ -68,8 +68,8 @@ def _tcl_create_project(
     fpu_rtl_dir = f"{dev_dir}/rtl/FPU"
     cpu_core_dir = f"{dev_dir}/rtl/core"
     common_dir = f"{dev_dir}/rtl/common"
-    ahb_dir = f"{dev_dir}/rtl/AHB-lite"
-    ahb_ip_dir = f"{dev_dir}/rtl/AHB-lite/ip"
+    ahb_dir = f"{dev_dir}/rtl/axi"
+    ahb_ip_dir = f"{dev_dir}/rtl/axi/ip"
     amba_dir = f"{dev_dir}/rtl/AMBA"
     ram_wrap_dir = f"{dev_dir}/rtl/ram_wrap"
     apb_dir = f"{dev_dir}/rtl/APB"
@@ -451,7 +451,7 @@ def _tcl_add_tb(
     fpu_rtl_dir = f"{dev_dir}/rtl/FPU"
     cpu_core_dir = f"{dev_dir}/rtl/core"
     common_dir = f"{dev_dir}/rtl/common"
-    ahb_dir = f"{dev_dir}/rtl/AHB-lite"
+    ahb_dir = f"{dev_dir}/rtl/axi"
     amba_dir = f"{dev_dir}/rtl/AMBA"
     ram_wrap_dir = f"{dev_dir}/rtl/ram_wrap"
     apb_dir = f"{dev_dir}/rtl/APB"
@@ -551,17 +551,71 @@ update_compile_order -fileset sim_1
 """
 
 
+def _tcl_debug_wave(level: str) -> str:
+    """Generate TCL for debug waveform logging after simulation launch.
+
+    Parameters
+    ----------
+    level:
+        ``"minimal"`` — top-level ports + key control signals.
+        ``"normal"`` — core pipeline + regfile + peripherals.
+        ``"full"`` — all signals + VCD export.
+    """
+    if level == "minimal":
+        return """\
+# --- debug waveform: minimal (top ports + control) ---
+log_wave [get_objects /tb_*/u_soc/*]
+"""
+    elif level == "normal":
+        return """\
+# --- debug waveform: normal (core pipeline + regfile + perips) ---
+log_wave [get_objects /tb_*/u_soc/*]
+log_wave [get_objects /tb_*/u_soc/cpu/*]
+"""
+    elif level == "full":
+        return """\
+# --- debug waveform: full (all signals + VCD) ---
+log_wave [get_objects *]
+open_vcd sim_dump.vcd
+log_vcd [get_objects *]
+"""
+    else:
+        return ""
+
+
 def _tcl_run_sim(
     tb_name: str,
     runtime: str,
     proj_dir: str,
     proj_name: str,
+    wave_level: str | None = None,
 ) -> str:
     """Generate TCL for launching simulation and reading the log.
 
     Mirrors ``tools/vivado_core/tcl/_run_sim.tcl``.
+
+    Parameters
+    ----------
+    tb_name:
+        Testbench module name.
+    runtime:
+        Simulation runtime string (e.g. ``"5ms"``).
+    proj_dir:
+        Project directory path.
+    proj_name:
+        Project name.
+    wave_level:
+        Debug waveform level: ``"minimal"``, ``"normal"``, ``"full"``,
+        or ``None`` (no waveform).  Adds ``log_wave`` commands after
+        ``launch_simulation``.
     """
     sim_log_dir = f"{proj_dir}/{proj_name}.sim/sim_1/behav/xsim"
+
+    # Waveform TCL snippet
+    wave_tcl = ""
+    if wave_level:
+        wave_tcl = _tcl_debug_wave(wave_level)
+
     return f"""\
 # --- run simulation ---
 update_compile_order -fileset sources_1
@@ -575,7 +629,7 @@ if {{ [catch {{current_sim_state}} sim_state] == 0 }} {{
 set_property xsim.simulate.runtime {runtime} [get_filesets sim_1]
 set_property xsim.simulate.log_all_objects true [get_filesets sim_1]
 launch_simulation -mode behavioral
-
+{wave_tcl}
 # --- read sim log ---
 set sim_log_file "{sim_log_dir}/simulate.log"
 if {{ [file exists $sim_log_file] }} {{
@@ -952,6 +1006,7 @@ class Operations:
         session: Session,
         task: TaskConfig,
         runtime: str | None = None,
+        debug_defines: dict[str, str] | None = None,
     ) -> ExecuteResult:
         """Run a simulation in the session.
 
@@ -964,6 +1019,10 @@ class Operations:
         runtime:
             Override simulation runtime (e.g. ``"5ms"``).  Falls back
             to ``task.runtime``.
+        debug_defines:
+            Additional Verilog defines for debug instrumentation
+            (e.g. ``{"DEBUG_TRACE": "1", "DEBUG_WAVE": "1"}``).
+            These are merged into ``task.verilog_defines``.
 
         Returns
         -------
@@ -1001,6 +1060,8 @@ class Operations:
             defines = dict(task.verilog_defines)
         else:
             defines = {}
+        if debug_defines:
+            defines.update(debug_defines)
         if task.sim_mode != "ddr3" and "SIMULATION" not in defines:
             defines["SIMULATION"] = "TRUE"
         if task.hex_file and "SRAM_HEX_FILE" not in defines:
@@ -1013,7 +1074,12 @@ class Operations:
             hex_path = self._resolve_hex_path(task)
             tcl_parts.append(_tcl_copy_hex_file(hex_path, proj_dir, proj_name, _tcl_path(self.session_mgr.base_dir)))
 
-        tcl_parts.append(_tcl_run_sim(task.tb, sim_runtime, proj_dir, proj_name))
+        # Determine waveform level from debug defines
+        wave_level = None
+        if debug_defines and "DEBUG_WAVE" in debug_defines:
+            wave_level = debug_defines.get("WAVE_LEVEL", "normal")
+
+        tcl_parts.append(_tcl_run_sim(task.tb, sim_runtime, proj_dir, proj_name, wave_level=wave_level))
         tcl = "\n".join(tcl_parts)
 
         result = session.execute(tcl, timeout=self._limits.sim_timeout)
@@ -1028,7 +1094,7 @@ class Operations:
         # and re-run xvlog/xelab/xsim manually.
         if not result.success:
             patched = self._patch_prj_and_rerun(
-                session, task, sim_runtime, proj_dir, proj_name
+                session, task, sim_runtime, proj_dir, proj_name, defines=defines
             )
             if patched is not None:
                 return patched
@@ -1043,6 +1109,7 @@ class Operations:
         runtime: str,
         proj_dir: str,
         proj_name: str,
+        defines: dict[str, str] | None = None,
     ) -> ExecuteResult | None:
         """Patch incomplete prj file and re-run xvlog/xelab/xsim.
 
@@ -1169,13 +1236,19 @@ class Operations:
         prj_name_base = prj_path.stem
         snapshot = f"{tb}_behav"
 
+        # Build xelab -d arguments from all verilog defines
+        all_defines = dict(defines) if defines else {}
+        if "SIMULATION" not in all_defines:
+            all_defines["SIMULATION"] = "TRUE"
+        define_args = " ".join(f"-d {k}={v}" for k, v in all_defines.items())
+
         tcl_rerun = f"""\
 # --- Re-run simulation after prj patch (direct xvlog/xelab/xsim) ---
 catch {{ close_sim -force }}
 cd {sim_log_dir}
 catch {{ exec xvlog --incr --relax -prj {prj_name_base}.prj }} xvlog_result
 puts $xvlog_result
-catch {{ exec xelab --incr --debug typical --relax -mt 8 -d SIMULATION=TRUE -L xil_defaultlib -L unisims_ver -L unimacro_ver -L secureip -L xpm --snapshot {snapshot} xil_defaultlib.{tb} xil_defaultlib.glbl }} xelab_result
+catch {{ exec xelab --incr --debug typical --relax -mt 8 {define_args} -L xil_defaultlib -L unisims_ver -L unimacro_ver -L secureip -L xpm --snapshot {snapshot} xil_defaultlib.{tb} xil_defaultlib.glbl }} xelab_result
 puts $xelab_result
 catch {{ exec xsim {snapshot} -R -log simulate.log }} xsim_result
 puts $xsim_result

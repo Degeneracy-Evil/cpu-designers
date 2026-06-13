@@ -709,9 +709,9 @@ wire clk = ui_clk;
 | 文件 | 修改类型 | 说明 |
 |------|----------|------|
 | `dev/rtl/system_top.sv` | 修改 | 添加 DDR3 引脚、MIG 实例、时钟改为 ui_clk、init_calib_complete |
-| `dev/rtl/AHB-lite/ahb_lite_bus.sv` | 修改 | SLAVE_NUM+1、DDR3 译码、Bridge 实例、Boot ROM 替换 SRAM |
-| `dev/rtl/AHB-lite/ahb_sram_slave.sv` | 修改/保留 | 改为 Boot ROM（只读、更小 BRAM）或新建 `ahb_bootrom_slave.sv` |
-| 新增 `dev/rtl/AHB-lite/ddr3_bridge_wrapper.sv` | 新建 | Bridge ↔ MIG 连接逻辑（地址截取、ID 硬连线等） |
+| `dev/rtl/axi/ahb_lite_bus.sv` | 修改 | SLAVE_NUM+1、DDR3 译码、Bridge 实例、Boot ROM 替换 SRAM |
+| `dev/rtl/axi/ahb_sram_slave.sv` | 修改/保留 | 改为 Boot ROM（只读、更小 BRAM）或新建 `ahb_bootrom_slave.sv` |
+| 新增 `dev/rtl/axi/ddr3_bridge_wrapper.sv` | 新建 | Bridge ↔ MIG 连接逻辑（地址截取、ID 硬连线等） |
 | 新增 `dev/program_source/boot/bootloader.s` | 新建 | UART bootloader 汇编源码 |
 | 新增 `tools/uart_load.py` | 新建 | 主机端 UART 程序加载脚本 |
 | `dev/fpga/cpu.xdc` | 修改 | MIG 时钟/复位约束（DDR3 引脚由 MIG 自动生成） |

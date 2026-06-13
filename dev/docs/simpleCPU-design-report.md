@@ -1160,11 +1160,11 @@ vivado_config.yaml
 | `dev/rtl/` | `clk_wiz_0_passthrough.sv` | Clock Wizard 直通（仿真用） |
 | `dev/rtl/common/` | `reset_sync.sv` | 复位同步器（异步断言，同步释放） |
 | `dev/rtl/core/` | `core_bus_types.svh` | 流水线总线结构体定义（exe_mem_bus_t / wb_bus_t） |
-| `dev/rtl/AHB-lite/` | `axi4lite_bootrom.sv` | AXI4-Lite Boot ROM 从设备 |
-| `dev/rtl/AHB-lite/` | `axi4lite_clint.sv` | AXI4-Lite CLINT 从设备 |
-| `dev/rtl/AHB-lite/` | `axi4lite_default_slave.sv` | AXI4-Lite Default Slave（DECERR） |
-| `dev/rtl/AHB-lite/` | `axi4lite_plic.sv` | AXI4-Lite PLIC 从设备 |
-| `dev/rtl/AHB-lite/` | `axi4lite_sys_status.sv` | AXI4-Lite System Status 从设备 |
+| `dev/rtl/axi/` | `axi4lite_bootrom.sv` | AXI4-Lite Boot ROM 从设备 |
+| `dev/rtl/axi/` | `axi4lite_clint.sv` | AXI4-Lite CLINT 从设备 |
+| `dev/rtl/axi/` | `axi4lite_default_slave.sv` | AXI4-Lite Default Slave（DECERR） |
+| `dev/rtl/axi/` | `axi4lite_plic.sv` | AXI4-Lite PLIC 从设备 |
+| `dev/rtl/axi/` | `axi4lite_sys_status.sv` | AXI4-Lite System Status 从设备 |
 | `dev/rtl/AMBA/` | `Axi_CDC.v` | AXI4 时钟域穿越 |
 | `dev/rtl/APB/` | `axi4lite_to_apb.sv` | AXI4-Lite → APB 桥 |
 | `dev/rtl/ram_wrap/` | `axi_wrap_ram.sv` | AXI4 BRAM 仿真模型（SRAM 替代） |

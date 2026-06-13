@@ -276,7 +276,7 @@ write_hw_ila_data -csv_file -force {iladata_reset.csv} [upload_hw_ila_data [get_
 | `dev/rtl/core/cpu_bus_bridge.sv` | AXI4 桥, S_IDLE 仲裁, MMIO/Refill 状态机 |
 | `dev/rtl/core/MMU.sv` | MMU, i_ready 赋值, I_IDLE/I_LOOKUP FSM |
 | `dev/rtl/AMBA/Axi_CDC.v` | AXI CDC (XPM_FIFO_ASYNC 版本) |
-| `dev/rtl/AHB-lite/axi4lite_bootrom.sv` | Boot ROM (AXI4-Lite, BRAM IP) |
+| `dev/rtl/axi/axi4lite_bootrom.sv` | Boot ROM (AXI4-Lite, BRAM IP) |
 | `dev/fpga/cpu.xdc` | FPGA 约束 (时钟已修复) |
 | `dev/program_source/boot/bootloader.s` | Bootloader 源码 (LED 极性已修复) |
 | `Reference/ILA调试指南.md` | ILA 使用指南 |

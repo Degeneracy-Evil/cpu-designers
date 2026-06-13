@@ -18,15 +18,16 @@ Python 驱动的 Vivado 自动化系统，替代 `vivado_do.tcl`。支持**会�
 ```
 vivado_core/
 ├── session.py    会话管理 + Semaphore 并发门控
-├── operations.py 高层操作 (create/refresh/sim/bitstream/program/archive)
+├── operations.py 高层操作 (create/refresh/sim/bitstream/program/archive) + prj 自动修补
 ├── batch.py      批处理执行 (ThreadPoolExecutor + 进度追踪 + 失败策略)
 ├── sync.py       预检 + 增量/全量刷新规划
 ├── hash.py       分层哈希 (rtl/tb/src/coe/fpga)
 ├── tasks.py      任务配置 (tasks.yaml)
-├── config.py     全局配置 + 内存/Cache/DDR3/Bridge/ClkWiz 配置
-├── ip_gen.py     BRAM/MIG/Bridge/ClkWiz create_ip TCL 生成 + get_bram_ip_names()
+├── config.py     全局配置 + 内存/Cache/DDR3/ClkWiz 配置
+├── ip_gen.py     BRAM/MIG/ClkWiz create_ip TCL 生成 + get_bram_ip_names()
 ├── cache_header_gen.py  cache_def.svh 自动生成
-└── exceptions.py 异常层次
+├── exceptions.py 异常层次
+└── tcl/          TCL 模板 (仿真/综合/刷新/ILA/波形)
 
 vivado_cli.py     CLI 前端 (含批处理)
 vivado_tui.py     TUI 前端
@@ -43,6 +44,9 @@ python -m tools.vivado_cli <args>
 ### 会话管理
 
 ```bash
+# 查看所有会话状态 + 增量刷新过时信息
+python -m tools.vivado_cli --status
+
 # 保留 (max_sessions - 1) 个最近使用的会话，仅清理最老的，腾出一个创建新会话的空间
 # 不会清空全部空闲会话！如果批量运行(batch)后产生大量旧会话，需要用 --cleanup-all
 python -m tools.vivado_cli --cleanup
@@ -68,6 +72,18 @@ python -m tools.vivado_cli -task cpu_full -sim -runtime 10ms
 
 # 自定义会话名（同 task 多会话并行）
 python -m tools.vivado_cli -task cpu_full -session cpu_v2 -sim
+
+# 启用调试功能（详见 vivado-sim-debug 技能）
+python -m tools.vivado_cli -task isa_alu -sim --debug trace        # 指令追踪
+python -m tools.vivado_cli -task isa_alu -sim --debug pipeline     # 流水线转储
+python -m tools.vivado_cli -task isa_alu -sim --debug trap         # 异常追踪
+python -m tools.vivado_cli -task isa_alu -sim --debug spike        # Spike ISA 对比
+python -m tools.vivado_cli -task isa_alu -sim --debug trace,trap   # 组合多个调试功能
+python -m tools.vivado_cli -task isa_alu -sim --debug wave         # 波形（默认 normal 级别）
+python -m tools.vivado_cli -task isa_alu -sim --debug wave:minimal # 最小波形
+python -m tools.vivado_cli -task isa_alu -sim --debug wave:normal  # 普通波形
+python -m tools.vivado_cli -task isa_alu -sim --debug wave:full    # 全信号波形 + VCD
+python -m tools.vivado_cli -task isa_alu -sim --debug all          # 全部调试（等同 trace,pipeline,trap,spike,wave:full）
 ```
 
 ### 刷新
@@ -91,9 +107,6 @@ python -m tools.vivado_cli -task cpu_full -refresh --layers coe,tb
 ```bash
 # 生成 bitstream
 python -m tools.vivado_cli -task fpga -bitstream
-
-# 连接硬件
-python -m tools.vivado_cli -task fpga -hw-connect
 
 # 下载到 FPGA
 python -m tools.vivado_cli -task fpga -program
@@ -152,11 +165,25 @@ python -m tools.vivado_cli -task cpu_full -archive
 
 > 通配符速查：`isa_*`(9), `exception_*`(6), `privilege_*`(3), `mmu_*`(11), `cache_*`(5), `mmio_*`(2), `reg_*`(7), `fpu_*`(6), `cpu_*`(5), `ddr3_*`(7)
 
+### 任务字段（tasks.yaml）
+
+| 字段 | 类型 | 默认 | 说明 |
+|------|------|------|------|
+| `name` | str | (key) | 任务标识符（YAML 键名） |
+| `tb` | str | `""` | Testbench 模块名 |
+| `coe` | str | `""` | COE 文件名（相对于 `dev/program_source/`） |
+| `hex_file` | str | `""` | HEX 文件名（相对于 `dev/program_source/`），用于 `$readmemh` 加载 |
+| `runtime` | str | `""` | 仿真时间字符串 |
+| `top` | str | `""` | 顶层模块名（bitstream 用） |
+| `sim_mode` | str | `""` | 仿真模式标记（如 `"ddr3"`） |
+| `verilog_defines` | dict | `{}` | Verilog defines（仿真时注入） |
+| `mig_param_overrides` | dict | `{}` | MIG 参数覆盖（传递给 xelab 的 `-g` 标志） |
+
 ## IP 仿真策略（参照 chiplab）
 
 ### 核心问题
 
-Xilinx IP（BRAM、MIG、Bridge、ClkWiz）由 `create_ip` 生成，但 XSim 的依赖解析器无法自动发现 IP 的行为仿真模型。若不手动添加仿真模型到 `sim_1`，XSim 在 elaborate 阶段报 "module <IP> not found"。
+Xilinx IP（BRAM、MIG、ClkWiz）由 `create_ip` 生成，但 XSim 的依赖解析器无法自动发现 IP 的行为仿真模型。若不手动添加仿真模型到 `sim_1`，XSim 在 elaborate 阶段报 "module <IP> not found"。
 
 ### 解决方案：三层策略
 
@@ -234,8 +261,27 @@ python -m tools.vivado_cli -task cpu_full -sim --filter error
 # 仅 PASS/FAIL 结果
 python -m tools.vivado_cli -task cpu_full -sim --filter pass_fail
 
+# 仅进度条
+python -m tools.vivado_cli -task cpu_full -sim --filter progress
+
 # 自定义正则
 python -m tools.vivado_cli -task cpu_full -sim --filter "PASS.*x1"
+```
+
+## 全局选项
+
+```bash
+# 覆盖配置文件路径（默认：<项目根>/vivado_config.yaml）
+python -m tools.vivado_cli --config /path/to/vivado_config.yaml ...
+
+# 覆盖任务文件路径（默认：<项目根>/tasks.yaml）
+python -m tools.vivado_cli --tasks /path/to/tasks.yaml ...
+
+# 详细输出（显示配置路径、项目名、器件型号、已定义任务等）
+python -m tools.vivado_cli -task cpu_full -sim --verbose
+
+# 记录 Vivado 输出到文件（实时逐行写入，带时间戳，CI/CD 友好）
+python -m tools.vivado_cli -task cpu_full -sim --log sim_output.log
 ```
 
 ## 批处理参数
@@ -251,15 +297,6 @@ python -m tools.vivado_cli -task cpu_full -sim --filter "PASS.*x1"
 
 `SessionManager` 使用 `threading.Semaphore(max_concurrent)` 原子控制 Vivado 进程并发数，`Session.start_vivado()` 时 acquire，`stop_vivado()` 时 release。批处理模式下 `ThreadPoolExecutor` 的 `max_workers` 由 `min(len(tasks), max_concurrent, --max-parallel)` 决定。
 
-## TUI 界面
-
-```bash
-pip install textual
-python tools/vivado_tui.py
-```
-
-提供：会话面板、任务下拉、操作按钮、TCL 命令输入、实时输出。
-
 ## 典型工作流
 
 ### 1. 首次仿真
@@ -273,6 +310,11 @@ python -m tools.vivado_cli -task cpu_full -create -sim
 ```bash
 # 编译新程序
 python3 tools/rv2coe.py -i my_prog.S -o dev/program_source/cpu_test.coe
+
+# 或批量编译测试程序
+python3 tools/test_builder.py                # 构建全部
+python3 tools/test_builder.py --category isa # 仅 ISA 测试
+python3 tools/test_builder.py --test isa/alu # 单个测试
 
 # 增量刷新 COE 层（秒级，非全量重建）
 python -m tools.vivado_cli -task cpu_full -refresh --layers coe
@@ -337,11 +379,14 @@ python -m tools.vivado_cli -batch "cpu_*" -sim
 max_parallel: 3
 on_error: continue
 operations: [create, sim]
+refresh_layers: [coe]          # 可选：批处理级增量刷新层
+runtime_override: "5ms"        # 可选：批处理级仿真时间覆盖
 tasks:
   - task: cpu_full
-    runtime: 5ms
+    runtime: 5ms               # 可选：任务级仿真时间覆盖
   - task: cpu_compute
   - task: cpu_trap
+    session: cpu_trap_v2       # 可选：任务级会话名覆盖
   - task: cpu_fencei
   - task: cpu_access_fault
   - task: cpu_priv
@@ -366,7 +411,23 @@ python -m tools.vivado_cli -task fpga -program
 ## 配置文件
 
 - **tasks.yaml** — 任务定义（项目根目录）
-- **vivado_config.yaml** — 全局配置：资源限制、Vivado 路径、器件型号、**内存/Cache/DDR3/Bridge/ClkWiz 参数**
+- **vivado_config.yaml** — 全局配置：资源限制、Vivado 路径、器件型号、**内存/Cache/DDR3/ClkWiz 参数**
+
+### limits 配置（vivado_config.yaml）
+
+| 选项 | 类型 | 默认 | 说明 |
+|------|------|------|------|
+| `max_sessions` | int | 5 | 最大会话数 |
+| `max_concurrent` | int | 3 | 最大并发 Vivado 进程数 |
+| `max_disk_gb` | float | 20.0 | 最大磁盘占用 (GB) |
+| `idle_timeout_min` | int | 60 | 空闲会话自动关闭超时 (分钟) |
+| `create_timeout` | float | 300.0 | 创建操作超时 (秒) |
+| `refresh_timeout` | float | 300.0 | 刷新操作超时 (秒) |
+| `sim_timeout` | float | 600.0 | 仿真操作超时 (秒) |
+| `sim_rerun_timeout` | float | 3600.0 | 仿真重跑超时 (秒) |
+| `bitstream_timeout` | float | 3600.0 | 综合操作超时 (秒) |
+| `program_timeout` | float | 120.0 | 下载操作超时 (秒) |
+| `archive_timeout` | float | 300.0 | 归档操作超时 (秒) |
 
 ## 配置驱动的 IP 生成
 
@@ -382,7 +443,6 @@ python -m tools.vivado_cli -task fpga -program
 | tlb_flag / tlb_data | blk_mem_gen | v8.4 | memory.tlb (use_tlb_bram=true) |
 | clk_wiz_0 | clk_wiz | v6.0 | memory.clk_wiz (ddr3.enabled=true) |
 | bd_soc_mig_7series_0_1 | mig_7series | v4.2 | memory.ddr3 (ddr3.enabled=true) |
-| ahblite_axi_bridge_0 | ahblite_axi_bridge | v3.0 | memory.ahb_bridge (ddr3.enabled=true) |
 
 ### 重新生成配置
 
@@ -402,30 +462,62 @@ memory:
   rom:
     data_width: 32
     depth: 8192
+    byte_enable: false       # 字节使能
+    byte_size: 8             # 字节大小 (bits)
   icache:
     num_sets: 8
     num_ways: 4
     tag_width: 7
     line_words: 8
+    byte_enable: true
+    byte_size: 8
+    tag_bram_byte_enable: true
+    tag_bram_byte_size: 36
+    tag_bram_xilinx_byte_size: 9
   dcache:
     num_sets: 8
     num_ways: 4
     tag_width: 7
     line_words: 8
+    byte_enable: true
+    byte_size: 8
+    tag_bram_byte_enable: true
+    tag_bram_byte_size: 36
+    tag_bram_xilinx_byte_size: 9
   use_tag_bram: true    # true = BRAM IPs (icachet/dcachet)
   tlb:
     num_ways: 4
     num_sets: 4
+    flag_byte_enable: true
+    flag_byte_size: 8
+    data_byte_enable: true
+    data_byte_size: 8
   use_tlb_bram: true    # true = BRAM IPs (tlb_flag/tlb_data)
   ddr3:
     enabled: true
     ip_name: bd_soc_mig_7series_0_1
+    ip_version: "4.2"
     mig_prj_file: Reference/mig/mig_a.prj
-  ahb_bridge:
-    enabled: true
+    mem_size: 134217728        # 128MB
+    axi_addr_width: 27
+    axi_data_width: 32
+    axi_id_width: 8
+    supports_narrow_burst: true
+    data_rate: 800             # MT/s
+    input_clk_freq: 100        # MHz
   clk_wiz:
     enabled: true
-    clk_out2_freq: 200.0  # DDR ref clock
+    ip_name: clk_wiz_0
+    ip_version: "6.0"
+    prim_in_freq: 100.0        # MHz
+    mmcm_clkin_period: 10.0    # ns
+    mmcm_clkfbout_mult_f: 10.0
+    mmcm_divclk_divide: 1
+    num_out_clks: 2
+    clk_out1_freq: 100.0       # MHz
+    clk_out2_freq: 200.0       # DDR ref clock
+    clk_out3_freq: 0.0         # 0 = disabled
+    reset_type: ACTIVE_LOW
 ```
 
 ### 生成链
@@ -502,3 +594,160 @@ python -m tools.vivado_cli -batch "ddr3_*" -create -sim
 
 MIG IP 的核心配置由 `Reference/mig/mig_a.prj` 定义，包含引脚分配、时序参数、内存型号等。
 修改此文件后需全量刷新（`-refresh`）。
+
+## 测试程序构建
+
+`tools/test_builder.py` 读取 `dev/program_source/test/tests.yaml`，调用 `rv2coe.py` 批量编译测试程序。
+
+```bash
+python3 tools/test_builder.py                # 构建全部
+python3 tools/test_builder.py --category isa # 仅构建 ISA 测试
+python3 tools/test_builder.py --category mmu # 仅构建 MMU 测试
+python3 tools/test_builder.py --test isa/alu # 构建单个测试
+python3 tools/test_builder.py --clean        # 清理产物
+python3 tools/test_builder.py --list         # 列出所有测试
+python3 tools/test_builder.py --gen-tasks    # 生成 tasks.yaml 任务条目
+python3 tools/test_builder.py --dry-run      # 仅打印命令不执行
+```
+
+### --gen-tasks 输出
+
+`--gen-tasks` 根据 `tests.yaml` 自动推导任务条目：
+
+- `task_name`：测试名中 `/` 替换为 `_`
+- `tb`：推导为 `tb_{task_name}`
+- `coe`：推导为 `test/{name}.coe`
+- `runtime`：按类别的 RUNTIME_MAP 推导
+
+RUNTIME_MAP 默认值：
+
+| 类别 | 默认仿真时间 |
+|------|-------------|
+| isa | 5ms |
+| exception | 5ms |
+| privilege | 20ms |
+| mmu | 20ms |
+| cache | 10ms |
+| cache_mmu | 20ms |
+| mmio | 10ms |
+| regression | 20ms |
+| integration | 10ms |
+
+### tests.yaml 结构
+
+```yaml
+defaults:
+  arch: rv32im_zicsr_zifencei
+  abi: ilp32
+  linker_script: link.ld
+  depth: 8192
+
+framework:
+  common: [framework/common.s]
+
+categories:
+  isa:
+    tests: [isa/alu, isa/branch, isa/memory, ...]
+  isa_f:                           # 浮点测试需要不同 arch/abi
+    arch: rv32imf_zicsr_zifencei  # 类别级 arch 覆盖
+    abi: ilp32f                    # 类别级 ABI 覆盖
+    tests: [isa_f/fadd, ...]
+  mmu:
+    framework: [framework/common.s, framework/mmu.s]  # framework 可直接指定文件列表
+    tests: [mmu/sv32_basic, mmu/tlb_basic, ...]
+```
+
+### 构建流程
+
+```
+tests.yaml → test_builder.py → rv2coe.py → .coe + .hex
+                                          ↓
+                              dev/program_source/test/<category>/<test>.coe
+                              dev/program_source/test/<category>/<test>.hex
+```
+
+## 相关技能
+
+| 技能 | 关系 |
+|------|------|
+| `vivado-sim-debug` | 仿真调试：`--debug` 开关启用指令追踪/流水线转储/异常追踪/Spike 对比/波形，`trace_analyzer.py` 分析日志 |
+| `vivado-xsim-simulation` | XSim 行为仿真细节：信号路径、$readmemh、BRAM 仿真模型 |
+| `rv2coe-compiler` | RISC-V 编译器：汇编/C → COE/HEX，`test_builder.py` 的底层调用 |
+| `coding-standards` | 编码规范：复位约定、命名、timescale |
+
+## 退出码
+
+CLI 退出码用于 CI/CD 集成：
+
+| 码 | 常量 | 含义 |
+|----|------|------|
+| 0 | `EXIT_OK` | 成功 |
+| 1 | `EXIT_GENERAL` | 通用错误 |
+| 2 | `EXIT_CONFIG` | 配置/任务文件错误 |
+| 3 | `EXIT_SESSION` | 会话未找到/会话错误 |
+| 4 | `EXIT_STALE` | 因源文件过时导致失败（需刷新） |
+
+## prj 自动修补
+
+Vivado 2018.3 的依赖解析器可能生成不完整的 `.prj` 文件（缺少 `sources_1` 条目），导致 elaborate 阶段报 "module not found"。orchestrator 自动检测此情况：
+
+1. 解析 `.prj` 文件，检查是否缺少源文件条目
+2. 自动修补 `.prj`，补入缺失的源文件
+3. 手动重跑 `xvlog` → `xelab` → `xsim`（绕过 Vivado 的依赖解析）
+
+此过程对用户透明，无需手动干预。
+
+## ILA 支持（FPGA 调试）
+
+`tools/vivado_core/tcl/` 包含 ILA（Integrated Logic Analyzer）相关模板：
+
+| 文件 | 说明 |
+|------|------|
+| `_add_ila.tcl` | ILA IP 插入 + 信号探针配置 |
+| `build_with_ila.tcl` | 含 ILA 的完整构建流程 |
+
+> ILA 功能当前仅通过 TCL 模板提供，尚未集成到 CLI 命令。需要时可直接在 Vivado TCL 控制台 `source` 执行。
+
+## TUI 界面
+
+```bash
+pip install textual
+python tools/vivado_tui.py
+```
+
+提供：会话面板、任务下拉、操作按钮、TCL 命令输入（带 tab 补全）、实时输出。
+
+### TUI 快捷键
+
+| 快捷键 | 功能 |
+|--------|------|
+| Ctrl+Q | 退出 |
+| Ctrl+R | 刷新会话列表 |
+| Ctrl+L | 清空输出 |
+| Ctrl+B | 生成 bitstream |
+
+TUI 每 5 秒自动刷新会话状态。
+
+## 其他工具
+
+| 工具 | 说明 |
+|------|------|
+| `tools/run_regression.py` | 完整回归测试：构建测试程序 → 批量仿真 → 结果汇总 |
+| `tools/run_spike.py` | Spike ISA 仿真器运行器，用于黄金模型对比 |
+| `tools/trace_analyzer.py` | 仿真 trace 日志解析 + Spike diff（详见 vivado-sim-debug 技能） |
+| `tools/uart_load.py` | UART 程序加载器 |
+| `tools/uart_console.py` | UART 交互控制台 |
+
+## 会话元数据
+
+每个会话在 `.session/` 目录下存储 `.session.yaml` 元数据文件：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `name` | str | 会话标识符 |
+| `task` | str | 关联的任务名 |
+| `created_at` | str | ISO 8601 创建时间 |
+| `last_used_at` | str | ISO 8601 最后活动时间 |
+| `hashes` | dict | 各层内容哈希（用于增量刷新检测） |
+| `vivado_pid` | int \| None | 运行中 Vivado 进程 PID |
+| `status` | str | `"idle"` / `"busy"` / `"error"` |

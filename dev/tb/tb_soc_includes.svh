@@ -549,3 +549,206 @@ task read_reg;
         release u_soc.rf_addr;
     end
 endtask
+
+// ============================================================================
+// Debug trace infrastructure (conditional compilation — each feature independent)
+//
+// Enable via Verilog defines at compile time:
+//   xvlog -sv -d DEBUG_TRACE ...
+//   xvlog -sv -d DEBUG_TRACE -d DEBUG_TRAP -d DEBUG_WAVE ...
+//
+// Runtime control via plusargs:
+//   xsim ... +trace_enable=0 +trace_file=my_trace.log
+// ============================================================================
+
+// ── 1.1 Instruction trace log (DEBUG_TRACE) ──────────────────────────────────
+// Format: Cycle  Time  PC         Inst      Event  RD   Value
+// Events: N=normal, BR=branch, TR=trap_enter, MR=mret_return
+`ifdef DEBUG_TRACE
+    integer dbg_trace_fd;
+    integer dbg_trace_cycle;
+    logic   dbg_trace_enable;
+    string  dbg_trace_file;
+
+    initial begin
+        dbg_trace_enable = 1'b1;
+        dbg_trace_file   = "instr_trace.log";
+        void'($value$plusargs("trace_enable=%b", dbg_trace_enable));
+        void'($value$plusargs("trace_file=%s", dbg_trace_file));
+        if (dbg_trace_enable) begin
+            dbg_trace_fd = $fopen(dbg_trace_file, "w");
+            if (dbg_trace_fd == 0) begin
+                $display("[DEBUG-TRACE] ERROR: Cannot open trace file: %s", dbg_trace_file);
+            end else begin
+                $fwrite(dbg_trace_fd, "# Instruction Trace Log\n");
+                $fwrite(dbg_trace_fd, "# Cycle\tTime\tPC\t\tInst\t\tEv\tRD\tValue\n");
+            end
+        end
+        dbg_trace_cycle = 0;
+    end
+
+    always @(posedge clk) begin
+        if (resetn && dbg_trace_enable && dbg_trace_fd != 0 && u_soc.cpu.if_done) begin
+            dbg_trace_cycle = dbg_trace_cycle + 1;
+            $fwrite(dbg_trace_fd, "%0d\t%0t\t%08h\t%08h",
+                    dbg_trace_cycle, $time, if_pc, if_inst);
+            // Event classification
+            if (u_soc.cpu.exe_branch_taken)
+                $fwrite(dbg_trace_fd, "\tBR");
+            else if (u_soc.cpu.trap_enter_valid)
+                $fwrite(dbg_trace_fd, "\tTR");
+            else if (u_soc.cpu.trap_return_valid)
+                $fwrite(dbg_trace_fd, "\tMR");
+            else
+                $fwrite(dbg_trace_fd, "\tN ");
+            // WB register writeback
+            if (u_soc.cpu.rf_wen && u_soc.cpu.rf_waddr != 5'd0)
+                $fwrite(dbg_trace_fd, "\tx%0d\t%08h", u_soc.cpu.rf_waddr, u_soc.cpu.actual_rf_wdata);
+            else
+                $fwrite(dbg_trace_fd, "\t---\t--------");
+            $fwrite(dbg_trace_fd, "\n");
+            if (dbg_trace_cycle % 10000 == 0) $fflush(dbg_trace_fd);
+        end
+    end
+
+    final begin
+        if (dbg_trace_fd != 0) begin
+            $fflush(dbg_trace_fd);
+            $fclose(dbg_trace_fd);
+            $display("[DEBUG-TRACE] Trace log closed: %0d instructions, file: %s",
+                     dbg_trace_cycle, dbg_trace_file);
+        end
+    end
+`endif
+
+// ── 1.2 Pipeline state dump (DEBUG_PIPELINE) ─────────────────────────────────
+// Dumps all five pipeline stages each cycle: PC, Inst, valid
+`ifdef DEBUG_PIPELINE
+    integer dbg_pipe_fd;
+    integer dbg_pipe_cycle;
+
+    initial begin
+        dbg_pipe_fd = $fopen("pipeline_dump.log", "w");
+        if (dbg_pipe_fd != 0) begin
+            $fwrite(dbg_pipe_fd, "# Pipeline State Dump\n");
+            $fwrite(dbg_pipe_fd, "# Cycle\tTime\tIF_PC\tIF_Inst\tID_PC\tID_Inst\tEX_PC\tEX_Inst\tMEM_PC\tMEM_Inst\tWB_PC\tWB_Inst\tFSM\tPriv\n");
+        end
+        dbg_pipe_cycle = 0;
+    end
+
+    always @(posedge clk) begin
+        if (resetn && dbg_pipe_fd != 0) begin
+            dbg_pipe_cycle = dbg_pipe_cycle + 1;
+            $fwrite(dbg_pipe_fd, "%0d\t%0t\t%08h\t%08h\t%08h\t%08h\t%08h\t%08h\t%08h\t%08h\t%08h\t%08h\t%0d\t%0d\n",
+                    dbg_pipe_cycle, $time,
+                    if_pc, if_inst,
+                    u_soc.cpu.id_pc, u_soc.cpu.id_inst,
+                    exe_pc, exe_inst,
+                    u_soc.cpu.mem_pc, u_soc.cpu.mem_inst,
+                    wb_pc, wb_inst,
+                    u_soc.cpu.fsm_state, u_soc.cpu.priv_mode);
+            if (dbg_pipe_cycle % 10000 == 0) $fflush(dbg_pipe_fd);
+        end
+    end
+
+    final begin
+        if (dbg_pipe_fd != 0) begin
+            $fflush(dbg_pipe_fd);
+            $fclose(dbg_pipe_fd);
+            $display("[DEBUG-PIPELINE] Pipeline dump closed: %0d cycles", dbg_pipe_cycle);
+        end
+    end
+`endif
+
+// ── 1.3 Trap/exception trace (DEBUG_TRAP) ────────────────────────────────────
+// Logs trap entry, mret return, and CSR state changes
+`ifdef DEBUG_TRAP
+    integer dbg_trap_fd;
+    integer dbg_trap_count;
+
+    initial begin
+        dbg_trap_fd = $fopen("trap_trace.log", "w");
+        if (dbg_trap_fd != 0) begin
+            $fwrite(dbg_trap_fd, "# Trap/Exception Trace Log\n");
+            $fwrite(dbg_trap_fd, "# Cycle\tTime\tEvent\tPC\t\tmstatus\t\tmepc\t\tmcause\t\tPriv\n");
+        end
+        dbg_trap_count = 0;
+    end
+
+    always @(posedge clk) begin
+        if (resetn && dbg_trap_fd != 0) begin
+            if (u_soc.cpu.trap_enter_valid) begin
+                dbg_trap_count = dbg_trap_count + 1;
+                $fwrite(dbg_trap_fd, "%0d\t%0t\tTRAP_IN\t%08h\t%08h\t%08h\t%08h\t%0d\n",
+                        dbg_trap_count, $time, if_pc,
+                        u_soc.cpu.csr_mstatus, u_soc.cpu.csr_mepc,
+                        u_soc.cpu.csr_mcause, u_soc.cpu.priv_mode);
+                $fflush(dbg_trap_fd);
+            end
+            if (u_soc.cpu.trap_return_valid) begin
+                dbg_trap_count = dbg_trap_count + 1;
+                $fwrite(dbg_trap_fd, "%0d\t%0t\tMRET\t%08h\t%08h\t%08h\t%08h\t%0d\n",
+                        dbg_trap_count, $time, if_pc,
+                        u_soc.cpu.csr_mstatus, u_soc.cpu.csr_mepc,
+                        u_soc.cpu.csr_mcause, u_soc.cpu.priv_mode);
+                $fflush(dbg_trap_fd);
+            end
+        end
+    end
+
+    final begin
+        if (dbg_trap_fd != 0) begin
+            $fflush(dbg_trap_fd);
+            $fclose(dbg_trap_fd);
+            $display("[DEBUG-TRAP] Trap trace closed: %0d events", dbg_trap_count);
+        end
+    end
+`endif
+
+// ── 1.4 Spike-compatible commit log (DEBUG_SPIKE) ────────────────────────────
+// Format: priv pc (inst) rd val  (matches Spike ISA simulator commit log)
+`ifdef DEBUG_SPIKE
+    integer dbg_spike_fd;
+    integer dbg_spike_cycle;
+
+    initial begin
+        dbg_spike_fd = $fopen("spike_commit.log", "w");
+        if (dbg_spike_fd == 0) begin
+            $display("[DEBUG-SPIKE] ERROR: Cannot open spike_commit.log");
+        end
+        dbg_spike_cycle = 0;
+    end
+
+    always @(posedge clk) begin
+        if (resetn && dbg_spike_fd != 0 && u_soc.cpu.if_done) begin
+            dbg_spike_cycle = dbg_spike_cycle + 1;
+            // Spike format: priv pc (inst)
+            $fwrite(dbg_spike_fd, "%0d 0x%08h (0x%08h)",
+                    u_soc.cpu.priv_mode, if_pc, if_inst);
+            // Register writeback (Spike: rd val)
+            if (u_soc.cpu.rf_wen && u_soc.cpu.rf_waddr != 5'd0) begin
+                $fwrite(dbg_spike_fd, " x%0d 0x%08h", u_soc.cpu.rf_waddr, u_soc.cpu.actual_rf_wdata);
+            end
+            $fwrite(dbg_spike_fd, "\n");
+            if (dbg_spike_cycle % 10000 == 0) $fflush(dbg_spike_fd);
+        end
+    end
+
+    final begin
+        if (dbg_spike_fd != 0) begin
+            $fflush(dbg_spike_fd);
+            $fclose(dbg_spike_fd);
+            $display("[DEBUG-SPIKE] Spike commit log closed: %0d instructions", dbg_spike_cycle);
+        end
+    end
+`endif
+
+// ── 1.5 VCD waveform generation (DEBUG_WAVE) ─────────────────────────────────
+// Generates VCD dump for open-source waveform viewers (GTKWave, etc.)
+// XSim also generates WDB natively; this provides VCD for portability.
+`ifdef DEBUG_WAVE
+    initial begin
+        $dumpfile("sim_dump.vcd");
+        $dumpvars(0, u_soc);
+    end
+`endif

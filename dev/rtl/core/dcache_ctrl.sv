@@ -320,7 +320,12 @@ module dcache_ctrl(
 
     assign flush_done  = flush_done_r;
 
-    assign mmio_req    = (state == S_IDLE) && cpu_req_valid && is_mmio && mmu_ready ? 1'b1 : 1'b0;
+    // BUG-86 fix (Approach A): gate with !cpu_req_ready_r to deassert mmio_req
+    // as soon as the response is captured.  Without this gate, mmio_req stays
+    // high for 2 extra cycles (until cpu_mem clears mem_en), creating a
+    // 1-cycle window where the bus bridge misinterprets the sustained level
+    // as a new request and issues a duplicate AXI transaction.
+    assign mmio_req    = (state == S_IDLE) && cpu_req_valid && is_mmio && mmu_ready && !cpu_req_ready_r;
     assign mmio_addr   = cpu_req_addr;
     assign mmio_wdata  = cpu_req_wdata;
     assign mmio_hwrite = cpu_req_hwrite;

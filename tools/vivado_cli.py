@@ -59,6 +59,48 @@ def _now_local() -> str:
     """Return the current local time as a human-readable string."""
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+
+def _parse_debug_arg(debug_str: str) -> dict[str, str]:
+    """Parse --debug argument into verilog defines dict.
+
+    Supported features: trace, pipeline, trap, spike, wave[:LEVEL], all
+    LEVEL: minimal, normal (default), full
+    """
+    VALID_FEATURES = {"trace", "pipeline", "trap", "spike", "wave", "all"}
+    defines: dict[str, str] = {}
+    parts = [p.strip().lower() for p in debug_str.split(",")]
+
+    for part in parts:
+        if ":" in part:
+            feature, level = part.split(":", 1)
+        else:
+            feature, level = part, None
+
+        if feature == "all":
+            defines.update({
+                "DEBUG_TRACE": "1",
+                "DEBUG_PIPELINE": "1",
+                "DEBUG_TRAP": "1",
+                "DEBUG_SPIKE": "1",
+                "DEBUG_WAVE": "1",
+                "WAVE_LEVEL": "full",
+            })
+        elif feature == "trace":
+            defines["DEBUG_TRACE"] = "1"
+        elif feature == "pipeline":
+            defines["DEBUG_PIPELINE"] = "1"
+        elif feature == "trap":
+            defines["DEBUG_TRAP"] = "1"
+        elif feature == "spike":
+            defines["DEBUG_SPIKE"] = "1"
+        elif feature == "wave":
+            defines["DEBUG_WAVE"] = "1"
+            defines["WAVE_LEVEL"] = level or "normal"
+        elif feature not in VALID_FEATURES:
+            print(f"WARNING: Unknown debug feature: {feature}", file=sys.stderr)
+
+    return defines
+
 # ---------------------------------------------------------------------------
 # YAML loading — prefer PyYAML, fall back to minimal parser
 # ---------------------------------------------------------------------------
@@ -417,6 +459,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("-sim", action="store_true", help="Run simulation")
     parser.add_argument(
         "-runtime", metavar="TIME", help="Override simulation runtime"
+    )
+    parser.add_argument(
+        "--debug",
+        metavar="FEATURES",
+        help="Enable debug features: trace,pipeline,trap,spike,wave[:LEVEL]. "
+             'E.g. --debug trace,trap  --debug wave:full  --debug all',
     )
     parser.add_argument(
         "-refresh", action="store_true", help="Refresh session (sync source changes)"
@@ -920,6 +968,11 @@ def main(argv: list[str] | None = None) -> int:
     # --- Runtime override ---
     runtime = args.runtime or (task_def.runtime if task_def else None)
 
+    # --- Debug defines from --debug argument ---
+    debug_defines: dict[str, str] | None = None
+    if getattr(args, "debug", None):
+        debug_defines = _parse_debug_arg(args.debug)
+
     # --- Log file setup ---
     log_fh: Any = None
     if getattr(args, "log", None):
@@ -984,7 +1037,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"WARNING: Stale layers detected: {', '.join(preflight.stale_layers)}")
             staleness_dict = {l: True for l in preflight.stale_layers}
             task_obj = task_registry.get(task_name)  # type: ignore[attr-defined]
-            res = ops.sim(session, task_obj, runtime=runtime)  # type: ignore[attr-defined]
+            res = ops.sim(session, task_obj, runtime=runtime, debug_defines=debug_defines)  # type: ignore[attr-defined]
             output, success, timed_out = res.output, res.success, res.timed_out
         except VivadoCoreError as e:
             output, success = str(e), False

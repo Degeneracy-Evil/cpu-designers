@@ -1445,8 +1445,8 @@ user/*.c + user/*.S      →  user code 嵌入内核 (初期)
 | # | 事项 | 需读取的文件 | 影响 |
 |---|------|-------------|------|
 | 1 | APB 外设地址偏移 (UART/GPIO/Timer/SPI 在 APB 空间中的偏移) | `dev/rtl/APB/apb_decoder.sv` | `memlayout.h` 中 `UART_BASE/GPIO_BASE/TIMER_BASE/SPI_BASE` |
-| 2 | CLINT 寄存器间距 (mtime/mtimecmp 高低 32-bit 偏移) | `dev/rtl/AHB-lite/ahb_clint.sv` | `memlayout.h` 中 `CLINT_MTIMECMP_H/CLINT_MTIME_H` |
-| 3 | PLIC 寄存器间距 (enable/pending 寄存器布局) | `dev/rtl/AHB-lite/ahb_plic.sv` | `plic.h` 中 enable 寄存器地址计算 |
+| 2 | CLINT 寄存器间距 (mtime/mtimecmp 高低 32-bit 偏移) | `dev/rtl/axi/ahb_clint.sv` | `memlayout.h` 中 `CLINT_MTIMECMP_H/CLINT_MTIME_H` |
+| 3 | PLIC 寄存器间距 (enable/pending 寄存器布局) | `dev/rtl/axi/ahb_plic.sv` | `plic.h` 中 enable 寄存器地址计算 |
 | 4 | APB Timer 寄存器布局确认 | `dev/rtl/APB/perips/timer.sv` | `timer.h` 中寄存器偏移 |
 | 5 | 内核代码大小估算 (32KB RAM 中内核占多少) | 编译后测量 | `param.h` 中可用页数 |
 

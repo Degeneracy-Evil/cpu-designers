@@ -300,14 +300,14 @@ Phase 2 和 Phase 3 可部分并行：Phase 2 先搭好 crossbar 和非 DDR3 从
 #### 0.2 删除/归档文件
 | 文件 | 操作 | 原因 |
 |------|------|------|
-| `dev/rtl/AHB-lite/ddr3_bridge_wrapper.sv` | 删除 | AHB→AXI4 bridge IP 不再需要，CPU 直出 AXI4 |
-| `dev/rtl/AHB-lite/ahb_lite_bus.sv` | 归档到 `dev/rtl/_archived/ahb/` | 整个 AHB bus 被 AXI4 interconnect 替代 |
-| `dev/rtl/AHB-lite/ahb_mux.sv` | 归档 | AHB 响应 mux 被 crossbar 替代 |
-| `dev/rtl/AHB-lite/ahb_decoder.sv` | 归档 | 已未使用，crossbar 自带 decode |
-| `dev/rtl/AHB-lite/ahb_def.svh` | 归档 | 被 `axi4_def.svh` 替代 |
-| `dev/rtl/AHB-lite/ahb_sys_status.sv` | 重写为 AXI4-Lite | 保留功能，改接口 |
-| `dev/rtl/AHB-lite/ahb_default_slave.sv` | 重写为 AXI4-Lite | 保留功能，改接口 |
-| `dev/rtl/AHB-lite/ahb_bootrom_slave.sv` | 重写为 AXI4-Lite | 保留功能，改接口 |
+| `dev/rtl/axi/ddr3_bridge_wrapper.sv` | 删除 | AHB→AXI4 bridge IP 不再需要，CPU 直出 AXI4 |
+| `dev/rtl/axi/ahb_lite_bus.sv` | 归档到 `dev/rtl/_archived/ahb/` | 整个 AHB bus 被 AXI4 interconnect 替代 |
+| `dev/rtl/axi/ahb_mux.sv` | 归档 | AHB 响应 mux 被 crossbar 替代 |
+| `dev/rtl/axi/ahb_decoder.sv` | 归档 | 已未使用，crossbar 自带 decode |
+| `dev/rtl/axi/ahb_def.svh` | 归档 | 被 `axi4_def.svh` 替代 |
+| `dev/rtl/axi/ahb_sys_status.sv` | 重写为 AXI4-Lite | 保留功能，改接口 |
+| `dev/rtl/axi/ahb_default_slave.sv` | 重写为 AXI4-Lite | 保留功能，改接口 |
+| `dev/rtl/axi/ahb_bootrom_slave.sv` | 重写为 AXI4-Lite | 保留功能，改接口 |
 | DDR3 workaround TBs (`tb_ddr3_system*.sv`) | 删除 | 不再需要 force workaround |
 
 #### 0.3 创建 `dev/rtl/axi4_def.svh`

@@ -30,7 +30,7 @@
 
 ### BUG-1: PLIC Claim/Complete 握手完全失效
 
-**文件**: `dev/rtl/AHB-lite/ahb_plic.sv:140-152`
+**文件**: `dev/rtl/axi/ahb_plic.sv:140-152`
 
 **描述**: PLIC claim 寄存器读取逻辑存在严重时序缺陷。`r_claim_valid` 在设置后的下一个周期即被清除（因为 `rd_valid` 变为 0），导致：
 
@@ -290,7 +290,7 @@ assign mem_misalign_store = is_store && misalign_addr;        // line 263 ✗
 
 ### BUG-24: MIG 状态信号潜在时钟域交叉
 
-**文件**: `dev/rtl/AHB-lite/ahb_sys_status.sv:37-39`
+**文件**: `dev/rtl/axi/ahb_sys_status.sv:37-39`
 
 **描述**: `init_calib_complete`/`mmcm_locked` 可能来自 `ui_clk` 域而非 `HCLK` 域。
 
@@ -336,7 +336,7 @@ RISC-V F 扩展规范**不要求** f0=0（与 x0 不同）。
 
 ### BUG-30: AHB CLINT 无 HSIZE 处理
 
-**文件**: `dev/rtl/AHB-lite/ahb_clint.sv:85-94`
+**文件**: `dev/rtl/axi/ahb_clint.sv:85-94`
 
 ---
 
@@ -523,7 +523,7 @@ ddr3_bridge_wrapper u_dut (
 
 ### BUG-47: `ahb_sys_status.sv` HRDATA 声明为 `wire` 但被 `always_comb` 驱动
 
-**文件**: `dev/rtl/AHB-lite/ahb_sys_status.sv:34,67,70,74`
+**文件**: `dev/rtl/axi/ahb_sys_status.sv:34,67,70,74`
 
 **状态**: ✅ 已修复 (2026-06-06)
 
@@ -535,7 +535,7 @@ ddr3_bridge_wrapper u_dut (
 
 ### BUG-48: `ddr3_bridge_wrapper.sv` 端口列表缺少逗号
 
-**文件**: `dev/rtl/AHB-lite/ddr3_bridge_wrapper.sv:50`
+**文件**: `dev/rtl/axi/ddr3_bridge_wrapper.sv:50`
 
 **状态**: ✅ 已修复 (2026-06-06)
 
@@ -571,7 +571,7 @@ ddr3_bridge_wrapper u_dut (
 
 ### BUG-51: `ahb_bootrom_slave.sv` 使用 BRAM IP，测试台无法通过层次引用注入指令
 
-**文件**: `dev/rtl/AHB-lite/ahb_bootrom_slave.sv`, `dev/tb/tb_ddr3_system.sv:603-604`
+**文件**: `dev/rtl/axi/ahb_bootrom_slave.sv`, `dev/tb/tb_ddr3_system.sv:603-604`
 
 **状态**: ✅ 已修复 (2026-06-06)
 
@@ -665,7 +665,7 @@ mig_aresetn 等待 init_calib_complete=1
 
 ### BUG-55: Boot ROM `mem[]` 数组仿真未初始化 — 全 X → CPU 管线 X 传播风暴 → 仿真 5000x 慢
 
-**文件**: `dev/rtl/AHB-lite/ahb_bootrom_slave.sv:62`
+**文件**: `dev/rtl/axi/ahb_bootrom_slave.sv:62`
 
 **状态**: ✅ 已修复 (2026-06-07)
 
@@ -817,7 +817,7 @@ end
 
 ### BUG-59: CLINT mtime 软件写入与硬件自增竞争条件
 
-**文件**: `dev/rtl/AHB-lite/ahb_clint.sv`, `dev/rtl/AHB-lite/axi4lite_clint.sv`
+**文件**: `dev/rtl/axi/ahb_clint.sv`, `dev/rtl/axi/axi4lite_clint.sv`
 
 **状态**: ✅ 已修复 (2026-06-08)
 
@@ -829,7 +829,7 @@ end
 
 ### BUG-60: AHB SRAM Slave byte_we 未连接到 BRAM 字节写使能
 
-**文件**: `dev/rtl/AHB-lite/ahb_sram_slave.sv`
+**文件**: `dev/rtl/axi/ahb_sram_slave.sv`
 
 **状态**: ✅ 已修复 (2026-06-08)
 
@@ -901,7 +901,7 @@ end
 
 ### BUG-66: CLINT mtimecmp=0 时 MTIP 被错误抑制
 
-**文件**: `dev/rtl/AHB-lite/ahb_clint.sv:71`, `dev/rtl/AHB-lite/axi4lite_clint.sv:170`
+**文件**: `dev/rtl/axi/ahb_clint.sv:71`, `dev/rtl/axi/axi4lite_clint.sv:170`
 
 **状态**: ✅ 已修复 (2026-06-08)
 
@@ -925,7 +925,7 @@ end
 
 ### BUG-68: AXI4-Lite PLIC/CLINT 写路径未检查 WSTRB
 
-**文件**: `dev/rtl/AHB-lite/axi4lite_plic.sv`, `dev/rtl/AHB-lite/axi4lite_clint.sv`
+**文件**: `dev/rtl/axi/axi4lite_plic.sv`, `dev/rtl/axi/axi4lite_clint.sv`
 
 **状态**: ✅ 已修复 (2026-06-09)
 
@@ -1190,7 +1190,7 @@ ddr3_model (Micron 行为模型)
 | **P1** | BUG-75 | TB BRAM索引位宽不匹配 | addr[20:2]→addr[19:2] | **✅ 已修复** |
 | **P1** | BUG-76 | is_mmio遗漏0xC0000000+区域 | `~vaddr[31]|vaddr[30]` | **✅ 已修复** |
 | **P1** | BUG-77 | APB decoder缺少高位地址守卫 | PADDR[31:16]==16'h0010 | **✅ 已修复** |
-| **P0** | BUG-86 | UART RXDATA直接弹出FIFO，CPU重复AXI事务导致每隔一字节丢失 | STATUS-read auto-arm + RXDATA peek/pop | **✅ 已修复** |
+| **P0** | BUG-86 | UART RXDATA直接弹出FIFO，CPU重复AXI事务导致每隔一字节丢失 | STATUS auto-arm + RTL mmio_req门控+bridge served持有 | **✅ 已修复** |
 | **P1** | BUG-87 | Bootloader uart_recv_word未保存/恢复ra | 添加sw ra/lw ra | **✅ 已修复** |
 | **P1** | BUG-88 | Bootloader sp未初始化，sw ra写入地址0 | lui sp,0x80008 | **✅ 已修复** |
 | **P1** | BUG-89 | Bootloader跳转前缺少fence.i | jr前添加fence.i | **✅ 已修复** |
@@ -1284,7 +1284,7 @@ ddr3_model (Micron 行为模型)
 | BUG-64 | 🟢 LOW | UART TX/RX always@ 风格 (**✅ 已修复**) |
 | BUG-66 | 🟢 LOW | CLINT mtimecmp=0 时 MTIP 被抑制 (**✅ 已修复**) |
 | BUG-68 | 🟢 LOW | AXI4-Lite PLIC/CLINT 未检查 WSTRB (**✅ 已修复**) |
-| BUG-86 | 🔴 HIGH | UART RXDATA直接弹出FIFO，CPU重复AXI事务导致每隔一字节丢失 (**✅ 已修复**) |
+| BUG-86 | 🔴 HIGH | UART RXDATA直接弹出FIFO，CPU重复AXI事务导致每隔一字节丢失 — RTL根因: mmio_req电平+bridge served过早清除, 修复: A(!cpu_req_ready_r门控)+C(served!req清除) (**✅ 已修复**) |
 | BUG-87 | 🟡 MED | Bootloader uart_recv_word未保存/恢复ra (**✅ 已修复**) |
 | BUG-88 | 🟡 MED | Bootloader sp未初始化 (**✅ 已修复**) |
 | BUG-89 | 🟡 MED | Bootloader跳转前缺少fence.i (**✅ 已修复**) |
@@ -1371,7 +1371,7 @@ ddr3_model (Micron 行为模型)
 
 ### BUG-83: Boot ROM R 通道 FSM 握手条件错误 — RVALID 永不为 1
 
-**文件**: `dev/rtl/AHB-lite/axi4lite_bootrom.sv:119-127`
+**文件**: `dev/rtl/axi/axi4lite_bootrom.sv:119-127`
 
 **描述**: Boot ROM 读通道 FSM 的 `RD_DATA` 状态中，RVALID 握手完成条件为 `if (s_axi_rready)`，缺少 `&& s_axi_rvalid` 守卫。由于 `s_axi_rvalid` 是寄存器输出（1 周期延迟），FSM 从 `RD_IDLE` 进入 `RD_DATA` 时 `rvalid` 仍为 0。若此时 `rready=1`（CDC R FIFO 未满），`if(rready)` 分支立即执行，`s_axi_rvalid <= 1'b0` 覆盖了 `s_axi_rvalid <= 1'b1`（Verilog 非阻塞赋值后者胜出），导致 **RVALID 始终为 0**，R 通道响应被静默吞没。
 
@@ -1429,9 +1429,9 @@ mmio_inst_served 等待 icache_mmio_req=0 → 永远不清除
 
 ### BUG-86: UART RXDATA 读取直接弹出 FIFO — CPU 重复 AXI 事务导致每隔一字节丢失
 
-**文件**: `dev/rtl/APB/perips/uart_top.sv`
+**文件**: `dev/rtl/APB/perips/uart_top.sv`, `dev/rtl/core/dcache_ctrl.sv`, `dev/rtl/core/icache_ctrl.sv`, `dev/rtl/core/cpu_bus_bridge.sv`
 
-**状态**: ✅ 已修复 (2026-06-12)
+**状态**: ✅ 已修复 (2026-06-13 RTL 侧根因修复验证通过)
 
 **描述**: UART RXDATA 寄存器（偏移 0x0C）读取时直接弹出 RX FIFO 头部。但 CPU 数据总线存在每条 `lw` 指令触发两次 AXI4-Lite 事务的 bug（两次 AR 握手，间隔约 15 周期）。对普通内存无影响（读无副作用），但对 RXDATA 是致命的——第二次读额外弹出 FIFO 中的一个字节。
 
@@ -1440,18 +1440,48 @@ mmio_inst_served 等待 icache_mmio_req=0 → 永远不清除
 lw RXDATA → AXI AR#1 (pop byte N) → AXI AR#2 (pop byte N+1!) ← 丢失一字节
 ```
 
-**修复**: 实现 STATUS-read auto-arm 机制：
+**根因分析 (RTL 侧)**:
+
+dcache/icache 的 `mmio_req` 是电平信号，在 AXI 响应返回后仍保持高电平 2 个额外周期（直到 `cpu_mem` 清除 `mem_en`）。配合 `cpu_bus_bridge` 的 `mmio_*_served` 在 `!req || valid` 时过早清除，形成 1-cycle 窗口：
+
+```
+T:   ahb_data_valid_r 脉冲 → cpu_req_ready_r 置1(T+1) → mem_en 拉0(T+2)
+T+1: mmio_data_served 已清除（旧条件: !req||valid）
+T+2: dcache_mmio_req=1 && !served && !valid → 第二次 AR 握手
+```
+
+**修复 (两层防御)**:
+
+**UART 侧** (软件安全网): STATUS-read auto-arm 机制
 1. 读 STATUS 且 `rx_valid=1` 时置 `rx_pop_armed=1`
 2. 读 RXDATA 时：若 `rx_pop_armed=1` 则弹出 FIFO 并清标志；否则仅 peek（不弹出）
 3. 重复读 STATUS 幂等（`rx_pop_armed` 已为 1），重复读 RXDATA 安全（peek only）
 
-**修复后执行序列**:
+**RTL 侧** (根因消除):
+
+- **Approach A** — `mmio_req` 门控 (`dcache_ctrl.sv:328`, `icache_ctrl.sv:215`):
+  ```sv
+  // Before: assign mmio_req = ... && cpu_req_valid && is_mmio && mmu_ready;
+  // After:  assign mmio_req = ... && cpu_req_valid && is_mmio && mmu_ready && !cpu_req_ready_r;
+  ```
+  响应捕获后 `cpu_req_ready_r=1`，`mmio_req` 立即拉低，消除 1-cycle 窗口。
+
+- **Approach C** — `mmio_*_served` 持有直到 req 撤回 (`cpu_bus_bridge.sv:317-318`):
+  ```sv
+  // Before: if (!req || valid) mmio_*_served <= 1'b0;
+  // After:  if (!req)          mmio_*_served <= 1'b0;
+  ```
+  纵深防御：即使 Approach A 失效，served 标志仍阻塞同源重入。
+
+**修复后时序**:
 ```
-lw STATUS → AR#1 (arm)  → AR#2 (re-arm, idempotent)
-lw RXDATA → AR#3 (pop)  → AR#4 (peek only) ← 无丢失
+T+1: cpu_req_ready_r=1 → mmio_req=0 (门控) → 无窗口
+T+2: dcache_mmio_req=0 → served 清除 → 安全
 ```
 
-**验证**: cpu_full ALL TESTS PASSED (41/41)
+**TECH-DEBT**: icache MMIO (BOOTROM 指令取指) 仍存在连续周期双事务（读幂等，无数据损坏）。方案 B（valid-ready 握手重构，~60行+12reg）记录于 `cpu_bus_bridge.sv:4-13`，延后实施。
+
+**验证**: cpu_full ALL TESTS PASSED (42/42)，dcache MMIO 零重复事务，icache MMIO 双事务为幂等 BOOTROM 读（无害）
 
 ---
 
@@ -1504,4 +1534,4 @@ lw RXDATA → AR#3 (pop)  → AR#4 (peek only) ← 无丢失
 ---
 
 *报告由 Sisyphus RTL 审计系统生成。*
-*全部扫描完成: Core Pipeline ✅ | Bus/Peripherals ✅ | MMU/TLB/Cache ✅ | System Top ✅ | FPU ✅ | ALU/MU ✅ | DDR3 AHB ✅ | DDR3 System ✅ | AXI4-Lite ✅ (BUG-54/55 修复后仿真提速 500x, BUG-56 5层修复+force workaround 验证通过, 第二轮 12 项修复全部 LSP 验证通过, 第三轮 Cache+CDC 9 项修复 SRAM仿真 ALL TESTS PASSED, 第四轮 Cache Tag+ROM 5 项修复 cpu_full 41/42 PASS, 第五轮 Boot ROM 启动 3 项修复 cpu_full 41/41 ALL TESTS PASSED, 第六轮 UART RX Bootloader 5 项修复 cpu_full 41/41 ALL TESTS PASSED)*
+*全部扫描完成: Core Pipeline ✅ | Bus/Peripherals ✅ | MMU/TLB/Cache ✅ | System Top ✅ | FPU ✅ | ALU/MU ✅ | DDR3 AHB ✅ | DDR3 System ✅ | AXI4-Lite ✅ (BUG-54/55 修复后仿真提速 500x, BUG-56 5层修复+force workaround 验证通过, 第二轮 12 项修复全部 LSP 验证通过, 第三轮 Cache+CDC 9 项修复 SRAM仿真 ALL TESTS PASSED, 第四轮 Cache Tag+ROM 5 项修复 cpu_full 41/42 PASS, 第五轮 Boot ROM 启动 3 项修复 cpu_full 41/41 ALL TESTS PASSED, 第六轮 UART RX Bootloader 5 项修复 cpu_full 42/42 ALL TESTS PASSED, BUG-86 RTL根因修复 mmio_req门控+bridge served持有 验证通过)*

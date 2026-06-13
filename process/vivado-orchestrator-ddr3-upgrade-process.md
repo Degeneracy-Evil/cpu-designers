@@ -116,11 +116,11 @@
 | `Reference/ddr3_sim/ddr3_model.sv` | 新建 | 从 MIG example 复制 |
 | `Reference/ddr3_sim/ddr3_model_parameters.vh` | 新建 | 从 MIG example 复制 |
 | `Reference/ddr3_sim/wiredly.v` | 新建 | 从 MIG example 复制 |
-| `dev/rtl/AHB-lite/ahb_sys_status.sv` | 修改 | `output wire` → `output logic` (HRDATA) |
-| `dev/rtl/AHB-lite/ddr3_bridge_wrapper.sv` | 修改 | 补充 aresetn 端口逗号 |
+| `dev/rtl/axi/ahb_sys_status.sv` | 修改 | `output wire` → `output logic` (HRDATA) |
+| `dev/rtl/axi/ddr3_bridge_wrapper.sv` | 修改 | 补充 aresetn 端口逗号 |
 | `dev/rtl/core/core_bus_types.svh` | 修改 | 添加 include guard |
 | `dev/rtl/system_top.sv` | 修改 | clk_wiz_0 `.reset` → `.resetn`；BUG-52: `.mig_sys_rst(~resetn)` → `.mig_sys_rst(resetn)`；BUG-54: `mig_aresetn` 在 MMCM lock 后释放；BUG-55c: 添加异步复位 |
-| `dev/rtl/AHB-lite/ahb_bootrom_slave.sv` | 修改 | 添加 `ifdef SIMULATION` 寄存器数组；BUG-55: 添加 `initial` 块初始化为 0 |
+| `dev/rtl/axi/ahb_bootrom_slave.sv` | 修改 | 添加 `ifdef SIMULATION` 寄存器数组；BUG-55: 添加 `initial` 块初始化为 0 |
 | `dev/rtl/APB/perips/uart_tx.sv` | 修改 | BUG-55b: cycle_cnt 添加 `state != S_IDLE` 守卫 |
 | `dev/rtl/APB/perips/uart_rx.sv` | 修改 | BUG-55b: cycle_cnt 添加 `state != S_IDLE` 守卫 |
 | `dev/tb/tb_ddr3_system.sv` | 修改 | 移除 glbl 双实例；SIM_TIMEOUT 溢出修复；CALIB_TIMEOUT 500µs→1ms；MIG 基础设施探针；BUG-55d: 注释掉 $dumpvars |

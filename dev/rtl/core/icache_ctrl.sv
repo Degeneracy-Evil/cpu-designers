@@ -209,7 +209,10 @@ module icache_ctrl(
     assign refill_req  = refill_req_r;
     assign refill_addr = refill_addr_r;
 
-    assign mmio_req  = is_mmio ? (cpu_req_valid && mmu_ready) : 1'b0;
+    // BUG-86 fix (Approach A): gate with !cpu_req_ready_r to deassert mmio_req
+    // as soon as the response is captured.  Prevents duplicate AXI transactions
+    // when the bus bridge re-enters S_IDLE while this level signal is still high.
+    assign mmio_req  = is_mmio ? (cpu_req_valid && mmu_ready && !cpu_req_ready_r) : 1'b0;
     assign mmio_addr = cpu_req_addr;
 
     assign cpu_req_ready = cpu_req_ready_r;

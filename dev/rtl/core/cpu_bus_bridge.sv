@@ -1,6 +1,17 @@
 `timescale 1ns / 1ps
 `include "axi4_def.svh"
 
+// TECH-DEBT (BUG-86): The MMIO request interface uses level-sensitive req
+// signals without a grant/accept handshake, creating protocol ambiguity
+// (sustained level vs. new request).  The current fix (Approach A+C) gates
+// mmio_req with !cpu_req_ready_r and holds mmio_*_served until req deasserts.
+// The proper long-term fix (Approach B) is to redesign the interface as a
+// valid-ready handshake: mmio_req pulses for 1 cycle, bus bridge latches the
+// request and asserts mmio_accept, dcache deasserts on accept.  This eliminates
+// the ambiguity at the protocol level but requires significant refactoring
+// (~60 lines, ~12 registers across dcache/icache/bus_bridge).  Defer until
+// next bus bridge overhaul.
+
 module cpu_bus_bridge(
     input         clk,
     input         resetn,
@@ -294,8 +305,17 @@ module cpu_bus_bridge(
             dcache_error_is_store_r <= 1'b0;
             ptw_done_r             <= 1'b0;
             ptw_error_r            <= 1'b0;
-            if (!icache_mmio_req || ahb_inst_valid_r) mmio_inst_served <= 1'b0;
-            if (!dcache_mmio_req || ahb_data_valid_r) mmio_data_served <= 1'b0;
+            // BUG-86 fix (Approach C — defense-in-depth):
+            // Only clear mmio_*_served when the request source deasserts its req
+            // signal.  This prevents the bus bridge from re-accepting the same
+            // request during the 1-cycle window between ahb_*_valid_r pulse and
+            // the source's mmio_req going low (which Approach A guarantees).
+            // Safe with Approach A: mmio_req deasserts on response capture,
+            // so mmio_*_served is cleared promptly.  Also improves fairness:
+            // blocks same-source re-entry, giving lower-priority sources a
+            // service window.
+            if (!icache_mmio_req) mmio_inst_served <= 1'b0;
+            if (!dcache_mmio_req) mmio_data_served <= 1'b0;
 
             case (state)
                 // =====================================================

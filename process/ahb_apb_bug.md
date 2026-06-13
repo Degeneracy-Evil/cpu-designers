@@ -2,7 +2,7 @@
 
 > 分析日期：2026-06-08
 > 规范依据：ARM IHI0033A (AMBA 3 AHB-Lite v1.0)、ARM IHI0024E (AMBA APB Issue E)
-> 分析范围：`dev/rtl/AHB-lite/`、`dev/rtl/APB/`、`dev/rtl/core/cpu_bus_bridge.sv`
+> 分析范围：`dev/rtl/axi/`、`dev/rtl/APB/`、`dev/rtl/core/cpu_bus_bridge.sv`
 
 ---
 

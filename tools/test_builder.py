@@ -54,10 +54,35 @@ RV2COE = REPO_ROOT / "tools" / "rv2coe.py"
 
 APP_TARGETS: dict[str, dict[str, Any]] = {
     "led_marquee": {
-        "src_file": APP_SRC / "led_marquee.s",
+        "src_files": [APP_SRC / "led_marquee.s"],
         "arch": "rv32im_zicsr_zifencei",
         "abi": "ilp32",
         "linker_script": None,
+        "include_dirs": [],
+        "depth": 8192,
+    },
+    "uart_echo": {
+        "src_files": [APP_SRC / "uart_echo.s"],
+        "arch": "rv32im_zicsr_zifencei",
+        "abi": "ilp32",
+        "linker_script": None,
+        "include_dirs": [],
+        "depth": 8192,
+    },
+    "calculator": {
+        "src_files": [
+            PROG_SRC / "lib" / "start.S",
+            PROG_SRC / "lib" / "uart.c",
+            PROG_SRC / "lib" / "stdio.c",
+            PROG_SRC / "lib" / "atof.c",
+            PROG_SRC / "lib" / "ftoa.c",
+            PROG_SRC / "lib" / "math.c",
+            APP_SRC / "calculator.c",
+        ],
+        "arch": "rv32imaf_zicsr_zifencei",
+        "abi": "ilp32",
+        "linker_script": PROG_SRC / "link.ld",
+        "include_dirs": [PROG_SRC / "lib" / "include"],
         "depth": 8192,
     },
 }
@@ -164,11 +189,13 @@ def discover_app(app_name: str) -> dict:
     return {
         "name": app_name,
         "category": "app",
-        "src_file": app["src_file"],
+        "src_file": app["src_files"][0],
+        "src_files": app["src_files"],
         "framework": [],
         "arch": app["arch"],
         "abi": app["abi"],
         "linker_script": app["linker_script"],
+        "include_dirs": app["include_dirs"],
         "depth": app["depth"],
         "output_dir": APP_SRC,
     }
@@ -183,15 +210,16 @@ def build_test(test: dict, verbose: bool, dry_run: bool) -> bool:
         True if build succeeded (or dry_run), False otherwise.
     """
     name = test["name"]
-    src_file = test["src_file"]
+    src_files = test.get("src_files", [test["src_file"]])
     output_dir = test.get("output_dir", TEST_SRC)
     hex_file = output_dir / f"{name}.hex"
     coe_file = output_dir / f"{name}.coe"
 
     # 检查源文件存在
-    if not src_file.exists():
-        print(f"[SKIP] {name}: source file not found: {src_file}")
-        return False
+    for src_file in src_files:
+        if not src_file.exists():
+            print(f"[SKIP] {name}: source file not found: {src_file}")
+            return False
 
     # 组装 rv2coe.py 命令
     cmd = [
@@ -206,8 +234,12 @@ def build_test(test: dict, verbose: bool, dry_run: bool) -> bool:
         else:
             print(f"[WARN] Framework file not found: {fw_file}", file=sys.stderr)
 
-    # 添加测试源文件
-    cmd.extend(["-i", str(src_file)])
+    # 添加测试/应用源文件
+    for src_file in src_files:
+        cmd.extend(["-i", str(src_file)])
+
+    for inc_dir in test.get("include_dirs", []):
+        cmd.extend(["-I", str(inc_dir)])
 
     # 链接脚本
     linker = test["linker_script"]

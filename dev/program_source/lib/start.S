@@ -16,6 +16,10 @@ _start:
     lui     sp, %hi(_stack_top)
     addi    sp, sp, %lo(_stack_top)
 
+    /* ---- Install default trap handler for C apps ---- */
+    la      t0, .Ltrap
+    csrw    mtvec, t0
+
     /* ---- Zero .bss section ---- */
     la      t0, __bss_start
     la      t1, __bss_end
@@ -33,5 +37,13 @@ _start:
 .Lhalt:
     wfi
     j       .Lhalt
+
+.Ltrap:
+    csrr    x5, mcause
+    csrr    x6, mepc
+    csrr    x7, mtval
+.Ltrap_halt:
+    wfi
+    j       .Ltrap_halt
 
     .size _start, . - _start

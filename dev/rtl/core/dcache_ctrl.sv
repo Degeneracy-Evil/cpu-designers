@@ -301,6 +301,7 @@ module dcache_ctrl(
 
     reg [31:0] bypass_data;
     reg        mmio_pending_r;
+    reg        mmio_inflight_r;
     reg [31:0] mmio_addr_r;
     reg [31:0] mmio_wdata_r;
     reg        mmio_hwrite_r;
@@ -378,6 +379,7 @@ module dcache_ctrl(
             bypass_data      <= 32'b0;
             cpu_req_ready_r  <= 1'b0;
             mmio_pending_r   <= 1'b0;
+            mmio_inflight_r  <= 1'b0;
             mmio_addr_r      <= 32'b0;
             mmio_wdata_r     <= 32'b0;
             mmio_hwrite_r    <= 1'b0;
@@ -397,8 +399,10 @@ module dcache_ctrl(
             cpu_req_ready_r <= 1'b0;
             flush_done_r    <= 1'b0;
             tag_bram_enb_r  <= 1'b0;  // default: no tag BRAM write
-            if (mmio_accept)
+            if (mmio_accept) begin
                 mmio_pending_r <= 1'b0;
+                mmio_inflight_r <= 1'b1;
+            end
 
             case (state)
                 S_IDLE: begin
@@ -411,16 +415,16 @@ module dcache_ctrl(
 
                     end else if (cpu_req_valid && !cpu_req_ready_r) begin
                         if (is_mmio) begin
-                            if (mmu_ready && !mmio_pending_r) begin
+                            if (mmio_valid) begin
+                                bypass_data     <= mmio_rdata;
+                                cpu_req_ready_r <= 1'b1;
+                                mmio_inflight_r <= 1'b0;
+                            end else if (mmu_ready && !mmio_pending_r && !mmio_inflight_r) begin
                                 mmio_pending_r <= 1'b1;
                                 mmio_addr_r    <= cpu_req_addr;
                                 mmio_wdata_r   <= cpu_req_wdata;
                                 mmio_hwrite_r  <= cpu_req_hwrite;
                                 mmio_hsize_r   <= cpu_req_hsize;
-                            end
-                            if (mmio_valid) begin
-                                bypass_data     <= mmio_rdata;
-                                cpu_req_ready_r <= 1'b1;
                             end
                         end else begin
                             // Enable tag BRAM Port A → output valid next cycle

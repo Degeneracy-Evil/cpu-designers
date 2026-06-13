@@ -1,6 +1,6 @@
 # SimpleCPU 设计报告
 
-> 生成日期: 2026-06-12 | 项目路径: `dev/rtl/`
+> 生成日期: 2026-06-13 | 项目路径: `dev/rtl/`
 
 ---
 
@@ -145,19 +145,151 @@ fpu_unit
 └── 结果选择器     ← 按 fpu_funct 选择结果，输出 fflags[4:0]
 ```
 
-### 2.2 地址映射
+### 2.2 地址映射（Memory Map）
 
-| 地址高位 | 从设备 | 总线协议 | 说明 |
-|----------|--------|----------|------|
-| `0x8_xxxx_xxxx` | DDR3/RAM | AXI4 | 主存储器（DDR3 或 SRAM 行为模型，缓存映射区域） |
-| `0xFC_xxxx_xxxx` | Boot ROM | AXI4-Lite | 启动 ROM（32KB BRAM，只读，CPU 复位起始地址） |
-| `0x0C_xxxx_xxxx` | PLIC | AXI4-Lite | 平台级中断控制器 |
-| `0x02_xxxx_xxxx` | CLINT | AXI4-Lite | 核心本地中断器（mtime/mtimecmp/msip 可写） |
-| `0x10_xxxx_xxxx` | APB Bridge | AXI4-Lite | 外设桥（GPIO/UART/Timer/SPI） |
-| `0x04_xxxx_xxxx` | Sys Status | AXI4-Lite | 系统状态（MIG 校准/MMCM/clk_wiz 锁定，只读） |
-| 其他 | Default Slave | AXI4-Lite | 未映射地址返回 DECERR 响应 |
+#### 2.2.1 顶层地址译码
 
-Cache/MMIO 判定规则：`addr[31]==0 || addr[30]==1` 为 MMIO 区域（走 AXI 总线旁路缓存），其余为 Cacheable 区域（走 icache/dcache）。DDR3/RAM 地址由 `0x00` 迁移至 `0x80`，所有数据访问使用 `0x8000_0000` 基址。CPU 复位从 Boot ROM（0xFC00_0000）启动，bootloader 跳转至 0x8000_0000 执行主程序。
+`system_top` 内手动实现 7 从设备地址译码，优先级从高到低（译码逻辑为组合优先级）：
+
+| 从设备编号 | 判定条件 | 地址范围 | 从设备 | 总线协议 | 说明 |
+|-----------|----------|----------|--------|----------|------|
+| Slave 0 | `addr[31:27] == 5'h10` | `0x8000_0000 ~ 0x87FF_FFFF` | DDR3/RAM | AXI4 | 主存储器（128MB 窗口，DDR3 或 SRAM 行为模型） |
+| Slave 1 | `addr[31:24] == 8'hFC` | `0xFC00_0000 ~ 0xFCFF_FFFF` | Boot ROM | AXI4-Lite | 启动 ROM（32KB BRAM，只读） |
+| Slave 2 | `addr[31:24] == 8'h0C` | `0x0C00_0000 ~ 0x0CFF_FFFF` | PLIC | AXI4-Lite | 平台级中断控制器（8 源） |
+| Slave 3 | `addr[31:24] == 8'h02` | `0x0200_0000 ~ 0x02FF_FFFF` | CLINT | AXI4-Lite | 核心本地中断器（mtime/mtimecmp/msip） |
+| Slave 4 | `addr[31:24] == 8'h10` | `0x1000_0000 ~ 0x10FF_FFFF` | APB Bridge | AXI4-Lite | 外设桥（GPIO/Timer/UART/SPI） |
+| Slave 5 | `addr[31:24] == 8'h04` | `0x0400_0000 ~ 0x04FF_FFFF` | Sys Status | AXI4-Lite | 系统状态（只读） |
+| Slave 6 | 其他 | 未映射 | Default Slave | AXI4-Lite | 返回 DECERR 响应 |
+
+> **注意**：Slave 0（DDR3）判定条件为 `addr[31:27]==5'h10`（即 `0x80`~`0x87` 开头），覆盖 128MB 地址窗口。此判定优先于 Default Slave，确保 DDR3 访问不被误路由。
+
+**Cache/MMIO 判定规则**：`addr[31]==0 || addr[30]==1` 为 MMIO 区域（走 AXI 总线旁路缓存），其余为 Cacheable 区域（走 icache/dcache）。
+
+#### 2.2.2 完整内存映射图
+
+```
+0xFFFF_FFFF ┌──────────────────────┐
+            │     未映射区域        │ → Default Slave (DECERR)
+0xFD00_0000 ├──────────────────────┤
+            │     Boot ROM         │ 0xFC00_0000 (Slave 1, 32KB BRAM, 只读)
+0xFC00_0000 ├──────────────────────┤
+            │     未映射区域        │ → Default Slave (DECERR)
+0x8800_0000 ├──────────────────────┤
+            │     DDR3/RAM         │ 0x8000_0000 (Slave 0, 主存储器, Cacheable)
+0x8000_0000 ├──────────────────────┤
+            │     未映射区域        │ → Default Slave (DECERR)
+0x1100_0000 ├──────────────────────┤
+            │     APB Bridge       │ 0x1000_0000 (Slave 4, 外设桥)
+            │  ├─ 0x1000_0000 GPIO  (PSELx[0], PADDR[15:14]==00)
+            │  ├─ 0x1000_4000 Timer (PSELx[1], PADDR[15:14]==01)
+            │  ├─ 0x1000_8000 UART  (PSELx[2], PADDR[15:14]==10)
+            │  └─ 0x1000_C000 SPI   (PSELx[3], PADDR[15:14]==11)
+0x1000_0000 ├──────────────────────┤
+            │     未映射区域        │ → Default Slave (DECERR)
+0x0D00_0000 ├──────────────────────┤
+            │     PLIC             │ 0x0C00_0000 (Slave 2, 8 源中断控制器)
+0x0C00_0000 ├──────────────────────┤
+            │     未映射区域        │ → Default Slave (DECERR)
+0x0500_0000 ├──────────────────────┤
+            │     Sys Status       │ 0x0400_0000 (Slave 5, 只读)
+0x0400_0000 ├──────────────────────┤
+            │     未映射区域        │ → Default Slave (DECERR)
+0x0300_0000 ├──────────────────────┤
+            │     CLINT            │ 0x0200_0000 (Slave 3, 定时器中断)
+0x0200_0000 ├──────────────────────┤
+            │     未映射区域        │ → Default Slave (DECERR)
+0x0000_0000 └──────────────────────┘
+```
+
+#### 2.2.3 CLINT 寄存器映射
+
+基地址：`0x0200_0000`，AXI4-Lite，按 `addr[3:0]` 译码：
+
+| 偏移 | 名称 | 读/写 | 说明 |
+|------|------|-------|------|
+| 0x00 | mtimecmp_lo | RW | 定时器比较值低 32 位 |
+| 0x04 | mtimecmp_hi | RW | 定时器比较值高 32 位 |
+| 0x08 | mtime_lo | RW | 定时器计数值低 32 位（mtime 每周期自增 1） |
+| 0x0C | mtime_hi | RW | 定时器计数值高 32 位 |
+| 0x10 | msip | RW | 软件中断挂起（写 [0] 位设置/清除 MSIP） |
+
+> 中断产生条件：`mtime[63:0] >= mtimecmp[63:0]` 时 MTIP=1。
+
+#### 2.2.4 PLIC 寄存器映射
+
+基地址：`0x0C00_0000`，AXI4-Lite，支持 8 个中断源（NUM_SRC=8）：
+
+| 偏移 | 名称 | 读/写 | 说明 |
+|------|------|-------|------|
+| 0x00 ~ 0x1C | priority[0:7] | RW | 每源优先级（4 字节对齐，addr[7:2] 索引） |
+| 0x400 ~ 0x41F | pending[0:7] | R | 每源挂起状态（只读，硬件置位） |
+| 0x800 | enable | RW | 中断使能掩码（32-bit，每源 1 位） |
+| 0x200_000 | threshold | RW | 优先级阈值（仅优先级 > threshold 的中断可_claim） |
+| 0x200_004 | claim/complete | RW | 声明最高优先级中断（读返回 ID，写完成处理） |
+
+> PLIC 中断路由：src[1]=Timer, src[2]=UART, src[3]=SPI, src[4]=GPIO。
+
+#### 2.2.5 APB 外设地址子译码
+
+APB Bridge 基地址：`0x1000_0000`，4 个 APB 从设备按 `PADDR[15:14]` 译码：
+
+| APB 从设备 | 判定条件 | 基地址 | 地址空间 | 说明 |
+|-----------|----------|--------|----------|------|
+| GPIO | `PADDR[15:14] == 2'b00` | `0x1000_0000` | `0x1000_0000 ~ 0x1000_3FFF` | 16-bit 双向 IO |
+| Timer | `PADDR[15:14] == 2'b01` | `0x1000_4000` | `0x1000_4000 ~ 0x1000_7FFF` | 32-bit 定时器 |
+| UART | `PADDR[15:14] == 2'b10` | `0x1000_8000` | `0x1000_8000 ~ 0x1000_BFFF` | TX/RX FIFO |
+| SPI | `PADDR[15:14] == 2'b11` | `0x1000_C000` | `0x1000_C000 ~ 0x1000_FFFF` | 主模式 SPI |
+
+**GPIO 寄存器映射**（基址 `0x1000_0000`）：
+
+| 偏移 | 名称 | 说明 |
+|------|------|------|
+| 0x00 | CTRL | 方向控制（1=输出，0=输入） |
+| 0x04 | DATA | 数据寄存器 |
+| 0x08 | IRQ_EN | 逐引脚中断使能掩码 |
+| 0x0C | IRQ_STAT | 逐引脚中断挂起（写 1 清除） |
+
+**Timer 寄存器映射**（基址 `0x1000_4000`）：
+
+| 偏移 | 名称 | 说明 |
+|------|------|------|
+| 0x00 | CTRL | 控制寄存器（使能/模式） |
+| 0x04 | CNT | 当前计数值 |
+| 0x08 | CMP | 比较值 |
+
+**UART 寄存器映射**（基址 `0x1000_8000`）：
+
+| 偏移 | 名称 | 位定义 | 说明 |
+|------|------|--------|------|
+| 0x00 | CTRL | [0]=TX_EN [1]=RX_EN [2]=TX_IE [3]=RX_IE | 控制/中断使能 |
+| 0x04 | STATUS | [0]=TX_BUSY [1]=RX_VALID [2]=TX_FIFO_FULL [3]=RX_FIFO_EMPTY [4]=TX_FIFO_EMPTY [5]=RX_FIFO_FULL | FIFO 状态；**读取时若 RX_VALID=1 自动武装下次 RXDATA 弹出** |
+| 0x08 | TXDATA | [7:0] | 写入推入 TX FIFO |
+| 0x0C | RXDATA | [7:0] | 读取：若 `rx_pop_armed=1` 弹出 FIFO 并清标志；否则仅 peek |
+| 0x10 | BAUD | [15:0] | 波特率分频系数（0=默认 115200） |
+| 0x14 | IRQ_STAT | [0]=TX_DONE_IRQ [1]=RX_VALID_IRQ | 中断挂起（写 1 清除） |
+| 0x18 | RXPOP | — | 保留（写 1 弹出 RX FIFO） |
+
+**SPI 寄存器映射**（基址 `0x1000_C000`）：
+
+| 偏移 | 名称 | 位定义 | 说明 |
+|------|------|--------|------|
+| 0x00 | CTRL | [0]=EN [1]=CPOL [2]=CPHA [3]=CS [4]=IRQ_EN [15:8]=CLK_DIV | 控制/中断使能 |
+| 0x04 | DATA | [7:0] | 数据寄存器 |
+| 0x08 | STATUS | [0]=BUSY [1]=IRQ_PENDING | 状态/中断挂起 |
+
+#### 2.2.6 System Status 寄存器映射
+
+基地址：`0x0400_0000`，AXI4-Lite 只读，按 `addr[3:0]` 译码：
+
+| 偏移 | 位定义 | 说明 |
+|------|--------|------|
+| 0x00 | [0]=init_calib_complete [1]=mig_mmcm_locked [2]=clk_wiz_locked [31:3]=保留 | 系统状态（只读） |
+
+#### 2.2.7 Boot ROM 地址映射
+
+基地址：`0xFC00_0000`，AXI4-Lite 只读，32KB BRAM（MEM_DEPTH=8192），写通道静默应答 OKAY。
+
+CPU 复位起始地址为 `0xFC00_0000`，启动流程：`复位 PC=0xFC00_0000` → Boot ROM 取 bootloader → bootloader 初始化 sp → DDR3 自检 → UART 接收程序镜像 → fence.i → 跳转至 `0x8000_0000` → 执行主程序。
 
 ---
 
@@ -921,47 +1053,20 @@ vivado_config.yaml
 
 ### 6.2 APB 总线与外设
 
-通过 AXI4-Lite to APB 桥接访问：
+通过 AXI4-Lite to APB 桥接访问（基址 `0x1000_0000`，详细地址映射见 §2.2.5）：
 
-| 外设 | 说明 |
-|------|------|
-| GPIO | 16-bit 双向 IO，引脚变化中断，中断使能/状态寄存器 |
-| UART | TX/RX FIFO（16 字节），中断输出，运行时波特率配置，RXDATA peek + STATUS-read auto-arm（应对 CPU 重复 AXI 事务 bug） |
-| Timer | 32-bit 定时器，产生中断，单次/周期模式 |
-| SPI | 主模式 SPI 控制器，传输完成中断 |
+| 外设 | 基地址 | 说明 |
+|------|--------|------|
+| GPIO | `0x1000_0000` | 16-bit 双向 IO，引脚变化中断，中断使能/状态寄存器 |
+| Timer | `0x1000_4000` | 32-bit 定时器，产生中断，单次/周期模式 |
+| UART | `0x1000_8000` | TX/RX FIFO（16 字节），中断输出，运行时波特率配置，RXDATA peek + STATUS-read auto-arm（应对 CPU 重复 AXI 事务 bug） |
+| SPI | `0x1000_C000` | 主模式 SPI 控制器，传输完成中断 |
 
-#### 6.2.1 UART 寄存器映射
+#### 6.2.1 UART STATUS-read auto-arm 机制
 
-| 偏移 | 名称 | 位定义 | 说明 |
-|------|------|--------|------|
-| 0x00 | CTRL | [0]=TX_EN [1]=RX_EN [2]=TX_IE [3]=RX_IE | 控制/中断使能 |
-| 0x04 | STATUS | [0]=TX_BUSY [1]=RX_VALID [2]=TX_FIFO_FULL [3]=RX_FIFO_EMPTY [4]=TX_FIFO_EMPTY [5]=RX_FIFO_FULL | FIFO 状态；**读取时若 RX_VALID=1 自动武装下次 RXDATA 弹出** |
-| 0x08 | TXDATA | [7:0] | 写入推入 TX FIFO |
-| 0x0C | RXDATA | [7:0] | 读取：若 `rx_pop_armed=1` 弹出 FIFO 并清标志；否则仅 peek（不弹出） |
-| 0x10 | BAUD | [15:0] | 波特率分频系数（0=默认 115200） |
-| 0x14 | IRQ_STAT | [0]=TX_DONE_IRQ [1]=RX_VALID_IRQ | 中断挂起（写 1 清除） |
-| 0x18 | RXPOP | — | 保留（写 1 弹出 RX FIFO，当前 bootloader 未使用） |
+由于 CPU 数据总线存在每条 `lw`/`sw` 指令触发两次 AXI4-Lite 事务的 bug，直接弹出 RXDATA 会导致每隔一字节丢失。解决方案：读取 STATUS 且 `RX_VALID=1` 时置 `rx_pop_armed=1`，后续 RXDATA 读取在该标志有效时弹出 FIFO 并清标志，重复读取仅 peek 不弹。此机制使重复总线事务对 FIFO 无副作用。
 
-**STATUS-read auto-arm 机制**：由于 CPU 数据总线存在每条 `lw`/`sw` 指令触发两次 AXI4-Lite 事务的 bug，直接弹出 RXDATA 会导致每隔一字节丢失。解决方案：读取 STATUS 且 `RX_VALID=1` 时置 `rx_pop_armed=1`，后续 RXDATA 读取在该标志有效时弹出 FIFO 并清标志，重复读取仅 peek 不弹。此机制使重复总线事务对 FIFO 无副作用。
-
-#### 6.2.2 GPIO 寄存器映射
-
-| 偏移 | 名称 | 说明 |
-|------|------|------|
-| 0x00 | CTRL | 方向控制（1=输出，0=输入） |
-| 0x04 | DATA | 数据寄存器 |
-| 0x08 | IRQ_EN | 逐引脚中断使能掩码 |
-| 0x0C | IRQ_STAT | 逐引脚中断挂起（写 1 清除） |
-
-#### 6.2.3 SPI 寄存器映射
-
-| 偏移 | 名称 | 位定义 | 说明 |
-|------|------|--------|------|
-| 0x00 | CTRL | [0]=EN [1]=CPOL [2]=CPHA [3]=CS [4]=IRQ_EN [15:8]=CLK_DIV | 控制/中断使能 |
-| 0x04 | DATA | [7:0] | 数据寄存器 |
-| 0x08 | STATUS | [0]=BUSY [1]=IRQ_PENDING | 状态/中断挂起 |
-
-#### 6.2.4 PLIC 中断路由
+#### 6.2.2 PLIC 中断路由
 
 | PLIC src_irq | 来源 | 说明 |
 |--------------|------|------|
@@ -989,7 +1094,20 @@ vivado_config.yaml
 
 ## 8. 验证
 
-### 8.1 测试平台
+### 8.1 应用层验证状态
+
+> 更新时间: 2026-06-13 | 基于 commit `bb4b3fb`（成功完成计算器、echo）
+
+| 应用 | 程序 | 验证方式 | 结果 | 说明 |
+|------|------|----------|------|------|
+| LED 跑马灯 | `led_marquee.hex` | 仿真 + 上板 | ✓ PASS | GPIO 输出 + CLINT MTIP 定时器驱动，16 项检查全通过 |
+| UART Echo | `uart_echo.hex` | 仿真 + 上板 | ✓ PASS | UART 回环收发，testbench 内嵌 TX 引擎 + RX 解码器 |
+| 浮点计算器 | `calculator.hex` | 仿真 + 上板 | ✓ PASS | UART IO 递归下降表达式解析，5 项算式全通过 |
+| Bootloader 仿真 | `bootloader_full.hex` | 仿真 | ✓ PASS | sp 初始化 → MIG 等待 → DDR3 自检 → UART 接收镜像 → fence.i → 跳转执行，全链路通过 |
+
+**里程碑**：项目已从"ISA 单元测试通过"进入"系统集成应用验证"阶段，三个应用均成功上板运行，bootloader 全链路仿真通过。
+
+### 8.2 测试平台
 
 | Testbench | 程序 | 测试内容 | 结果 |
 |-----------|------|----------|------|
@@ -1056,7 +1174,7 @@ vivado_config.yaml
 | `tb_fpu_cvt` | — | FPU 转换单元测试 | 20 PASS |
 | `tb_fpu_unit` | — | FPU 顶层集成测试 | 24 PASS |
 
-### 8.2 验证方法
+### 8.3 验证方法
 
 - 寄存器检查：通过 `rf_addr`/`rf_data` 端口直接读取整数寄存器堆，与期望值比对
 - 浮点寄存器检查：通过 `dbg_faddr`/`dbg_fdata` 端口直接读取浮点寄存器堆，与期望 IEEE 754 位模式比对
@@ -1070,7 +1188,7 @@ vivado_config.yaml
 - 共享 testbench 框架：`tb_soc_includes.svh`（system_top 实例化 + 时钟/复位 + DDR3 仿真支持 + check_reg/check_mem_word 任务 + pass/fail 计数）
 - DDR3 仿真支持：ddr3_model + axi4_write task + write_hex_file task + ddr_data_init 序列化
 
-### 8.3 仿真环境
+### 8.4 仿真环境
 
 - 仿真器：Vivado XSim（行为级仿真）
 - 自动化工具：Vivado Orchestrator（Python 驱动，替代 `vivado_do.tcl`）
@@ -1085,7 +1203,7 @@ vivado_config.yaml
 - hex/coe 文件由 `tools/rv2coe.py` 从 RISC-V 汇编源码编译生成（`--base-addr 0x80000000`）
 - BRAM 行为模型：0-cycle 读延迟，不精确模拟碰撞行为
 
-### 8.4 已知限制
+### 8.5 已知限制
 
 - **BRAM 读延迟**：仿真中 BRAM 行为模型为组合输出（0-cycle），硬件中为寄存输出（1-cycle），仿真通过不代表硬件时序正确。Cache/TLB 控制器已新增 S_TAG_READ 等状态处理 BRAM 延迟
 - **SRAM 地址空间**：SRAM 仿真模式下 `axi_wrap_ram` 容量由 BRAM 配置决定，DDR3 模式下地址范围 `0x8000_0000` 起始
@@ -1333,3 +1451,5 @@ vivado_config.yaml
 46. **共享 testbench 框架**：tb_soc_includes.svh，SoC 级仿真 + DDR3 支持
 47. **测试程序分类重组**：isa/exception/cache/mmu/privilege/mmio/regression/ 目录结构
 48. **Boot ROM 启动流程**：CPU 复位 PC=0xFC000000 → bootloader（sp 初始化 + DDR3 自检 + UART 接收程序镜像 + fence.i + 跳转）→ 主程序执行
+49. **系统集成应用验证通过**：LED 跑马灯、UART Echo、浮点计算器三个应用均成功上板运行，Bootloader 全链路仿真通过（2026-06-13）
+50. **完整内存映射模型**：7 从设备地址译码 + APB 4 从设备子译码 + CLINT/PLIC/SysStatus/BootROM 寄存器级映射（见 §2.2）

@@ -37,7 +37,7 @@ module uart_top #(
     localparam UART_RXDATA   = 8'h0C;  // Read: peek RX FIFO head (NO pop)
     localparam UART_BAUD     = 8'h10;  // Baud rate divider (0 = default 115200)
     localparam UART_IRQ_STAT = 8'h14;  // [0]=TX_DONE_IRQ, [1]=RX_VALID_IRQ (W1C)
-    localparam UART_RXPOP    = 8'h18;  // Write: pop RX FIFO (any value triggers pop)
+    localparam UART_RXPOP    = 8'h18;  // [DEPRECATED] Write: pop RX FIFO — no-op in current impl; pop is handled by rx_pop_armed auto-arm (BUG-86)
 
     // -----------------------------------------------------------------------
     // APB access signals (declared early for use throughout)
@@ -278,8 +278,10 @@ module uart_top #(
                         // (Moved to avoid DRC MDRV-1 multiple driver on uart_irq_stat.)
                     end
                     UART_RXPOP: begin
-                        // Pop is handled by rx_fifo_rd_en (combinational).
-                        // This case prevents the default no-op.
+                        // [DEPRECATED] Explicit pop register is a no-op.
+                        // RX FIFO pop is now handled by rx_pop_armed auto-arm mechanism
+                        // (BUG-86): STATUS read arms the flag, RXDATA read conditionally pops.
+                        // This case exists only to prevent the default no-op warning.
                     end
                     default: ;
                 endcase

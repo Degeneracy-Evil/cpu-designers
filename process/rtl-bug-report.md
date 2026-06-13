@@ -11,8 +11,9 @@
 > 第四轮修复状态 (Cache Tag+ROM): BUG-78 ✅ | BUG-79 ✅ | BUG-80 ✅ | BUG-81 ✅ | BUG-82 ✅
 > 第五轮修复状态 (Boot ROM 启动): BUG-83 ✅ | BUG-84 ✅ | BUG-85 ✅
 > 第六轮修复状态 (UART RX Bootloader): BUG-86 ✅ | BUG-87 ✅ | BUG-88 ✅ | BUG-89 ✅ | BUG-90 ✅
-> 第七轮修复状态 (MMIO Handshake + IRQ CDC): BUG-91 ✅ | BUG-92 ✅ | BUG-93 ✅
+> 第七轮修复状态 (MMIO Handshake + IRQ CDC): BUG-91 ✅ (协议层握手) | BUG-92 ✅ | BUG-93 ✅ | BUG-97 ✅ (mmio_inflight_r FPGA验证)
 > 第八轮修复状态 (AXI BFM 时钟域 + UART 状态): BUG-94 ✅ | BUG-95 ✅
+> 第九轮修复状态 (FPGA 上板程序层排查): BUG-96 ✅ (已记录并深度排查)
 
 ---
 
@@ -1498,11 +1499,13 @@ ddr3_model (Micron 行为模型)
 | **P1** | BUG-75 | TB BRAM索引位宽不匹配 | addr[20:2]→addr[19:2] | **✅ 已修复** |
 | **P1** | BUG-76 | is_mmio遗漏0xC0000000+区域 | `~vaddr[31]|vaddr[30]` | **✅ 已修复** |
 | **P1** | BUG-77 | APB decoder缺少高位地址守卫 | PADDR[31:16]==16'h0010 | **✅ 已修复** |
-| **P0** | BUG-86 | UART RXDATA直接弹出FIFO，CPU重复AXI事务导致每隔一字节丢失 | STATUS auto-arm + RTL mmio_req门控+bridge served持有 | **✅ 已修复** |
+| **P0** | BUG-86 | UART RXDATA直接弹出FIFO，CPU重复AXI事务导致每隔一字节丢失 | STATUS auto-arm + BUG-91 pending/accept握手+BUG-97 inflight (原始Approach A+C已替代) | **✅ 已修复** |
 | **P1** | BUG-87 | Bootloader uart_recv_word未保存/恢复ra | 添加sw ra/lw ra | **✅ 已修复** |
 | **P1** | BUG-88 | Bootloader sp未初始化，sw ra写入地址0 | lui sp,0x80008 | **✅ 已修复** |
 | **P1** | BUG-89 | Bootloader跳转前缺少fence.i | jr前添加fence.i | **✅ 已修复** |
 | **P1** | BUG-90 | Bootloader slli/or字组装受重复AXI事务影响 | 改用sb+lw组装 | **✅ 已修复** |
+| **P0** | BUG-97 | MMIO写请求accept后到响应返回前可被重新发起，UART TX字符双发 | dcache增加`mmio_inflight_r`锁住在途事务 | **✅ 已修复** |
+| **P2** | BUG-96 | C版uart_echo板上早期非法指令/回显失败，汇编版正常 | Bootloader UART传输字节丢失致程序镜像破坏，需包含BUG-91+BUG-97握手修复的bitstream重测 | **✅ 已记录并深度排查** |
 
 ---
 
@@ -1510,10 +1513,10 @@ ddr3_model (Micron 行为模型)
 
 | 严重度 | 数量 | Bug 编号 |
 |--------|------|---------|
-| 🔴 HIGH | 37 | BUG-1 ~ BUG-8, BUG-45, BUG-47 ~ BUG-55, BUG-55b ~ BUG-55d, BUG-56, BUG-57 ~ BUG-59, BUG-69 ~ BUG-73, BUG-86 |
-| 🟡 MEDIUM | 29 | BUG-9 ~ BUG-25, BUG-46, BUG-60 ~ BUG-63, BUG-74 ~ BUG-77, BUG-87 ~ BUG-90 |
+| 🔴 HIGH | 40 | BUG-1 ~ BUG-8, BUG-45, BUG-47 ~ BUG-55, BUG-55b ~ BUG-55d, BUG-56, BUG-57 ~ BUG-59, BUG-69 ~ BUG-73, BUG-86, BUG-91, BUG-92, BUG-97 |
+| 🟡 MEDIUM | 30 | BUG-9 ~ BUG-25, BUG-46, BUG-60 ~ BUG-63, BUG-74 ~ BUG-77, BUG-87 ~ BUG-90, BUG-96 |
 | 🟢 LOW | 24 | BUG-26 ~ BUG-44, BUG-64 ~ BUG-68 |
-| **总计** | **90** | |
+| **总计** | **97** | |
 
 ---
 
@@ -1592,11 +1595,13 @@ ddr3_model (Micron 行为模型)
 | BUG-64 | 🟢 LOW | UART TX/RX always@ 风格 (**✅ 已修复**) |
 | BUG-66 | 🟢 LOW | CLINT mtimecmp=0 时 MTIP 被抑制 (**✅ 已修复**) |
 | BUG-68 | 🟢 LOW | AXI4-Lite PLIC/CLINT 未检查 WSTRB (**✅ 已修复**) |
-| BUG-86 | 🔴 HIGH | UART RXDATA直接弹出FIFO，CPU重复AXI事务导致每隔一字节丢失 — RTL根因: mmio_req电平+bridge served过早清除, 修复: A(!cpu_req_ready_r门控)+C(served!req清除) (**✅ 已修复**) |
+| BUG-86 | 🔴 HIGH | UART RXDATA直接弹出FIFO，CPU重复AXI事务导致每隔一字节丢失 — UART侧: auto-arm机制; RTL侧: 原始Approach A+C已被BUG-91 pending/accept握手替代 (**✅ 已修复，RTL侧由BUG-91+BUG-97保证**) |
 | BUG-87 | 🟡 MED | Bootloader uart_recv_word未保存/恢复ra (**✅ 已修复**) |
 | BUG-88 | 🟡 MED | Bootloader sp未初始化 (**✅ 已修复**) |
 | BUG-89 | 🟡 MED | Bootloader跳转前缺少fence.i (**✅ 已修复**) |
 | BUG-90 | 🟡 MED | Bootloader slli/or字组装受重复AXI事务影响 (**✅ 已修复**) |
+| BUG-97 | 🔴 HIGH | MMIO写请求accept后到响应返回前可被重新发起，UART TX字符双发 (**✅ 已修复**) |
+| BUG-96 | 🟡 MED | C版uart_echo板上不稳定，汇编版uart_echo稳定回显 — Bootloader UART传输字节丢失致程序镜像破坏 (**✅ 已记录并深度排查**) |
 
 ### 全局性
 | Bug # | 严重度 | 描述 |
@@ -1739,7 +1744,7 @@ mmio_inst_served 等待 icache_mmio_req=0 → 永远不清除
 
 **文件**: `dev/rtl/APB/perips/uart_top.sv`, `dev/rtl/core/dcache_ctrl.sv`, `dev/rtl/core/icache_ctrl.sv`, `dev/rtl/core/cpu_bus_bridge.sv`
 
-**状态**: ✅ 已修复 (2026-06-13 RTL 侧根因修复验证通过)
+**状态**: ✅ 已修复 (2026-06-13 RTL 侧根因修复验证通过；RTL 侧原始 Approach A+C 已被 BUG-91 pending/accept 握手替代，实际验证基于 BUG-91+BUG-97)
 
 **描述**: UART RXDATA 寄存器（偏移 0x0C）读取时直接弹出 RX FIFO 头部。但 CPU 数据总线存在每条 `lw` 指令触发两次 AXI4-Lite 事务的 bug（两次 AR 握手，间隔约 15 周期）。对普通内存无影响（读无副作用），但对 RXDATA 是致命的——第二次读额外弹出 FIFO 中的一个字节。
 
@@ -1767,6 +1772,10 @@ T+2: dcache_mmio_req=1 && !served && !valid → 第二次 AR 握手
 
 **RTL 侧** (根因消除):
 
+> **⚠️ 2026-06-13 审计更新**: 下方 Approach A+C 为历史中间修复步骤，已被 BUG-91 的 pending/accept/resp_valid 三段式握手**全面替代**。当前代码中 Approach A（`!cpu_req_ready_r` 门控）和 Approach C（`mmio_*_served` 持有）**均不存在**，`mmio_*_served` 信号已完全删除。实际修复机制见下方"当前代码实际修复"。
+
+**历史中间修复** (已被 BUG-91 替代，仅作记录):
+
 - **Approach A** — `mmio_req` 门控 (`dcache_ctrl.sv:328`, `icache_ctrl.sv:215`):
   ```sv
   // Before: assign mmio_req = ... && cpu_req_valid && is_mmio && mmu_ready;
@@ -1781,15 +1790,20 @@ T+2: dcache_mmio_req=1 && !served && !valid → 第二次 AR 握手
   ```
   纵深防御：即使 Approach A 失效，served 标志仍阻塞同源重入。
 
-**修复后时序**:
+**当前代码实际修复** (BUG-91 pending/accept 握手 + BUG-97 inflight):
+
+- `dcache_ctrl.sv`: `mmio_req = mmio_pending_r`（非 Approach A 的 `!cpu_req_ready_r` 门控）；`mmio_pending_r`/`mmio_inflight_r` 双状态机；`mmio_addr_r`/`mmio_wdata_r`/`mmio_hwrite_r`/`mmio_hsize_r` 锁存保证事务元数据稳定
+- `icache_ctrl.sv`: `mmio_req = mmio_pending_r`；`mmio_pending_r` + `mmio_addr_r` 锁存
+- `cpu_bus_bridge.sv`: `mmio_*_served` 已删除，替代为 `icache_mmio_accept`/`dcache_mmio_accept` 单周期脉冲握手
+
+**修复后时序** (BUG-91 握手):
 ```
-T+1: cpu_req_ready_r=1 → mmio_req=0 (门控) → 无窗口
-T+2: dcache_mmio_req=0 → served 清除 → 安全
+T:   mmio_pending_r=1 → bridge S_IDLE 选中 → accept 脉冲
+T+1: mmio_pending_r=0, mmio_inflight_r=1 → 无重发窗口
+T+N: mmio_valid → mmio_inflight_r=0, cpu_req_ready_r=1
 ```
 
-**TECH-DEBT**: icache MMIO (BOOTROM 指令取指) 仍存在连续周期双事务（读幂等，无数据损坏）。方案 B（valid-ready 握手重构，~60行+12reg）记录于 `cpu_bus_bridge.sv:4-13`，延后实施。
-
-**验证**: cpu_full ALL TESTS PASSED (42/42)，dcache MMIO 零重复事务，icache MMIO 双事务为幂等 BOOTROM 读（无害）
+**验证**: BUG-91 验证通过 (reg_mmio_ready 191397 条指令退休, mmio_plic/mmio_clint PASS)；BUG-97 FPGA 实测验证通过 (calculator UART 输出单发)
 
 ---
 
@@ -1841,5 +1855,131 @@ T+2: dcache_mmio_req=0 → served 清除 → 安全
 
 ---
 
+## 🔴 第七轮 — FPGA 上板应用问题排查 (2026-06-13)
+
+> 聚焦 FPGA 实测现象：`calculator` UART 输出字符双发；C 版 `uart_echo` 下载后无回显且落入默认 trap；`led_marquee` 首次中断后失效
+
+### BUG-97: MMIO 写请求在 accept 后到 response 返回前可被重复发起 — UART TX 字符双发
+
+**文件**: `dev/rtl/core/dcache_ctrl.sv`
+
+**状态**: ✅ 已修复 (2026-06-13 FPGA 实测验证通过)
+
+**现象**:
+- `calculator.hex` 成功启动并能正确解析表达式
+- 但 UART 输出每个字符都会发送两次，例如 `1` 变成 `11`
+- 重新生成应用镜像无效，只有重新综合 FPGA bitstream 后才恢复正常
+
+**根因**:
+`dcache_ctrl` 的 MMIO 写请求使用 `mmio_pending_r` 表示“尚未被 bridge accept”，但缺少“已 accept、正在等待 `mmio_valid` 返回”的 in-flight 状态。  
+这样在以下窗口内，同一条 `sw UART_TXDATA` 会被重新挂起一次：
+
+```
+T0:  mmio_pending_r=1, bridge发出accept
+T1:  mmio_pending_r清零，但写响应尚未返回
+T2:  cpu_req_valid 仍保持，dcache 误以为是新请求，再次拉高 mmio_pending_r
+T3:  同一字节第二次写入 UART_TXDATA → 字符双发
+```
+
+**修复**:
+- 在 `dcache_ctrl.sv` 增加 `mmio_inflight_r`
+- `mmio_accept` 时：`mmio_pending_r <= 0`, `mmio_inflight_r <= 1`
+- `mmio_valid` 时：`cpu_req_ready_r <= 1`, `mmio_inflight_r <= 0`
+- 仅当 `!mmio_pending_r && !mmio_inflight_r` 时允许重新发起 MMIO 请求
+
+**验证**:
+- 新 bitstream 下载后，`calculator.hex` 串口输出恢复单发
+- 交互计算结果正确，无重复字符
+
+### BUG-96: C 版 `uart_echo` 板上不稳定（非法指令/无回显），汇编版稳定 — Bootloader UART 传输字节丢失致程序镜像破坏
+
+**文件**: `dev/program_source/app/uart_echo.c`, `dev/program_source/app/uart_echo.s`, `dev/program_source/lib/start.S`, `dev/program_source/boot/bootloader.s`
+
+**严重度**: MEDIUM（程序层根因，受 RTL BUG-91+BUG-97 握手修复状态影响）
+
+**状态**: ✅ 已记录并深度排查；当前 FPGA 稳定版本使用汇编实现
+
+**现象**:
+- C 版 `uart_echo.hex` 下载后，表面上 PC 在 `0x80000050` 附近变化，但串口无回显
+- 加入默认 trap handler 后，LCD 寄存器显示：
+  - `mcause = 2`（非法指令）
+  - `mepc   = 0x80000294`（`main` 入口第 4 条指令）
+  - `mtval  = 0x01010101`
+- 说明程序并非"单纯没收到字符"，而是运行早期取到了错误指令字后陷入 trap
+
+**指令解码**:
+- `0x01010101`：opcode[6:0] = 0101011 = 0x0B → "custom-0" 操作码空间，非合法 RV32I 指令
+- 正确值应为 `0x02010413`（`addi s0, sp, 32`，main 的帧指针设置指令）
+- 逐字节对比（LE）：正确 `13 04 01 02` vs 实际 `01 01 01 01`，4 字节中 3 个被改写
+
+**根因分析**（深度排查 2026-06-13）:
+
+1. **hex 文件本身正确**：git 历史中旧 hex 及重新编译的 hex 在 0x80000294 地址均为合法指令，排除编译/链接错误
+
+2. **排除项**：
+   - BSS 清零：`__bss_start == __bss_end == 0x800002C8`，BSS 为空，清零被跳过
+   - 栈覆盖代码：`sp = 0x80008000`，栈写入 `0x80007Fxx` 远在 .text（结束 `0x800002C4`）之后
+   - 编译器生成非法指令：无 RVC 压缩指令，ISA 白名单检查通过
+   - icache 读 DDR3 残留：残留值应为全零或随机值，不会是 `0x01010101` 规则模式
+
+3. **根因：Bootloader UART 传输字节丢失 → 程序镜像错位**
+
+   传输链路：`PC (uart_load.py) ──UART──> Boot ROM (bootloader.s) ──sw──> DDR3`
+
+   bootloader 逐字接收并写入 DDR3，每个 `uart_recv_byte` 执行 `lw STATUS; lw RXDATA`。
+   在 BUG-91+BUG-97 握手修复前，`mmio_req` 电平协议导致每条 `lw RXDATA` 触发 **2 次 AXI 事务**，第二次额外弹出 FIFO 一字节。
+   （BUG-86 的原始 Approach A+C 已被 BUG-91 pending/accept 握手全面替代并从代码中删除，故不再单独引用 BUG-86）
+
+   **BUG-91+BUG-97 修复状态与 BUG-96 的时序关系**：
+   - BUG-91（pending/accept 握手 + 地址锁存）于 06-12 仿真验证
+   - BUG-97（mmio_inflight_r）于 06-13 通过 FPGA 实测验证
+   - BUG-96 测试时使用的 **FPGA bitstream 可能未包含 BUG-91+BUG-97 的握手修复**
+   - 报告明确指出"重新生成应用镜像无效，只有重新综合 FPGA bitstream 后才恢复正常"
+
+4. **`0x01010101` 模式解释**：UART 传输丢失 1 字节后，所有后续字节偏移 1 位，
+   字边界错位导致不同字的字节被拼合，产生规则垃圾模式。
+   `0x01010101`（4 个相同 `0x01`）恰好出现在连续 4 个原始字节都含 `0x01` 的错位拼合位置。
+
+5. **汇编版稳定的原因**：汇编版仅 17 条指令（68 字节），实际代码占前 17 字；
+   即使传输有字节丢失，丢失点大概率落在 NOP 填充区（8175 个 NOP），
+   CPU 永远不会执行到那里。C 版有 ~177 条指令延伸到第 ~177 字，
+   字节错位从丢失点开始破坏所有后续指令，包括 `main()` 在内的关键代码全部损坏。
+
+6. **次要贡献因素**：
+   - C 版 `uart_init()` 重初始化 UART，在 BUG-97 修复前每次 `sw` 可能双写（同一握手缺陷的写侧表现）
+   - 汇编版不调用 `uart_init()`，直接使用 bootloader 已初始化的 UART
+   - C 版 -O0 编译使用 `sh`/`lhu` 处理 `uint16_t` 参数，增加 MMIO 路径复杂度
+
+**当前处理**:
+- 保留默认 trap handler（`start.S`）用于后续板上定位 `mcause/mepc/mtval`
+- FPGA 稳定版本的 `uart_echo` 切换为 `uart_echo.s`
+- `test_builder.py --app uart_echo` 入口同步切换到汇编源文件
+
+**恢复 C 版的修复建议**:
+
+| 优先级 | 措施 | 说明 |
+|--------|------|------|
+| P0 | 用包含 BUG-91+BUG-97 握手修复的 bitstream 重新测试 C 版 | 最可能直接解决问题 |
+| P1 | bootloader 添加传输校验 | header 增加 CRC32，收完后校验，失败则 LED 报错并等待重传 |
+| P1 | `start.S` 添加 .text 自检 | 计算代码段校验和与嵌入期望值比对 |
+| P2 | `uart_init()` 改为条件初始化 | 先读 CTRL，若已使能则跳过重初始化 |
+| P2 | `uart_init()` 参数改为 `uint32_t` | 避免 `sh`/`lhu`，统一用 `sw`/`lw` |
+
+### 程序问题补充记录
+
+**LED 跑马灯 (`led_marquee.s`)**
+- 首次上板现象：PC 在循环中运行但 LED 不按预期移动
+- 根因：ISR 使用 `csrrw sp, mscratch, sp`，但 `_start` 未初始化 `mscratch`
+- 修复：启动时初始化 `sp` 与 `mscratch`
+- 结果：重新构建并下载后，LED 流水灯恢复正常
+
+**Calculator (`calculator.hex`)**
+- 首次问题 1：使用旧 `hex` 镜像下载时，缺少 `.rodata/.data`，程序跳转后异常
+- 首次问题 2：重新构建后可运行，但 UART 输出字符双发
+- 最终根因：旧镜像构建链路 + BUG-97 的 MMIO 写重发窗口
+- 当前状态：✅ 正常
+
+---
+
 *报告由 Sisyphus RTL 审计系统生成。*
-*全部扫描完成: Core Pipeline ✅ | Bus/Peripherals ✅ | MMU/TLB/Cache ✅ | System Top ✅ | FPU ✅ | ALU/MU ✅ | DDR3 AHB ✅ | DDR3 System ✅ | AXI4-Lite ✅ (BUG-54/55 修复后仿真提速 500x, BUG-56 5层修复+force workaround 验证通过, 第二轮 12 项修复全部 LSP 验证通过, 第三轮 Cache+CDC 9 项修复 SRAM仿真 ALL TESTS PASSED, 第四轮 Cache Tag+ROM 5 项修复 cpu_full 41/42 PASS, 第五轮 Boot ROM 启动 3 项修复 cpu_full 41/41 ALL TESTS PASSED, 第六轮 UART RX Bootloader 5 项修复 cpu_full 42/42 ALL TESTS PASSED, BUG-86 RTL根因修复 mmio_req门控+bridge served持有 验证通过)*
+*全部扫描完成: Core Pipeline ✅ | Bus/Peripherals ✅ | MMU/TLB/Cache ✅ | System Top ✅ | FPU ✅ | ALU/MU ✅ | DDR3 AHB ✅ | DDR3 System ✅ | AXI4-Lite ✅ | FPGA应用验证 ✅ (第七轮新增：BUG-91 协议层握手修复、BUG-97 mmio_inflight_r字符双发FPGA验证、BUG-92 CDC 风险修复；第九轮新增：BUG-96 C版uart_echo程序层不稳定深度排查；当前 FPGA 稳定版本：bootloader / led_marquee / calculator / uart_echo(asm) 均已实测可用)*

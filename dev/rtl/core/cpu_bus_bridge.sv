@@ -1,16 +1,17 @@
 `timescale 1ns / 1ps
 `include "axi4_def.svh"
 
-// TECH-DEBT (BUG-86): The MMIO request interface uses level-sensitive req
-// signals without a grant/accept handshake, creating protocol ambiguity
-// (sustained level vs. new request).  The current fix (Approach A+C) gates
-// mmio_req with !cpu_req_ready_r and holds mmio_*_served until req deasserts.
-// The proper long-term fix (Approach B) is to redesign the interface as a
-// valid-ready handshake: mmio_req pulses for 1 cycle, bus bridge latches the
-// request and asserts mmio_accept, dcache deasserts on accept.  This eliminates
-// the ambiguity at the protocol level but requires significant refactoring
-// (~60 lines, ~12 registers across dcache/icache/bus_bridge).  Defer until
-// next bus bridge overhaul.
+// BUG-86 (UART RXDATA double-pop) was originally fixed with Approach A+C
+// (mmio_req gated by !cpu_req_ready_r + mmio_*_served held until req deasserts).
+// BUG-91 subsequently replaced this with a proper pending/accept/resp_valid
+// three-phase handshake, which is the current implementation:
+//   - icache/dcache drive mmio_req = mmio_pending_r (single-cycle pulse intent)
+//   - bus bridge asserts mmio_accept for 1 cycle in S_IDLE when selecting a source
+//   - cache clears mmio_pending_r on accept, sets mmio_inflight_r (BUG-97)
+//   - mmio_*_served has been deleted; "was this request already served?" is now
+//     guaranteed by the source-side pending bit, not by bridge-side served flags
+//   - mmio_addr/mmio_wdata/mmio_hwrite/mmio_hsize are latched in cache (BUG-91
+//     supplementary fix) to prevent stale-response misjudgment
 
 module cpu_bus_bridge(
     input         clk,

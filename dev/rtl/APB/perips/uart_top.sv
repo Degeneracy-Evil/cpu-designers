@@ -218,18 +218,30 @@ module uart_top #(
         end
     end
 
-    // IRQ pending bits: set on event, write-1-to-clear (handled in APB write logic above)
+    // IRQ pending bits: set on event, write-1-to-clear
+    // Merged into single always_ff to avoid DRC MDRV-1 multiple driver error.
+    // Previously the W1C logic was in a separate APB write always_ff block,
+    // which caused Vivado to infer two registers driving the same net.
+    wire w1c_irq = write_access && (PADDR[7:0] == UART_IRQ_STAT) && PSTRB[0];
     always_ff @(posedge PCLK or negedge PRESETn) begin
         if (!PRESETn) begin
             uart_irq_stat <= 2'b0;
         end else begin
-            // TX done event
+            // TX done event (set)
             if (tx_done_event) begin
                 uart_irq_stat[0] <= 1'b1;
             end
-            // RX valid event
+            // TX IRQ write-1-to-clear
+            else if (w1c_irq && PWDATA[0]) begin
+                uart_irq_stat[0] <= 1'b0;
+            end
+            // RX valid event (set)
             if (rx_valid_event) begin
                 uart_irq_stat[1] <= 1'b1;
+            end
+            // RX IRQ write-1-to-clear
+            else if (w1c_irq && PWDATA[1]) begin
+                uart_irq_stat[1] <= 1'b0;
             end
         end
     end
@@ -262,11 +274,8 @@ module uart_top #(
                         if (PSTRB[3]) uart_baud[31:24] <= PWDATA[31:24];
                     end
                     UART_IRQ_STAT: begin
-                        // Write-1-to-clear, gated by PSTRB[0] (both bits in byte 0)
-                        if (PSTRB[0]) begin
-                            if (PWDATA[0]) uart_irq_stat[0] <= 1'b0;
-                            if (PWDATA[1]) uart_irq_stat[1] <= 1'b0;
-                        end
+                        // Write-1-to-clear handled in merged uart_irq_stat always_ff above.
+                        // (Moved to avoid DRC MDRV-1 multiple driver on uart_irq_stat.)
                     end
                     UART_RXPOP: begin
                         // Pop is handled by rx_fifo_rd_en (combinational).

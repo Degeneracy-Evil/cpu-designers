@@ -8,6 +8,7 @@
      python tools/test_builder.py --category isa           # 仅构建 ISA 测试
      python tools/test_builder.py --category mmu           # 仅构建 MMU 测试
      python tools/test_builder.py --test isa/alu           # 构建单个测试
+     python tools/test_builder.py --app led_marquee        # 构建单个应用
      python tools/test_builder.py --clean                  # 清理产物
      python tools/test_builder.py --list                   # 列出所有测试
      python tools/test_builder.py --gen-tasks              # 生成 tasks.yaml 任务条目
@@ -38,6 +39,9 @@ PROG_SRC = REPO_ROOT / "dev" / "program_source"
 # 测试源码基目录
 TEST_SRC = PROG_SRC / "test"
 
+# 应用源码基目录
+APP_SRC = PROG_SRC / "app"
+
 # tests.yaml 路径
 TESTS_YAML = TEST_SRC / "tests.yaml"
 
@@ -46,6 +50,17 @@ TASKS_YAML = REPO_ROOT / "tasks.yaml"
 
 # rv2coe.py 路径
 RV2COE = REPO_ROOT / "tools" / "rv2coe.py"
+
+
+APP_TARGETS: dict[str, dict[str, Any]] = {
+    "led_marquee": {
+        "src_file": APP_SRC / "led_marquee.s",
+        "arch": "rv32im_zicsr_zifencei",
+        "abi": "ilp32",
+        "linker_script": None,
+        "depth": 8192,
+    },
+}
 
 
 # ── 运行时映射 ──
@@ -139,6 +154,26 @@ def filter_tests(
     return all_tests
 
 
+def discover_app(app_name: str) -> dict:
+    """解析单个应用构建目标。"""
+    app = APP_TARGETS.get(app_name)
+    if app is None:
+        print(f"[ERROR] App '{app_name}' not found", file=sys.stderr)
+        sys.exit(1)
+
+    return {
+        "name": app_name,
+        "category": "app",
+        "src_file": app["src_file"],
+        "framework": [],
+        "arch": app["arch"],
+        "abi": app["abi"],
+        "linker_script": app["linker_script"],
+        "depth": app["depth"],
+        "output_dir": APP_SRC,
+    }
+
+
 # ── 构建逻辑 ──
 
 def build_test(test: dict, verbose: bool, dry_run: bool) -> bool:
@@ -149,8 +184,9 @@ def build_test(test: dict, verbose: bool, dry_run: bool) -> bool:
     """
     name = test["name"]
     src_file = test["src_file"]
-    hex_file = TEST_SRC / f"{name}.hex"
-    coe_file = TEST_SRC / f"{name}.coe"
+    output_dir = test.get("output_dir", TEST_SRC)
+    hex_file = output_dir / f"{name}.hex"
+    coe_file = output_dir / f"{name}.coe"
 
     # 检查源文件存在
     if not src_file.exists():
@@ -175,7 +211,7 @@ def build_test(test: dict, verbose: bool, dry_run: bool) -> bool:
 
     # 链接脚本
     linker = test["linker_script"]
-    if linker.exists():
+    if linker is not None and linker.exists():
         cmd.extend(["--linker-script", str(linker)])
 
     # 架构/ABI
@@ -239,6 +275,18 @@ def clean_tests(all_tests: list[dict]) -> None:
     print(f"[CLEAN] Removed {removed} files")
 
 
+def clean_app(app: dict) -> None:
+    """清理单个应用产物 (.hex, .coe)。"""
+    removed = 0
+    out_dir = app.get("output_dir", APP_SRC)
+    for ext in (".hex", ".coe"):
+        f = out_dir / f"{app['name']}{ext}"
+        if f.exists():
+            f.unlink()
+            removed += 1
+    print(f"[CLEAN] Removed {removed} files for app {app['name']}")
+
+
 def list_tests(all_tests: list[dict]) -> None:
     """列出所有测试。"""
     # 按类别分组
@@ -298,6 +346,10 @@ def main() -> int:
         help="Build a single test by name (e.g. isa/alu)",
     )
     parser.add_argument(
+        "--app",
+        help="Build a single app by name (e.g. led_marquee)",
+    )
+    parser.add_argument(
         "--clean",
         action="store_true",
         help="Remove all generated .hex/.coe files",
@@ -331,6 +383,14 @@ def main() -> int:
 
     config = load_tests_yaml()
     all_tests = discover_all_tests(config)
+
+    if args.app:
+        app = discover_app(args.app)
+        if args.clean:
+            clean_app(app)
+            return 0
+        ok = build_test(app, args.verbose, args.dry_run)
+        return 0 if ok else 1
 
     # --list
     if args.list:

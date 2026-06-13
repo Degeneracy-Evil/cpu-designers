@@ -83,17 +83,17 @@ _start:
     lw   t2, 4(t0)
     bne  t1, t2, ddr_fail
 
-    # ── Self-test PASS: LED0 on ───────────────────────────────────
+    # ── Self-test PASS: LED0 on (active-low: bit=0→LED on) ──────────
     lui  t0, 0x10000           # t0 = GPIO_BASE
-    li   t1, 0x0001
-    sw   t1, GPIO_DATA(t0)    # LED0 = on
+    li   t1, 0xFFFE
+    sw   t1, GPIO_DATA(t0)    # LED0 = on, others off (active-low)
     j    uart_init
 
 ddr_fail:
-    # ── Self-test FAIL: all LEDs on, then halt ────────────────────
+    # ── Self-test FAIL: all LEDs on, then halt (active-low: all bits=0) ──
     lui  t0, 0x10000           # t0 = GPIO_BASE
-    li   t1, 0xFFFF
-    sw   t1, GPIO_DATA(t0)    # All LEDs = on
+    li   t1, 0x0000
+    sw   t1, GPIO_DATA(t0)    # All LEDs = on (active-low)
     j    .                     # Dead loop — do not proceed to UART load
 
     # ── Step 4: Init UART (115200 baud) ───────────────────────────
@@ -137,9 +137,9 @@ load_done:
     jr   s3                    # Jump to program entry in DDR3
 
 hdr_err:
-    # Header magic mismatch — blink LEDs rapidly
+    # Header magic mismatch — alternating LED pattern (active-low inverted)
     lui  t0, 0x10000
-    li   t1, 0xAAAA            # Alternating pattern
+    li   t1, 0x5555            # Alternating pattern (active-low: odd LEDs on)
     sw   t1, GPIO_DATA(t0)
     j    .                     # Halt
 

@@ -1,11 +1,16 @@
 .equ GPIO_BASE, 0x10000000
 .equ CLINT_BASE, 0x02000000
 .equ TIMER_PERIOD, 100000000
+.equ STACK_TOP, 0x80008000
 
 .section .text
 .globl _start
 
 _start:
+    # Initialize main stack and interrupt scratch stack before enabling IRQs.
+    li sp, STACK_TOP
+    csrw mscratch, sp
+
     # Setup mtvec
     la t0, isr
     csrw mtvec, t0

@@ -242,9 +242,11 @@ module system_top(
     wire        plic_eip;
     wire        clint_mtip;
     wire        clint_msip;
+    wire [63:0] clint_mtime;
     logic       plic_eip_cpuclk_ff1, plic_eip_cpuclk_ff2;
     logic       clint_mtip_cpuclk_ff1, clint_mtip_cpuclk_ff2;
     logic       clint_msip_cpuclk_ff1, clint_msip_cpuclk_ff2;
+    logic [63:0] clint_mtime_cpuclk_ff1, clint_mtime_cpuclk_ff2;
     wire        gpio_irq;
     wire        uart_irq;
     wire        spi_irq;
@@ -257,6 +259,8 @@ module system_top(
             clint_mtip_cpuclk_ff2 <= 1'b0;
             clint_msip_cpuclk_ff1 <= 1'b0;
             clint_msip_cpuclk_ff2 <= 1'b0;
+            clint_mtime_cpuclk_ff1 <= 64'b0;
+            clint_mtime_cpuclk_ff2 <= 64'b0;
         end else begin
             plic_eip_cpuclk_ff1   <= plic_eip;
             plic_eip_cpuclk_ff2   <= plic_eip_cpuclk_ff1;
@@ -264,6 +268,8 @@ module system_top(
             clint_mtip_cpuclk_ff2 <= clint_mtip_cpuclk_ff1;
             clint_msip_cpuclk_ff1 <= clint_msip;
             clint_msip_cpuclk_ff2 <= clint_msip_cpuclk_ff1;
+            clint_mtime_cpuclk_ff1 <= clint_mtime;
+            clint_mtime_cpuclk_ff2 <= clint_mtime_cpuclk_ff1;
         end
     end
 
@@ -329,7 +335,8 @@ module system_top(
         .init_sig     (1'b0),
         .timer_irq    (clint_mtip_cpuclk_ff2),
         .ext_meip_in  (plic_eip_cpuclk_ff2),
-        .ext_msip_in  (clint_msip_cpuclk_ff2)
+        .ext_msip_in  (clint_msip_cpuclk_ff2),
+        .ext_mtime    (clint_mtime_cpuclk_ff2)
     );
 
     // ========================================================================
@@ -1154,7 +1161,8 @@ module system_top(
         .s_axi_rvalid  (clint_rvalid),
         .s_axi_rready  (clint_rready),
         .o_mtip        (clint_mtip),
-        .o_msip        (clint_msip)
+        .o_msip        (clint_msip),
+        .o_mtime       (clint_mtime)
     );
 
     // ========================================================================

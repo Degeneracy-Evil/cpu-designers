@@ -26,6 +26,7 @@ module cpu_csr_interface(
     input         timer_irq,
     input         ext_meip_in,
     input         ext_msip_in,
+    input  [63:0] ext_mtime,
 
     input         cycle_en,
     input         inst_retire,
@@ -58,7 +59,29 @@ module cpu_csr_interface(
 
     output        csr_access_ok,
     output [4:0]  csr_fflags,
-    output [2:0]  csr_frm
+    output [2:0]  csr_frm,
+
+    // PMP config outputs
+    output [31:0] csr_pmpcfg0,
+    output [31:0] csr_pmpcfg1,
+    output [31:0] csr_pmpcfg2,
+    output [31:0] csr_pmpcfg3,
+    output [31:0] csr_pmpaddr0,
+    output [31:0] csr_pmpaddr1,
+    output [31:0] csr_pmpaddr2,
+    output [31:0] csr_pmpaddr3,
+    output [31:0] csr_pmpaddr4,
+    output [31:0] csr_pmpaddr5,
+    output [31:0] csr_pmpaddr6,
+    output [31:0] csr_pmpaddr7,
+    output [31:0] csr_pmpaddr8,
+    output [31:0] csr_pmpaddr9,
+    output [31:0] csr_pmpaddr10,
+    output [31:0] csr_pmpaddr11,
+    output [31:0] csr_pmpaddr12,
+    output [31:0] csr_pmpaddr13,
+    output [31:0] csr_pmpaddr14,
+    output [31:0] csr_pmpaddr15
 );
 
     wire [2:0] csr_funct3_bus;
@@ -147,6 +170,7 @@ module cpu_csr_interface(
         .ext_meip(ext_meip_in),
         .ext_mtip(timer_irq),
         .ext_msip(ext_msip_in),
+        .ext_mtime(ext_mtime),
         .cycle_en(cycle_en),
         .inst_retire(inst_retire),
         .csr_mstatus(csr_mstatus),
@@ -173,7 +197,27 @@ module cpu_csr_interface(
         .fflags_wdata(fflags_wdata),
         .fflags_wen(fflags_wen),
         .csr_fflags(csr_fflags),
-        .csr_frm(csr_frm)
+        .csr_frm(csr_frm),
+        .csr_pmpcfg0(csr_pmpcfg0),
+        .csr_pmpcfg1(csr_pmpcfg1),
+        .csr_pmpcfg2(csr_pmpcfg2),
+        .csr_pmpcfg3(csr_pmpcfg3),
+        .csr_pmpaddr0(csr_pmpaddr0),
+        .csr_pmpaddr1(csr_pmpaddr1),
+        .csr_pmpaddr2(csr_pmpaddr2),
+        .csr_pmpaddr3(csr_pmpaddr3),
+        .csr_pmpaddr4(csr_pmpaddr4),
+        .csr_pmpaddr5(csr_pmpaddr5),
+        .csr_pmpaddr6(csr_pmpaddr6),
+        .csr_pmpaddr7(csr_pmpaddr7),
+        .csr_pmpaddr8(csr_pmpaddr8),
+        .csr_pmpaddr9(csr_pmpaddr9),
+        .csr_pmpaddr10(csr_pmpaddr10),
+        .csr_pmpaddr11(csr_pmpaddr11),
+        .csr_pmpaddr12(csr_pmpaddr12),
+        .csr_pmpaddr13(csr_pmpaddr13),
+        .csr_pmpaddr14(csr_pmpaddr14),
+        .csr_pmpaddr15(csr_pmpaddr15)
     );
 
 endmodule

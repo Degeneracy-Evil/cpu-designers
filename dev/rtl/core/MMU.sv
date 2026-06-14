@@ -44,7 +44,10 @@ module MMU #(
     input              ptw_bus_error,
 
     // ── flush ──
-    input              sfence_vma
+    input              sfence_vma,
+
+    // ── sfence completion ──
+    output wire        sfence_done
 );
 
     localparam PRIV_M = 2'b11;
@@ -509,6 +512,24 @@ module MMU #(
             endcase
         end
     end
+
+    // =========================================================================
+    // sfence.vma completion tracking
+    // =========================================================================
+    // sfence_done is asserted when both i-side and d-side have returned to
+    // IDLE after a sfence_vma-triggered TLB flush.  This allows core_top to
+    // sequence: dcache flush → icache inv → TLB flush → resume.
+    reg sfence_pending_r;
+    always_ff @(posedge clk or negedge resetn) begin
+        if (!resetn)
+            sfence_pending_r <= 1'b0;
+        else if (sfence_vma && !sfence_pending_r)
+            sfence_pending_r <= 1'b1;
+        else if (sfence_pending_r && (i_state == I_IDLE) && (d_state == D_IDLE) && !sfence_vma)
+            sfence_pending_r <= 1'b0;
+    end
+
+    assign sfence_done = sfence_pending_r && (i_state == I_IDLE) && (d_state == D_IDLE);
 
     // =========================================================================
     // Walk arbiter FSM (manages single PTW instance)

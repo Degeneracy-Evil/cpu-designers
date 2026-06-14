@@ -70,7 +70,8 @@ module core_top(
     input         init_sig,
     input         timer_irq,
     input         ext_meip_in,
-    input         ext_msip_in
+    input         ext_msip_in,
+    input  [63:0] ext_mtime
 );
 
     localparam PRIV_U = 2'b00;
@@ -99,6 +100,8 @@ module core_top(
 
     wire        fencei_req;
     wire        fencei_done;
+    wire        sfence_vma_req;
+    wire        sfence_vma_done;
 
     wire dec_is_branch;
     wire dec_need_exe;
@@ -163,7 +166,16 @@ module core_top(
     wire        ptw_bus_done;
     wire        ptw_bus_error;
 
-    wire        sfence_vma_pulse;
+    // PTW A/D bit writeback → dcache line invalidation
+    // When PTW completes a write (ptw_bus_we && ptw_bus_done), the written
+    // PTE address may have a stale copy in dcache. Invalidate that line.
+    reg        ptw_ad_inv_pending_r;
+    reg [31:0] ptw_ad_inv_addr_r;
+    wire       ptw_ad_inv_req  = ptw_ad_inv_pending_r;
+    wire [31:0]ptw_ad_inv_addr = ptw_ad_inv_addr_r;
+    wire       ptw_ad_inv_done;
+
+    wire        mmu_sfence_done;
 
     wire [4:0] rs1_addr;
     wire [4:0] rs2_addr;
@@ -339,6 +351,7 @@ module core_top(
         .dec_is_fencei(dec_is_fencei),
         .dec_is_sfence_vma(dec_is_sfence_vma),
         .fencei_done(fencei_done),
+        .sfence_vma_done(sfence_vma_done),
         .exe_is_branch(exe_is_branch),
         .exe_need_mem(exe_need_mem),
         .trap_pending(trap_pending),
@@ -361,6 +374,7 @@ module core_top(
         .trap_return_valid(trap_return_valid),
         .exe_to_wb(exe_to_wb),
         .fencei_req(fencei_req),
+        .sfence_vma_req(sfence_vma_req),
         .state(fsm_state)
     );
 
@@ -384,30 +398,102 @@ module core_top(
     wire        icache_invalidate_req;
     wire        icache_invalidate_done;
 
-    reg dcache_flush_sent_r;
-    reg icache_invalidate_sent_r;
+    // ── fence.i sequencing ──
+    // Sequence: dcache flush (writeback+invalidate) → icache invalidate → done
+    reg fencei_dcache_flush_sent_r;
+    reg fencei_icache_inv_sent_r;
 
     always_ff @(posedge clk or negedge resetn) begin
         if (!resetn) begin
-            dcache_flush_sent_r      <= 1'b0;
-            icache_invalidate_sent_r <= 1'b0;
+            fencei_dcache_flush_sent_r  <= 1'b0;
+            fencei_icache_inv_sent_r    <= 1'b0;
         end else begin
             if (!fencei_req) begin
-                dcache_flush_sent_r      <= 1'b0;
-                icache_invalidate_sent_r <= 1'b0;
+                fencei_dcache_flush_sent_r  <= 1'b0;
+                fencei_icache_inv_sent_r    <= 1'b0;
             end else begin
-                if (dcache_flush_done && !dcache_flush_sent_r)
-                    dcache_flush_sent_r <= 1'b1;
-                    dcache_flush_sent_r <= 1'b1;
-                if (icache_invalidate_done && !icache_invalidate_sent_r)
-                    icache_invalidate_sent_r <= 1'b1;
+                if (dcache_flush_done && !fencei_dcache_flush_sent_r)
+                    fencei_dcache_flush_sent_r <= 1'b1;
+                if (icache_invalidate_done && fencei_dcache_flush_sent_r && !fencei_icache_inv_sent_r)
+                    fencei_icache_inv_sent_r <= 1'b1;
             end
         end
     end
 
-    assign dcache_flush_req      = fencei_req && !dcache_flush_sent_r;
-    assign icache_invalidate_req = fencei_req && dcache_flush_sent_r && !icache_invalidate_sent_r;
-    assign fencei_done           = dcache_flush_sent_r && icache_invalidate_sent_r;
+    // ── sfence.vma sequencing ──
+    // Sequence: dcache flush (writeback+invalidate) → icache invalidate → TLB flush → done
+    // The dcache writeback ensures all previous stores (including page table writes)
+    // are globally visible in main memory before the TLB is invalidated.
+    reg sfence_dcache_flush_sent_r;
+    reg sfence_icache_inv_sent_r;
+    reg sfence_tlb_flush_sent_r;
+
+    always_ff @(posedge clk or negedge resetn) begin
+        if (!resetn) begin
+            sfence_dcache_flush_sent_r  <= 1'b0;
+            sfence_icache_inv_sent_r    <= 1'b0;
+            sfence_tlb_flush_sent_r     <= 1'b0;
+        end else begin
+            if (!sfence_vma_req) begin
+                sfence_dcache_flush_sent_r  <= 1'b0;
+                sfence_icache_inv_sent_r    <= 1'b0;
+                sfence_tlb_flush_sent_r     <= 1'b0;
+            end else begin
+                if (dcache_flush_done && !sfence_dcache_flush_sent_r)
+                    sfence_dcache_flush_sent_r <= 1'b1;
+                if (icache_invalidate_done && sfence_dcache_flush_sent_r && !sfence_icache_inv_sent_r)
+                    sfence_icache_inv_sent_r <= 1'b1;
+                if (mmu_sfence_done && sfence_dcache_flush_sent_r && sfence_icache_inv_sent_r && !sfence_tlb_flush_sent_r)
+                    sfence_tlb_flush_sent_r <= 1'b1;
+            end
+        end
+    end
+
+    // ── Combined cache maintenance requests ──
+    // fencei and sfence_vma are mutually exclusive (controller is in one state at a time),
+    // so OR-ing their requests is safe.
+    assign dcache_flush_req      = (fencei_req && !fencei_dcache_flush_sent_r) ||
+                                   (sfence_vma_req && !sfence_dcache_flush_sent_r);
+    assign icache_invalidate_req = (fencei_req && fencei_dcache_flush_sent_r && !fencei_icache_inv_sent_r) ||
+                                   (sfence_vma_req && sfence_dcache_flush_sent_r && !sfence_icache_inv_sent_r);
+
+    assign fencei_done     = fencei_dcache_flush_sent_r && fencei_icache_inv_sent_r;
+    assign sfence_vma_done = sfence_dcache_flush_sent_r && sfence_icache_inv_sent_r && sfence_tlb_flush_sent_r;
+
+    // ── sfence.vma pulse to MMU ──
+    // Send a one-cycle pulse to the MMU to trigger TLB flush ONLY after
+    // dcache flush and icache invalidate are complete.  This ensures all
+    // previous stores are globally visible before TLB entries are discarded.
+    reg sfence_tlb_pulse_sent_r;
+    always_ff @(posedge clk or negedge resetn) begin
+        if (!resetn)
+            sfence_tlb_pulse_sent_r <= 1'b0;
+        else if (!sfence_vma_req)
+            sfence_tlb_pulse_sent_r <= 1'b0;
+        else if (sfence_dcache_flush_sent_r && sfence_icache_inv_sent_r && !sfence_tlb_pulse_sent_r)
+            sfence_tlb_pulse_sent_r <= 1'b1;
+    end
+    wire sfence_vma_to_mmu_pulse = sfence_vma_req && sfence_dcache_flush_sent_r && sfence_icache_inv_sent_r && !sfence_tlb_pulse_sent_r;
+
+    // PTW A/D bit writeback → dcache line invalidation
+    // When PTW completes a write to memory (setting A/D bits in a PTE),
+    // the dcache may contain a stale copy of that cache line.
+    // Latch the address and request invalidation; hold until dcache completes.
+    always_ff @(posedge clk or negedge resetn) begin
+        if (!resetn) begin
+            ptw_ad_inv_pending_r <= 1'b0;
+            ptw_ad_inv_addr_r   <= 32'b0;
+        end else begin
+            if (ptw_bus_we && ptw_bus_done && !ptw_ad_inv_pending_r) begin
+                // PTW write completed — request dcache line invalidation
+                ptw_ad_inv_pending_r <= 1'b1;
+                ptw_ad_inv_addr_r   <= ptw_bus_addr;
+            end else if (ptw_ad_inv_done) begin
+                // dcache completed the invalidation
+                ptw_ad_inv_pending_r <= 1'b0;
+            end
+        end
+    end
 
 
 
@@ -580,7 +666,12 @@ module core_top(
         .wb_valid(dcache_wb_valid),
 
         .flush_req(dcache_flush_req),
-        .flush_done(dcache_flush_done)
+        .flush_done(dcache_flush_done),
+
+        // Single-line invalidation for PTW A/D bit coherency
+        .inv_line_req(ptw_ad_inv_req),
+        .inv_line_addr(ptw_ad_inv_addr),
+        .inv_line_done(ptw_ad_inv_done)
     );
 
     cpu_mem u_mem(
@@ -676,6 +767,7 @@ module core_top(
         .timer_irq        (timer_irq),
         .ext_meip_in      (ext_meip_in),
         .ext_msip_in      (ext_msip_in),
+        .ext_mtime        (ext_mtime),
         .current_pc       (pc),
         .exe_misalign_valid(exe_misalign_valid),
         .exe_misalign_target(exe_misalign_target),
@@ -731,6 +823,26 @@ module core_top(
         .csr_access_ok    (csr_access_ok),
         .csr_fflags       (),
         .csr_frm          (csr_frm),
+        .csr_pmpcfg0      (),
+        .csr_pmpcfg1      (),
+        .csr_pmpcfg2      (),
+        .csr_pmpcfg3      (),
+        .csr_pmpaddr0     (),
+        .csr_pmpaddr1     (),
+        .csr_pmpaddr2     (),
+        .csr_pmpaddr3     (),
+        .csr_pmpaddr4     (),
+        .csr_pmpaddr5     (),
+        .csr_pmpaddr6     (),
+        .csr_pmpaddr7     (),
+        .csr_pmpaddr8     (),
+        .csr_pmpaddr9     (),
+        .csr_pmpaddr10    (),
+        .csr_pmpaddr11    (),
+        .csr_pmpaddr12    (),
+        .csr_pmpaddr13    (),
+        .csr_pmpaddr14    (),
+        .csr_pmpaddr15    (),
         .fflags_wdata     (wb_fflags),
         .fflags_wen       (wb_valid && (wb_fflags != 5'b0))
     );
@@ -772,7 +884,9 @@ module core_top(
         .ptw_bus_done(ptw_bus_done),
         .ptw_bus_error(ptw_bus_error),
         // flush
-        .sfence_vma(sfence_vma_pulse)
+        .sfence_vma(sfence_vma_to_mmu_pulse),
+        // sfence completion
+        .sfence_done(mmu_sfence_done)
     );
 
     cpu_bus_bridge u_bus_bridge(
@@ -854,8 +968,6 @@ module core_top(
     );
 
     assign display_state = {28'b0, fsm_state};
-
-    assign sfence_vma_pulse = id_valid && id_done && dec_is_sfence_vma;
 
     assign id_pc   = id_pc_wire;
     assign id_inst = id_inst_wire;

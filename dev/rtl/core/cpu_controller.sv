@@ -42,6 +42,8 @@ module cpu_controller(
     output       exe_to_wb,
     output       fencei_req,
     input        fencei_done,
+    output       sfence_vma_req,
+    input        sfence_vma_done,
 
     output [3:0] state
 );
@@ -55,6 +57,7 @@ module cpu_controller(
     localparam STATE_TRAP_ENTER = 4'd7;
     localparam STATE_TRAP_RETURN= 4'd8;
     localparam STATE_FENCEI     = 4'd9;
+    localparam STATE_SFENCE_VMA = 4'd10;
 
     reg [3:0] state_r;
     reg [3:0] next_state;
@@ -95,7 +98,7 @@ module cpu_controller(
                     end else if (dec_is_fencei) begin
                         next_state = STATE_FENCEI;
                     end else if (dec_is_sfence_vma) begin
-                        next_state = STATE_FETCH;
+                        next_state = STATE_SFENCE_VMA;
                     end else if (dec_is_nop_like) begin
                         next_state = STATE_FETCH;
                     end else if (dec_is_csr) begin
@@ -145,6 +148,9 @@ module cpu_controller(
                 STATE_FENCEI: begin
                     next_state = fencei_done ? STATE_FETCH : STATE_FENCEI;
                 end
+                STATE_SFENCE_VMA: begin
+                    next_state = sfence_vma_done ? STATE_FETCH : STATE_SFENCE_VMA;
+                end
                 default: begin
                     next_state = STATE_IDLE;
                 end
@@ -162,6 +168,7 @@ module cpu_controller(
     assign trap_return_valid= (state_r == STATE_TRAP_RETURN) && !init_sig;
     assign exe_to_wb        = (state_r == STATE_EXEC) && exe_done && !exe_is_branch && !exe_need_mem && !init_sig;
     assign fencei_req       = (state_r == STATE_FENCEI) && !init_sig;
+    assign sfence_vma_req   = (state_r == STATE_SFENCE_VMA) && !init_sig;
     assign state = state_r;
 
 endmodule

@@ -416,11 +416,41 @@ module cpu_decode(
   localparam CSR_MINSTRET   = 12'hB02;
   localparam CSR_MCYCLEH    = 12'hB80;
   localparam CSR_MINSTRETH  = 12'hB82;
+
+  // U-mode counter aliases
+  localparam CSR_CYCLE      = 12'hC00;
+  localparam CSR_TIME       = 12'hC01;
+  localparam CSR_INSTRET    = 12'hC02;
+  localparam CSR_CYCLEH     = 12'hC80;
+  localparam CSR_TIMEH      = 12'hC81;
+  localparam CSR_INSTRETH   = 12'hC82;
   localparam CSR_MVENDORID  = 12'hF11;
   localparam CSR_MARCHID    = 12'hF12;
   localparam CSR_MIMPID     = 12'hF13;
   localparam CSR_MHARTID    = 12'hF14;
   localparam CSR_MCONFIGPTR = 12'hF15;
+
+  // PMP CSRs
+  localparam CSR_PMPCFG0    = 12'h3A0;
+  localparam CSR_PMPCFG1    = 12'h3A1;
+  localparam CSR_PMPCFG2    = 12'h3A2;
+  localparam CSR_PMPCFG3    = 12'h3A3;
+  localparam CSR_PMPADDR0   = 12'h3B0;
+  localparam CSR_PMPADDR1   = 12'h3B1;
+  localparam CSR_PMPADDR2   = 12'h3B2;
+  localparam CSR_PMPADDR3   = 12'h3B3;
+  localparam CSR_PMPADDR4   = 12'h3B4;
+  localparam CSR_PMPADDR5   = 12'h3B5;
+  localparam CSR_PMPADDR6   = 12'h3B6;
+  localparam CSR_PMPADDR7   = 12'h3B7;
+  localparam CSR_PMPADDR8   = 12'h3B8;
+  localparam CSR_PMPADDR9   = 12'h3B9;
+  localparam CSR_PMPADDR10  = 12'h3BA;
+  localparam CSR_PMPADDR11  = 12'h3BB;
+  localparam CSR_PMPADDR12  = 12'h3BC;
+  localparam CSR_PMPADDR13  = 12'h3BD;
+  localparam CSR_PMPADDR14  = 12'h3BE;
+  localparam CSR_PMPADDR15  = 12'h3BF;
 
   function is_s_csr;
       input [11:0] addr;
@@ -433,32 +463,54 @@ module cpu_decode(
       end
   endfunction
 
-   function is_m_csr;
-       input [11:0] addr;
-       begin
-           is_m_csr = (addr == CSR_FFLAGS)    || (addr == CSR_FRM)        ||
-                      (addr == CSR_FCSR)      ||
-                      (addr == CSR_MSTATUS)    || (addr == CSR_MISA)       ||
-                      (addr == CSR_MEDELEG)   || (addr == CSR_MIDELEG)    ||
-                      (addr == CSR_MIE)       || (addr == CSR_MTVEC)      ||
-                      (addr == CSR_MCOUNTEREN)|| (addr == CSR_MSTATUSH)   ||
-                      (addr == CSR_MSCRATCH)  || (addr == CSR_MEPC)       ||
-                      (addr == CSR_MCAUSE)    || (addr == CSR_MTVAL)      ||
-                      (addr == CSR_MIP)       || (addr == CSR_MCYCLE)     ||
-                      (addr == CSR_MINSTRET)  || (addr == CSR_MCYCLEH)   ||
-                      (addr == CSR_MINSTRETH) || (addr == CSR_MVENDORID) ||
-                      (addr == CSR_MARCHID)   || (addr == CSR_MIMPID)    ||
-                      (addr == CSR_MHARTID)   || (addr == CSR_MCONFIGPTR);
-       end
-   endfunction
+    function is_m_csr;
+        input [11:0] addr;
+        begin
+            is_m_csr = (addr == CSR_FFLAGS)    || (addr == CSR_FRM)        ||
+                       (addr == CSR_FCSR)      ||
+                       (addr == CSR_MSTATUS)    || (addr == CSR_MISA)       ||
+                       (addr == CSR_MEDELEG)   || (addr == CSR_MIDELEG)    ||
+                       (addr == CSR_MIE)       || (addr == CSR_MTVEC)      ||
+                       (addr == CSR_MCOUNTEREN)|| (addr == CSR_MSTATUSH)   ||
+                       (addr == CSR_MSCRATCH)  || (addr == CSR_MEPC)       ||
+                       (addr == CSR_MCAUSE)    || (addr == CSR_MTVAL)      ||
+                       (addr == CSR_MIP)       || (addr == CSR_MCYCLE)     ||
+                       (addr == CSR_MINSTRET)  || (addr == CSR_MCYCLEH)   ||
+                       (addr == CSR_MINSTRETH) || (addr == CSR_MVENDORID) ||
+                       (addr == CSR_MARCHID)   || (addr == CSR_MIMPID)    ||
+                       (addr == CSR_MHARTID)   || (addr == CSR_MCONFIGPTR)||
+                       (addr == CSR_TIME)      || (addr == CSR_TIMEH)      ||
+                       // PMP CSRs
+                       (addr == CSR_PMPCFG0)   || (addr == CSR_PMPCFG1)   ||
+                       (addr == CSR_PMPCFG2)   || (addr == CSR_PMPCFG3)   ||
+                       (addr == CSR_PMPADDR0)  || (addr == CSR_PMPADDR1)  ||
+                       (addr == CSR_PMPADDR2)  || (addr == CSR_PMPADDR3)  ||
+                       (addr == CSR_PMPADDR4)  || (addr == CSR_PMPADDR5)  ||
+                       (addr == CSR_PMPADDR6)  || (addr == CSR_PMPADDR7)  ||
+                       (addr == CSR_PMPADDR8)  || (addr == CSR_PMPADDR9)  ||
+                       (addr == CSR_PMPADDR10) || (addr == CSR_PMPADDR11) ||
+                       (addr == CSR_PMPADDR12) || (addr == CSR_PMPADDR13) ||
+                       (addr == CSR_PMPADDR14) || (addr == CSR_PMPADDR15);
+        end
+    endfunction
 
-  assign dec_csr_addr_valid = is_s_csr(csr_addr) || is_m_csr(csr_addr);
+    function is_u_csr;
+        input [11:0] addr;
+        begin
+            is_u_csr = (addr == CSR_CYCLE)    || (addr == CSR_TIME)      ||
+                       (addr == CSR_INSTRET)  ||
+                       (addr == CSR_CYCLEH)   || (addr == CSR_TIMEH)    ||
+                       (addr == CSR_INSTRETH);
+        end
+    endfunction
+
+  assign dec_csr_addr_valid = is_s_csr(csr_addr) || is_m_csr(csr_addr) || is_u_csr(csr_addr);
 
   reg dec_csr_access_ok_r;
   always_comb begin
       case (priv_mode)
-          PRIV_U: dec_csr_access_ok_r = 1'b0;
-          PRIV_S: dec_csr_access_ok_r = is_s_csr(csr_addr);
+          PRIV_U: dec_csr_access_ok_r = is_u_csr(csr_addr);  // U-mode: counter aliases only (mcounteren checked at execution)
+          PRIV_S: dec_csr_access_ok_r = is_s_csr(csr_addr) || is_u_csr(csr_addr);  // S-mode: own CSRs + counter aliases (scounteren checked at execution)
           PRIV_M: dec_csr_access_ok_r = 1'b1;
           default: dec_csr_access_ok_r = 1'b0;
       endcase

@@ -28,6 +28,7 @@ module cpu_csr(
     input              ext_meip,
     input              ext_mtip,
     input              ext_msip,
+    input       [63:0] ext_mtime,
 
     input              cycle_en,
     input              inst_retire,
@@ -56,6 +57,28 @@ module cpu_csr(
 
     output      [4:0]  csr_fflags,
     output      [2:0]  csr_frm,
+
+    // PMP config outputs (for future hardware enforcement)
+    output      [31:0] csr_pmpcfg0,
+    output      [31:0] csr_pmpcfg1,
+    output      [31:0] csr_pmpcfg2,
+    output      [31:0] csr_pmpcfg3,
+    output      [31:0] csr_pmpaddr0,
+    output      [31:0] csr_pmpaddr1,
+    output      [31:0] csr_pmpaddr2,
+    output      [31:0] csr_pmpaddr3,
+    output      [31:0] csr_pmpaddr4,
+    output      [31:0] csr_pmpaddr5,
+    output      [31:0] csr_pmpaddr6,
+    output      [31:0] csr_pmpaddr7,
+    output      [31:0] csr_pmpaddr8,
+    output      [31:0] csr_pmpaddr9,
+    output      [31:0] csr_pmpaddr10,
+    output      [31:0] csr_pmpaddr11,
+    output      [31:0] csr_pmpaddr12,
+    output      [31:0] csr_pmpaddr13,
+    output      [31:0] csr_pmpaddr14,
+    output      [31:0] csr_pmpaddr15,
 
     input       [4:0]  fflags_wdata,
     input              fflags_wen
@@ -96,6 +119,34 @@ module cpu_csr(
     localparam ADDR_MINSTRET    = 12'hB02;
     localparam ADDR_MCYCLEH     = 12'hB80;
     localparam ADDR_MINSTRETH   = 12'hB82;
+
+    // U-mode counter aliases (read-only shadows of M-mode counters)
+    localparam ADDR_CYCLE       = 12'hC00;
+    localparam ADDR_TIME        = 12'hC01;
+    localparam ADDR_INSTRET     = 12'hC02;
+    localparam ADDR_CYCLEH      = 12'hC80;
+    localparam ADDR_TIMEH       = 12'hC81;
+    localparam ADDR_INSTRETH    = 12'hC82;
+    localparam ADDR_PMPCFG0     = 12'h3A0;
+    localparam ADDR_PMPCFG1     = 12'h3A1;
+    localparam ADDR_PMPCFG2     = 12'h3A2;
+    localparam ADDR_PMPCFG3     = 12'h3A3;
+    localparam ADDR_PMPADDR0    = 12'h3B0;
+    localparam ADDR_PMPADDR1    = 12'h3B1;
+    localparam ADDR_PMPADDR2    = 12'h3B2;
+    localparam ADDR_PMPADDR3    = 12'h3B3;
+    localparam ADDR_PMPADDR4    = 12'h3B4;
+    localparam ADDR_PMPADDR5    = 12'h3B5;
+    localparam ADDR_PMPADDR6    = 12'h3B6;
+    localparam ADDR_PMPADDR7    = 12'h3B7;
+    localparam ADDR_PMPADDR8    = 12'h3B8;
+    localparam ADDR_PMPADDR9    = 12'h3B9;
+    localparam ADDR_PMPADDR10   = 12'h3BA;
+    localparam ADDR_PMPADDR11   = 12'h3BB;
+    localparam ADDR_PMPADDR12   = 12'h3BC;
+    localparam ADDR_PMPADDR13   = 12'h3BD;
+    localparam ADDR_PMPADDR14   = 12'h3BE;
+    localparam ADDR_PMPADDR15   = 12'h3BF;
     localparam ADDR_MVENDORID   = 12'hF11;
     localparam ADDR_MARCHID     = 12'hF12;
     localparam ADDR_MIMPID      = 12'hF13;
@@ -128,6 +179,29 @@ module cpu_csr(
 
     reg [4:0]  r_fflags;
     reg [2:0]  r_frm;
+
+    // PMP registers: 4 config registers (each holds 4 byte-sized PMP configs)
+    // and 16 address registers. Per RISC-V spec, reset clears A and L fields.
+    reg [31:0] r_pmpcfg0;
+    reg [31:0] r_pmpcfg1;
+    reg [31:0] r_pmpcfg2;
+    reg [31:0] r_pmpcfg3;
+    reg [31:0] r_pmpaddr0;
+    reg [31:0] r_pmpaddr1;
+    reg [31:0] r_pmpaddr2;
+    reg [31:0] r_pmpaddr3;
+    reg [31:0] r_pmpaddr4;
+    reg [31:0] r_pmpaddr5;
+    reg [31:0] r_pmpaddr6;
+    reg [31:0] r_pmpaddr7;
+    reg [31:0] r_pmpaddr8;
+    reg [31:0] r_pmpaddr9;
+    reg [31:0] r_pmpaddr10;
+    reg [31:0] r_pmpaddr11;
+    reg [31:0] r_pmpaddr12;
+    reg [31:0] r_pmpaddr13;
+    reg [31:0] r_pmpaddr14;
+    reg [31:0] r_pmpaddr15;
 
     wire [31:0] w_mip_hw;
     assign w_mip_hw = {20'b0, ext_meip, 3'b0, ext_mtip, 3'b0, ext_msip, 3'b0};
@@ -167,6 +241,17 @@ module cpu_csr(
         end
     endfunction
 
+    function is_u_csr;
+        input [11:0] addr;
+        begin
+            // U-mode counter aliases: cycle, time, instret, cycleh, timeh, instreth
+            is_u_csr = (addr == ADDR_CYCLE)    || (addr == ADDR_TIME)      ||
+                       (addr == ADDR_INSTRET)  ||
+                       (addr == ADDR_CYCLEH)   || (addr == ADDR_TIMEH)    ||
+                       (addr == ADDR_INSTRETH);
+        end
+    endfunction
+
     function is_m_csr;
         input [11:0] addr;
         begin
@@ -182,11 +267,30 @@ module cpu_csr(
                        (addr == ADDR_MINSTRET)  || (addr == ADDR_MCYCLEH)   ||
                        (addr == ADDR_MINSTRETH) || (addr == ADDR_MVENDORID) ||
                        (addr == ADDR_MARCHID)   || (addr == ADDR_MIMPID)    ||
-                       (addr == ADDR_MHARTID)   || (addr == ADDR_MCONFIGPTR);
+                        (addr == ADDR_MHARTID)   || (addr == ADDR_MCONFIGPTR)||
+                        (addr == ADDR_TIME)      || (addr == ADDR_TIMEH);
         end
     endfunction
 
-    assign csr_addr_valid = is_s_csr(sw_csr_addr) || is_m_csr(sw_csr_addr);
+    function is_pmp_csr;
+        input [11:0] addr;
+        begin
+            // PMP CSRs: pmpcfg0-3 (0x3A0-0x3A3) and pmpaddr0-15 (0x3B0-0x3BF)
+            // Only M-mode can access PMP CSRs
+            is_pmp_csr = (addr == ADDR_PMPCFG0)  || (addr == ADDR_PMPCFG1)  ||
+                         (addr == ADDR_PMPCFG2)  || (addr == ADDR_PMPCFG3)  ||
+                         (addr == ADDR_PMPADDR0) || (addr == ADDR_PMPADDR1) ||
+                         (addr == ADDR_PMPADDR2) || (addr == ADDR_PMPADDR3) ||
+                         (addr == ADDR_PMPADDR4) || (addr == ADDR_PMPADDR5) ||
+                         (addr == ADDR_PMPADDR6) || (addr == ADDR_PMPADDR7) ||
+                         (addr == ADDR_PMPADDR8) || (addr == ADDR_PMPADDR9) ||
+                         (addr == ADDR_PMPADDR10)|| (addr == ADDR_PMPADDR11)||
+                         (addr == ADDR_PMPADDR12)|| (addr == ADDR_PMPADDR13)||
+                         (addr == ADDR_PMPADDR14)|| (addr == ADDR_PMPADDR15);
+        end
+    endfunction
+
+    assign csr_addr_valid = is_s_csr(sw_csr_addr) || is_m_csr(sw_csr_addr) || is_u_csr(sw_csr_addr) || is_pmp_csr(sw_csr_addr);
 
     wire is_read_only_csr;
     assign is_read_only_csr = (sw_csr_addr == ADDR_MISA)     ||
@@ -195,18 +299,96 @@ module cpu_csr(
                               (sw_csr_addr == ADDR_MARCHID)   ||
                               (sw_csr_addr == ADDR_MIMPID)    ||
                               (sw_csr_addr == ADDR_MHARTID)   ||
-                              (sw_csr_addr == ADDR_MCONFIGPTR);
+                              (sw_csr_addr == ADDR_MCONFIGPTR)||
+                              // U-mode counter aliases are read-only
+                              (sw_csr_addr == ADDR_CYCLE)    ||
+                              (sw_csr_addr == ADDR_TIME)     ||
+                              (sw_csr_addr == ADDR_INSTRET)  ||
+                              (sw_csr_addr == ADDR_CYCLEH)   ||
+                              (sw_csr_addr == ADDR_TIMEH)   ||
+                              (sw_csr_addr == ADDR_INSTRETH);
 
     reg csr_access_ok_r;
     always_comb begin
         case (priv_mode)
-            PRIV_U: csr_access_ok_r = 1'b0;
-            PRIV_S: csr_access_ok_r = is_s_csr(sw_csr_addr) && !is_read_only_csr;
+            PRIV_U: begin
+                // U-mode can read counter aliases (cycle/time/instret) if
+                // mcounteren allows; writes are blocked by is_read_only_csr
+                // checked in cpu_decode.sv (write_ro_csr).
+                csr_access_ok_r = is_u_csr(sw_csr_addr) && u_counter_allowed;
+            end
+            PRIV_S: begin
+                // S-mode can access own CSRs and U-mode counter aliases
+                // (if both mcounteren and scounteren allow).
+                // Read-only check for writes is handled in cpu_decode.sv.
+                csr_access_ok_r = is_s_csr(sw_csr_addr) || (is_u_csr(sw_csr_addr) && s_counter_allowed);
+            end
             PRIV_M: csr_access_ok_r = 1'b1;
             default: csr_access_ok_r = 1'b0;
         endcase
     end
     assign csr_access_ok = csr_access_ok_r;
+
+    // ── PMP lock-bit enforcement ──
+    // PMP config byte format: bit7=L, bit6:5=reserved(0), bit4:3=A, bit2=X, bit1=W, bit0=R
+    // When L=1 for a PMP entry, both pmpcfg and pmpaddr become read-only until reset.
+    // pmpcfg0 holds entries 0-3, pmpcfg1 holds 4-7, pmpcfg2 holds 8-11, pmpcfg3 holds 12-15.
+    wire pmp_entry0_locked  = r_pmpcfg0[7];    // entry 0: pmpcfg0 byte 0, bit 7
+    wire pmp_entry1_locked  = r_pmpcfg0[15];   // entry 1: pmpcfg0 byte 1, bit 7
+    wire pmp_entry2_locked  = r_pmpcfg0[23];   // entry 2: pmpcfg0 byte 2, bit 7
+    wire pmp_entry3_locked  = r_pmpcfg0[31];   // entry 3: pmpcfg0 byte 3, bit 7
+    wire pmp_entry4_locked  = r_pmpcfg1[7];
+    wire pmp_entry5_locked  = r_pmpcfg1[15];
+    wire pmp_entry6_locked  = r_pmpcfg1[23];
+    wire pmp_entry7_locked  = r_pmpcfg1[31];
+    wire pmp_entry8_locked  = r_pmpcfg2[7];
+    wire pmp_entry9_locked  = r_pmpcfg2[15];
+    wire pmp_entry10_locked = r_pmpcfg2[23];
+    wire pmp_entry11_locked = r_pmpcfg2[31];
+    wire pmp_entry12_locked = r_pmpcfg3[7];
+    wire pmp_entry13_locked = r_pmpcfg3[15];
+    wire pmp_entry14_locked = r_pmpcfg3[23];
+    wire pmp_entry15_locked = r_pmpcfg3[31];
+
+    // PMP config write masks: clear locked entries' bytes (L=1 → byte becomes read-only)
+    // Per RISC-V spec: A field is WARL (only OFF=00 and TOR=01 supported in minimal impl)
+    // Reserved bits [6:5] always read 0.
+    wire [31:0] pmpcfg0_wmask;
+    assign pmpcfg0_wmask = {(pmp_entry3_locked ? 8'b0 : (sw_csr_wdata[31:24] & 8'h9F)),  // L,A,X,W,R; bits[6:5]=0
+                            (pmp_entry2_locked ? 8'b0 : (sw_csr_wdata[23:16] & 8'h9F)),
+                            (pmp_entry1_locked ? 8'b0 : (sw_csr_wdata[15:8]  & 8'h9F)),
+                            (pmp_entry0_locked ? 8'b0 : (sw_csr_wdata[7:0]   & 8'h9F))};
+
+    wire [31:0] pmpcfg1_wmask;
+    assign pmpcfg1_wmask = {(pmp_entry7_locked ? 8'b0 : (sw_csr_wdata[31:24] & 8'h9F)),
+                            (pmp_entry6_locked ? 8'b0 : (sw_csr_wdata[23:16] & 8'h9F)),
+                            (pmp_entry5_locked ? 8'b0 : (sw_csr_wdata[15:8]  & 8'h9F)),
+                            (pmp_entry4_locked ? 8'b0 : (sw_csr_wdata[7:0]   & 8'h9F))};
+
+    wire [31:0] pmpcfg2_wmask;
+    assign pmpcfg2_wmask = {(pmp_entry11_locked ? 8'b0 : (sw_csr_wdata[31:24] & 8'h9F)),
+                            (pmp_entry10_locked ? 8'b0 : (sw_csr_wdata[23:16] & 8'h9F)),
+                            (pmp_entry9_locked  ? 8'b0 : (sw_csr_wdata[15:8]  & 8'h9F)),
+                            (pmp_entry8_locked  ? 8'b0 : (sw_csr_wdata[7:0]   & 8'h9F))};
+
+    wire [31:0] pmpcfg3_wmask;
+    assign pmpcfg3_wmask = {(pmp_entry15_locked ? 8'b0 : (sw_csr_wdata[31:24] & 8'h9F)),
+                            (pmp_entry14_locked ? 8'b0 : (sw_csr_wdata[23:16] & 8'h9F)),
+                            (pmp_entry13_locked ? 8'b0 : (sw_csr_wdata[15:8]  & 8'h9F)),
+                            (pmp_entry12_locked ? 8'b0 : (sw_csr_wdata[7:0]   & 8'h9F))};
+
+    // ── Counter access permission checks ──
+    // mcounteren/scounteren bit mapping:
+    //   bit 0 = cycle/cycleh, bit 1 = time/timeh, bit 2 = instret/instreth
+    // U-mode access allowed if mcounteren bit is set.
+    // S-mode access to U-mode aliases allowed if both mcounteren and scounteren bits are set.
+    wire [2:0] counter_idx;
+    assign counter_idx = (sw_csr_addr == ADDR_CYCLE  || sw_csr_addr == ADDR_CYCLEH)  ? 3'd0 :
+                         (sw_csr_addr == ADDR_TIME   || sw_csr_addr == ADDR_TIMEH)   ? 3'd1 :
+                         (sw_csr_addr == ADDR_INSTRET|| sw_csr_addr == ADDR_INSTRETH) ? 3'd2 : 3'd0;
+
+    wire u_counter_allowed = r_mcounteren[counter_idx];
+    wire s_counter_allowed = r_mcounteren[counter_idx] && r_scounteren[counter_idx];
 
     wire [31:0] mstatus_wmask;
     assign mstatus_wmask = {1'b0,
@@ -297,6 +479,27 @@ module cpu_csr(
             r_scounteren<= 32'b0;
             r_fflags    <= 5'b0;
             r_frm       <= 3'b0;
+            // PMP: per RISC-V spec, reset clears A and L fields of all PMP entries
+            r_pmpcfg0   <= 32'b0;
+            r_pmpcfg1   <= 32'b0;
+            r_pmpcfg2   <= 32'b0;
+            r_pmpcfg3   <= 32'b0;
+            r_pmpaddr0  <= 32'b0;
+            r_pmpaddr1  <= 32'b0;
+            r_pmpaddr2  <= 32'b0;
+            r_pmpaddr3  <= 32'b0;
+            r_pmpaddr4  <= 32'b0;
+            r_pmpaddr5  <= 32'b0;
+            r_pmpaddr6  <= 32'b0;
+            r_pmpaddr7  <= 32'b0;
+            r_pmpaddr8  <= 32'b0;
+            r_pmpaddr9  <= 32'b0;
+            r_pmpaddr10 <= 32'b0;
+            r_pmpaddr11 <= 32'b0;
+            r_pmpaddr12 <= 32'b0;
+            r_pmpaddr13 <= 32'b0;
+            r_pmpaddr14 <= 32'b0;
+            r_pmpaddr15 <= 32'b0;
         end else begin
             // BUG-FIX: Include r_sip[5] as mip[5] (STIP). Previously mip[5] was
             // always 0 because r_mip was constructed as {w_mip_hw[31:2], r_sip[1], w_mip_hw[0]}
@@ -366,6 +569,28 @@ module cpu_csr(
                     ADDR_FFLAGS: ;  // fflags handled by merged logic below
                     ADDR_FRM:        r_frm       <= sw_csr_wdata[2:0];
                     ADDR_FCSR:       r_frm       <= sw_csr_wdata[7:5];  // fflags handled by merged logic below
+                    // PMP config writes: lock-bit enforcement via pmpcfg*_wmask
+                    ADDR_PMPCFG0:    r_pmpcfg0   <= pmpcfg0_wmask;
+                    ADDR_PMPCFG1:    r_pmpcfg1   <= pmpcfg1_wmask;
+                    ADDR_PMPCFG2:    r_pmpcfg2   <= pmpcfg2_wmask;
+                    ADDR_PMPCFG3:    r_pmpcfg3   <= pmpcfg3_wmask;
+                    // PMP address writes: locked entries cannot be modified
+                    ADDR_PMPADDR0:  if (!pmp_entry0_locked)  r_pmpaddr0  <= sw_csr_wdata;
+                    ADDR_PMPADDR1:  if (!pmp_entry1_locked)  r_pmpaddr1  <= sw_csr_wdata;
+                    ADDR_PMPADDR2:  if (!pmp_entry2_locked)  r_pmpaddr2  <= sw_csr_wdata;
+                    ADDR_PMPADDR3:  if (!pmp_entry3_locked)  r_pmpaddr3  <= sw_csr_wdata;
+                    ADDR_PMPADDR4:  if (!pmp_entry4_locked)  r_pmpaddr4  <= sw_csr_wdata;
+                    ADDR_PMPADDR5:  if (!pmp_entry5_locked)  r_pmpaddr5  <= sw_csr_wdata;
+                    ADDR_PMPADDR6:  if (!pmp_entry6_locked)  r_pmpaddr6  <= sw_csr_wdata;
+                    ADDR_PMPADDR7:  if (!pmp_entry7_locked)  r_pmpaddr7  <= sw_csr_wdata;
+                    ADDR_PMPADDR8:  if (!pmp_entry8_locked)  r_pmpaddr8  <= sw_csr_wdata;
+                    ADDR_PMPADDR9:  if (!pmp_entry9_locked)  r_pmpaddr9  <= sw_csr_wdata;
+                    ADDR_PMPADDR10: if (!pmp_entry10_locked) r_pmpaddr10 <= sw_csr_wdata;
+                    ADDR_PMPADDR11: if (!pmp_entry11_locked) r_pmpaddr11 <= sw_csr_wdata;
+                    ADDR_PMPADDR12: if (!pmp_entry12_locked) r_pmpaddr12 <= sw_csr_wdata;
+                    ADDR_PMPADDR13: if (!pmp_entry13_locked) r_pmpaddr13 <= sw_csr_wdata;
+                    ADDR_PMPADDR14: if (!pmp_entry14_locked) r_pmpaddr14 <= sw_csr_wdata;
+                    ADDR_PMPADDR15: if (!pmp_entry15_locked) r_pmpaddr15 <= sw_csr_wdata;
                     default: ;
                 endcase
             end
@@ -418,11 +643,40 @@ module cpu_csr(
             ADDR_MINSTRET:    sw_csr_rdata_r = r_minstret[31:0];
             ADDR_MCYCLEH:     sw_csr_rdata_r = r_mcycle[63:32];
             ADDR_MINSTRETH:   sw_csr_rdata_r = r_minstret[63:32];
+            // U-mode counter aliases (read-only shadows)
+            ADDR_CYCLE:       sw_csr_rdata_r = r_mcycle[31:0];
+            ADDR_TIME:        sw_csr_rdata_r = ext_mtime[31:0];
+            ADDR_INSTRET:     sw_csr_rdata_r = r_minstret[31:0];
+            ADDR_CYCLEH:      sw_csr_rdata_r = r_mcycle[63:32];
+            ADDR_TIMEH:       sw_csr_rdata_r = ext_mtime[63:32];
+            ADDR_INSTRETH:   sw_csr_rdata_r = r_minstret[63:32];
             ADDR_MVENDORID:   sw_csr_rdata_r = 32'b0;
             ADDR_MARCHID:     sw_csr_rdata_r = 32'b0;
             ADDR_MIMPID:      sw_csr_rdata_r = 32'b0;
             ADDR_MHARTID:     sw_csr_rdata_r = 32'b0;
             ADDR_MCONFIGPTR:  sw_csr_rdata_r = 32'b0;
+            // PMP config registers
+            ADDR_PMPCFG0:     sw_csr_rdata_r = r_pmpcfg0;
+            ADDR_PMPCFG1:     sw_csr_rdata_r = r_pmpcfg1;
+            ADDR_PMPCFG2:     sw_csr_rdata_r = r_pmpcfg2;
+            ADDR_PMPCFG3:     sw_csr_rdata_r = r_pmpcfg3;
+            // PMP address registers
+            ADDR_PMPADDR0:    sw_csr_rdata_r = r_pmpaddr0;
+            ADDR_PMPADDR1:    sw_csr_rdata_r = r_pmpaddr1;
+            ADDR_PMPADDR2:    sw_csr_rdata_r = r_pmpaddr2;
+            ADDR_PMPADDR3:    sw_csr_rdata_r = r_pmpaddr3;
+            ADDR_PMPADDR4:    sw_csr_rdata_r = r_pmpaddr4;
+            ADDR_PMPADDR5:    sw_csr_rdata_r = r_pmpaddr5;
+            ADDR_PMPADDR6:    sw_csr_rdata_r = r_pmpaddr6;
+            ADDR_PMPADDR7:    sw_csr_rdata_r = r_pmpaddr7;
+            ADDR_PMPADDR8:    sw_csr_rdata_r = r_pmpaddr8;
+            ADDR_PMPADDR9:    sw_csr_rdata_r = r_pmpaddr9;
+            ADDR_PMPADDR10:   sw_csr_rdata_r = r_pmpaddr10;
+            ADDR_PMPADDR11:   sw_csr_rdata_r = r_pmpaddr11;
+            ADDR_PMPADDR12:   sw_csr_rdata_r = r_pmpaddr12;
+            ADDR_PMPADDR13:   sw_csr_rdata_r = r_pmpaddr13;
+            ADDR_PMPADDR14:   sw_csr_rdata_r = r_pmpaddr14;
+            ADDR_PMPADDR15:   sw_csr_rdata_r = r_pmpaddr15;
             default:          sw_csr_rdata_r = 32'b0;
         endcase
     end
@@ -452,5 +706,27 @@ module cpu_csr(
 
     assign csr_fflags    = r_fflags;
     assign csr_frm       = r_frm;
+
+    // PMP config outputs
+    assign csr_pmpcfg0   = r_pmpcfg0;
+    assign csr_pmpcfg1   = r_pmpcfg1;
+    assign csr_pmpcfg2   = r_pmpcfg2;
+    assign csr_pmpcfg3   = r_pmpcfg3;
+    assign csr_pmpaddr0  = r_pmpaddr0;
+    assign csr_pmpaddr1  = r_pmpaddr1;
+    assign csr_pmpaddr2  = r_pmpaddr2;
+    assign csr_pmpaddr3  = r_pmpaddr3;
+    assign csr_pmpaddr4  = r_pmpaddr4;
+    assign csr_pmpaddr5  = r_pmpaddr5;
+    assign csr_pmpaddr6  = r_pmpaddr6;
+    assign csr_pmpaddr7  = r_pmpaddr7;
+    assign csr_pmpaddr8  = r_pmpaddr8;
+    assign csr_pmpaddr9  = r_pmpaddr9;
+    assign csr_pmpaddr10 = r_pmpaddr10;
+    assign csr_pmpaddr11 = r_pmpaddr11;
+    assign csr_pmpaddr12 = r_pmpaddr12;
+    assign csr_pmpaddr13 = r_pmpaddr13;
+    assign csr_pmpaddr14 = r_pmpaddr14;
+    assign csr_pmpaddr15 = r_pmpaddr15;
 
 endmodule

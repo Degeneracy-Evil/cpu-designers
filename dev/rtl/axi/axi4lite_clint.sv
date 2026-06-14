@@ -37,7 +37,8 @@ module axi4lite_clint(
 
     // Timer interrupt interface (preserved from AHB version)
     output wire         o_mtip,
-    output wire         o_msip
+    output wire         o_msip,
+    output wire [63:0]  o_mtime
 );
 
     // =========================================================================
@@ -171,6 +172,7 @@ module axi4lite_clint(
 
     assign o_mtip = mtip_raw;
     assign o_msip = r_msip;
+    assign o_mtime = r_mtime;
 
     // BUG-FIX: 当软件写入 mtime 时，暂停自增一周期，避免写入值被自增覆盖
     wire mtime_we = wr_fire && (wr_addr_timelo || wr_addr_timehi);

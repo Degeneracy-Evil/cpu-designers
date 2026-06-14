@@ -36,7 +36,12 @@ module dcache_ctrl(
     input  wire        wb_valid,
 
     input  wire        flush_req,
-    output wire        flush_done
+    output wire        flush_done,
+
+    // Single-line invalidation (for PTW A/D bit writeback coherency)
+    input  wire        inv_line_req,
+    input  wire [31:0] inv_line_addr,
+    output wire        inv_line_done
 );
 
     // --- Cache geometry from config ---
@@ -69,6 +74,8 @@ module dcache_ctrl(
     localparam S_FLUSH_WB_RD      = 4'd8;
     localparam S_FLUSH_WB_SD      = 4'd9;
     localparam S_FLUSH_INVALIDATE = 4'd10;
+    localparam S_INV_LINE         = 4'd11;
+    localparam S_INV_LINE_WRITE   = 4'd12;
 
     // Address map (same as icache):
     //   0x00000000-0x7FFFFFFF: MMIO (peripherals)     — bit[31]=0
@@ -106,8 +113,11 @@ module dcache_ctrl(
     // BUG-FIX: Gate S_IDLE term with mmu_ready because is_mmio now depends on
     // physical address, which is only valid when mmu_ready=1.
     wire tag_bram_ena = ((state == S_IDLE) && cpu_req_valid && !cpu_req_ready_r && mmu_ready && !is_mmio) ||
-                        (state == S_FLUSH_SCAN);
-    wire [SET_IDX_W-1:0] tag_bram_addra = (state == S_FLUSH_SCAN) ? flush_set : set_idx;
+                        (state == S_FLUSH_SCAN) ||
+                        (state == S_INV_LINE) ||
+                        (state == S_INV_LINE_WRITE);
+    wire [SET_IDX_W-1:0] tag_bram_addra = (state == S_FLUSH_SCAN) ? flush_set :
+                                           (state == S_INV_LINE || state == S_INV_LINE_WRITE) ? inv_latched_set : set_idx;
 
     // Port B: Refill write / Dirty update / Invalidate write (registered)
     reg                          tag_bram_enb_r;
@@ -163,6 +173,13 @@ module dcache_ctrl(
     wire inv2 = ~tag_r2[TAG_ENTRY_W-1];
     wire inv3 = ~tag_r3[TAG_ENTRY_W-1];
 
+    // Invalidate-line hit detection (for PTW A/D bit coherency)
+    // Matches any valid way whose tag equals inv_latched_tag
+    wire inv_hit0 = tag_r0[TAG_ENTRY_W-1] && (tag_r0[TAG_WIDTH-1:0] == inv_latched_tag);
+    wire inv_hit1 = tag_r1[TAG_ENTRY_W-1] && (tag_r1[TAG_WIDTH-1:0] == inv_latched_tag);
+    wire inv_hit2 = tag_r2[TAG_ENTRY_W-1] && (tag_r2[TAG_WIDTH-1:0] == inv_latched_tag);
+    wire inv_hit3 = tag_r3[TAG_ENTRY_W-1] && (tag_r3[TAG_WIDTH-1:0] == inv_latched_tag);
+
     wire [WAY_W-1:0] plru_victim;
     wire [NUM_WAYS-2:0] plru_next;
     tree_plru u_plru(
@@ -209,6 +226,11 @@ module dcache_ctrl(
     reg [WAY_W-1:0]      flush_way;
     reg        flush_done_r;
     reg [SET_IDX_W-1:0]  invalidate_set;     // multi-cycle invalidate counter
+
+    // Single-line invalidation
+    reg        inv_line_done_r;
+    reg [TAG_WIDTH-1:0]  inv_latched_tag;
+    reg [SET_IDX_W-1:0]  inv_latched_set;
 
     // =========================================================================
     // Data BRAM (dcached) — 256-bit × 32 deep
@@ -333,6 +355,7 @@ module dcache_ctrl(
     assign wb_data     = bram_doutb;
 
     assign flush_done  = flush_done_r;
+    assign inv_line_done = inv_line_done_r;
 
     assign mmio_req    = mmio_pending_r;
     assign mmio_addr   = mmio_addr_r;
@@ -395,6 +418,9 @@ module dcache_ctrl(
             flush_way        <= {WAY_W{1'b0}};
             flush_done_r     <= 1'b0;
             invalidate_set   <= {SET_IDX_W{1'b0}};
+            inv_line_done_r  <= 1'b0;
+            inv_latched_tag  <= {TAG_WIDTH{1'b0}};
+            inv_latched_set  <= {SET_IDX_W{1'b0}};
             tag_bram_enb_r   <= 1'b0;
             tag_bram_web_r   <= {TAG_BRAM_WEA{1'b0}};
             tag_bram_addrb_r <= {SET_IDX_W{1'b0}};
@@ -405,6 +431,7 @@ module dcache_ctrl(
         end else begin
             cpu_req_ready_r <= 1'b0;
             flush_done_r    <= 1'b0;
+            inv_line_done_r <= 1'b0;
             tag_bram_enb_r  <= 1'b0;  // default: no tag BRAM write
             if (mmio_accept) begin
                 mmio_pending_r <= 1'b0;
@@ -419,6 +446,14 @@ module dcache_ctrl(
                         state     <= S_FLUSH_SCAN;
                         flush_set <= {SET_IDX_W{1'b0}};
                         flush_way <= {WAY_W{1'b0}};
+
+                    end else if (inv_line_req) begin
+                        // Single-line invalidation for PTW A/D bit coherency
+                        // Extract set index and tag from inv_line_addr
+                        // Use physical address for both set index and tag (PIPT for inv)
+                        inv_latched_set <= inv_line_addr[`DCACHE_SET_IDX_HI:`DCACHE_SET_IDX_LO];
+                        inv_latched_tag <= inv_line_addr[`DCACHE_TAG_HI:`DCACHE_TAG_LO];
+                        state           <= S_INV_LINE;
 
                     end else if (cpu_req_valid && !cpu_req_ready_r) begin
                         // BUG-FIX: Wait for mmu_ready before deciding MMIO vs cache,
@@ -619,6 +654,57 @@ module dcache_ctrl(
                     end else begin
                         invalidate_set <= invalidate_set + 1'b1;
                     end
+                end
+
+                S_INV_LINE: begin
+                    // Tag BRAM Port A read enabled (via tag_bram_ena).
+                    // Output will be valid next cycle → advance to S_INV_LINE_WRITE.
+                    state <= S_INV_LINE_WRITE;
+                end
+
+                S_INV_LINE_WRITE: begin
+                    // Tag BRAM Port A output is now valid.
+                    // Invalidate any matching way by clearing its V bit.
+                    // If the line is dirty, we must write it back first to avoid data loss.
+                    // However, for PTW A/D bit coherency, the PTW has already written
+                    // the updated PTE directly to memory. If dcache has a dirty copy,
+                    // that dirty copy contains the OLD PTE (without A/D bits set).
+                    // Invalidating it (dropping V) means:
+                    //   - If D=1: the dirty data (old PTE) would be lost on invalidate.
+                    //     But this is CORRECT — the PTW already wrote the new PTE to
+                    //     memory, so the old dirty PTE in dcache is stale. We must NOT
+                    //     write it back (that would overwrite the PTW's A/D update).
+                    //   - Simply clear V (and D) to force a refill from memory on next
+                    //     access, which will get the PTW-updated PTE.
+                    //
+                    // For each matching way: write {V=0, D=0, tag} to clear the entry.
+                    // We handle at most one way per cycle (rare to have multiple ways
+                    // match the same tag, but handle it safely).
+
+                    if (inv_hit0) begin
+                        tag_bram_enb_r   <= 1'b1;
+                        tag_bram_web_r   <= ((1 << TAG_BRAM_BPW) - 1);  // way 0
+                        tag_bram_addrb_r <= inv_latched_set;
+                        tag_bram_dinb_r  <= {TAG_BRAM_W{1'b0}} | ({{(TAG_BRAM_W-TAG_ENTRY_W){1'b0}}, {1'b0, 1'b0, tag_r0[TAG_WIDTH-1:0]}} << (2'd0 * TAG_BRAM_BS));
+                    end else if (inv_hit1) begin
+                        tag_bram_enb_r   <= 1'b1;
+                        tag_bram_web_r   <= ((1 << TAG_BRAM_BPW) - 1) << TAG_BRAM_BPW;  // way 1
+                        tag_bram_addrb_r <= inv_latched_set;
+                        tag_bram_dinb_r  <= {TAG_BRAM_W{1'b0}} | ({{(TAG_BRAM_W-TAG_ENTRY_W){1'b0}}, {1'b0, 1'b0, tag_r1[TAG_WIDTH-1:0]}} << (2'd1 * TAG_BRAM_BS));
+                    end else if (inv_hit2) begin
+                        tag_bram_enb_r   <= 1'b1;
+                        tag_bram_web_r   <= ((1 << TAG_BRAM_BPW) - 1) << (2'd2 * TAG_BRAM_BPW);  // way 2
+                        tag_bram_addrb_r <= inv_latched_set;
+                        tag_bram_dinb_r  <= {TAG_BRAM_W{1'b0}} | ({{(TAG_BRAM_W-TAG_ENTRY_W){1'b0}}, {1'b0, 1'b0, tag_r2[TAG_WIDTH-1:0]}} << (2'd2 * TAG_BRAM_BS));
+                    end else if (inv_hit3) begin
+                        tag_bram_enb_r   <= 1'b1;
+                        tag_bram_web_r   <= ((1 << TAG_BRAM_BPW) - 1) << (2'd3 * TAG_BRAM_BPW);  // way 3
+                        tag_bram_addrb_r <= inv_latched_set;
+                        tag_bram_dinb_r  <= {TAG_BRAM_W{1'b0}} | ({{(TAG_BRAM_W-TAG_ENTRY_W){1'b0}}, {1'b0, 1'b0, tag_r3[TAG_WIDTH-1:0]}} << (2'd3 * TAG_BRAM_BS));
+                    end
+
+                    inv_line_done_r <= 1'b1;
+                    state <= S_IDLE;
                 end
 
                 default: state <= S_IDLE;

@@ -597,7 +597,7 @@ MIG IP 的核心配置由 `Reference/mig/mig_a.prj` 定义，包含引脚分配�
 
 ## 测试程序构建
 
-`tools/test_builder.py` 读取 `dev/program_source/test/tests.yaml`，调用 `rv2coe.py` 批量编译测试程序。
+`tools/test_builder.py` 读取 `dev/program_source/build.yaml`，调用 `rv2coe.py` 批量编译测试程序和应用。
 
 ```bash
 python3 tools/test_builder.py                # 构建全部
@@ -612,7 +612,7 @@ python3 tools/test_builder.py --dry-run      # 仅打印命令不执行
 
 ### --gen-tasks 输出
 
-`--gen-tasks` 根据 `tests.yaml` 自动推导任务条目：
+`--gen-tasks` 根据 `build.yaml` 自动推导任务条目：
 
 - `task_name`：测试名中 `/` 替换为 `_`
 - `tb`：推导为 `tb_{task_name}`
@@ -633,7 +633,7 @@ RUNTIME_MAP 默认值：
 | regression | 20ms |
 | integration | 10ms |
 
-### tests.yaml 结构
+### build.yaml 结构
 
 ```yaml
 defaults:
@@ -655,12 +655,21 @@ categories:
   mmu:
     framework: [framework/common.s, framework/mmu.s]  # framework 可直接指定文件列表
     tests: [mmu/sv32_basic, mmu/tlb_basic, ...]
+
+apps:                              # 应用目标（原 APP_TARGETS 硬编码已移除）
+  led_marquee:
+    src_files: [app/led_marquee.s]
+    linker_script: null            # null 显式禁用链接脚本
+  calculator:
+    src_files: [lib/start.S, ..., app/calculator.c]
+    arch: rv32imaf_zicsr_zifencei  # 应用级 arch 覆盖
+    include_dirs: [lib/include]
 ```
 
 ### 构建流程
 
 ```
-tests.yaml → test_builder.py → rv2coe.py → .coe + .hex
+build.yaml → test_builder.py → rv2coe.py → .coe + .hex
                                           ↓
                               dev/program_source/test/<category>/<test>.coe
                               dev/program_source/test/<category>/<test>.hex

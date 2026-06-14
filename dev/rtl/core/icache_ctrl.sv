@@ -61,7 +61,14 @@ module icache_ctrl(
     // Tag width (19 bits) covers exactly 128MB; bits[29:27] are forced zero
     // in refill addresses (ADDR_UPPER_ZEROS=4), so only 0x8000_0000–0x87FF_FFFF
     // is safely cacheable without aliasing.
-    wire is_mmio = ~cpu_req_vaddr[31] | cpu_req_vaddr[30];
+    //
+    // BUG-FIX: MMIO judgment must be based on PHYSICAL address, not virtual address.
+    // When Sv32 translation is active, a virtual address in the cacheable range
+    // could map to an MMIO physical address (or vice versa). Using the virtual
+    // address for this decision would incorrectly route translated MMIO accesses
+    // through the cache, or cacheable accesses through the MMIO bypass.
+    // The is_mmio signal is only consumed after mmu_ready is asserted (paddr valid).
+    wire is_mmio = ~cpu_req_addr[31] | cpu_req_addr[30];
 
     // VIPT: use vaddr for set index (bits within page offset), paddr for tag
     wire [TAG_WIDTH-1:0]   req_tag  = cpu_req_addr[`ICACHE_TAG_HI:`ICACHE_TAG_LO];
@@ -82,7 +89,10 @@ module icache_ctrl(
     wire [TAG_BRAM_W-1:0] tag_bram_doutb;
 
     // Port A: CPU read (enable in S_IDLE → output valid in S_TAG_READ)
-    wire tag_bram_ena = (state == S_IDLE) && cpu_req_valid && !cpu_req_ready_r && !is_mmio;
+    // Gated by mmu_ready: is_mmio now depends on physical address, which is
+    // only valid when mmu_ready=1. Without this gate, a stale paddr could
+    // wrongly enable the tag BRAM for an MMIO access.
+    wire tag_bram_ena = (state == S_IDLE) && cpu_req_valid && !cpu_req_ready_r && mmu_ready && !is_mmio;
 
     // Port B: Refill write / Invalidate write (registered, applied next cycle)
     reg                          tag_bram_enb_r;
@@ -269,19 +279,33 @@ module icache_ctrl(
                         state <= S_INVALIDATE;
                         invalidate_set <= {SET_IDX_W{1'b0}};
                     end else if (cpu_req_valid && !cpu_req_ready_r) begin
-                        if (is_mmio) begin
-                            if (mmu_ready && !mmio_pending_r) begin
-                                mmio_pending_r <= 1'b1;
-                                mmio_addr_r    <= cpu_req_addr;
+                        // BUG-FIX: Wait for mmu_ready before deciding MMIO vs cache,
+                        // because is_mmio now depends on physical address (cpu_req_addr)
+                        // which is only valid when mmu_ready=1.
+                        if (mmu_ready) begin
+                            if (is_mmio) begin
+                                if (!mmio_pending_r) begin
+                                    mmio_pending_r <= 1'b1;
+                                    mmio_addr_r    <= cpu_req_addr;
+                                end
+                                if (mmio_valid) begin
+                                    bypass_data     <= mmio_data;
+                                    cpu_req_ready_r <= 1'b1;
+                                end
+                            end else begin
+                                // Enable tag BRAM Port A (addra=set_idx already wired)
+                                // Output will be valid next cycle in S_TAG_READ
+                                state <= S_TAG_READ;
                             end
+                        end else begin
+                            // mmu_ready not yet — wait for physical address.
+                            // Handle any already-pending MMIO response from a
+                            // previous request (shouldn't normally happen, but
+                            // defensive coding avoids deadlocking the handshake).
                             if (mmio_valid) begin
                                 bypass_data     <= mmio_data;
                                 cpu_req_ready_r <= 1'b1;
                             end
-                        end else begin
-                            // Enable tag BRAM Port A (addra=set_idx already wired)
-                            // Output will be valid next cycle in S_TAG_READ
-                            state <= S_TAG_READ;
                         end
                     end
                 end

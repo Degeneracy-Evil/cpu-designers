@@ -49,7 +49,7 @@ class LayeredHash:
             "dev/program_source/**/*.S",
             "dev/program_source/**/*.c",
             "dev/program_source/**/*.ld",
-            "dev/program_source/test/tests.yaml",
+            "dev/program_source/build.yaml",
             "tools/test_builder.py",
             "tools/rv2coe.py",
         ],

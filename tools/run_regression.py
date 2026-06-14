@@ -24,14 +24,14 @@ from pathlib import Path
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-TESTS_YAML = REPO_ROOT / "dev" / "program_source" / "test" / "tests.yaml"
+BUILD_YAML = REPO_ROOT / "dev" / "program_source" / "build.yaml"
 TEST_BUILDER = REPO_ROOT / "tools" / "test_builder.py"
 VIVADO_CLI = REPO_ROOT / "tools" / "vivado_cli.py"
 
 
 def load_categories() -> list[str]:
-    """从 tests.yaml 读取所有类别名。"""
-    with open(TESTS_YAML, encoding="utf-8") as f:
+    """从 build.yaml 读取所有类别名。"""
+    with open(BUILD_YAML, encoding="utf-8") as f:
         config = yaml.safe_load(f)
     return list(config.get("categories", {}).keys())
 

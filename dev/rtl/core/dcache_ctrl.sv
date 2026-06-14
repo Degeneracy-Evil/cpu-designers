@@ -77,7 +77,12 @@ module dcache_ctrl(
     //   0xC0000000-0xFFFFFFFF: MMIO (boot ROM, etc.)  — bit[31]=1, bit[30]=1
     // Tag width (19 bits) covers exactly 128MB; bits[29:27] are forced zero
     // in refill/writeback addresses (ADDR_UPPER_ZEROS=4).
-    wire is_mmio = ~cpu_req_vaddr[31] | cpu_req_vaddr[30];
+    //
+    // BUG-FIX: MMIO judgment must be based on PHYSICAL address, not virtual address.
+    // When Sv32 translation is active, a virtual address in the cacheable range
+    // could map to an MMIO physical address (or vice versa). The is_mmio signal
+    // is only consumed after mmu_ready is asserted (paddr valid).
+    wire is_mmio = ~cpu_req_addr[31] | cpu_req_addr[30];
 
     // VIPT: use vaddr for set index (bits within page offset), paddr for tag
     wire [TAG_WIDTH-1:0]   req_tag  = cpu_req_addr[`DCACHE_TAG_HI:`DCACHE_TAG_LO];
@@ -98,7 +103,9 @@ module dcache_ctrl(
     wire [TAG_BRAM_W-1:0] tag_bram_doutb;
 
     // Port A: CPU read / Flush scan read
-    wire tag_bram_ena = ((state == S_IDLE) && cpu_req_valid && !cpu_req_ready_r && !is_mmio) ||
+    // BUG-FIX: Gate S_IDLE term with mmu_ready because is_mmio now depends on
+    // physical address, which is only valid when mmu_ready=1.
+    wire tag_bram_ena = ((state == S_IDLE) && cpu_req_valid && !cpu_req_ready_r && mmu_ready && !is_mmio) ||
                         (state == S_FLUSH_SCAN);
     wire [SET_IDX_W-1:0] tag_bram_addra = (state == S_FLUSH_SCAN) ? flush_set : set_idx;
 
@@ -414,21 +421,34 @@ module dcache_ctrl(
                         flush_way <= {WAY_W{1'b0}};
 
                     end else if (cpu_req_valid && !cpu_req_ready_r) begin
-                        if (is_mmio) begin
+                        // BUG-FIX: Wait for mmu_ready before deciding MMIO vs cache,
+                        // because is_mmio now depends on physical address (cpu_req_addr)
+                        // which is only valid when mmu_ready=1.
+                        if (mmu_ready) begin
+                            if (is_mmio) begin
+                                if (mmio_valid) begin
+                                    bypass_data     <= mmio_rdata;
+                                    cpu_req_ready_r <= 1'b1;
+                                    mmio_inflight_r <= 1'b0;
+                                end else if (!mmio_pending_r && !mmio_inflight_r) begin
+                                    mmio_pending_r <= 1'b1;
+                                    mmio_addr_r    <= cpu_req_addr;
+                                    mmio_wdata_r   <= cpu_req_wdata;
+                                    mmio_hwrite_r  <= cpu_req_hwrite;
+                                    mmio_hsize_r   <= cpu_req_hsize;
+                                end
+                            end else begin
+                                // Enable tag BRAM Port A → output valid next cycle
+                                state <= S_TAG_READ;
+                            end
+                        end else begin
+                            // mmu_ready not yet — wait for physical address.
+                            // Handle any already-pending MMIO response defensively.
                             if (mmio_valid) begin
                                 bypass_data     <= mmio_rdata;
                                 cpu_req_ready_r <= 1'b1;
                                 mmio_inflight_r <= 1'b0;
-                            end else if (mmu_ready && !mmio_pending_r && !mmio_inflight_r) begin
-                                mmio_pending_r <= 1'b1;
-                                mmio_addr_r    <= cpu_req_addr;
-                                mmio_wdata_r   <= cpu_req_wdata;
-                                mmio_hwrite_r  <= cpu_req_hwrite;
-                                mmio_hsize_r   <= cpu_req_hsize;
                             end
-                        end else begin
-                            // Enable tag BRAM Port A → output valid next cycle
-                            state <= S_TAG_READ;
                         end
                     end
                 end

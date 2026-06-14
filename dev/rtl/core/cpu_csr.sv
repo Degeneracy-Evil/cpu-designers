@@ -254,7 +254,11 @@ module cpu_csr(
     assign sepc_wmask = {sw_csr_wdata[31:2], 2'b00};
 
     wire [31:0] sip_wmask;
-    assign sip_wmask = {31'd0, sw_csr_wdata[1]};
+    // BUG-FIX: Allow writing sip[5] (STIP) in addition to sip[1] (SSIP).
+    // Per RISC-V spec, S-mode can write STIP to set/clear the S-mode timer
+    // interrupt pending bit. This is essential for software-interrupt-based
+    // timer emulation when mideleg[5]=0 (timer not delegated to S-mode).
+    assign sip_wmask = {26'd0, sw_csr_wdata[5], 4'd0, sw_csr_wdata[1], 1'b0};
 
     // Merged fflags write logic: resolves conflict between software CSR write
     // and hardware OR-accumulate. When both occur in the same cycle, the
@@ -294,7 +298,12 @@ module cpu_csr(
             r_fflags    <= 5'b0;
             r_frm       <= 3'b0;
         end else begin
-            r_mip <= {w_mip_hw[31:2], r_sip[1], w_mip_hw[0]};
+            // BUG-FIX: Include r_sip[5] as mip[5] (STIP). Previously mip[5] was
+            // always 0 because r_mip was constructed as {w_mip_hw[31:2], r_sip[1], w_mip_hw[0]}
+            // which left bit 5 stuck at 0. Now mip[5] = r_sip[5], allowing STIP to
+            // be set via software write to sip[5] or by hardware (via ext_mtip when
+            // the timer interrupt is delegated to S-mode).
+            r_mip <= {w_mip_hw[31:6], r_sip[5], w_mip_hw[4:2], r_sip[1], w_mip_hw[0]};
 
             if (cycle_en)
                 r_mcycle <= r_mcycle + 64'd1;
@@ -387,7 +396,9 @@ module cpu_csr(
             ADDR_SEPC:        sw_csr_rdata_r = r_sepc;
             ADDR_SCAUSE:      sw_csr_rdata_r = r_scause;
             ADDR_STVAL:       sw_csr_rdata_r = r_stval;
-            ADDR_SIP:         sw_csr_rdata_r = {31'd0, r_sip[1]};
+            // BUG-FIX: Expose sip[5] (STIP) in addition to sip[1] (SSIP).
+            // Per RISC-V spec, sip read should show both SSIP and STIP bits.
+            ADDR_SIP:         sw_csr_rdata_r = {26'd0, r_sip[5], 4'd0, r_sip[1], 1'b0};
             ADDR_SATP:        sw_csr_rdata_r = r_satp;
 
             ADDR_MSTATUS:     sw_csr_rdata_r = {sd_bit, r_mstatus[30:0]};

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """test_builder.py — 测试程序构建管理
 
-读取 dev/program_source/test/tests.yaml，调用 rv2coe.py 编译测试程序。
+读取 dev/program_source/build.yaml，调用 rv2coe.py 编译测试程序和应用。
 
  用法:
      python tools/test_builder.py                          # 构建全部
@@ -42,8 +42,8 @@ TEST_SRC = PROG_SRC / "test"
 # 应用源码基目录
 APP_SRC = PROG_SRC / "app"
 
-# tests.yaml 路径
-TESTS_YAML = TEST_SRC / "tests.yaml"
+# build.yaml 路径（统一编译配置：测试 + 应用）
+BUILD_YAML = PROG_SRC / "build.yaml"
 
 # tasks.yaml 路径
 TASKS_YAML = REPO_ROOT / "tasks.yaml"
@@ -52,52 +52,7 @@ TASKS_YAML = REPO_ROOT / "tasks.yaml"
 RV2COE = REPO_ROOT / "tools" / "rv2coe.py"
 
 
-APP_TARGETS: dict[str, dict[str, Any]] = {
-    "led_marquee": {
-        "src_files": [APP_SRC / "led_marquee.s"],
-        "arch": "rv32im_zicsr_zifencei",
-        "abi": "ilp32",
-        "linker_script": None,
-        "include_dirs": [],
-        "depth": 8192,
-    },
-    "uart_echo": {
-        "src_files": [APP_SRC / "uart_echo.s"],
-        "arch": "rv32im_zicsr_zifencei",
-        "abi": "ilp32",
-        "linker_script": None,
-        "include_dirs": [],
-        "depth": 8192,
-    },
-    "uart_echo_c_lib": {
-        "src_files": [
-            PROG_SRC / "lib" / "start.S",
-            PROG_SRC / "lib" / "uart.c",
-            APP_SRC / "uart_echo_c_lib.c",
-        ],
-        "arch": "rv32im_zicsr_zifencei",
-        "abi": "ilp32",
-        "linker_script": PROG_SRC / "link.ld",
-        "include_dirs": [PROG_SRC / "lib" / "include"],
-        "depth": 8192,
-    },
-    "calculator": {
-        "src_files": [
-            PROG_SRC / "lib" / "start.S",
-            PROG_SRC / "lib" / "uart.c",
-            PROG_SRC / "lib" / "stdio.c",
-            PROG_SRC / "lib" / "atof.c",
-            PROG_SRC / "lib" / "ftoa.c",
-            PROG_SRC / "lib" / "math.c",
-            APP_SRC / "calculator.c",
-        ],
-        "arch": "rv32imaf_zicsr_zifencei",
-        "abi": "ilp32",
-        "linker_script": PROG_SRC / "link.ld",
-        "include_dirs": [PROG_SRC / "lib" / "include"],
-        "depth": 8192,
-    },
-}
+APP_TARGETS: dict[str, dict[str, Any]] = {}  # populated from build.yaml at load time
 
 
 # ── 运行时映射 ──
@@ -117,16 +72,46 @@ RUNTIME_MAP: dict[str, str] = {
 
 # ── YAML 加载 ──
 
-def load_tests_yaml() -> dict[str, Any]:
-    """加载 tests.yaml 配置。"""
-    with open(TESTS_YAML, encoding="utf-8") as f:
+def load_build_config() -> dict[str, Any]:
+    """加载 build.yaml 统一编译配置。"""
+    with open(BUILD_YAML, encoding="utf-8") as f:
         return yaml.safe_load(f)
+
+
+def _resolve_app_targets(config: dict) -> None:
+    """从 build.yaml 的 apps 段填充 APP_TARGETS。
+
+    路径相对于 dev/program_source/ 解析；未指定字段继承 defaults。
+    """
+    global APP_TARGETS
+
+    defaults = config.get("defaults", {})
+    apps_section = config.get("apps", {})
+
+    resolved: dict[str, dict[str, Any]] = {}
+    for name, app_cfg in apps_section.items():
+        src_files = [PROG_SRC / f for f in app_cfg.get("src_files", [])]
+        include_dirs = [PROG_SRC / d for d in app_cfg.get("include_dirs", [])]
+
+        linker_val = app_cfg.get("linker_script", defaults.get("linker_script"))
+        linker_script = PROG_SRC / linker_val if linker_val else None
+
+        resolved[name] = {
+            "src_files": src_files,
+            "arch": app_cfg.get("arch", defaults.get("arch", "rv32im_zicsr_zifencei")),
+            "abi": app_cfg.get("abi", defaults.get("abi", "ilp32")),
+            "linker_script": linker_script,
+            "include_dirs": include_dirs,
+            "depth": app_cfg.get("depth", defaults.get("depth", 8192)),
+        }
+
+    APP_TARGETS = resolved
 
 
 # ── 测试发现 ──
 
 def discover_all_tests(config: dict) -> list[dict]:
-    """从 tests.yaml 解析所有测试条目。
+    """从 build.yaml 解析所有测试条目。
 
     Returns:
         list of dicts, each with keys:
@@ -177,14 +162,14 @@ def filter_tests(
     if test_name is not None:
         matched = [t for t in all_tests if t["name"] == test_name]
         if not matched:
-            print(f"[ERROR] Test '{test_name}' not found in tests.yaml", file=sys.stderr)
+            print(f"[ERROR] Test '{test_name}' not found in build.yaml", file=sys.stderr)
             sys.exit(1)
         return matched
 
     if category is not None:
         matched = [t for t in all_tests if t["category"] == category]
         if not matched:
-            print(f"[ERROR] Category '{category}' not found in tests.yaml", file=sys.stderr)
+            print(f"[ERROR] Category '{category}' not found in build.yaml", file=sys.stderr)
             sys.exit(1)
         return matched
 
@@ -416,16 +401,17 @@ def main() -> int:
     parser.add_argument(
         "--gen-tasks",
         action="store_true",
-        help="Generate tasks.yaml entries from tests.yaml and print to stdout",
+        help="Generate tasks.yaml entries from build.yaml and print to stdout",
     )
     args = parser.parse_args()
 
     # 加载配置
-    if not TESTS_YAML.exists():
-        print(f"[ERROR] tests.yaml not found: {TESTS_YAML}", file=sys.stderr)
+    if not BUILD_YAML.exists():
+        print(f"[ERROR] build.yaml not found: {BUILD_YAML}", file=sys.stderr)
         return 1
 
-    config = load_tests_yaml()
+    config = load_build_config()
+    _resolve_app_targets(config)
     all_tests = discover_all_tests(config)
 
     if args.app:

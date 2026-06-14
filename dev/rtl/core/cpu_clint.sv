@@ -64,6 +64,12 @@ module cpu_clint(
     wire meip_bit   = csr_mip[11];
     wire mtip_bit   = ext_mtip;
     wire msip_bit   = csr_mip[3];
+    // BUG-FIX (sub-issue ②): Use csr_mip[5] (STIP) for S-mode timer pending
+    // instead of ext_mtip (raw CLINT MTIP). This allows STIP to be set either
+    // by hardware (when timer interrupt is delegated via mideleg[5]) or by
+    // software writing to sip[5]. Previously, using ext_mtip directly bypassed
+    // the mip register and prevented software from setting STIP.
+    wire stip_bit   = csr_mip[5];
     wire mpie_bit   = csr_mstatus[7];
     wire spie_bit   = csr_mstatus[5];
     wire mpp_field  = csr_mstatus[12:11];
@@ -73,8 +79,11 @@ module cpu_clint(
                                            (mtie_bit && mtip_bit) ||
                                            (meie_bit && meip_bit));
 
+    // BUG-FIX (sub-issue ②): S-mode timer uses stip_bit (csr_mip[5]) instead
+    // of mtip_bit (ext_mtip). This correctly reflects the STIP value from the
+    // mip register, which includes both hardware MTIP and software-written sip[5].
     wire s_interrupt_pending = sie_bit && ((ssie_bit && (csr_sip[1] | msip_bit)) ||
-                                           (stie_bit && mtip_bit) ||
+                                           (stie_bit && stip_bit) ||
                                            (seie_bit && meip_bit));
 
     wire [31:0] m_interrupt_cause;
@@ -84,9 +93,10 @@ module cpu_clint(
                                32'h8000000B;
 
     wire [31:0] s_interrupt_cause;
+    // BUG-FIX (sub-issue ②): Use stip_bit (csr_mip[5]) for S-mode timer cause.
     assign s_interrupt_cause = (seie_bit && meip_bit) ? 32'h80000009 :
                                (ssie_bit && (csr_sip[1] | msip_bit)) ? 32'h80000001 :
-                               (stie_bit && mtip_bit) ? 32'h80000005 :
+                               (stie_bit && stip_bit) ? 32'h80000005 :
                                32'h80000009;
 
     wire [5:0] m_int_idx;
@@ -95,12 +105,26 @@ module cpu_clint(
                        (mtie_bit && mtip_bit) ? 6'd7  : 6'd11;
 
     wire [5:0] s_int_idx;
+    // BUG-FIX (sub-issue ②): Use stip_bit (csr_mip[5]) for S-mode timer index.
     assign s_int_idx = (seie_bit && meip_bit) ? 6'd9 :
                        (ssie_bit && (csr_sip[1] | msip_bit)) ? 6'd1 :
-                       (stie_bit && mtip_bit) ? 6'd5 : 6'd9;
+                       (stie_bit && stip_bit) ? 6'd5 : 6'd9;
 
     wire m_int_delegated = m_interrupt_pending && csr_mideleg[m_int_idx];
-    wire s_int_taken     = s_interrupt_pending && !m_int_delegated;
+    // BUG-FIX (sub-issue ③): M/S interrupt priority fix.
+    // Previously: s_int_taken = s_interrupt_pending && !m_int_delegated
+    // This was WRONG: if M-mode interrupt is pending and NOT delegated,
+    // !m_int_delegated=1, so S-mode could preempt M-mode — violating
+    // RISC-V privilege priority (M > S).
+    //
+    // Correct logic: S-mode can only take its interrupt when no un-delegated
+    // M-mode interrupt is pending. An un-delegated M-mode interrupt must be
+    // taken in M-mode and has higher priority than any S-mode interrupt.
+    //   s_int_taken = s_interrupt_pending && !(m_interrupt_pending && !m_int_delegated)
+    // Which simplifies to:
+    //   s_int_taken = s_interrupt_pending && (!m_interrupt_pending || m_int_delegated)
+    wire m_int_not_delegated = m_interrupt_pending && !m_int_delegated;
+    wire s_int_taken         = s_interrupt_pending && !m_int_not_delegated;
 
     wire [5:0] exc_code_idx;
     assign exc_code_idx = exception_cause[5:0];

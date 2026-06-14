@@ -12,18 +12,19 @@
 
 - **自检协议**: 每个子测试独立返回 PASS/FAIL，失败时精确定位到子测试 ID
 - **框架复用**: 测试框架 (`framework/`) 提供统一的初始化、运行、报告和陷阱处理
-- **声明式注册**: `tests.yaml` 定义所有测试及其依赖和构建参数
+- **声明式注册**: `build.yaml` 定义所有测试/应用及其依赖和构建参数
 
 ### 1.2 目录结构
 
 ```
 dev/program_source/
+├── build.yaml                   # ★ 统一编译配置（测试 + 应用）
 ├── framework/                  # 测试框架 (公共)
 │   ├── test_framework.s        # 自检运行器 (test_init/test_run/test_report)
 │   ├── trap_handlers.s         # 陷阱处理器模板
 │   └── page_table_utils.s      # Sv32 页表构建工具
 ├── test/                       # 测试程序
-│   ├── tests.yaml              # ★ 测试注册表
+│   ├── tests.yaml              # (已迁移至 build.yaml，仅保留作参考)
 │   ├── isa/                    # ISA 指令测试 (7 文件, 107 子测试)
 │   ├── exception/              # 异常/中断测试 (6 文件, 21 子测试)
 │   ├── privilege/              # 特权级测试 (3 文件, 21 子测试)
@@ -102,7 +103,7 @@ python tools/test_builder.py --clean
 ### 3.2 构建流程
 
 ```
-tests.yaml → test_builder.py → rv2coe.py (WSL 回退) → .hex + .coe
+build.yaml → test_builder.py → rv2coe.py (WSL 回退) → .hex + .coe
 ```
 
 每条测试自动拼接框架文件 + 测试源文件，调用 rv2coe.py 编译链接。
@@ -176,7 +177,7 @@ test_01_xxx:
 
 ### 5.2 注册
 
-在 `tests.yaml` 中添加条目：
+在 `build.yaml` 的 `categories` 段添加条目：
 
 ```yaml
 categories:

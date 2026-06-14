@@ -1,12 +1,15 @@
 # ============================================================
-# tests.yaml — 测试程序注册表
+# build.yaml — 统一编译配置（测试 + 应用）
 # ============================================================
 #
-# ⚠ 已迁移至 dev/program_source/build.yaml（统一编译配置：测试 + 应用）。
-#   本文件仅作历史参考保留，不再被任何工具读取。
-#   新增测试/修改配置请编辑 build.yaml。
+# 声明式定义所有测试程序和应用目标的依赖、构建参数。
+# test_builder.py 读取此文件驱动构建。
+#
+# 路径约定: 相对于 dev/program_source/
 #
 # ============================================================
+
+# ── 框架定义 ──
 
 framework:
   # 通用框架: 所有非 MMU 测试使用
@@ -23,11 +26,15 @@ framework:
   # 无框架: 集成测试保持原有结构
   none: []
 
+# ── 全局默认值 ──
+
 defaults:
   arch: rv32im_zicsr_zifencei
   abi: ilp32
   linker_script: link.ld
   depth: 8192
+
+# ── 测试类别 ──
 
 categories:
   isa:
@@ -122,3 +129,45 @@ categories:
       - integration/cpu_full
       - integration/cpu_compute
       - integration/cpu_trap
+
+# ── 应用目标 ──
+#
+# 每个应用指定:
+#   src_files:       源文件列表（相对于 dev/program_source/）
+#   arch:            目标架构（缺省继承 defaults.arch）
+#   abi:             ABI（缺省继承 defaults.abi）
+#   linker_script:   链接脚本（缺省继承 defaults.linker_script；设为 null 显式禁用）
+#   include_dirs:    头文件搜索路径（缺省为 []）
+#   depth:           内存深度（缺省继承 defaults.depth）
+
+apps:
+  led_marquee:
+    src_files:
+      - app/led_marquee.s
+    linker_script: null
+
+  uart_echo:
+    src_files:
+      - app/uart_echo.s
+    linker_script: null
+
+  uart_echo_c_lib:
+    src_files:
+      - lib/start.S
+      - lib/uart.c
+      - app/uart_echo_c_lib.c
+    include_dirs:
+      - lib/include
+
+  calculator:
+    src_files:
+      - lib/start.S
+      - lib/uart.c
+      - lib/stdio.c
+      - lib/atof.c
+      - lib/ftoa.c
+      - lib/math.c
+      - app/calculator.c
+    arch: rv32imaf_zicsr_zifencei
+    include_dirs:
+      - lib/include

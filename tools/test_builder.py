@@ -92,6 +92,88 @@ APP_TARGETS: dict[str, dict[str, Any]] = {
         "include_dirs": [PROG_SRC / "lib" / "include"],
         "depth": 8192,
     },
+    "uart_echo_c_lib_nolocal": {
+        "src_files": [
+            PROG_SRC / "lib" / "start.S",
+            PROG_SRC / "lib" / "uart.c",
+            APP_SRC / "uart_echo_c_lib_nolocal.c",
+        ],
+        "arch": "rv32im_zicsr_zifencei",
+        "abi": "ilp32",
+        "linker_script": PROG_SRC / "link.ld",
+        "include_dirs": [PROG_SRC / "lib" / "include"],
+        "depth": 8192,
+    },
+    "uart_echo_c_mixed_getput": {
+        "src_files": [
+            PROG_SRC / "lib" / "start.S",
+            PROG_SRC / "lib" / "uart.c",
+            APP_SRC / "uart_echo_c_mixed_getput.c",
+        ],
+        "arch": "rv32im_zicsr_zifencei",
+        "abi": "ilp32",
+        "linker_script": PROG_SRC / "link.ld",
+        "include_dirs": [PROG_SRC / "lib" / "include"],
+        "depth": 8192,
+    },
+    "cache_subword_test": {
+        "src_files": [
+            PROG_SRC / "lib" / "start.S",
+            APP_SRC / "cache_subword_test.c",
+        ],
+        "arch": "rv32im_zicsr_zifencei",
+        "abi": "ilp32",
+        "linker_script": PROG_SRC / "link.ld",
+        "include_dirs": [PROG_SRC / "lib" / "include"],
+        "depth": 8192,
+    },
+    "cache_subword_read_test": {
+        "src_files": [
+            PROG_SRC / "lib" / "start.S",
+            APP_SRC / "cache_subword_read_test.c",
+        ],
+        "arch": "rv32im_zicsr_zifencei",
+        "abi": "ilp32",
+        "linker_script": PROG_SRC / "link.ld",
+        "include_dirs": [PROG_SRC / "lib" / "include"],
+        "depth": 8192,
+    },
+    "uart_putc_smoke": {
+        "src_files": [
+            PROG_SRC / "lib" / "start.S",
+            PROG_SRC / "lib" / "uart.c",
+            APP_SRC / "uart_putc_smoke.c",
+        ],
+        "arch": "rv32im_zicsr_zifencei",
+        "abi": "ilp32",
+        "linker_script": PROG_SRC / "link.ld",
+        "include_dirs": [PROG_SRC / "lib" / "include"],
+        "depth": 8192,
+    },
+    "uart_getc_smoke": {
+        "src_files": [
+            PROG_SRC / "lib" / "start.S",
+            PROG_SRC / "lib" / "uart.c",
+            APP_SRC / "uart_getc_smoke.c",
+        ],
+        "arch": "rv32im_zicsr_zifencei",
+        "abi": "ilp32",
+        "linker_script": PROG_SRC / "link.ld",
+        "include_dirs": [PROG_SRC / "lib" / "include"],
+        "depth": 8192,
+    },
+    "uart_getc_twice": {
+        "src_files": [
+            PROG_SRC / "lib" / "start.S",
+            PROG_SRC / "lib" / "uart.c",
+            APP_SRC / "uart_getc_twice.c",
+        ],
+        "arch": "rv32im_zicsr_zifencei",
+        "abi": "ilp32",
+        "linker_script": PROG_SRC / "link.ld",
+        "include_dirs": [PROG_SRC / "lib" / "include"],
+        "depth": 8192,
+    },
     "calculator": {
         "src_files": [
             PROG_SRC / "lib" / "start.S",

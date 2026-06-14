@@ -1505,7 +1505,7 @@ ddr3_model (Micron 行为模型)
 | **P1** | BUG-89 | Bootloader跳转前缺少fence.i | jr前添加fence.i | **✅ 已修复** |
 | **P1** | BUG-90 | Bootloader slli/or字组装受重复AXI事务影响 | 改用sb+lw组装 | **✅ 已修复** |
 | **P0** | BUG-97 | MMIO写请求accept后到响应返回前可被重新发起，UART TX字符双发 | dcache增加`mmio_inflight_r`锁住在途事务 | **✅ 已修复** |
-| **P2** | BUG-96 | C版uart_echo板上早期非法指令/回显失败，汇编版正常 | Bootloader UART传输字节丢失致程序镜像破坏，需包含BUG-91+BUG-97握手修复的bitstream重测 | **✅ 已记录并深度排查** |
+| **P2** | BUG-96 | C版uart_echo板上早期异常已深入排查 | 最新诊断表明 `uart.c` 的 `getc/putc`、缓存区 `sb/sh/lbu/lhu` 均正常；后续“第二次输入失败”实为 `uart_console.py` 行缓冲自动发送 `LF(0x0A)` 与有限次 smoke 程序正常结束叠加造成的测试假象 | **✅ 已更正结论** |
 
 ---
 
@@ -1601,7 +1601,7 @@ ddr3_model (Micron 行为模型)
 | BUG-89 | 🟡 MED | Bootloader跳转前缺少fence.i (**✅ 已修复**) |
 | BUG-90 | 🟡 MED | Bootloader slli/or字组装受重复AXI事务影响 (**✅ 已修复**) |
 | BUG-97 | 🔴 HIGH | MMIO写请求accept后到响应返回前可被重新发起，UART TX字符双发 (**✅ 已修复**) |
-| BUG-96 | 🟡 MED | C版uart_echo板上不稳定，汇编版uart_echo稳定回显 — Bootloader UART传输字节丢失致程序镜像破坏 (**✅ 已记录并深度排查**) |
+| BUG-96 | 🟡 MED | C版uart_echo板上问题已完成复盘；最新 bitstream 下库函数与子字节访问正常，测试假象主要来自 `uart_console.py` 行缓冲 (**✅ 结论已更正**) |
 
 ### 全局性
 | Bug # | 严重度 | 描述 |
@@ -1891,79 +1891,80 @@ T3:  同一字节第二次写入 UART_TXDATA → 字符双发
 - 新 bitstream 下载后，`calculator.hex` 串口输出恢复单发
 - 交互计算结果正确，无重复字符
 
-### BUG-96: C 版 `uart_echo` 板上不稳定（非法指令/无回显），汇编版稳定 — Bootloader UART 传输字节丢失致程序镜像破坏
+### BUG-96: C 版 `uart_echo` 板上问题复盘：RTL 路径已基本排除，后续 smoke“第二次失败”属串口控制台行缓冲测试假象
 
 **文件**: `dev/program_source/app/uart_echo.c`, `dev/program_source/app/uart_echo.s`, `dev/program_source/lib/start.S`, `dev/program_source/boot/bootloader.s`
 
-**严重度**: MEDIUM（程序层根因，受 RTL BUG-91+BUG-97 握手修复状态影响）
+**严重度**: MEDIUM（历史问题已做完整复盘；最新证据不再支持当前 RTL 根因）
 
-**状态**: ✅ 已记录并深度排查；当前 FPGA 稳定版本使用汇编实现
+**状态**: ✅ 已完成最小诊断并更正结论
 
 **现象**:
-- C 版 `uart_echo.hex` 下载后，表面上 PC 在 `0x80000050` 附近变化，但串口无回显
+- `uart_echo.s`（纯汇编，bootloader 风格 MMIO）板上稳定回显
+- `uart_echo_c_mmio.c`（C 版但直访 MMIO，不走 `uart.c`）板上正常
+- `uart_echo_c_lib.c`（C 版，经 `uart.c`）板上失败，无回显
+- `uart_echo_c_lib_nolocal.c` 与 `uart_echo_c_mixed_getput.c` 也失败
 - 加入默认 trap handler 后，LCD 寄存器显示：
   - `mcause = 2`（非法指令）
   - `mepc   = 0x80000294`（`main` 入口第 4 条指令）
   - `mtval  = 0x01010101`
-- 说明程序并非"单纯没收到字符"，而是运行早期取到了错误指令字后陷入 trap
+- 说明程序并非“单纯没收到字符”，而是运行过程中代码或取值被破坏，最终在 `0x80000294` 取到非法指令字后陷入 trap
 
 **指令解码**:
 - `0x01010101`：opcode[6:0] = 0101011 = 0x0B → "custom-0" 操作码空间，非合法 RV32I 指令
 - 正确值应为 `0x02010413`（`addi s0, sp, 32`，main 的帧指针设置指令）
 - 逐字节对比（LE）：正确 `13 04 01 02` vs 实际 `01 01 01 01`，4 字节中 3 个被改写
 
-**根因分析**（深度排查 2026-06-13）:
+**最新排查结论**（2026-06-14）:
 
-1. **hex 文件本身正确**：git 历史中旧 hex 及重新编译的 hex 在 0x80000294 地址均为合法指令，排除编译/链接错误
+1. **旧“bootloader UART 传输损坏”结论已否决**
+   - 若镜像在上传阶段已损坏，则 `uart_echo_c_mmio.c` 不应稳定工作
+   - 但当前 bitstream 上，`uart_echo_c_mmio.c` 正常，而同样通过 `uart_load.py` 传输的 `uart_echo_c_lib.c` 失败
+   - 因此问题不在通用传输链路，而在程序运行后执行到了某类特定指令序列
 
-2. **排除项**：
-   - BSS 清零：`__bss_start == __bss_end == 0x800002C8`，BSS 为空，清零被跳过
-   - 栈覆盖代码：`sp = 0x80008000`，栈写入 `0x80007Fxx` 远在 .text（结束 `0x800002C4`）之后
-   - 编译器生成非法指令：无 RVC 压缩指令，ISA 白名单检查通过
-   - icache 读 DDR3 残留：残留值应为全零或随机值，不会是 `0x01010101` 规则模式
+2. **板上二分结果已经把问题收敛到 `uart.c` 路径**
+   - 工作：
+     - `uart_echo.s`
+     - `uart_echo_c_mmio.c`
+   - 失败：
+     - `uart_echo_c_lib.c`
+     - `uart_echo_c_lib_nolocal.c`
+     - `uart_echo_c_mixed_getput.c`
+   - 由此可排除：
+     - `main()` 里的局部 `char c` 是唯一根因
+     - `uart_init()` 单独是唯一根因
+     - UART STATUS/RXDATA/TXDATA MMIO 硬件路径本身失效
+   - 当前公共失败路径只剩 `uart.c` 生成出来的函数序列，尤其是 `uart_init()/uart_putc()` 内部的 `sh/lhu/sb/lbu`
 
-3. **根因：Bootloader UART 传输字节丢失 → 程序镜像错位**
-
-   传输链路：`PC (uart_load.py) ──UART──> Boot ROM (bootloader.s) ──sw──> DDR3`
-
-   bootloader 逐字接收并写入 DDR3，每个 `uart_recv_byte` 执行 `lw STATUS; lw RXDATA`。
-   在 BUG-91+BUG-97 握手修复前，`mmio_req` 电平协议导致每条 `lw RXDATA` 触发 **2 次 AXI 事务**，第二次额外弹出 FIFO 一字节。
-   （BUG-86 的原始 Approach A+C 已被 BUG-91 pending/accept 握手全面替代并从代码中删除，故不再单独引用 BUG-86）
-
-   **BUG-91+BUG-97 修复状态与 BUG-96 的时序关系**：
-   - BUG-91（pending/accept 握手 + 地址锁存）于 06-12 仿真验证
-   - BUG-97（mmio_inflight_r）于 06-13 通过 FPGA 实测验证
-   - BUG-96 测试时使用的 **FPGA bitstream 可能未包含 BUG-91+BUG-97 的握手修复**
-   - 报告明确指出"重新生成应用镜像无效，只有重新综合 FPGA bitstream 后才恢复正常"
-
-4. **`0x01010101` 模式解释**：UART 传输丢失 1 字节后，所有后续字节偏移 1 位，
-   字边界错位导致不同字的字节被拼合，产生规则垃圾模式。
-   `0x01010101`（4 个相同 `0x01`）恰好出现在连续 4 个原始字节都含 `0x01` 的错位拼合位置。
-
-5. **汇编版稳定的原因**：汇编版仅 17 条指令（68 字节），实际代码占前 17 字；
-   即使传输有字节丢失，丢失点大概率落在 NOP 填充区（8175 个 NOP），
-   CPU 永远不会执行到那里。C 版有 ~177 条指令延伸到第 ~177 字，
-   字节错位从丢失点开始破坏所有后续指令，包括 `main()` 在内的关键代码全部损坏。
-
-6. **次要贡献因素**：
-   - C 版 `uart_init()` 重初始化 UART，在 BUG-97 修复前每次 `sw` 可能双写（同一握手缺陷的写侧表现）
-   - 汇编版不调用 `uart_init()`，直接使用 bootloader 已初始化的 UART
-   - C 版 -O0 编译使用 `sh`/`lhu` 处理 `uint16_t` 参数，增加 MMIO 路径复杂度
+3. **最小诊断已排除缓存区子字访问问题**
+   - 新增 `cache_subword_test.c`
+   - 特点：UART 输出走直访 MMIO（已知正常），但对 DDR/cache 中的 stack/global 变量执行 `sb/sh` 后按 `lw` 回读并打印结果
+   - 板上结果：全部 PASS，`sb/sh` 写使能正常
+   - 新增 `cache_subword_read_test.c`
+   - 板上结果：全部 PASS，`lbu/lhu` 读路径正常
+   - 新增 `uart_putc_smoke.c`
+   - 板上结果：输出 `OK\n`，`uart_putc()` 正常
+   - 新增 `uart_getc_smoke.c`
+   - 板上结果：成功接收并打印单个字符，`uart_getc()` 单次调用正常
+   - 新增 `uart_getc_twice.c`
+   - 表面现象：第一次输入 `A` 后，第二次立即收到 `0x0A`
+   - 实际原因：`uart_console.py` 使用 `sys.stdin.readline()`，按下 Enter 时会把 `A\n` 一并发给板子；第二次 `uart_getc()` 读到的是前一次残留的 `LF`
+   - 程序随后正常执行到末尾 `wfi` 自旋，LCD `PC=0x80000588` 与反汇编中的 `80000584: wfi / 80000588: j 80000584` 完全一致，不是 trap
 
 **当前处理**:
 - 保留默认 trap handler（`start.S`）用于后续板上定位 `mcause/mepc/mtval`
 - FPGA 稳定版本的 `uart_echo` 切换为 `uart_echo.s`
 - `test_builder.py --app uart_echo` 入口同步切换到汇编源文件
+- 新增 `test_builder.py --app cache_subword_test`
+- 新增 `uart_console.py --raw`，支持逐键发送，避免 `readline()` 自动附带换行导致的测试歧义
 
-**恢复 C 版的修复建议**:
+**下一步建议**:
 
 | 优先级 | 措施 | 说明 |
 |--------|------|------|
-| P0 | 用包含 BUG-91+BUG-97 握手修复的 bitstream 重新测试 C 版 | 最可能直接解决问题 |
-| P1 | bootloader 添加传输校验 | header 增加 CRC32，收完后校验，失败则 LED 报错并等待重传 |
-| P1 | `start.S` 添加 .text 自检 | 计算代码段校验和与嵌入期望值比对 |
-| P2 | `uart_init()` 改为条件初始化 | 先读 CTRL，若已使能则跳过重初始化 |
-| P2 | `uart_init()` 参数改为 `uint32_t` | 避免 `sh`/`lhu`，统一用 `sw`/`lw` |
+| P0 | 使用 `python -m tools.uart_console -p <port> --raw` 复测交互程序 | 验证逐键即时发送场景 |
+| P1 | 若仍怀疑历史旧问题，保留 trap handler 再复测 `uart_echo_c_lib` | 区分历史 bitstream 问题与当前控制台行为 |
+| P1 | 若需要严格协议验证，可给 bootloader/console 增加显式 CRC 或 framed packet 模式 | 避免把交互层噪声和硬件问题混在一起 |
 
 ### 程序问题补充记录
 

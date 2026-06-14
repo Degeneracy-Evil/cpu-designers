@@ -1287,9 +1287,6 @@ vivado_config.yaml
 | `dev/rtl/APB/` | `axi4lite_to_apb.sv` | AXI4-Lite → APB 桥 |
 | `dev/rtl/ram_wrap/` | `axi_wrap_ram.sv` | AXI4 BRAM 仿真模型（SRAM 替代） |
 | `dev/rtl/ram_wrap/` | `axi_wrap_ddr.sv` | AXI4 DDR3 包装器（MIG） |
-| `dev/rtl/APB/` | `apb_bus.sv` | APB 总线 |
-| `dev/rtl/APB/` | `apb_master.sv` | APB 主设备 |
-| `dev/rtl/APB/` | `apb_slave.sv` | APB 从设备 |
 | `dev/rtl/APB/` | `apb_decoder.sv` | APB 地址译码 |
 | `dev/rtl/APB/perips/` | `apb_perips.sv` | 外设顶层 |
 | `dev/rtl/APB/perips/` | `gpio.sv` | GPIO（16-bit 双向 IO，引脚变化中断） |

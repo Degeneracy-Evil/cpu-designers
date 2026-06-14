@@ -159,7 +159,7 @@
 | `mtimecmp` | ✅ | 64-bit mtimecmp，`mtime>=mtimecmp` 触发 MTIP |
 | timer 频率 | ✅ | `cpu_clk = 50MHz`，固定可知 |
 | MTIP | ✅ | `mtime>=mtimecmp` 时 MTIP=1，timer_irq 测试通过 |
-| STIP | ✅ | 通过 `mideleg[5]` 委托 S-mode timer interrupt |
+| STIP | **❌** | **见下方详述。** `mideleg[5]` 仅是委托开关，但 STIP（sip[5]）无硬件/软件置位路径，M-mode 无法注入 S-mode timer interrupt |
 | **`time/timeh` CSR** | **❌** | RTL 中无 `ADDR_TIME`（0xC01）/ `ADDR_TIMEH`（0xC81）CSR 实现。`rdtime` 指令将触发 illegal instruction。Linux clocksource 依赖此 CSR |
 | `cycle/cycleh` CSR | ✅ | `mcycle`/`mcycleh` 实现，64-bit 单调递增 |
 | `instret/instreth` CSR | ✅ | `minstret`/`minstreth` 实现 |
@@ -182,6 +182,155 @@
      （需从 CLINT 模块路由 mtime 值到 CSR 读 mux，跨模块信号）
   B. 依赖 SBI 仿真：OpenSBI 拦截 rdtime trap，从 CLINT mtime 读取返回
      （性能较差，每次 rdtime 需 trap + mret，但无需改 RTL）
+```
+
+### 6.1 STIP 置位路径专项分析
+
+> **结论：STIP（sip[5]）无硬件置位路径，M-mode 软件（OpenSBI）无法注入 S-mode timer interrupt。这是 Linux 启动的硬性阻塞项。**
+
+#### RTL 证据链
+
+**1. mip 硬件写入（cpu_csr.sv:133,297）**
+
+```verilog
+// 硬件 pending 位：仅 MEIP/MTIP/MSIP
+assign w_mip_hw = {20'b0, ext_meip, 3'b0, ext_mtip, 3'b0, ext_msip, 3'b0};
+//                                                          bit7=MTIP        bit3=MSIP
+
+// mip 寄存器构建：bit5 恒为 0
+r_mip <= {w_mip_hw[31:2], r_sip[1], w_mip_hw[0]};
+//                       ↑只有SSIP来自sip   ↑bit0=0
+```
+
+→ **mip[5]（STIP）恒为 0**，无任何硬件信号可置位。
+
+**2. sip 软件写入掩码（cpu_csr.sv:256-257）**
+
+```verilog
+assign sip_wmask = {31'd0, sw_csr_wdata[1]};
+//                       ↑仅 bit1（SSIP）可写
+```
+
+→ **sip[5]（STIP）不可由软件写入**。M-mode 执行 `csrs sip, t0`（t0[5]=1）无法置位 STIP。
+
+**3. S-mode timer pending 检查（cpu_clint.sv:77）**
+
+```verilog
+wire s_interrupt_pending = sie_bit && ((ssie_bit && (csr_sip[1] | msip_bit)) ||
+                                       (stie_bit && mtip_bit) ||     // ← 直接用 MTIP！
+                                       (seie_bit && meip_bit));
+```
+
+→ S-mode timer interrupt pending 判定使用 `mtip_bit = ext_mtip`（CLINT 硬件信号），**而非 `csr_sip[5]`（STIP）**。
+
+**4. S-mode timer cause 编码（cpu_clint.sv:89）**
+
+```verilog
+assign s_interrupt_cause = ... (stie_bit && mtip_bit) ? 32'h80000005 : ...;
+//                                              ↑MTIP 直接触发 scause=5
+```
+
+→ 当 MTIP=1 且 sie.STIE=1 时，产生 scause=5（Supervisor timer interrupt）。
+
+#### 三种可能的中断流向分析
+
+| 流向 | 条件 | 是否可行 | 问题 |
+|------|------|---------|------|
+| **A. 直接委托** | mideleg[7]=1, MTIP 触发 | ⚠️ 部分可行 | MTIP 直接触发 S-mode trap，scause=5。**但 OpenSBI 无法在 M-mode 先处理 timer 再注入**，Linux 直接收到原始 MTIP，无法执行 SBI timer 逻辑 |
+| **B. 软件注入** | mideleg[7]=0, OpenSBI 处理 MTIP 后写 sip[5]=1 | ❌ 不可行 | **sip[5] 不可写**，OpenSBI 无法注入 STIP |
+| **C. MTIP 旁路** | mie[7]=0, sie[5]=1, MTIP 直接触发 S-mode | ⚠️ 部分可行 | M-mode 禁用自身 timer 中断，MTIP 直接走 S-mode。**但 OpenSBI 无法接收 timer 中断，无法实现 SBI set_timer** |
+
+#### 中断优先级 Bug
+
+当 MTIP 触发且 mideleg[7]=0 时：
+
+```verilog
+wire m_int_delegated = m_interrupt_pending && csr_mideleg[m_int_idx];
+// m_int_idx=7, mideleg[7]=0 → m_int_delegated=false
+
+wire s_int_taken = s_interrupt_pending && !m_int_delegated;
+// s_interrupt_pending=true (stie_bit && mtip_bit), !false=true → s_int_taken=true
+
+assign trap_to_s = ... || (!exception_valid && s_int_taken);
+// → trap_to_s=true → 中断进入 S-mode！
+```
+
+→ **M-mode 中断未委托时，S-mode 中断却抢占了优先级**。违反 RISC-V 特权规范：M-mode 中断应始终优先于 S-mode 中断。
+
+#### 标准 Linux timer 流程（当前无法实现）
+
+```
+正确流程（RISC-V 标准）：
+  1. Linux 调用 SBI set_timer(next_timeout)
+  2. OpenSBI（M-mode）编程 mtimecmp = next_timeout
+  3. mtime >= mtimecmp → CLINT 置 MTIP
+  4. OpenSBI 在 M-mode 接收 timer 中断（mcause=7）
+  5. OpenSBI 执行 timer 回调，置 sip[5]=1（STIP）← 当前不可行！
+  6. S-mode 收到 supervisor timer interrupt（scause=5）
+  7. Linux 处理 timer 中断，重新调用 SBI set_timer
+
+当前实现的最接近流程：
+  - 设置 mideleg[7]=1（委托 MTI 到 S-mode）
+  - MTIP 触发时直接进入 S-mode，scause=5
+  - Linux 直接处理，跳过 OpenSBI timer 逻辑
+  - 但这绕过了 SBI 层，Linux 需要直接写 mtimecmp（S-mode 无权写 M-mode CLINT）
+```
+
+#### 修复方案
+
+| 方案 | 改动 | 复杂度 | 说明 |
+|------|------|--------|------|
+| **A. 使 sip[5] 可写 + 用 sip[5] 判定 pending** | cpu_csr.sv: sip_wmask 扩展 bit5; cpu_clint.sv: STIP pending 改用 csr_sip[5] | 中 | 标准方案，OpenSBI 可正常注入 STIP |
+| **B. mideleg[7]=1 直接委托 + S-mode 可写 mtimecmp** | 需 CLINT 地址权限调整 | 中 | Linux 直接处理 timer，绕过 OpenSBI |
+| **C. 硬件自动 MTIP→STIP 映射** | MTIP 置位时自动置 mip[5] | 小 | 非标准但实用，需同时修复优先级 bug |
+
+**必须同时修复**：S-mode timer pending 检查应使用 `csr_sip[5]`（或 `csr_mip[5]`）而非 `ext_mtip`，否则当 M-mode 和 S-mode timer 同时 pending 时优先级判断错误。
+
+#### 专项测试建议
+
+```asm
+# STIP 置位路径验证测试
+# 前置：M-mode, mideleg=0, mie=0, sie=0
+
+1. # 验证 sip[5] 不可写（当前行为）
+   li t0, (1 << 5)
+   csrs sip, t0          # 尝试置位 STIP
+   csrr t1, sip          # 读回 sip
+   # 期望：t1[5] = 0（STIP 未被置位）
+
+2. # 验证 MTIP 直接触发 S-mode timer（当前行为）
+   # 设置 mideleg[7]=1（委托 MTI）
+   li t0, (1 << 7)
+   csrs mideleg, t0
+   # 设置 S-mode timer 使能
+   li t0, (1 << 5)       # STIE
+   csrs sie, t0
+   csrs sstatus, (1 << 1) # SIE
+   # 编程 mtimecmp 使其立即触发
+   li t0, 0x02004000     # mtimecmp 地址
+   lw t1, 0x0200BFF8     # 读 mtime
+   sw t1, 0(t0)          # mtimecmp = mtime → MTIP=1
+   # 期望：trap 到 stvec，scause = 0x80000005
+
+3. # 验证 M-mode 优先级（当前有 bug）
+   # 设置 mie[7]=1（M-mode timer 使能）+ mideleg[7]=0
+   li t0, (1 << 7)
+   csrs mie, t0
+   csrc mideleg, t0      # 不委托
+   # 同时 sie[5]=1（S-mode timer 使能）
+   li t0, (1 << 5)
+   csrs sie, t0
+   # 触发 MTIP
+   # 期望：trap 到 mtvec（M-mode），mcause = 0x80000007
+   # 实际：可能 trap 到 stvec（S-mode）← BUG
+
+4. # 验证修复后 sip[5] 可写
+   # （修复后执行）
+   li t0, (1 << 5)
+   csrs sip, t0          # M-mode 置位 STIP
+   csrr t1, sip
+   # 期望：t1[5] = 1
+   # S-mode 应收到 scause = 0x80000005
 ```
 
 ---
@@ -355,7 +504,7 @@ ns16550a 标准寄存器布局：
 | **Cache** | **PTW 一致性** | **PTW 能看到最新 PTE** | **⚠️** | **PTW 旁路 dcache，写回策略下读到旧 PTE** |
 | Timer | `mtime` | 64-bit 单调递增 | ✅ | CLINT r_mtime[63:0] |
 | Timer | `mtimecmp` | 能触发 timer interrupt | ✅ | MTIP 触发逻辑 |
-| Timer | STIP | Linux 能收到 S-mode timer | ✅ | 通过 mideleg[5] 委托 |
+| **Timer** | **STIP** | **Linux 能收到 S-mode timer** | **❌** | **sip[5] 不可写，mip[5] 恒为 0，M-mode 无法注入 STIP；M/S 优先级 bug（见 §6.1）** |
 | **Counter** | **`time/timeh`** | **S-mode 可读** | **❌** | **CSR 未实现，rdtime 触发 illegal inst** |
 | Interrupt | PLIC | claim/complete/enable 可用 | ✅ | PLIC 8 源 |
 | UART | TX/RX | 能稳定输出和输入 | ✅ | FIFO + 可配波特率 |
@@ -382,31 +531,32 @@ ns16550a 标准寄存器布局：
 |---|--------|---------|---------|--------------|
 | 1 | **A 扩展未实现** | misa 无 A 位，无 AMO/LR/SC 译码与执行 | Linux 内核所有原子操作/锁/调度/futex 触发 illegal instruction | 中（单核可简化实现，约 2-3 周） |
 | 2 | **MMIO 判断基于虚拟地址** | `is_mmio = ~vaddr[31] \| vaddr[30]` | Linux 开启 Sv32 后，用户空间低虚拟地址被误路由为 MMIO，所有用户态访存失败 | 小（改 2 行 RTL，用 paddr 替代 vaddr 判断） |
+| 3 | **STIP 无置位路径** | sip[5] 不可写，mip[5] 恒为 0，S-mode timer pending 直接用 MTIP | OpenSBI 无法注入 S-mode timer interrupt；同时存在 M/S 优先级 bug（mideleg[7]=0 时 S-mode 抢占 M-mode） | 中（扩展 sip_wmask + 改 pending 判定逻辑 + 修优先级） |
 
 ### 高危级（Linux 可启动但运行不稳定或功能严重受限）
 
 | # | 阻塞项 | 当前状态 | 影响范围 | 修复工作量估算 |
 |---|--------|---------|---------|--------------|
-| 3 | **PTW-dcache 一致性** | PTW 旁路 dcache，写回策略下读到旧 PTE | Linux 修改页表后可能产生错误 page fault 或访问错误物理页 | 中（sfence.vma 时 flush dcache，或 PTW 走 coherent 路径） |
-| 4 | **time/timeh CSR 未实现** | CSR 地址 0xC01/0xC81 不存在 | `rdtime` 触发 illegal instruction，Linux clocksource 不可用 | 小（添加 CSR 读路径映射到 CLINT mtime，或依赖 SBI 仿真） |
-| 5 | **UART 不兼容 ns16550a** | 自定义寄存器布局 | Linux 标准 8250 驱动无法使用，需自定义驱动或 SBI console | 中（改 RTL 兼容 ns16550a，或写自定义驱动） |
+| 4 | **PTW-dcache 一致性** | PTW 旁路 dcache，写回策略下读到旧 PTE | Linux 修改页表后可能产生错误 page fault 或访问错误物理页 | 中（sfence.vma 时 flush dcache，或 PTW 走 coherent 路径） |
+| 5 | **time/timeh CSR 未实现** | CSR 地址 0xC01/0xC81 不存在 | `rdtime` 触发 illegal instruction，Linux clocksource 不可用 | 小（添加 CSR 读路径映射到 CLINT mtime，或依赖 SBI 仿真） |
+| 6 | **UART 不兼容 ns16550a** | 自定义寄存器布局 | Linux 标准 8250 驱动无法使用，需自定义驱动或 SBI console | 中（改 RTL 兼容 ns16550a，或写自定义驱动） |
 
 ### 中危级（可通过软件绕过但需额外工作）
 
 | # | 阻塞项 | 当前状态 | 影响范围 | 绕过方案 |
 |---|--------|---------|---------|---------|
-| 6 | **PMP CSR 未实现** | 无 pmpaddr/pmpcfg | OpenSBI 访问 PMP CSR 崩溃 | 修改 OpenSBI 平台代码跳过 PMP 初始化 |
-| 7 | **sfence.vma 未 flush dcache** | 仅刷 TLB | 页表更新后 TLB 填充可能用旧 PTE | Linux 可在 sfence.vma 后额外执行 cache flush 操作 |
-| 8 | **U-mode counter 别名未实现** | 无 cycle(0xC00)/instret(0xC02) | rdcycle/rdinstret trap | mcounteren=0 让所有 counter 访问 trap 到 M-mode 由 SBI 仿真 |
+| 7 | **PMP CSR 未实现** | 无 pmpaddr/pmpcfg | OpenSBI 访问 PMP CSR 崩溃 | 修改 OpenSBI 平台代码跳过 PMP 初始化 |
+| 8 | **sfence.vma 未 flush dcache** | 仅刷 TLB | 页表更新后 TLB 填充可能用旧 PTE | Linux 可在 sfence.vma 后额外执行 cache flush 操作 |
+| 9 | **U-mode counter 别名未实现** | 无 cycle(0xC00)/instret(0xC02) | rdcycle/rdinstret trap | mcounteren=0 让所有 counter 访问 trap 到 M-mode 由 SBI 仿真 |
 
 ### 待办级（软件阶段工作，硬件就绪后推进）
 
 | # | 项目 | 状态 |
 |---|------|------|
-| 9 | OpenSBI 移植 | 未开始 |
-| 10 | Device Tree (DTB) 创建 | 未开始 |
-| 11 | initramfs / BusyBox 构建 | 未开始 |
-| 12 | Linux kernel 配置与编译 | 未开始 |
+| 10 | OpenSBI 移植 | 未开始 |
+| 11 | Device Tree (DTB) 创建 | 未开始 |
+| 12 | initramfs / BusyBox 构建 | 未开始 |
+| 13 | Linux kernel 配置与编译 | 未开始 |
 
 ---
 
@@ -418,9 +568,15 @@ Phase 0 — 硬件致命阻塞修复（必须完成才能启动 Linux）
   │         单核简化：1-entry reservation set，aq/rl 作为 NOP
   │         修改：cpu_decode.sv, cpu_execute.sv, cpu_mem.sv, cpu_csr.sv(misa)
   │
-  └─ [P0-2] MMIO 判断改为基于物理地址
-            修改：icache_ctrl.sv:64, dcache_ctrl.sv:80
-            is_mmio = ~paddr[31] | paddr[30]  （或更精确的 MMIO 地址范围判断）
+  ├─ [P0-2] MMIO 判断改为基于物理地址
+  │         修改：icache_ctrl.sv:64, dcache_ctrl.sv:80
+  │         is_mmio = ~paddr[31] | paddr[30]  （或更精确的 MMIO 地址范围判断）
+  │
+  └─ [P0-3] 修复 STIP 置位路径 + 中断优先级
+            修改：cpu_csr.sv（sip_wmask 扩展 bit5，mip 构建加入 sip[5]）
+                  cpu_clint.sv（S-mode timer pending 改用 csr_sip[5]/csr_mip[5]）
+                  cpu_clint.sv（M-mode 中断未委托时，S-mode 不可抢占）
+            验证：专项测试（见 §6.1 测试代码）
 
 Phase 1 — 硬件高危修复（Linux 可启动但功能受限）
   ├─ [P1-1] 修复 PTW-dcache 一致性
@@ -457,11 +613,11 @@ Phase 3 — 用户态验证
 | 特权级 | ✅ | M/S/U 三级完整，委托机制正确 |
 | 虚拟内存 | ⚠️ | Sv32 基本正确，**MMIO 判断错误** + **PTW-dcache 一致性风险** |
 | 异常/中断 | ✅ | 11 种异常 + 3 种中断，委托正确 |
-| 定时器 | ⚠️ | CLINT mtime/mtimecmp 正确，**time CSR 缺失** |
+| 定时器 | ❌ | CLINT mtime/mtimecmp 正确，**但 STIP 无置位路径（sip[5] 不可写），M-mode 无法注入 S-mode timer interrupt；存在 M/S 中断优先级 bug** |
 | 中断控制器 | ✅ | PLIC 8 源，claim/complete 正确 |
 | 外设 | ⚠️ | UART/SPI/GPIO/Timer 功能正确，**UART 不兼容 ns16550a** |
 | 内存 | ✅ | DDR3 128MB @ 0x80000000，Boot ROM 32KB @ 0xFC000000 |
 | 缓存 | ⚠️ | I$/D$ 各 1KB 写回+写分配，**MMIO 判断基于虚拟地址** |
 | PMP | ❌ | 完全未实现 |
 
-**总体判定**：当前 CPU/SoC **不具备** 启动 Linux 的最低硬件条件。主要阻塞为 A 扩展未实现和 MMIO 判断基于虚拟地址。修复这两项后，还需解决 PTW-dcache 一致性和 time CSR 缺失问题，方可进入 OpenSBI/Linux 移植阶段。
+**总体判定**：当前 CPU/SoC **不具备** 启动 Linux 的最低硬件条件。主要阻塞为：① A 扩展未实现、② MMIO 判断基于虚拟地址、③ STIP 无置位路径（M-mode 无法注入 S-mode timer interrupt）。修复此三项后，还需解决 PTW-dcache 一致性和 time CSR 缺失问题，方可进入 OpenSBI/Linux 移植阶段。

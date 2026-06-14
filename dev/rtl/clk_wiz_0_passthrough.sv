@@ -1,6 +1,10 @@
 `timescale 1ns / 1ps
 
 /**
+ * ⚠ DEPRECATED — 此文件已不再需要。v3 仿真脚本 (run_ddr3_sim.tcl) 直接在
+ * testbench 中生成时钟，bypass clk_wiz_0 / clk_wiz_0_passthrough。
+ * 保留仅供参考/回退。
+ *
  * clk_wiz_0_passthrough.sv — Simulation-only replacement for clk_wiz_0.
  *
  * When DDR3_BYPASS_CLK_WIZ is defined, this module replaces the Xilinx

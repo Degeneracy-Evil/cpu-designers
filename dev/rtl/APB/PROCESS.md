@@ -30,7 +30,7 @@ APB4（支持 PPROT、PSTRB、PREADY、PSLVERR）
 
 | 文件 | 描述 | 状态 |
 |------|------|------|
-| `ahb_lite_to_apb.v` | AHB-Lite → APB 桥：流水线→非流水线转换，HSIZE→PSTRB 映射，HPROT→PPROT 映射，ERROR 两周期响应 | ✅ 完成 |
+| `axi4lite_to_apb.sv` | AXI4-Lite → APB 桥：非流水线转换，HSIZE→PSTRB 映射，HPROT→PPROT 映射，ERROR 两周期响应 | ✅ 完成 |
 
 ## 模块架构
 

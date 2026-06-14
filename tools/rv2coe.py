@@ -369,6 +369,7 @@ def compile_source_to_obj(
             [
                 "-x",
                 "c",
+                "-Os",
                 "-ffreestanding",
                 "-fno-builtin",
                 "-fno-stack-protector",
@@ -443,6 +444,7 @@ def compile_to_elf(
                 [
                     "-x",
                     "c",
+                    "-Os",
                     "-ffreestanding",
                     "-fno-builtin",
                     "-fno-stack-protector",

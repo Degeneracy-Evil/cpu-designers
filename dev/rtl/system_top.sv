@@ -1500,10 +1500,10 @@ module system_top(
                     display_name  <= "SYSR ";
                     display_value <= {31'b0, sys_resetn};
                 end
-                6'd7: begin  // Synchronized CPU reset (active-LOW)
+                6'd7: begin  // Version tag
                     display_valid <= 1'b1;
-                    display_name  <= "CPUR ";
-                    display_value <= {31'b0, cpu_resetn};
+                    display_name  <= "VER  ";
+                    display_value <= 32'h76_64_31_00;  // "vd1\0"
                 end
                 6'd8: begin  // GPIO data out (bootloader LED state)
                     display_valid <= 1'b1;

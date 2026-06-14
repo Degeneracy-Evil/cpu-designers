@@ -174,6 +174,54 @@ APP_TARGETS: dict[str, dict[str, Any]] = {
         "include_dirs": [PROG_SRC / "lib" / "include"],
         "depth": 8192,
     },
+    "uart_echo_c_lib_diag": {
+        "src_files": [
+            PROG_SRC / "lib" / "start.S",
+            PROG_SRC / "lib" / "uart.c",
+            APP_SRC / "uart_echo_c_lib_diag.c",
+        ],
+        "arch": "rv32im_zicsr_zifencei",
+        "abi": "ilp32",
+        "linker_script": PROG_SRC / "link.ld",
+        "include_dirs": [PROG_SRC / "lib" / "include"],
+        "depth": 8192,
+    },
+    "uart_echo_c_lib_preinit": {
+        "src_files": [
+            PROG_SRC / "lib" / "start.S",
+            PROG_SRC / "lib" / "uart.c",
+            APP_SRC / "uart_echo_c_lib_preinit.c",
+        ],
+        "arch": "rv32im_zicsr_zifencei",
+        "abi": "ilp32",
+        "linker_script": PROG_SRC / "link.ld",
+        "include_dirs": [PROG_SRC / "lib" / "include"],
+        "depth": 8192,
+    },
+    "prologue_halt": {
+        "src_files": [
+            PROG_SRC / "lib" / "start.S",
+            PROG_SRC / "lib" / "uart.c",
+            APP_SRC / "prologue_halt.c",
+        ],
+        "arch": "rv32im_zicsr_zifencei",
+        "abi": "ilp32",
+        "linker_script": PROG_SRC / "link.ld",
+        "include_dirs": [PROG_SRC / "lib" / "include"],
+        "depth": 8192,
+    },
+    "echo_padded": {
+        "src_files": [
+            PROG_SRC / "lib" / "start.S",
+            PROG_SRC / "lib" / "uart.c",
+            APP_SRC / "echo_padded.c",
+        ],
+        "arch": "rv32im_zicsr_zifencei",
+        "abi": "ilp32",
+        "linker_script": PROG_SRC / "link.ld",
+        "include_dirs": [PROG_SRC / "lib" / "include"],
+        "depth": 8192,
+    },
     "calculator": {
         "src_files": [
             PROG_SRC / "lib" / "start.S",

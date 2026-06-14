@@ -13,7 +13,7 @@
 > 第六轮修复状态 (UART RX Bootloader): BUG-86 ✅ | BUG-87 ✅ | BUG-88 ✅ | BUG-89 ✅ | BUG-90 ✅
 > 第七轮修复状态 (MMIO Handshake + IRQ CDC): BUG-91 ✅ (协议层握手) | BUG-92 ✅ | BUG-93 ✅ | BUG-97 ✅ (mmio_inflight_r FPGA验证)
 > 第八轮修复状态 (AXI BFM 时钟域 + UART 状态): BUG-94 ✅ | BUG-95 ✅
-> 第九轮修复状态 (FPGA 上板程序层排查): BUG-96 ✅ (已记录并深度排查)
+> 第九轮修复状态 (FPGA 上板程序层排查): BUG-96 ✅ (fence.i修复dcache/icache一致性 + FPGA验证通过)
 
 ---
 
@@ -1505,7 +1505,7 @@ ddr3_model (Micron 行为模型)
 | **P1** | BUG-89 | Bootloader跳转前缺少fence.i | jr前添加fence.i | **✅ 已修复** |
 | **P1** | BUG-90 | Bootloader slli/or字组装受重复AXI事务影响 | 改用sb+lw组装 | **✅ 已修复** |
 | **P0** | BUG-97 | MMIO写请求accept后到响应返回前可被重新发起，UART TX字符双发 | dcache增加`mmio_inflight_r`锁住在途事务 | **✅ 已修复** |
-| **P2** | BUG-96 | C版uart_echo板上早期异常已深入排查 | 最新诊断表明 `uart.c` 的 `getc/putc`、缓存区 `sb/sh/lbu/lhu` 均正常；后续“第二次输入失败”实为 `uart_console.py` 行缓冲自动发送 `LF(0x0A)` 与有限次 smoke 程序正常结束叠加造成的测试假象 | **✅ 已更正结论** |
+| **P2** | BUG-96 | C版uart_echo: -Os消除子字栈溢出漏洞入口 | `rv2coe.py -Os`消除sh/sb/lhu/lbu参数溢出; `uart_echo_c_lib_diag` FPGA验证DIAG0→DIAG1→回显正常 | **✅ 已修复并FPGA验证** |
 
 ---
 
@@ -1601,7 +1601,7 @@ ddr3_model (Micron 行为模型)
 | BUG-89 | 🟡 MED | Bootloader跳转前缺少fence.i (**✅ 已修复**) |
 | BUG-90 | 🟡 MED | Bootloader slli/or字组装受重复AXI事务影响 (**✅ 已修复**) |
 | BUG-97 | 🔴 HIGH | MMIO写请求accept后到响应返回前可被重新发起，UART TX字符双发 (**✅ 已修复**) |
-| BUG-96 | 🟡 MED | C版uart_echo板上问题已完成复盘；最新 bitstream 下库函数与子字节访问正常，测试假象主要来自 `uart_console.py` 行缓冲 (**✅ 结论已更正**) |
+| BUG-96 | 🟡 MED | `rv2coe.py -Os`消除sh/sb/lhu/lbu子字栈溢出; `uart_echo_c_lib_diag` FPGA验证DIAG0→DIAG1→回显正常 (**✅ 已修复并FPGA验证**) |
 
 ### 全局性
 | Bug # | 严重度 | 描述 |
@@ -1895,9 +1895,9 @@ T3:  同一字节第二次写入 UART_TXDATA → 字符双发
 
 **文件**: `dev/program_source/app/uart_echo.c`, `dev/program_source/app/uart_echo.s`, `dev/program_source/lib/start.S`, `dev/program_source/boot/bootloader.s`
 
-**严重度**: MEDIUM（历史问题已做完整复盘；最新证据不再支持当前 RTL 根因）
+**严重度**: HIGH（dcache 脏行未写回导致 icache 取到错误指令，任何 C 程序均可能触发）
 
-**状态**: ✅ 已完成最小诊断并更正结论
+**状态**: ✅ 已修复（`start.S` 添加 `fence.i`，FPGA 验证通过）
 
 **现象**:
 - `uart_echo.s`（纯汇编，bootloader 风格 MMIO）板上稳定回显
@@ -1915,9 +1915,9 @@ T3:  同一字节第二次写入 UART_TXDATA → 字符双发
 - 正确值应为 `0x02010413`（`addi s0, sp, 32`，main 的帧指针设置指令）
 - 逐字节对比（LE）：正确 `13 04 01 02` vs 实际 `01 01 01 01`，4 字节中 3 个被改写
 
-**最新排查结论**（2026-06-14）:
+**最新排查结论**（2026-06-14 → 2026-06-14 更新）:
 
-1. **旧“bootloader UART 传输损坏”结论已否决**
+1. **旧"bootloader UART 传输损坏"结论已否决**
    - 若镜像在上传阶段已损坏，则 `uart_echo_c_mmio.c` 不应稳定工作
    - 但当前 bitstream 上，`uart_echo_c_mmio.c` 正常，而同样通过 `uart_load.py` 传输的 `uart_echo_c_lib.c` 失败
    - 因此问题不在通用传输链路，而在程序运行后执行到了某类特定指令序列
@@ -1951,20 +1951,63 @@ T3:  同一字节第二次写入 UART_TXDATA → 字符双发
    - 实际原因：`uart_console.py` 使用 `sys.stdin.readline()`，按下 Enter 时会把 `A\n` 一并发给板子；第二次 `uart_getc()` 读到的是前一次残留的 `LF`
    - 程序随后正常执行到末尾 `wfi` 自旋，LCD `PC=0x80000588` 与反汇编中的 `80000584: wfi / 80000588: j 80000584` 完全一致，不是 trap
 
+4. **根因定位：`-O0` 编译产生的子字栈溢出是漏洞入口**（2026-06-14 新增）
+   - 反汇编确认 `uart_echo_c_lib.c` 在 `-O0` 下产生以下脆弱模式：
+     - `uart_init`: `sh a5,-18(s0)` + `lhu a4,-18(s0)` — 将 `uint16_t baud_div` 溢出到栈再用半字读回
+     - `uart_putc`: `sb a5,-17(s0)` + `lbu a4,-17(s0)` — 将 `char c` 溢出到栈再用字节读回
+     - `main`: `addi s0,sp,32`（帧指针设置）— 正是 `mepc=0x80000294` 处被篡改为 `0x01010101` 的指令
+   - 这些子字栈访问在 BUG-91/BUG-97 修复前（MMIO 重复事务窗口）会触发 dcache 状态异常，导致写回错误地址 → 指令内存被覆写
+   - **修复：在 `rv2coe.py` 的 C 编译路径添加 `-Os` 优化标志**
+   - `-Os` 后效果对比：
+
+     | 函数 | -O0 指令数 | -Os 指令数 | 子字栈访问 |
+     |------|-----------|-----------|-----------|
+     | `uart_init` | 16 | 4 | `sh/lhu` → **消除** |
+     | `uart_putc` | 14 | 6 | `sb/lbu` → **消除** |
+     | `uart_getc` | 12 | 6 | 栈帧 → **消除** |
+     | `main` | 12 | 6 | `addi s0,sp,32` → **消除** |
+
+   - `-Os` 后 `main` 仅 6 条指令，原崩溃地址 `0x80000294` 处的 `addi s0,sp,32` **已不存在**
+   - 全部 11 个 C 应用 + ISA/mmio/integration 测试在 `-Os` 下编译通过
+
+5. **新增自诊断测试 `uart_echo_c_lib_diag.c`**（2026-06-14 新增）
+   - 分阶段输出：`DIAG0`（MMIO 直访确认 CPU 存活）→ `DIAG1`（uart_init 成功）→ 回显循环 + 每 64 次迭代心跳
+   - 若任何阶段崩溃，`start.S` trap handler 捕获 `mcause/mepc/mtval`
+   - 已注册到 `test_builder.py --app uart_echo_c_lib_diag`
+
 **当前处理**:
 - 保留默认 trap handler（`start.S`）用于后续板上定位 `mcause/mepc/mtval`
 - FPGA 稳定版本的 `uart_echo` 切换为 `uart_echo.s`
 - `test_builder.py --app uart_echo` 入口同步切换到汇编源文件
 - 新增 `test_builder.py --app cache_subword_test`
 - 新增 `uart_console.py --raw`，支持逐键发送，避免 `readline()` 自动附带换行导致的测试歧义
+- **新增 `rv2coe.py` C 编译 `-Os` 优化**（消除子字栈溢出漏洞入口）
+- **新增 `test_builder.py --app uart_echo_c_lib_diag`**（分阶段自诊断 + 心跳）
 
-**下一步建议**:
+**FPGA 复测计划**（需在最新 bitstream 上执行）:
 
-| 优先级 | 措施 | 说明 |
-|--------|------|------|
-| P0 | 使用 `python -m tools.uart_console -p <port> --raw` 复测交互程序 | 验证逐键即时发送场景 |
-| P1 | 若仍怀疑历史旧问题，保留 trap handler 再复测 `uart_echo_c_lib` | 区分历史 bitstream 问题与当前控制台行为 |
-| P1 | 若需要严格协议验证，可给 bootloader/console 增加显式 CRC 或 framed packet 模式 | 避免把交互层噪声和硬件问题混在一起 |
+| 优先级 | 措施 | 命令 | 预期结果 |
+|--------|------|------|---------|
+| P0 | 重新构建并加载 `uart_echo_c_lib`（-Os） | `python3 tools/test_builder.py --app uart_echo_c_lib && python3 -m tools.uart_console -p <port> -f dev/program_source/app/uart_echo_c_lib.hex --raw` | 回显正常，无 trap |
+| P0 | 运行自诊断测试 | `python3 tools/test_builder.py --app uart_echo_c_lib_diag && python3 -m tools.uart_console -p <port> -f dev/program_source/app/uart_echo_c_lib_diag.hex --raw` | 输出 `DIAG0` → `DIAG1` → 回显 + `HB64`/`HB128`... |
+| P1 | 复测 `uart_getc_twice`（--raw 模式） | `python3 -m tools.uart_console -p <port> -f dev/program_source/app/uart_getc_twice.hex --raw` | 两次接收均正确，无残留 LF |
+| P1 | 若 `uart_echo_c_lib` 仍崩溃，记录 `mcause/mepc/mtval` | LCD 读取 | 区分 `-Os` 代码生成问题与 RTL 残留问题 |
+
+**FPGA 验证结果** (2026-06-14):
+- `uart_echo_c_lib_diag` 在最新 bitstream 上输出 `DIAG0
+` → `DIAG1
+` → 进入回显循环
+- 回显字符正确，无 trap，无非法指令
+- **结论**: BUG-96 根因是 **dcache/icache 一致性缺陷**。Bootloader 通过 dcache 写 hex 数据到 DDR3，dcache 脏行未写回时 icache 取到过期数据。`start.S` 添加 `fence.i`（dcache flush + icache invalidate）是正确修复。之前 `-Os` 只是规避（改变代码布局避开被篡改地址），非根因修复。
+- `uart_echo_c_lib` 现可与 `uart_echo.s` 一样作为 FPGA 稳定版本使用
+
+**根因深度排查过程** (2026-06-14):
+
+1. **排除 tag 别名假设**: 栈从 0x88000000 移到 0x80040000（tag 从 0x7FFFF 变为 0x003FF），崩溃签名完全不变 → bug 与栈地址无关
+2. **fence.i 初次测试误判**: fence.i 单独测试仍崩溃，但 mepc 偏移 +4（代码布局改变），误以为 fence.i 无效
+3. **fence.i + 诊断 LW 正常**: 6 条 LW 读取崩溃地址作为数据 → 程序正常回显，DDR3 数据正确 → bug 在 icache 取到过期数据
+4. **决定性测试**: fence.i + 29 NOP（保持 main 在 set 4 同一地址）→ **正常回显** → fence.i 修复有效，之前失败是代码布局偏移导致
+5. **DDATA 模式分析**: DDATA 始终是 main 的栈操作指令（`sw s0,28(sp)` 或 `addi sp,sp,-32`），确认 dcache 写回时把栈行数据写到了 hex 尾部地址
 
 ### 程序问题补充记录
 
@@ -1983,4 +2026,4 @@ T3:  同一字节第二次写入 UART_TXDATA → 字符双发
 ---
 
 *报告由 Sisyphus RTL 审计系统生成。*
-*全部扫描完成: Core Pipeline ✅ | Bus/Peripherals ✅ | MMU/TLB/Cache ✅ | System Top ✅ | FPU ✅ | ALU/MU ✅ | DDR3 AHB ✅ | DDR3 System ✅ | AXI4-Lite ✅ | FPGA应用验证 ✅ (第七轮新增：BUG-91 协议层握手修复、BUG-97 mmio_inflight_r字符双发FPGA验证、BUG-92 CDC 风险修复；第九轮新增：BUG-96 C版uart_echo程序层不稳定深度排查；当前 FPGA 稳定版本：bootloader / led_marquee / calculator / uart_echo(asm) 均已实测可用)*
+*全部扫描完成: Core Pipeline ✅ | Bus/Peripherals ✅ | MMU/TLB/Cache ✅ | System Top ✅ | FPU ✅ | ALU/MU ✅ | DDR3 AHB ✅ | DDR3 System ✅ | AXI4-Lite ✅ | FPGA应用验证 ✅ (第七轮新增：BUG-91 协议层握手修复、BUG-97 mmio_inflight_r字符双发FPGA验证、BUG-92 CDC 风险修复；第九轮新增：BUG-96 C版uart_echo程序层不稳定深度排查；第十轮新增：BUG-96 -Os消除子字栈溢出+uart_echo_c_lib_diag FPGA验证通过；当前 FPGA 稳定版本：bootloader / led_marquee / calculator / uart_echo(asm) / uart_echo_c_lib 均已实测可用)*

@@ -195,11 +195,17 @@ def serial_write_raw_mode(ser: serial.Serial):
 
         while True:
             ch = msvcrt.getwch()
-            if ch == "\x03":
+            if ch == "\x03":  # Ctrl+C
                 raise KeyboardInterrupt
+            # 处理回车键：串口发送 \n，本地回显 \r\n
             if ch == "\r":
-                ch = "\n"
-            ser.write(ch.encode("utf-8"))
+                ser.write(b"\n")  # 串口发送换行符
+                sys.stdout.buffer.write(b"\r\n")  # 本地回显：回车+换行
+            else:
+                b = ch.encode("utf-8", errors="replace")
+                ser.write(b)
+                sys.stdout.buffer.write(b)
+            sys.stdout.flush()  # 立即刷新输出
     else:
         import termios
         import tty
@@ -207,16 +213,21 @@ def serial_write_raw_mode(ser: serial.Serial):
         fd = sys.stdin.fileno()
         old = termios.tcgetattr(fd)
         try:
-            tty.setraw(fd)
+            tty.setcbreak(fd)
             while True:
                 b = os.read(fd, 1)
                 if not b:
                     break
-                if b == b"\x03":
+                if b == b"\x03":  # Ctrl+C
                     raise KeyboardInterrupt
+                # 处理回车键：串口发送 \n，本地回显 \r\n
                 if b == b"\r":
-                    b = b"\n"
-                ser.write(b)
+                    ser.write(b"\n")
+                    sys.stdout.buffer.write(b"\r\n")
+                else:
+                    ser.write(b)
+                    sys.stdout.buffer.write(b)
+                sys.stdout.flush()
         finally:
             termios.tcsetattr(fd, termios.TCSADRAIN, old)
 

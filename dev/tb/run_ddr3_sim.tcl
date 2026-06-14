@@ -33,7 +33,7 @@ set repo_root  [file normalize [file join [file dirname [info script]] ../..]]
 set dev_dir    [file join $repo_root dev]
 set rtl_dir    [file join $dev_dir rtl]
 set tb_dir     [file join $dev_dir tb]
-set ahb_dir    [file join $rtl_dir axi]
+set axi_dir    [file join $rtl_dir axi]
 set apb_dir    [file join $rtl_dir APB]
 set core_dir   [file join $rtl_dir core]
 set perips_dir [file join $apb_dir perips]
@@ -108,20 +108,15 @@ if {[file exists $glbl_v]} {
 # --- Add our RTL ---
 puts "Adding project RTL..."
 
-# AHB-Lite bus and related modules
-add_files -norecurse [file join $ahb_dir ahb_lite_bus.sv]
-add_files -norecurse [file join $ahb_dir ahb_sram_slave.sv]
-add_files -norecurse [file join $ahb_dir ahb_bootrom_slave.sv]
-add_files -norecurse [file join $ahb_dir ahb_sys_status.sv]
-add_files -norecurse [file join $ahb_dir ahb_default_slave.sv]
-add_files -norecurse [file join $ahb_dir ahb_mux.sv]
-add_files -norecurse [file join $ahb_dir ahb_plic.sv]
-add_files -norecurse [file join $ahb_dir ahb_clint.sv]
-add_files -norecurse [file join $ahb_dir ahb_def.svh]
-add_files -norecurse [file join $ahb_dir ddr3_bridge_wrapper.sv]
+# AXI4-Lite bus slaves
+add_files -norecurse [file join $axi_dir axi4lite_bootrom.sv]
+add_files -norecurse [file join $axi_dir axi4lite_default_slave.sv]
+add_files -norecurse [file join $axi_dir axi4lite_clint.sv]
+add_files -norecurse [file join $axi_dir axi4lite_plic.sv]
+add_files -norecurse [file join $axi_dir axi4lite_sys_status.sv]
 
 # APB bridge and peripherals
-add_files -norecurse [file join $apb_dir ahb_lite_to_apb.sv]
+add_files -norecurse [file join $apb_dir axi4lite_to_apb.sv]
 add_files -norecurse [file join $apb_dir apb_decoder.sv]
 add_files -norecurse [file join $apb_dir apb_def.svh]
 add_files -norecurse [file join $perips_dir apb_perips.sv]

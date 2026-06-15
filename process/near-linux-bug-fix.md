@@ -804,6 +804,64 @@ NS16550A 按字节偏移编址（0-7），APB4 按字对齐（步进 4）。映�
 | MMU | mmu_sv32_basic, mmu_permission, mmu_page_fault, mmu_tlb_basic, mmu_ptw_walk, mmu_unified_mmu | PASS |
 | Cache | cache_icache_basic, cache_dcache_basic | PASS |
 | CPU 集成 | cpu_trap, cpu_compute, cpu_full | PASS |
+| 应用 | uart_hello, uart_echo | PASS |
+
+---
+
+## Bug 7 补充：应用适配 NS16550A + 仿真基础设施修复
+
+### 问题描述
+
+三个应用（uart_hello、uart_echo、calculator）使用旧自定义 UART 寄存器映射（CTRL=0x00, STATUS=0x04, TXDATA=0x08, RXDATA=0x0C, BAUD=0x10），与 NS16550A 不兼容。
+
+同时发现仿真基础设施存在三个问题：
+1. **testbench CYCLE 参数错误**：RX 解码器使用 CYCLE=868（真实波特率），但 UART 实际以 `16 × dl = 256` cycles/bit 传输（dl 被 force 为 16）
+2. **SRAM 模式下 UART 交付不必要**：phase1 bootloader 直接跳转 SRAM，prog.hex 已在 BRAM 中，但 testbench 仍尝试通过 UART 发送程序，导致仿真挂起
+3. **Vivado testbench top 被覆盖**：Vivado 自动层次更新模式将 testbench top 替换为 system_top
+
+### 修复内容
+
+#### 1. 应用源码适配 NS16550A
+
+| 文件 | 修改 |
+|------|------|
+| `app/uart_hello.s` | 重写：NS16550A 初始化序列（DLAB→DLL/DLM→8N1→FCR→MCR），TX 使用 LSR.THRE 轮询 |
+| `app/uart_echo.s` | 重写：NS16550A 初始化 + RX 使用 LSR.DR 轮询 + TX 使用 LSR.THRE 轮询 |
+| `app/calculator.c` | 无修改：已使用 uart.h API（NS16550A） |
+| `app/uart_echo_c_lib.c` | 无修改：已使用 uart.h API（NS16550A） |
+
+#### 2. testbench CYCLE 修正
+
+NS16550A 位周期 = 16 enables × dl cycles = 16 × 16 = 256 cycles/bit（dl 被 force 为 16）。
+
+| 文件 | 修改 |
+|------|------|
+| `tb_uart_hello.sv` | CYCLE: 868 → 256 |
+| `tb_uart_echo.sv` | CYCLE: 868 → 256，添加 TX_BOOT 延迟等待 DUT 初始化 |
+| `tb_calculator.sv` | CYCLE: 868 → 256，调整 boot/gap 延迟 |
+| `tb_soc_includes.svh` | SIM_UART_CYCLE: 16 → 256 |
+
+#### 3. SRAM 模式 UART 交付控制
+
+| 文件 | 修改 |
+|------|------|
+| `tb_soc_includes.svh` | UART 交付 initial 块用 `ifdef SIMU_DDR_MODE` 保护（仅 DDR3 模式需要） |
+| `tb_soc_includes.svh` | SRAM 模式 initial 块添加 `force dl=16`（加速波特率） |
+
+#### 4. Vivado testbench top 修复
+
+| 文件 | 修改 |
+|------|------|
+| `operations.py` | 添加 `set_property source_mgmt_mode None [current_project]`（手动编译顺序，防止 Vivado 覆盖 testbench top） |
+
+### 仿真验证
+
+| 测试 | 结果 |
+|------|------|
+| uart_hello | PASS（11 字符 "Hello World" 正确解码） |
+| uart_echo | PASS（5 字节 "Echo!" 正确回显） |
+| cpu_full | PASS（核心回归确认无破坏） |
+| isa_alu, isa_csr, exception_interrupt_basic, mmu_unified_mmu, cache_dcache_basic | PASS |
 
 ## 设计约束说明
 
@@ -826,3 +884,7 @@ NS16550A 按字节偏移编址（0-7），APB4 按字对齐（步进 4）。映�
 8. **PTW A/D 位 dcache 一致性**：PTW 写 A/D 位旁路 dcache 直接到主存，是硬件设计选择（PTW 使用独立总线接口）。修复不是绕过而是正确维护一致性：PTW 写完成后 invalidate dcache 对应行，确保后续访问从主存获取更新后的 PTE。不写回脏数据是正确的——dcache 中的旧 PTE 必须丢弃而非写回，否则会覆盖 PTW 的 A/D 更新。上板后页表修改→PTW 设置 A/D→dcache invalidate→后续 refill 获取正确 PTE，序列正确。
 
 9. **NS16550A UART 适配**：基于 chiplab 开源 UART 组件进行标准合规化改造，非绕过方案。移除非标准 USART 扩展（DL3、mode_reg、IrDA），修复 NS16550A 合规缺陷（MCR 可读、SCR 恢复、16-bit 除数），改进 FIFO（参数化 error_bit、修正 overrun 条件）。APB4 32-bit 适配层通过 PADDR[4:2]→reg select 实现字节偏移到字偏移的地址映射，这是 RISC-V SoC 中 16550A 的标准做法（SiFive、OpenCores 均采用）。上板后 Linux 8250 驱动可直接识别和配置。
+
+10. **应用适配 NS16550A**：uart_hello.s 和 uart_echo.s 重写为 NS16550A 寄存器操作（THR/LSR/FCR/LCR/MCR），初始化序列遵循 16550A 标准（DLAB→DLL/DLM→8N1→FIFO→MCR）。calculator.c 和 uart_echo_c_lib.c 使用 uart.h API，无需修改。上板后所有应用通过 NS16550A 标准 UART 运行。
+
+11. **仿真基础设施修复**：(a) CYCLE=256 修正：NS16550A 位周期 = 16 enables × dl cycles，非单纯 dl cycles；(b) SRAM 模式跳过 UART 交付：prog.hex 直接加载到 BRAM，无需 bootloader UART 接收；(c) Vivado source_mgmt_mode=None：防止自动层次更新覆盖 testbench top。所有修复均为仿真基础设施改进，不影响 RTL 或上板行为。

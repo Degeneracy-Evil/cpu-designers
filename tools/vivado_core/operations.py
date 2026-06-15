@@ -523,6 +523,9 @@ import_files -fileset sim_1 "{tb_dir}/{tb_name}.sv"
 if {{ [file exists "{tb_dir}/lcd_module_stub.sv"] }} {{
     import_files -fileset sim_1 "{tb_dir}/lcd_module_stub.sv"
 }}
+# Switch to manual compile order so set_property top is not overridden
+# by Vivado's auto hierarchy update (which replaces testbench top with system_top)
+set_property source_mgmt_mode None [current_project]
 set_property top {tb_name} [get_filesets sim_1]
 set_property top_lib xil_defaultlib [get_filesets sim_1]
 set src_includes [get_property include_dirs [get_filesets sources_1]]

@@ -8,9 +8,9 @@ module tb_uart_hello;
 
 
     wire reset = ~resetn;
-    localparam CLK_FRE    = 100;
-    localparam BAUD_RATE  = 115200;
-    localparam CYCLE      = CLK_FRE * 1000000 / BAUD_RATE;
+    // Use accelerated baud rate matching forced dl=16
+    // NS16550A bit period = 16 enables × dl cycles = 16 × 16 = 256 cycles
+    localparam CYCLE      = 256;
     localparam BIT_PERIOD = CYCLE * 10;
 
     localparam MSG_LEN = 11;
@@ -104,7 +104,7 @@ module tb_uart_hello;
         pass_count = 0;
         fail_count = 0;
 
-        repeat (3000000) @(posedge clk);
+        repeat (500000) @(posedge clk);
 
         $display("========================================");
         $display("UART Hello World test");

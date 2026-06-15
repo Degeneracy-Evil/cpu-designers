@@ -144,15 +144,19 @@ generate if (`SIMU_USE_DDR == 0) begin: sim_ram_tb
         force u_soc.ddr_data_init = 1'b1;
         force u_soc.mig_init_calib_complete_proxy = 1'b1;
         force u_soc.mig_mmcm_locked_proxy        = 1'b1;
+        // Force accelerated UART baud divider for simulation speedup
+        // (Default 868 cycles/bit → 16 cycles/bit, ~54× faster)
+        // NS16550A: divisor latch is 16-bit (DLL=dl[7:0], DLM=dl[15:8])
+        force u_soc.u_apb_perips.u_uart.regs.dl = 16'd16;
     end
 
     // ----------------------------------------------------------------
     // UART TX simulation — drive uart_rx to send bytes to CPU
     // Accelerated baud rate for simulation (divider=16 vs default 868)
     // ----------------------------------------------------------------
-    localparam SIM_UART_CYCLE = 16;  // cycles per bit (must match forced baud divider)
-                                       // 16 ≈ 54× faster than real 115200 (868 cycles/bit)
-                                       // FIFO-count flow control prevents overflow
+    localparam SIM_UART_CYCLE = 256; // cycles per bit (16 enables × dl=16)
+                                        // Must match: 16 * forced_dl
+                                        // FIFO-count flow control prevents overflow
 
     task uart_send_byte;
         input [7:0] byte_data;
@@ -247,8 +251,11 @@ generate if (`SIMU_USE_DDR == 0) begin: sim_ram_tb
 
     // ----------------------------------------------------------------
     // UART program delivery initial block
-    // Waits for bootloader to initialize UART, then sends program
+    // Only active in DDR3 mode (SIMU_USE_DDR=1) where the bootloader
+    // receives the program via UART. In SRAM mode, prog.hex is loaded
+    // directly into BRAM — no UART delivery needed.
     // ----------------------------------------------------------------
+`ifdef SIMU_DDR_MODE
     initial begin
         // Wait for reset to fully propagate
         repeat (100) @(posedge clk);
@@ -277,6 +284,7 @@ generate if (`SIMU_USE_DDR == 0) begin: sim_ram_tb
         $display("[UART-TB] %0t: UART delivery done, CPU should start executing program", $time);
         $fflush;
     end
+`endif
 
 end
 else begin: ddr3_tb

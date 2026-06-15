@@ -25,9 +25,9 @@ module tb_calculator;
 
 
     wire reset = ~resetn;
-    localparam CLK_FRE    = 100;              // 100 MHz
-    localparam BAUD_RATE  = 115200;
-    localparam CYCLE      = CLK_FRE * 1000000 / BAUD_RATE;  // ~868 cycles/bit
+    // Use accelerated baud rate matching forced dl=16
+    // NS16550A bit period = 16 enables × dl cycles = 16 × 16 = 256 cycles
+    localparam CYCLE      = 256;
     localparam HALF_CYCLE = CYCLE / 2;
 
     // ----------------------------------------------------------------
@@ -139,10 +139,10 @@ module tb_calculator;
             case (tx_state)
                 TX_BOOT: begin
                     uart_rx <= 1'b1;
-                    // Wait for calculator to boot and print welcome message
-                    // Welcome is ~95 chars × 8680 cycles/char ≈ 825K cycles
-                    // Use 2M cycles for safety margin
-                    if (tx_timer >= 2000000) begin
+                    // Wait for calculator to boot and print welcome message + first prompt
+                    // With accelerated baud (CYCLE=256), welcome ~95 chars × 2560 cycles ≈ 243K
+                    // Plus prompt "> " ≈ 5K cycles. Use 5M cycles for generous margin
+                    if (tx_timer >= 5000000) begin
                         tx_state <= TX_IDLE;
                         tx_timer <= 0;
                     end else begin
@@ -212,10 +212,9 @@ module tb_calculator;
                 TX_GAP: begin
                     uart_rx <= 1'b1;
                     // Wait for calculator to process expression and output result
-                    // Result line ~20 chars × 8680 cycles ≈ 174K cycles
-                    // Plus prompt and next gets() call
-                    // Use 1M cycles for safety
-                    if (tx_timer >= 1000000) begin
+                    // With accelerated baud (CYCLE=256), result ~20 chars × 2560 ≈ 51K
+                    // Use 500K cycles for safety
+                    if (tx_timer >= 500000) begin
                         tx_expr_idx <= tx_expr_idx + 1;
                         tx_active   <= 1'b0;
                         tx_state    <= TX_IDLE;
@@ -368,10 +367,10 @@ module tb_calculator;
         fail_count = 0;
 
         // Wait for all 5 expressions to be sent and processed:
-        //   Boot: 2M, 5 exprs × ~50K each, 4 gaps × 1M ≈ 6.3M cycles
-        //   Processing: 5 results × ~200K ≈ 1M cycles
-        //   Total ≈ 7.5M cycles, use 9M for safety
-        repeat (9000000) @(posedge clk);
+        //   Boot: 5M, 5 exprs × ~5K each, 4 gaps × 500K ≈ 7M cycles
+        //   Processing: 5 results × ~50K ≈ 250K cycles
+        //   Total ≈ 7.3M cycles, use 10M for safety
+        repeat (10000000) @(posedge clk);
 
         $display("========================================");
         $display("Calculator test");

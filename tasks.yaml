@@ -343,13 +343,13 @@ tasks:
     tb: tb_uart_hello
     coe: app/uart_hello.coe
     hex_file: app/uart_hello.hex
-    runtime: 40ms
+    runtime: 20ms
 
   uart_echo:
     tb: tb_uart_echo
     coe: app/uart_echo.coe
     hex_file: app/uart_echo.hex
-    runtime: 100ms
+    runtime: 50ms
 
   led_marquee:
     tb: tb_led_marquee

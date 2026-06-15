@@ -146,3 +146,13 @@ python -m tools.vivado_cli -task isa_alu -sim --debug all
 ```
 
 > 旧 `vivado_do.tcl` 仍保留但不可用，仅供tcl命令参考
+
+### 仿真配置
+
+默认仿真（SRAM 模式）：程序在 elaboration 阶段通过 $readmemh 直接加载到 axi_wrap_ram（BRAM 行为模型），bootloader 仅是一个 2 指令的跳转桩，不涉及 UART。ROM → jr 0x80000000 → 直接执行
+
+DDR3 模式：程序在运行后通过 tb 发送，AXI4 写入 / UART 交付。ROM → bootloader → UART 接收 → 执行
+
+波特率均强制 dl=16（加速）
+
+注意：涉及UART仿真会很慢，涉及ddr会更慢。

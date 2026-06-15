@@ -22,9 +22,9 @@ module tb_uart_echo;
 
 
     wire reset = ~resetn;
-    localparam CLK_FRE    = 100;              // 100 MHz
-    localparam BAUD_RATE  = 115200;
-    localparam CYCLE      = CLK_FRE * 1000000 / BAUD_RATE;  // ~868 cycles/bit
+    // Use accelerated baud rate matching forced dl=16
+    // NS16550A bit period = 16 enables × dl cycles = 16 × 16 = 256 cycles
+    localparam CYCLE      = 256;
     localparam HALF_CYCLE = CYCLE / 2;
 
     // ----------------------------------------------------------------
@@ -49,6 +49,7 @@ module tb_uart_echo;
     localparam TX_START = 3'd1;
     localparam TX_DATA  = 3'd2;
     localparam TX_STOP  = 3'd3;
+    localparam TX_BOOT  = 3'd4;   // boot delay before first stimulus
 
     reg [2:0]  tx_state;
     reg [7:0]  tx_shift;
@@ -60,7 +61,7 @@ module tb_uart_echo;
 
     always @(posedge clk) begin
         if (reset) begin
-            tx_state    <= TX_IDLE;
+            tx_state    <= TX_BOOT;
             tx_shift    <= 8'h0;
             tx_bit_cnt  <= 3'd0;
             tx_timer    <= 0;
@@ -70,6 +71,17 @@ module tb_uart_echo;
             uart_rx     <= 1'b1;     // idle high
         end else begin
             case (tx_state)
+                TX_BOOT: begin
+                    uart_rx <= 1'b1;
+                    // Wait for DUT to boot and init UART
+                    if (tx_timer >= 50000) begin
+                        tx_state <= TX_IDLE;
+                        tx_timer <= 0;
+                    end else begin
+                        tx_timer <= tx_timer + 1;
+                    end
+                end
+
                 TX_IDLE: begin
                     uart_rx <= 1'b1;
                     if (tx_byte_idx < STIM_LEN && !tx_active) begin
@@ -219,9 +231,9 @@ module tb_uart_echo;
         //   2. Stimulus TX engine to send all STIM_LEN bytes
         //   3. CPU to echo each byte back via UART TX
         //   4. RX checker to decode all echoed bytes
-        // Each byte: ~10 bit periods × CYCLE cycles × 10 ns
-        // Add generous margin for CPU processing and pipeline latency.
-        repeat (8000000) @(posedge clk);
+        // With accelerated baud (CYCLE=256), each byte ≈ 2560 cycles.
+        // Add generous margin for CPU processing.
+        repeat (1000000) @(posedge clk);
 
         $display("========================================");
         $display("UART Echo test");

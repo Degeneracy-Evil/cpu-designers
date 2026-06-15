@@ -4,7 +4,7 @@
  * Runs from Boot ROM at 0xFC00_0000. Flow:
  *   1. Wait for MIG init_calib_complete (poll SYS_STATUS)
  *   2. DDR3 self-test: write → fence.i → read → compare → LED
- *   3. Init UART (115200 baud)
+ *   3. Init UART (NS16550A, 115200 baud)
  *   4. Receive header via UART: magic(4B) + length(4B) + load_addr(4B) + entry_addr(4B)
  *   5. Receive N bytes → write to DDR3 starting at load_addr
  *   6. Jump to entry address
@@ -14,12 +14,9 @@
  *   DDR3_BASE   = 0x8000_0000
  *   GPIO_CTRL   = 0x1000_0000  (direction: 1=output)
  *   GPIO_DATA   = 0x1000_0004  (data)
- *   UART_BASE   = 0x1000_8000
- *     CTRL(0x00): [0]=TX_EN [1]=RX_EN [2]=TX_IE [3]=RX_IE
- *     STATUS(0x04): [0]=TX_BUSY [1]=RX_VALID [2]=TX_FIFO_FULL
- *     TXDATA(0x08): write byte
- *     RXDATA(0x0C): read byte
- *     BAUD(0x10): divider (0=115200)
+ *   UART_BASE   = 0x1000_8000  (NS16550A, word-aligned)
+ *     THR/RBR/DLL(0x00), IER/DLM(0x04), IIR/FCR(0x08), LCR(0x0C),
+ *     MCR(0x10), LSR(0x14), MSR(0x18), SCR(0x1C)
  */
 
 # ── Address constants ──────────────────────────────────────────────
@@ -33,13 +30,34 @@
 .equ GPIO_CTRL,        0x00
 .equ GPIO_DATA,        0x04
 
+# NS16550A register offsets (word-aligned: byte_offset × 4)
 .equ UART_BASE,        0x10008000
-.equ UART_CTRL,        0x00
-.equ UART_STATUS,      0x04
-.equ UART_TXDATA,      0x08
-.equ UART_RXDATA,      0x0C
-.equ UART_BAUD,        0x10
-.equ UART_RXPOP,       0x18
+.equ UART_THR,         0x00            # THR(write)/RBR(read)/DLL(DLAB=1)
+.equ UART_IER,         0x04            # IER/DLM(DLAB=1)
+.equ UART_FCR,         0x08            # FCR(write)/IIR(read)
+.equ UART_LCR,         0x0C            # Line Control Register
+.equ UART_MCR,         0x10            # Modem Control Register
+.equ UART_LSR,         0x14            # Line Status Register
+
+# LCR bits
+.equ LCR_DLAB,         0x80            # Divisor Latch Access Bit
+.equ LCR_8N1,          0x03            # 8 data bits, 1 stop bit, no parity
+
+# LSR bits
+.equ LSR_DR,           0x01            # Data Ready
+.equ LSR_THRE,         0x20            # TX Holding Register Empty
+
+# FCR bits
+.equ FCR_INIT,         0xC7            # FIFO en + RX reset + TX reset + TL=14
+
+# MCR bits
+.equ MCR_INIT,         0x0B            # DTR + RTS + OUT2
+
+# IER bits
+.equ IER_RDA,          0x01            # Received Data Available interrupt
+
+# Baud divisor: 100MHz / (16 × 115200) ≈ 54
+.equ BAUD_DIV,         54
 
 .equ MAGIC,            0x52495343      # "RISC" in little-endian
 
@@ -96,12 +114,39 @@ ddr_fail:
     sw   t1, GPIO_DATA(t0)    # All LEDs = on (active-low)
     j    .                     # Dead loop — do not proceed to UART load
 
-    # ── Step 4: Init UART (115200 baud) ───────────────────────────
+    # ── Step 4: Init NS16550A UART (115200 baud) ────────────────────
 uart_init:
     lui  s10, 0x10008          # s10 = UART_BASE (callee-saved, persistent)
-    li   t1, 0x03              # TX_EN=1, RX_EN=1
-    sw   t1, UART_CTRL(s10)
-    sw   zero, UART_BAUD(s10)  # Divider=0 → 115200 baud
+
+    # Disable all interrupts
+    sw   zero, UART_IER(s10)
+
+    # Set DLAB=1 to access divisor latch
+    li   t0, LCR_DLAB
+    sw   t0, UART_LCR(s10)
+
+    # Set baud divisor: DLL = low byte, DLM = high byte
+    li   t0, BAUD_DIV
+    andi t1, t0, 0xFF          # DLL
+    sw   t1, UART_THR(s10)     # THR/DLL at offset 0x00
+    srli t1, t0, 8             # DLM
+    sw   t1, UART_IER(s10)     # IER/DLM at offset 0x04
+
+    # 8N1, clear DLAB
+    li   t0, LCR_8N1
+    sw   t0, UART_LCR(s10)
+
+    # Enable FIFOs, trigger level 14, reset both FIFOs
+    li   t0, FCR_INIT
+    sw   t0, UART_FCR(s10)
+
+    # MCR: DTR + RTS + OUT2
+    li   t0, MCR_INIT
+    sw   t0, UART_MCR(s10)
+
+    # Enable RX data available interrupt
+    li   t0, IER_RDA
+    sw   t0, UART_IER(s10)
 
     # ── Step 5: Receive header via UART ───────────────────────────
     # Receive 4 bytes → word (little-endian)
@@ -131,11 +176,9 @@ uart_init:
     j    1b
 
 load_done:
-    # ── Step 7: Flush caches before jumping ──────────────────────────
+    # ── Step 7: Jump to entry address ─────────────────────────────
     fence.i                    # Flush dcache write-back + icache invalidate
-                               # Ensures CPU fetches freshly-written program from SRAM, not stale icache lines
-
-    # ── Step 8: Jump to entry address ─────────────────────────────
+                               # Ensures CPU fetches freshly-written program, not stale icache
     jr   s3                    # Jump to program entry in DDR3
 
 hdr_err:
@@ -145,15 +188,15 @@ hdr_err:
     sw   t1, GPIO_DATA(t0)
     j    .                     # Halt
 
-# ── UART helper: receive one byte ─────────────────────────────────
+# ── UART helper: receive one byte (NS16550A) ────────────────────────
+# Poll LSR.DR, then read RBR
 # Returns: a0 = byte (zero-extended)
-# STATUS read auto-arms RXDATA pop; duplicate bus transactions harmless.
 uart_recv_byte:
 1:
-    lw   t0, UART_STATUS(s10)
-    andi t0, t0, 0x02          # Bit 1 = RX_VALID
+    lw   t0, UART_LSR(s10)
+    andi t0, t0, LSR_DR        # Data Ready bit
     beqz t0, 1b                # Wait until byte available
-    lw   a0, UART_RXDATA(s10)  # Read byte + pop (STATUS read armed the pop)
+    lw   a0, UART_THR(s10)     # Read RBR (auto-pops from RX FIFO)
     ret
 
 # ── UART helper: receive 4 bytes → word (little-endian) ──────────

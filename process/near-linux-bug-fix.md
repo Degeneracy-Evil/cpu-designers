@@ -744,6 +744,67 @@ core_top: ptw_ad_inv_pending_r=0
 
 ---
 
+---
+
+## Bug 7: UART 不兼容 NS16550A 标准
+
+### 问题描述
+
+原 UART 为自定义实现（`uart_top.sv`），寄存器映射与 NS16550A 标准不兼容：
+
+| 偏移 | 自定义 UART | NS16550A 标准 |
+|------|------------|--------------|
+| 0x00 | CTRL (R/W) | THR/RBR (W/R) / DLL (DLAB=1) |
+| 0x04 | STATUS (R) | IER (R/W) / DLM (DLAB=1) |
+| 0x10 | BAUD (R/W) | MCR (R/W) |
+| 0x14 | IRQ_STAT (R/W1C) | LSR (R) |
+| 0x18 | RXPOP (W, deprecated) | MSR (R) |
+| 0x1C | — | SCR (R/W) |
+
+Linux 内核的 `8250/16550A` 驱动期望标准寄存器布局。自定义 UART 无法被 Linux 识别和配置，导致串口控制台不可用。
+
+### 修复方案
+
+基于 chiplab UART 组件实现 NS16550A，进行标准合规化改造和 APB4 32-bit 总线适配。详见 `dev/rtl/APB/perips/uart16550/` 目录。
+
+#### NS16550A 合规化修复
+
+| 问题 | chiplab 原始行为 | 修复 |
+|------|-----------------|------|
+| 3 字节除数锁存器 | `dl[23:0]`，DL3 在 offset 2/DLAB=1 | 移除 DL3，改为 16-bit `dl[15:0]`（仅 DLL/DLM） |
+| SCR 被挪用 | offset 7 = USART mode_reg/fi_di_reg | 恢复为标准 8-bit R/W 暂存寄存器 |
+| MCR 不可读 | offset 4 读返回 0 | 添加 MCR 到读多路选择器 |
+| USART 扩展 | T0/T1/IrDA、重传、时钟调制 | 全部移除 |
+| FIFO 硬编码深度 | rfifo 中 fifo[0:15] 硬编码 | 改用 integer i 循环和参数化 error_or 逻辑 |
+
+#### APB4 地址映射
+
+NS16550A 按字节偏移编址（0-7），APB4 按字对齐（步进 4）。映射：`PADDR[4:2]` → 寄存器索引：
+
+| NS16550A 字节偏移 | APB4 字偏移 | 寄存器 |
+|-------------------|------------|--------|
+| 0 | 0x00 | THR/RBR/DLL |
+| 1 | 0x04 | IER/DLM |
+| 2 | 0x08 | IIR/FCR |
+| 3 | 0x0C | LCR |
+| 4 | 0x10 | MCR |
+| 5 | 0x14 | LSR |
+| 6 | 0x18 | MSR |
+| 7 | 0x1C | SCR |
+
+### 仿真验证
+
+20 个测试全部 PASS（2026-06-15 全量回归）：
+
+| 类别 | 测试 | 结果 |
+|------|------|------|
+| ISA | isa_alu, isa_csr | PASS |
+| 异常 | exception_interrupt_basic, exception_ecall, exception_ebreak, exception_illegal_inst | PASS |
+| 特权 | privilege_delegation, privilege_priv_transition, privilege_csr_access_priv | PASS |
+| MMU | mmu_sv32_basic, mmu_permission, mmu_page_fault, mmu_tlb_basic, mmu_ptw_walk, mmu_unified_mmu | PASS |
+| Cache | cache_icache_basic, cache_dcache_basic | PASS |
+| CPU 集成 | cpu_trap, cpu_compute, cpu_full | PASS |
+
 ## 设计约束说明
 
 所有修复方案均遵循"仿真为最终实际上板服务"的约束：
@@ -763,3 +824,5 @@ core_top: ptw_ad_inv_pending_r=0
 7. **PMP 寄存器**：RISC-V 规范要求 PMP CSR 存在且可由 M-mode 读写。锁定位 (L) 强制是规范定义的安全机制——L=1 后寄存器只读直至复位。WARL 约束（保留位读零、A 字段仅支持 OFF/TOR）是规范要求的合法实现子集。非绕过方案，上板后 Linux 可正确配置 PMP 条目。当前未实现硬件权限强制（S/U-mode 内存访问检查），所有访问默认允许；这是"最小 PMP"，不影响 Linux 启动。
 
 8. **PTW A/D 位 dcache 一致性**：PTW 写 A/D 位旁路 dcache 直接到主存，是硬件设计选择（PTW 使用独立总线接口）。修复不是绕过而是正确维护一致性：PTW 写完成后 invalidate dcache 对应行，确保后续访问从主存获取更新后的 PTE。不写回脏数据是正确的——dcache 中的旧 PTE 必须丢弃而非写回，否则会覆盖 PTW 的 A/D 更新。上板后页表修改→PTW 设置 A/D→dcache invalidate→后续 refill 获取正确 PTE，序列正确。
+
+9. **NS16550A UART 适配**：基于 chiplab 开源 UART 组件进行标准合规化改造，非绕过方案。移除非标准 USART 扩展（DL3、mode_reg、IrDA），修复 NS16550A 合规缺陷（MCR 可读、SCR 恢复、16-bit 除数），改进 FIFO（参数化 error_bit、修正 overrun 条件）。APB4 32-bit 适配层通过 PADDR[4:2]→reg select 实现字节偏移到字偏移的地址映射，这是 RISC-V SoC 中 16550A 的标准做法（SiFive、OpenCores 均采用）。上板后 Linux 8250 驱动可直接识别和配置。

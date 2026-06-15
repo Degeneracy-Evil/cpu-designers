@@ -83,8 +83,7 @@ module apb_perips #(
         .o_irq   (o_timer_irq)
     );
 
-    uart_top #(
-        .FREQ       (UART_FREQ),
+    uart_16550a #(
         .FIFO_DEPTH (UART_FIFO_DEPTH)
     ) u_uart (
         .PCLK    (PCLK),

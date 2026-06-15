@@ -2,7 +2,7 @@
 
 ## 项目状态
 
-[ ] 开发, [*] 调试, [*] 报告书写
+[ ] 开发, [*] 调试, [ ] 报告书写
 
 最近稳定节点：完成FPU：c5c9d7f106db651acba168dfd2d4f40e981caad5
 
@@ -93,4 +93,4 @@ python -m tools.vivado_cli -task fpga -program
 python -m tools.vivado_cli --gen-config
 ```
 
-> 旧 `vivado_do.tcl` 仍保留可用，但推荐使用 Vivado Orchestrator。对照：`vivado_do -sim tb_simple_cpu_top` → `python -m tools.vivado_cli -task cpu_full -sim`
+> 旧 `vivado_do.tcl` 仍保留但不可用，仅供tcl命令参考

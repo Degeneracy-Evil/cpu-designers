@@ -130,12 +130,12 @@ module core_top(
     wire [31:0] exe_misalign_target;
 
     wire [95:0]  if_id_bus;
-    wire [333:0] id_exe_bus;
+    wire [343:0] id_exe_bus;
     exe_mem_bus_t exe_mem_bus;
     wb_bus_t      mem_wb_bus;
 
     reg [95:0]  if_id_bus_r;
-    reg [333:0] id_exe_bus_r;
+    reg [343:0] id_exe_bus_r;
     exe_mem_bus_t exe_mem_bus_r;
     wb_bus_t      mem_wb_bus_r;
 
@@ -206,7 +206,7 @@ module core_top(
     wire [31:0] wb_pc_plus4;
 
     assign id_pc_plus4  = if_id_bus_r[95:64];
-    assign exe_pc_plus4 = id_exe_bus_r[333:302];
+    assign exe_pc_plus4 = id_exe_bus_r[343:312];
     assign wb_pc_plus4  = mem_wb_bus_r.pc_plus4;
 
     wire [31:0] actual_rf_wdata;
@@ -227,7 +227,10 @@ module core_top(
         is_flw:        exe_mem_bus.is_flw,
         is_fsw:        exe_mem_bus.is_fsw,
         fpu_rd_is_int: exe_mem_bus.fpu_rd_is_int,
-        fpu_fflags:    exe_mem_bus.fpu_fflags
+        fpu_fflags:    exe_mem_bus.fpu_fflags,
+        is_amo:        exe_mem_bus.is_amo,
+        is_lr:         exe_mem_bus.is_lr,
+        is_sc:         exe_mem_bus.is_sc
     };
 
     wire mem_misalign_load;
@@ -286,9 +289,9 @@ module core_top(
             pc <= 32'hFC000000;  // Boot ROM @ 0xFC00_0000 (both sim and FPGA)
             priv_mode <= PRIV_M;
             if_id_bus_r <= 96'b0;
-            id_exe_bus_r <= 334'b0;
-            exe_mem_bus_r <= 216'b0;
-            mem_wb_bus_r <= 177'b0;
+            id_exe_bus_r <= 344'b0;
+            exe_mem_bus_r <= '0;
+            mem_wb_bus_r <= '0;
         end else begin
             if (if_done) begin
                 if_id_bus_r <= if_id_bus;
@@ -680,6 +683,7 @@ module core_top(
         .mem_valid(mem_valid),
         .exe_mem_bus_r(exe_mem_bus_r),
         .frs2_value(frs2_value),
+        .trap_enter(trap_enter_valid),
         .mem_en(mem_en),
         .mem_hwrite(mem_hwrite),
         .mem_hsize(mem_hsize),

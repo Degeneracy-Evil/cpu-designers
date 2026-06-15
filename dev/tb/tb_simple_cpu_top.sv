@@ -13,23 +13,23 @@ module tb_simple_cpu_top;
 `ifndef SIMU_DDR_MODE
     // UART debug probe: report when the bootloader actually enables UART RX
     initial begin
-        wait (u_soc.u_apb_perips.u_uart.rx_en === 1'b1);
+        wait (u_soc.u_apb_perips.u_uart.regs.enable === 1'b1);
         @(posedge clk);
         $display("[UART-DBG] %0t: RX enabled uart_rx=%b ctrl=0x%h baud=0x%h rx_state=%0d",
                  $time,
                  uart_rx,
-                 u_soc.u_apb_perips.u_uart.rx_en,
-                 u_soc.u_apb_perips.u_uart.uart_ctrl,
-                 u_soc.u_apb_perips.u_uart.uart_baud,
-                 u_soc.u_apb_perips.u_uart.uart_rx_inst.state);
+                 u_soc.u_apb_perips.u_uart.regs.enable,
+                 u_soc.u_apb_perips.u_uart.regs.ier,
+                 u_soc.u_apb_perips.u_uart.regs.dl,
+                 u_soc.u_apb_perips.u_uart.regs.receiver.rstate);
         repeat (100) @(posedge clk);
         $display("[UART-DBG] %0t: RX+100 uart_rx=%b ctrl=0x%h baud=0x%h rx_state=%0d",
                  $time,
                  uart_rx,
-                 u_soc.u_apb_perips.u_uart.rx_en,
-                 u_soc.u_apb_perips.u_uart.uart_ctrl,
-                 u_soc.u_apb_perips.u_uart.uart_baud,
-                 u_soc.u_apb_perips.u_uart.uart_rx_inst.state);
+                 u_soc.u_apb_perips.u_uart.regs.enable,
+                 u_soc.u_apb_perips.u_uart.regs.ier,
+                 u_soc.u_apb_perips.u_uart.regs.dl,
+                 u_soc.u_apb_perips.u_uart.regs.receiver.rstate);
     end
 `endif
 `ifndef SIMU_DDR_MODE
@@ -59,18 +59,18 @@ module tb_simple_cpu_top;
                              u_soc.cpu.exe_pc, u_soc.cpu.exe_branch_target);
                 end
                 // Show UART RX valid pulses (first 200 only)
-                if (u_soc.u_apb_perips.u_uart.rx_data_valid && dbg_cnt <= 200000) begin
+                if ((u_soc.u_apb_perips.u_uart.regs.rf_count > 0) && dbg_cnt <= 200000) begin
                     $display("[UART-RX] cycle=%0d rx_valid=1 byte=0x%02h fifo_cnt=%0d", dbg_cnt,
-                             u_soc.u_apb_perips.u_uart.rx_data_from_engine,
-                             u_soc.u_apb_perips.u_uart.rx_fifo_count);
+                             u_soc.u_apb_perips.u_uart.regs.rf_data_out[10:3],
+                             u_soc.u_apb_perips.u_uart.regs.rf_count);
                 end
                 // Show UART RX start-bit detection (first 20)
-                if (u_soc.u_apb_perips.u_uart.uart_rx_inst.rx_negedge && dbg_cnt <= 200000) begin
+                if (1'b0 && dbg_cnt <= 200000) begin
                     $display("[UART-RX-NE] cycle=%0d rx_d0=%b rx_d1=%b state=%0d fifo_cnt=%0d", dbg_cnt,
-                             u_soc.u_apb_perips.u_uart.uart_rx_inst.rx_d0,
-                             u_soc.u_apb_perips.u_uart.uart_rx_inst.rx_d1,
-                             u_soc.u_apb_perips.u_uart.uart_rx_inst.state,
-                             u_soc.u_apb_perips.u_uart.rx_fifo_count);
+                             1'b0,
+                             1'b0,
+                             u_soc.u_apb_perips.u_uart.regs.receiver.rstate,
+                             u_soc.u_apb_perips.u_uart.regs.rf_count);
                 end
                 // Show uart_rx signal around the point where the bootloader should start polling RX
                 if (dbg_cnt >= 19970 && dbg_cnt <= 20020) begin
@@ -89,22 +89,22 @@ module tb_simple_cpu_top;
         forever begin
             @(posedge clk);
             fifo_probe_cnt = fifo_probe_cnt + 1;
-            fifo_cnt = u_soc.u_apb_perips.u_uart.rx_fifo_count;
+            fifo_cnt = u_soc.u_apb_perips.u_uart.regs.rf_count;
             // Show every time FIFO count changes (first 5K cycles only)
             if (fifo_probe_cnt <= 5000 && fifo_cnt != last_fifo_cnt) begin
                 $display("[FIFO-CHG] cycle=%0d fifo_cnt=%0d→%0d PC=0x%08h gpio_data=0x%04h rd_data=0x%02h",
                          fifo_probe_cnt, last_fifo_cnt, fifo_cnt, if_pc,
                          u_soc.u_apb_perips.o_gpioData[15:0],
-                         u_soc.u_apb_perips.u_uart.rx_fifo_rd_data);
+                         u_soc.u_apb_perips.u_uart.regs.rf_data_out[10:3]);
                 $fflush;
             end
             last_fifo_cnt = fifo_cnt;
             if (fifo_probe_cnt > 200000 && fifo_probe_cnt % 500000 == 0) begin
                 $display("[FIFO-MON] cycle=%0d rx_fifo_count=%0d rx_fifo_full=%b rx_data_valid=%b rx_state=%0d PC=0x%08h gpio_data=0x%04h",
                          fifo_probe_cnt, fifo_cnt,
-                         u_soc.u_apb_perips.u_uart.rx_fifo_full,
-                         u_soc.u_apb_perips.u_uart.rx_data_valid,
-                         u_soc.u_apb_perips.u_uart.uart_rx_inst.state,
+                         (u_soc.u_apb_perips.u_uart.regs.rf_count >= 5'd16),
+                         (u_soc.u_apb_perips.u_uart.regs.rf_count > 0),
+                         u_soc.u_apb_perips.u_uart.regs.receiver.rstate,
                          if_pc,
                          u_soc.u_apb_perips.o_gpioData[15:0]);
                 $fflush;

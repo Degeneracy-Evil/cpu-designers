@@ -39,6 +39,8 @@ defaults:
 categories:
   isa:
     framework: common
+    arch: rv32ima_zicsr_zifencei
+    abi: ilp32
     tests:
       - isa/alu
       - isa/branch
@@ -47,6 +49,7 @@ categories:
       - isa/jump
       - isa/csr
       - isa/m_ext
+      - isa/a_ext
 
   isa_f:
     framework: common

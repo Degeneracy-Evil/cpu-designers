@@ -11,7 +11,7 @@ module cpu_decode(
     output             illegal_inst,
     output             dec_is_branch,
     output             dec_need_exe,
-    output     [333:0] id_exe_bus,
+    output     [343:0] id_exe_bus,
 
     output     [31:0]  id_pc,
     output     [31:0]  id_inst,
@@ -50,6 +50,7 @@ module cpu_decode(
   localparam OPCODE_LOAD_FP  = 7'b0000111;  // FLW
   localparam OPCODE_STORE_FP = 7'b0100111;  // FSW
   localparam OPCODE_OP_FP    = 7'b1010011;  // FADD.S/FSUB.S/FMUL.S/FDIV.S/...
+  localparam OPCODE_AMO      = 7'b0101111;  // LR.W/SC.W/AMO*.W
   // NOTE: FMA instructions (FMADD.S/FMSUB.S/FNMSUB.S/FNMADD.S) use opcodes
   // 1000011/1000111/1001011/1001111 (R4 format). These are intentionally NOT
   // implemented — R4 format decode is complex and hardware area is large.
@@ -211,6 +212,26 @@ module cpu_decode(
   wire inst_fmv_x_w   = (opcode == OPCODE_OP_FP) && (funct7 == 7'b1110000) && (funct3 == 3'b000) && (rs2 == 5'd0);
   wire inst_fmv_w_x   = (opcode == OPCODE_OP_FP) && (funct7 == 7'b1111000) && (funct3 == 3'b000) && (rs2 == 5'd0);
 
+  // A extension instruction matches
+  wire [4:0] funct5;
+  wire amo_aq;
+  wire amo_rl;
+  assign funct5 = inst[31:27];
+  assign amo_aq = inst[26];
+  assign amo_rl = inst[25];
+
+  wire inst_lr_w     = (opcode == OPCODE_AMO) && (funct3 == 3'b010) && (funct5 == 5'b00010) && (rs2 == 5'd0);
+  wire inst_sc_w     = (opcode == OPCODE_AMO) && (funct3 == 3'b010) && (funct5 == 5'b00011);
+  wire inst_amoswap  = (opcode == OPCODE_AMO) && (funct3 == 3'b010) && (funct5 == 5'b00001);
+  wire inst_amoadd   = (opcode == OPCODE_AMO) && (funct3 == 3'b010) && (funct5 == 5'b00000);
+  wire inst_amoand   = (opcode == OPCODE_AMO) && (funct3 == 3'b010) && (funct5 == 5'b01100);
+  wire inst_amoor    = (opcode == OPCODE_AMO) && (funct3 == 3'b010) && (funct5 == 5'b01000);
+  wire inst_amoxor   = (opcode == OPCODE_AMO) && (funct3 == 3'b010) && (funct5 == 5'b00100);
+wire inst_amomin   = (opcode == OPCODE_AMO) && (funct3 == 3'b010) && (funct5 == 5'b10000);
+wire inst_amomax   = (opcode == OPCODE_AMO) && (funct3 == 3'b010) && (funct5 == 5'b10100);
+wire inst_amominu  = (opcode == OPCODE_AMO) && (funct3 == 3'b010) && (funct5 == 5'b11000);
+wire inst_amomaxu  = (opcode == OPCODE_AMO) && (funct3 == 3'b010) && (funct5 == 5'b11100);
+
   wire inst_ecall;
   wire inst_ebreak;
   wire inst_wfi;
@@ -285,6 +306,13 @@ module cpu_decode(
   wire is_flw = inst_flw;
   wire is_fsw = inst_fsw;
 
+  // A extension classification
+  wire is_amo_all = inst_amoswap | inst_amoadd | inst_amoand | inst_amoor |
+                    inst_amoxor | inst_amomin | inst_amomax | inst_amominu | inst_amomaxu;
+  wire is_lr = inst_lr_w;
+  wire is_sc = inst_sc_w;
+  wire is_amo = is_amo_all | is_lr | is_sc;  // All A extension instructions
+
   wire [6:0] fpu_funct;
   assign fpu_funct = inst_fadd_s   ? 7'd0  :
                      inst_fsub_s   ? 7'd1  :
@@ -318,8 +346,9 @@ module cpu_decode(
 
   wire valid_inst;
   assign valid_inst = is_branch | is_load | is_store | is_jal_like | is_alu | is_mu |
-                      is_csr | is_system_trap | is_mret | is_sret | is_nop_like | is_fencei | is_sfence_vma |
-                      is_fpu | is_flw | is_fsw;
+                       is_csr | is_system_trap | is_mret | is_sret | is_nop_like | is_fencei | is_sfence_vma |
+                       is_fpu | is_flw | is_fsw |
+                       is_amo;
 
   wire [31:0] alu_src1;
   wire [31:0] alu_src2;
@@ -329,21 +358,22 @@ module cpu_decode(
   assign shift_op_r = inst_sll | inst_srl | inst_sra;
   assign shift_op_i = inst_slli | inst_srli | inst_srai;
    assign alu_src1 = (inst_auipc | inst_jal | is_branch) ? pc : rs1_value;
-  assign alu_src2 = (inst_lui | inst_auipc) ? imm_u :
-         inst_jal ? imm_j :
-         inst_jalr ? imm_i :
-         is_branch ? imm_b :
-         (inst_addi | inst_slti | inst_sltiu | inst_xori | inst_ori | inst_andi) ? imm_i :
-         shift_op_i ? {27'b0, inst[24:20]} :
-          is_load ? imm_i :
-          is_flw ? imm_i :
-          (is_store) ? imm_s :
-          is_fsw ? imm_s :
-          rs2_value;
+   assign alu_src2 = (inst_lui | inst_auipc) ? imm_u :
+          inst_jal ? imm_j :
+          inst_jalr ? imm_i :
+          is_branch ? imm_b :
+          (inst_addi | inst_slti | inst_sltiu | inst_xori | inst_ori | inst_andi) ? imm_i :
+          shift_op_i ? {27'b0, inst[24:20]} :
+           is_load ? imm_i :
+           is_flw ? imm_i :
+           (is_store) ? imm_s :
+           is_fsw ? imm_s :
+           is_amo ? 32'b0 :   // AMO/LR/SC: address = rs1 + 0
+           rs2_value;
 
   wire [15:0] alu_control;
   assign alu_control = inst_lui ? 16'b0000_0000_0000_0010 :
-         (inst_add | inst_addi | inst_auipc | is_load | is_store | inst_jal | inst_jalr | is_branch | is_flw | is_fsw) ? 16'b0001_0000_0000_0000 :
+         (inst_add | inst_addi | inst_auipc | is_load | is_store | inst_jal | inst_jalr | is_branch | is_flw | is_fsw | is_amo) ? 16'b0001_0000_0000_0000 :
          inst_sub ? 16'b0000_1000_0000_0000 :
          (inst_slt | inst_slti) ? 16'b0000_0100_0000_0000 :
          (inst_sltu | inst_sltiu) ? 16'b0000_0010_0000_0000 :
@@ -356,7 +386,7 @@ module cpu_decode(
          16'b0;
 
   wire wb_we;
-   assign wb_we = valid_inst && (is_alu | is_jal_like | is_csr | is_mu | is_fpu | is_flw);
+   assign wb_we = valid_inst && (is_alu | is_jal_like | is_csr | is_mu | is_fpu | is_flw | is_amo);
 
   wire [2:0] mem_size;
   assign mem_size = (inst_lb | inst_lbu | inst_sb) ? 3'b000 :
@@ -592,7 +622,14 @@ module cpu_decode(
            is_fsw,
            fpu_funct,
            fpu_rm,
-           fpu_rd_is_int
+           fpu_rd_is_int,
+           // --- A extension ---
+           is_amo,         // 1 bit
+           is_lr,          // 1 bit
+           is_sc,          // 1 bit
+           funct5,         // 5 bits (amo_funct5)
+           amo_aq,         // 1 bit
+           amo_rl          // 1 bit
          };
 
   assign id_pc = pc;

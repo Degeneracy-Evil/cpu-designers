@@ -457,6 +457,7 @@ def _tcl_add_tb(
     apb_dir = f"{dev_dir}/rtl/APB"
     apb_header_dir = f"{dev_dir}/rtl/APB/header"
     apb_perips_dir = f"{dev_dir}/rtl/APB/perips"
+    apb_uart16550_dir = f"{dev_dir}/rtl/APB/perips/uart16550"
     sys_rtl_dir = f"{dev_dir}/rtl"
 
     coe_update = ""
@@ -523,6 +524,11 @@ foreach f [glob -nocomplain -directory "{apb_dir}" *.svh] {{
     set_property file_type "Verilog Header" [get_files [file tail $f]]
 }}
 foreach f [glob -nocomplain -directory "{apb_perips_dir}" *.sv] {{ import_files -fileset sim_1 -norecurse $f }}
+foreach f [glob -nocomplain -directory "{apb_uart16550_dir}" *.sv] {{ import_files -fileset sim_1 -norecurse $f }}
+foreach f [glob -nocomplain -directory "{apb_uart16550_dir}" *.svh] {{
+    import_files -fileset sim_1 -norecurse $f
+    set_property file_type "Verilog Header" [get_files [file tail $f]]
+}}
 foreach f [glob -nocomplain -directory "{apb_header_dir}" *.svh] {{
     import_files -fileset sim_1 -norecurse $f
     set_property file_type "Verilog Header" [get_files [file tail $f]]

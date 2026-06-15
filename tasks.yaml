@@ -68,6 +68,12 @@ tasks:
     coe: test/isa/m_ext.coe
     runtime: 5ms
 
+  isa_a_ext:
+    tb: tb_isa_a_ext
+    coe: test/isa/a_ext.coe
+    hex_file: test/isa/a_ext.hex
+    runtime: 200ms
+
   isa_f_ext:
     tb: tb_isa_f_ext
     coe: test/isa/f_ext.coe

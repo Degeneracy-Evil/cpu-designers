@@ -175,7 +175,7 @@ generate if (`SIMU_USE_DDR == 0) begin: sim_ram_tb
             // to ~270 cycles/byte.  We need headroom: wait until FIFO
             // count drops below 12 (of 16) to avoid overflow.
             // Use while+@(posedge clk) for XSim robustness.
-            while (u_soc.u_apb_perips.u_uart.rx_fifo_count >= 4'd14) begin
+            while (u_soc.u_apb_perips.u_uart.regs.rf_count >= 5'd14) begin
                 @(posedge clk);
             end
         end
@@ -255,18 +255,20 @@ generate if (`SIMU_USE_DDR == 0) begin: sim_ram_tb
 
         // Force accelerated UART baud divider for simulation speedup
         // (Default 868 cycles/bit → 16 cycles/bit, ~54× faster)
-        force u_soc.u_apb_perips.u_uart.uart_baud = 32'd16;
+        // NS16550A: divisor latch is 16-bit (DLL=dl[7:0], DLM=dl[15:8])
+        force u_soc.u_apb_perips.u_uart.regs.dl = 16'd16;
 
         // Wait for the bootloader to actually enable UART RX before sending.
         // A fixed delay is fragile because the boot path length changes with
         // reset timing, BRAM latency, and extra bootloader instrumentation.
-        wait (u_soc.u_apb_perips.u_uart.rx_en === 1'b1);
+        // NS16550A: receiver is active when divisor is set (enable pulses)
+        wait (u_soc.u_apb_perips.u_uart.regs.enable === 1'b1);
         repeat (4) @(posedge clk);
 
-        $display("[UART-TB] %0t: Starting UART program delivery (rx_en=1 ctrl=0x%h baud=0x%h)...",
+        $display("[UART-TB] %0t: Starting UART program delivery (enable=1 ier=0x%h dl=0x%h)...",
                  $time,
-                 u_soc.u_apb_perips.u_uart.uart_ctrl,
-                 u_soc.u_apb_perips.u_uart.uart_baud);
+                 u_soc.u_apb_perips.u_uart.regs.ier,
+                 u_soc.u_apb_perips.u_uart.regs.dl);
         $fflush;
 
         // Send program via UART

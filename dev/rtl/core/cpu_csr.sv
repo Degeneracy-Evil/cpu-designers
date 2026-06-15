@@ -627,7 +627,7 @@ module cpu_csr(
             ADDR_SATP:        sw_csr_rdata_r = r_satp;
 
             ADDR_MSTATUS:     sw_csr_rdata_r = {sd_bit, r_mstatus[30:0]};
-            ADDR_MISA:        sw_csr_rdata_r = 32'h40141120;
+            ADDR_MISA:        sw_csr_rdata_r = 32'h40141121;  // RV32AIMFSU (bit 0 = A extension)
             ADDR_MEDELEG:     sw_csr_rdata_r = r_medeleg;
             ADDR_MIDELEG:     sw_csr_rdata_r = r_mideleg;
             ADDR_MIE:         sw_csr_rdata_r = r_mie;

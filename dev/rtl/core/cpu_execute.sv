@@ -5,7 +5,7 @@ module cpu_execute(
     input              clk,
     input              resetn,
     input              exe_valid,
-    input      [333:0] id_exe_bus_r,
+    input      [343:0] id_exe_bus_r,
     input      [31:0]  csr_rdata,
     input      [2:0]   csr_frm,        // CSR frm for DYN rounding mode
     input      [31:0]  frs1_value,     // float register rs1 value
@@ -67,6 +67,13 @@ module cpu_execute(
     wire [6:0]  fpu_funct;
     wire [2:0]  fpu_rm;
     wire        fpu_rd_is_int;
+    // A extension signals
+    wire        is_amo;
+    wire        is_lr;
+    wire        is_sc;
+    wire [4:0]  amo_funct5;
+    wire        amo_aq;
+    wire        amo_rl;
 
     assign {
         pc_plus4,
@@ -104,7 +111,14 @@ module cpu_execute(
         is_fsw,
         fpu_funct,
         fpu_rm,
-        fpu_rd_is_int
+        fpu_rd_is_int,
+        // A extension
+        is_amo,
+        is_lr,
+        is_sc,
+        amo_funct5,
+        amo_aq,
+        amo_rl
     } = id_exe_bus_r;
 
     wire is_jalr;
@@ -321,7 +335,7 @@ module cpu_execute(
     assign exe_branch_target = branch_target_reg;
     assign exe_is_ctrl_flow = is_branch | is_jal_like;
     assign exe_is_branch = is_branch;
-    assign exe_need_mem  = is_load | is_store | is_flw | is_fsw;
+    assign exe_need_mem  = is_load | is_store | is_flw | is_fsw | is_amo;
 
     assign exe_csr_wen    = is_csr && !csr_no_write;
     assign exe_csr_waddr  = csr_addr;
@@ -351,7 +365,13 @@ module cpu_execute(
         is_flw:        is_flw,
         is_fsw:        is_fsw,
         fpu_rd_is_int: fpu_rd_is_int,
-        fpu_fflags:    fpu_fflags
+        fpu_fflags:    fpu_fflags,
+        is_amo:        is_amo,
+        is_lr:         is_lr,
+        is_sc:         is_sc,
+        amo_funct5:    amo_funct5,
+        amo_aq:        amo_aq,
+        amo_rl:        amo_rl
     };
 
     assign exe_pc = pc;

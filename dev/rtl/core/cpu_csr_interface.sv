@@ -5,7 +5,7 @@ module cpu_csr_interface(
     input         clk,
     input         resetn,
 
-    input  [333:0] id_exe_bus_r,
+    input  [343:0] id_exe_bus_r,
     input  [11:0]  dec_csr_addr,
     input          csr_valid,
 
@@ -93,14 +93,14 @@ module cpu_csr_interface(
     wire [31:0] csr_pc_bus;
     wire [31:0] csr_inst_bus;
 
-    assign csr_funct3_bus   = id_exe_bus_r[85:83];
-    assign csr_uimm_bus    = id_exe_bus_r[82:78];
-    assign csr_rs1_bus     = id_exe_bus_r[33:29];
-    assign csr_rs1_val_bus = id_exe_bus_r[168:137];
-    assign csr_rd_bus      = id_exe_bus_r[293:289];
-    assign csr_pc_plus4_bus= id_exe_bus_r[333:302];
-    assign csr_pc_bus      = id_exe_bus_r[77:46];
-    assign csr_inst_bus    = id_exe_bus_r[45:14];
+    assign csr_funct3_bus   = id_exe_bus_r[95:93];
+    assign csr_uimm_bus    = id_exe_bus_r[92:88];
+    assign csr_rs1_bus     = id_exe_bus_r[43:39];
+    assign csr_rs1_val_bus = id_exe_bus_r[178:147];
+    assign csr_rd_bus      = id_exe_bus_r[303:299];
+    assign csr_pc_plus4_bus= id_exe_bus_r[343:312];
+    assign csr_pc_bus      = id_exe_bus_r[87:56];
+    assign csr_inst_bus    = id_exe_bus_r[55:24];
 
     assign csr_pc_plus4 = csr_pc_plus4_bus;
 
@@ -139,7 +139,10 @@ module cpu_csr_interface(
         is_flw:        1'b0,
         is_fsw:        1'b0,
         fpu_rd_is_int: 1'b0,
-        fpu_fflags:    5'b0
+        fpu_fflags:    5'b0,
+        is_amo:        1'b0,
+        is_lr:         1'b0,
+        is_sc:         1'b0
     };
 
     wire [31:0] csr_mscratch;

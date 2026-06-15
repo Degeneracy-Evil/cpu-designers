@@ -439,7 +439,7 @@ set_property verilog_define {{{define_str}}} [get_filesets sim_1]
 def _tcl_copy_hex_file(hex_src: str, proj_dir: str, proj_name: str, base_dir: str = "") -> str:
     """Generate TCL for copying HEX files for ``$readmemh`` access.
 
-    Copies prog.hex (ROM) and bootloader.hex (bootrom) to the xsim run directory.
+    Copies prog.hex (SRAM) and bootloader.hex (bootrom) to the xsim run directory.
     """
     xsim_dir = f"{proj_dir}/{proj_name}.sim/sim_1/behav/xsim"
     bl_src = f"{base_dir}/dev/program_source/boot/bootloader.hex" if base_dir else ""
@@ -757,11 +757,22 @@ class Operations:
     def _resolve_hex_path(self, task: TaskConfig) -> str:
         """Return the absolute HEX path for a task, or empty string.
 
+        Auto-derivation: if ``hex_file`` is not explicitly set but ``coe``
+        is, derive the hex path by replacing the ``.coe`` extension with
+        ``.hex``.  This makes the COE→HEX relationship implicit and ensures
+        every simulation task with a COE also gets its HEX delivered to the
+        xsim directory for $readmemh.
+
         The path is returned in forward-slash form for TCL safety.
         """
-        if not task.hex_file:
+        if task.hex_file:
+            hex_rel = task.hex_file
+        elif task.coe and task.coe.endswith(".coe"):
+            # Auto-derive: test/isa/alu.coe → test/isa/alu.hex
+            hex_rel = task.coe[:-4] + ".hex"
+        else:
             return ""
-        return _tcl_path(self.session_mgr.base_dir / "dev" / "program_source" / task.hex_file)
+        return _tcl_path(self.session_mgr.base_dir / "dev" / "program_source" / hex_rel)
 
     def _update_hashes(self, session: Session) -> None:
         """Recompute and persist the current source hashes."""
@@ -1077,6 +1088,12 @@ class Operations:
         proj_name = self.session_mgr.config.proj_name
         coe_file = self._resolve_coe_path(task)
 
+        # NOTE: coe_file is passed to _tcl_add_tb which updates the ROM IP's
+        # CONFIG.Coe_File property, but this is dead code during simulation —
+        # the `ifdef SIMULATION` blocks in axi_wrap_ram.sv and
+        # axi4lite_bootrom.sv replace the BRAM IP with behavioral models
+        # that use $readmemh instead.  The COE update only matters for
+        # FPGA bitstream generation (see create/refresh operations).
         tcl_parts = [
             _tcl_add_tb(dev, proj_dir, proj_name, task.tb, coe_file, self.session_mgr.config.rtl_path),
         ]
@@ -1103,14 +1120,15 @@ class Operations:
             defines.update(debug_defines)
         if task.sim_mode != "ddr3" and "SIMULATION" not in defines:
             defines["SIMULATION"] = "TRUE"
-        if task.hex_file and "SRAM_HEX_FILE" not in defines:
-            pass  # hex file copied to xsim dir by _tcl_copy_hex_file below
         if defines:
             tcl_parts.append(_tcl_set_verilog_defines(defines))
 
-        # HEX file copy for $readmemh (legacy — kept for backward compat)
-        if task.hex_file:
-            hex_path = self._resolve_hex_path(task)
+        # HEX file copy for $readmemh — copies prog.hex + bootloader.hex
+        # to the xsim run directory so $readmemh can find them.
+        # hex_path is resolved via _resolve_hex_path which auto-derives
+        # from .coe when hex_file is not explicitly set.
+        hex_path = self._resolve_hex_path(task)
+        if hex_path:
             tcl_parts.append(_tcl_copy_hex_file(hex_path, proj_dir, proj_name, _tcl_path(self.session_mgr.base_dir)))
 
         # Determine waveform level from debug defines

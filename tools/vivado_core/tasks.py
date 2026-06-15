@@ -31,6 +31,16 @@ class TaskConfig:
         COE filename relative to ``dev/program_source/`` (empty if
         the task does not need a program image).  May include a
         subdirectory prefix such as ``test/`` or ``app/``.
+
+        .. note::
+           In simulation, the COE file is **not loaded** — the RTL
+           ``ifdef SIMULATION`` blocks bypass BRAM IP and use
+           ``$readmemh("prog.hex")`` instead (see ``axi_wrap_ram.sv``,
+           ``axi4lite_bootrom.sv``).  The ``coe`` field only serves
+           two indirect purposes in simulation: (1) auto-derivation
+           of ``hex_file`` path and (2) COE-layer hash staleness
+           detection.  For FPGA bitstream generation, the COE file
+           IS loaded into the BRAM IP as normal.
     runtime:
         Simulation runtime string, e.g. ``"5ms"`` or ``"40ms"``.
     top:

@@ -12,5 +12,6 @@
 - [*] 构建MMU
 - [*] 重构测试体系
 - [*] FPU
-- [ ] 主存SRAM硬件
-- [ ] NANDFLASH硬件
+- [*] 主存ddr
+- ~~[ ] NANDFLASH硬件~~
+- [*] A扩展

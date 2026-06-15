@@ -31,7 +31,7 @@ Example
 from __future__ import annotations
 
 # Core data types and configuration
-from .config import GlobalConfig, LimitsConfig, load_config
+from .config import GlobalConfig, LimitsConfig, RtlPathsConfig, load_config
 
 # Exception hierarchy
 from .exceptions import (
@@ -84,6 +84,7 @@ __all__ = [
     # config
     "GlobalConfig",
     "LimitsConfig",
+    "RtlPathsConfig",
     "load_config",
     # exceptions
     "ConcurrentLimitError",

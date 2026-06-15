@@ -12,7 +12,7 @@ import re
 from pathlib import Path
 
 from .cache_header_gen import write_cache_header
-from .config import MemoryConfig
+from .config import MemoryConfig, RtlPathsConfig
 from .exceptions import OperationError, StaleSessionError, VivadoProcessError
 from .hash import LayeredHash
 from .ip_gen import generate_all_ip_tcl, get_bram_ip_names
@@ -51,32 +51,62 @@ def _tcl_path(p: Path | str) -> str:
 # TCL template helpers
 # ---------------------------------------------------------------------------
 
+def _resolve_rtl_dirs(dev_dir: str, rtl: RtlPathsConfig) -> dict[str, str]:
+    """Build a dict of named RTL directory paths from config.
+
+    Returns a mapping like ``{"alu": "dev/rtl/ALU", "mu": "dev/rtl/MU", ...}``
+    using the relative fragments from *rtl* combined with *dev_dir*.
+    """
+    rtl_base = f"{dev_dir}/rtl"
+    dirs: dict[str, str] = {}
+    for key, frag in (
+        ("alu", rtl.alu),
+        ("mu", rtl.mu),
+        ("fpu", rtl.fpu),
+        ("cpu_core", rtl.cpu_core),
+        ("common", rtl.common),
+        ("ahb", rtl.ahb),
+        ("ahb_ip", rtl.ahb_ip),
+        ("amba", rtl.amba),
+        ("ram_wrap", rtl.ram_wrap),
+        ("apb", rtl.apb),
+        ("apb_header", rtl.apb_header),
+        ("apb_perips", rtl.apb_perips),
+        ("apb_uart16550", rtl.apb_uart16550),
+    ):
+        dirs[key] = f"{rtl_base}/{frag}" if frag else rtl_base
+    dirs["sys_rtl"] = f"{rtl_base}/{rtl.sys_rtl}" if rtl.sys_rtl else rtl_base
+    dirs["tb"] = f"{dev_dir}/tb"
+    return dirs
+
 def _tcl_create_project(
     proj_name: str,
     device_part: str,
     proj_dir: str,
     dev_dir: str,
     base_dir: str,
+    rtl: RtlPathsConfig,
 ) -> str:
     """Generate TCL for project creation + RTL import + include dirs.
 
     This mirrors the logic in ``tools/vivado_core/tcl/_create.tcl`` but with
     all paths parameterised.
     """
-    alu_rtl_dir = f"{dev_dir}/rtl/ALU"
-    mu_rtl_dir = f"{dev_dir}/rtl/MU"
-    fpu_rtl_dir = f"{dev_dir}/rtl/FPU"
-    cpu_core_dir = f"{dev_dir}/rtl/core"
-    common_dir = f"{dev_dir}/rtl/common"
-    ahb_dir = f"{dev_dir}/rtl/axi"
-    ahb_ip_dir = f"{dev_dir}/rtl/axi/ip"
-    amba_dir = f"{dev_dir}/rtl/AMBA"
-    ram_wrap_dir = f"{dev_dir}/rtl/ram_wrap"
-    apb_dir = f"{dev_dir}/rtl/APB"
-    apb_header_dir = f"{dev_dir}/rtl/APB/header"
-    apb_perips_dir = f"{dev_dir}/rtl/APB/perips"
-    sys_rtl_dir = f"{dev_dir}/rtl"
-    tb_dir = f"{dev_dir}/tb"
+    d = _resolve_rtl_dirs(dev_dir, rtl)
+    alu_rtl_dir = d["alu"]
+    mu_rtl_dir = d["mu"]
+    fpu_rtl_dir = d["fpu"]
+    cpu_core_dir = d["cpu_core"]
+    common_dir = d["common"]
+    ahb_dir = d["ahb"]
+    ahb_ip_dir = d["ahb_ip"]
+    amba_dir = d["amba"]
+    ram_wrap_dir = d["ram_wrap"]
+    apb_dir = d["apb"]
+    apb_header_dir = d["apb_header"]
+    apb_perips_dir = d["apb_perips"]
+    sys_rtl_dir = d["sys_rtl"]
+    tb_dir = d["tb"]
 
     return f"""\
 # --- create project ---
@@ -438,27 +468,29 @@ def _tcl_add_tb(
     proj_name: str,
     tb_name: str,
     coe_file: str,
+    rtl: RtlPathsConfig,
 ) -> str:
     """Generate TCL for adding testbench and updating COE.
 
     Mirrors ``tools/vivado_core/tcl/_add_tb.tcl``.
     """
-    tb_dir = f"{dev_dir}/tb"
+    d = _resolve_rtl_dirs(dev_dir, rtl)
+    tb_dir = d["tb"]
     ip_xci_dir = f"{proj_dir}/{proj_name}.srcs/sources_1/ip"
 
-    alu_rtl_dir = f"{dev_dir}/rtl/ALU"
-    mu_rtl_dir = f"{dev_dir}/rtl/MU"
-    fpu_rtl_dir = f"{dev_dir}/rtl/FPU"
-    cpu_core_dir = f"{dev_dir}/rtl/core"
-    common_dir = f"{dev_dir}/rtl/common"
-    ahb_dir = f"{dev_dir}/rtl/axi"
-    amba_dir = f"{dev_dir}/rtl/AMBA"
-    ram_wrap_dir = f"{dev_dir}/rtl/ram_wrap"
-    apb_dir = f"{dev_dir}/rtl/APB"
-    apb_header_dir = f"{dev_dir}/rtl/APB/header"
-    apb_perips_dir = f"{dev_dir}/rtl/APB/perips"
-    apb_uart16550_dir = f"{dev_dir}/rtl/APB/perips/uart16550"
-    sys_rtl_dir = f"{dev_dir}/rtl"
+    alu_rtl_dir = d["alu"]
+    mu_rtl_dir = d["mu"]
+    fpu_rtl_dir = d["fpu"]
+    cpu_core_dir = d["cpu_core"]
+    common_dir = d["common"]
+    ahb_dir = d["ahb"]
+    amba_dir = d["amba"]
+    ram_wrap_dir = d["ram_wrap"]
+    apb_dir = d["apb"]
+    apb_header_dir = d["apb_header"]
+    apb_perips_dir = d["apb_perips"]
+    apb_uart16550_dir = d["apb_uart16550"]
+    sys_rtl_dir = d["sys_rtl"]
 
     coe_update = ""
     if coe_file:
@@ -829,7 +861,7 @@ class Operations:
 
         tcl_parts = [
             _tcl_cleanup_ip_gen(proj_dir, proj_name, bram_ip_names, mem_config),
-            _tcl_create_project(proj_name, device_part, proj_dir, dev, base),
+            _tcl_create_project(proj_name, device_part, proj_dir, dev, base, self.session_mgr.config.rtl_path),
             _tcl_setup_ip(proj_name, proj_dir, base, coe_file, mem_config),
             _tcl_upgrade_ip(),
             _tcl_add_constrs(base),
@@ -913,17 +945,18 @@ class Operations:
             tcl_parts: list[str] = [
                 f"catch {{ close_project }}\ncd [file dirname {proj_dir}]",
                 f"file delete -force {proj_dir}",
-                _tcl_create_project(proj_name, device_part, proj_dir, dev, base),
+                _tcl_create_project(proj_name, device_part, proj_dir, dev, base, self.session_mgr.config.rtl_path),
                 _tcl_setup_ip(proj_name, proj_dir, base, coe_file, mem_config),
                 _tcl_upgrade_ip(),
                 _tcl_add_constrs(base),
-                _tcl_add_tb(dev, proj_dir, proj_name, task.tb, coe_file) if task.tb else "",
+                _tcl_add_tb(dev, proj_dir, proj_name, task.tb, coe_file, self.session_mgr.config.rtl_path) if task.tb else "",
             ]
         else:
             # Incremental: execute only the needed steps.
             # session.execute() auto-opens the project before each command.
             tcl_parts: list[str] = []
-            tb_dir = f"{dev}/tb"
+            rtl_dirs = _resolve_rtl_dirs(dev, self.session_mgr.config.rtl_path)
+            tb_dir = rtl_dirs["tb"]
             ip_xci_dir = f"{proj_dir}/{proj_name}.srcs/sources_1/ip"
 
             for step in plan.tcl_steps:
@@ -1045,7 +1078,7 @@ class Operations:
         coe_file = self._resolve_coe_path(task)
 
         tcl_parts = [
-            _tcl_add_tb(dev, proj_dir, proj_name, task.tb, coe_file),
+            _tcl_add_tb(dev, proj_dir, proj_name, task.tb, coe_file, self.session_mgr.config.rtl_path),
         ]
 
         # BRAM simulation models — always needed for XSim elaboration

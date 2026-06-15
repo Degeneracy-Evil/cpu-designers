@@ -7,7 +7,7 @@ tasks:
     tb: tb_simple_cpu_top
     coe: test/integration/cpu_full.coe
     hex_file: test/integration/cpu_full.hex
-    runtime: 50ms
+    runtime: 5000ms
 
   cpu_full_ddr3:
     tb: tb_simple_cpu_top

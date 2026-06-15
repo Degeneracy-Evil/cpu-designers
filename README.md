@@ -49,21 +49,60 @@ dev\program_source\test-system.md：测试程序规范与结构讲解
 
 `tools/` 目录下提供了以下工具：
 
-### rv2coe.py — RISC-V 编译器
-
-C 语言/汇编到 COE/HEX 文件编译程序。详细用法见 `tools/README-rv2coe.md`。
-
 ### Vivado Orchestrator — 仿真/构建自动化（主工具）
 
 Python 驱动的 Vivado 仿真/综合自动化系统，替代原有 `vivado_do.tcl`。核心改进：
 
 - **会话隔离并行**：不同任务可同时运行独立 Vivado 进程
-- **分层哈希增量刷新**：RTL/TB/COE/FPGA 四层独立 SHA256 检测，仅 COE 变更时秒级刷新（对比旧脚本永远全量重建，快 10x+）
+- **分层哈希增量刷新**：RTL/TB/COE/FPGA 五层独立 SHA256 检测，仅 COE 变更时秒级刷新（对比旧脚本永远全量重建，快 10x+）
 - **批处理模式**：`-batch "isa_*"` 一条命令并行仿真多任务，支持通配符、YAML 计划、失败策略
-- **配置驱动 IP 生成**：`vivado_config.yaml` → `cache_def.svh` + BRAM create_ip TCL，IP 与 RTL 常量自动同步
+- **配置驱动 IP 生成**：`vivado_config.yaml` → `cache_def.svh` + BRAM/MIG/ClkWiz create_ip TCL，IP 与 RTL 常量自动同步
+- **RTL 路径配置化**：`vivado_config.yaml` 的 `rtl_path` 段定义 RTL 子目录布局，项目重构时无需改代码
+- **仿真调试**：`--debug trace,trap,wave` 启用指令追踪/异常追踪/波形，`trace_analyzer.py` 分析日志
 - **双界面**：CLI（面向 agent/脚本）+ TUI（面向人类）
 
 详细用法见 `tools/README-vivado-orchestrator.md`。
+
+### test_builder.py — 测试程序构建
+
+声明式测试构建系统，读取 `dev/program_source/build.yaml` 批量编译测试程序和应用：
+
+```bash
+python tools/test_builder.py                # 构建全部
+python tools/test_builder.py --category mmu # 仅构建 MMU 测试
+python tools/test_builder.py --test isa/alu # 构建单个测试
+python tools/test_builder.py --list         # 列出所有测试
+python tools/test_builder.py --gen-tasks    # 生成 tasks.yaml 任务条目
+python tools/test_builder.py --clean        # 清理产物
+```
+
+构建流程：`build.yaml → test_builder.py → rv2coe.py → .coe + .hex`
+
+测试体系采用自检协议：每个子测试独立返回 PASS/FAIL，通过 x28/x30 寄存器精确定位失败。详细规范见 `dev/program_source/test-system.md`。
+
+### rv2coe.py — RISC-V 编译器
+
+C 语言/汇编到 COE/HEX 文件编译程序，`test_builder.py` 的底层调用。详细用法见 `tools/README-rv2coe.md`。
+
+### run_regression.py — 回归测试
+
+完整回归流程：构建测试程序 → 批量仿真 → 结果汇总。
+
+```bash
+python tools/run_regression.py                  # 全回归
+python tools/run_regression.py --category mmu   # 按类别
+python tools/run_regression.py --sim-only       # 仅仿真（跳过构建）
+```
+
+### trace_analyzer.py — 仿真日志分析
+
+解析 `--debug trace` 生成的指令追踪日志，支持 Spike ISA Simulator 对比。
+
+```bash
+python -m tools.trace_analyzer parse instr_trace.log          # 解析追踪日志
+python -m tools.trace_analyzer find-fail instr_trace.log      # 定位失败点
+python -m tools.trace_analyzer diff instr_trace.log spike.log # 与 Spike 对比
+```
 
 ## 仿真
 
@@ -91,6 +130,19 @@ python -m tools.vivado_cli -task fpga -program
 
 # 重新生成 cache_def.svh（修改 vivado_config.yaml 后）
 python -m tools.vivado_cli --gen-config
+```
+
+### 仿真调试
+
+```bash
+# 启用指令追踪
+python -m tools.vivado_cli -task isa_alu -sim --debug trace
+
+# 启用指令追踪 + 异常追踪 + 波形
+python -m tools.vivado_cli -task isa_alu -sim --debug trace,trap,wave
+
+# 启用全部调试（追踪+流水线+异常+Spike+波形full）
+python -m tools.vivado_cli -task isa_alu -sim --debug all
 ```
 
 > 旧 `vivado_do.tcl` 仍保留但不可用，仅供tcl命令参考

@@ -206,6 +206,33 @@ class MemoryConfig:
 
 
 @dataclass(frozen=True)
+class RtlPathsConfig:
+    """RTL sub-directory paths relative to ``dev/rtl/``.
+
+    Each field is a relative path fragment used to construct the full
+    directory path as ``{dev_dir}/rtl/{fragment}``.  Override in
+    ``vivado_config.yaml`` under the ``rtl_path`` section if the
+    project layout changes.
+    """
+
+    alu: str = "ALU"
+    mu: str = "MU"
+    fpu: str = "FPU"
+    cpu_core: str = "core"
+    common: str = "common"
+    ahb: str = "axi"
+    ahb_ip: str = "axi/ip"
+    amba: str = "AMBA"
+    ram_wrap: str = "ram_wrap"
+    apb: str = "APB"
+    apb_header: str = "APB/header"
+    apb_perips: str = "APB/perips"
+    apb_uart16550: str = "APB/perips/uart16550"
+    sys_rtl: str = ""  # dev/rtl itself (empty fragment → dev/rtl)
+    tb: str = ""  # relative to dev/ not dev/rtl/ → handled specially
+
+
+@dataclass(frozen=True)
 class GlobalConfig:
     """Top-level configuration for the vivado_core package."""
 
@@ -227,6 +254,9 @@ class GlobalConfig:
 
     memory: MemoryConfig = field(default_factory=MemoryConfig)
     """Memory and cache configuration."""
+
+    rtl_path: RtlPathsConfig = field(default_factory=RtlPathsConfig)
+    """RTL sub-directory paths (relative to dev/rtl/)."""
 
 
 # ---------------------------------------------------------------------------
@@ -363,10 +393,31 @@ def load_config(path: Path | str | None = None, base_dir: Path | str | None = No
         clk_wiz=clk_wiz,
     )
 
+    # --- rtl_path sub-dict ---
+    rtl_raw: dict = raw.get("rtl_path", {}) or {}
+    rtl_path = RtlPathsConfig(
+        alu=rtl_raw.get("alu", "ALU"),
+        mu=rtl_raw.get("mu", "MU"),
+        fpu=rtl_raw.get("fpu", "FPU"),
+        cpu_core=rtl_raw.get("cpu_core", "core"),
+        common=rtl_raw.get("common", "common"),
+        ahb=rtl_raw.get("ahb", "axi"),
+        ahb_ip=rtl_raw.get("ahb_ip", "axi/ip"),
+        amba=rtl_raw.get("amba", "AMBA"),
+        ram_wrap=rtl_raw.get("ram_wrap", "ram_wrap"),
+        apb=rtl_raw.get("apb", "APB"),
+        apb_header=rtl_raw.get("apb_header", "APB/header"),
+        apb_perips=rtl_raw.get("apb_perips", "APB/perips"),
+        apb_uart16550=rtl_raw.get("apb_uart16550", "APB/perips/uart16550"),
+        sys_rtl=rtl_raw.get("sys_rtl", ""),
+        tb=rtl_raw.get("tb", ""),
+    )
+
     return GlobalConfig(
         limits=limits,
         vivado_path=raw.get("vivado_path", _default_vivado_path()),
         proj_name=raw.get("proj_name", "simplecpu_bus"),
         device_part=raw.get("device_part", "xc7a200tfbg676-2"),
         memory=memory,
+        rtl_path=rtl_path,
     )

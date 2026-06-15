@@ -23,7 +23,7 @@ vivado_core/
 ├── sync.py       预检 + 增量/全量刷新规划
 ├── hash.py       分层哈希 (rtl/tb/src/coe/fpga)
 ├── tasks.py      任务配置 (tasks.yaml)
-├── config.py     全局配置 + 内存/Cache/DDR3/ClkWiz 配置
+├── config.py     全局配置 + 内存/Cache/DDR3/ClkWiz/RtlPaths 配置
 ├── ip_gen.py     BRAM/MIG/ClkWiz create_ip TCL 生成 + get_bram_ip_names()
 ├── cache_header_gen.py  cache_def.svh 自动生成
 ├── exceptions.py 异常层次
@@ -411,7 +411,7 @@ python -m tools.vivado_cli -task fpga -program
 ## 配置文件
 
 - **tasks.yaml** — 任务定义（项目根目录）
-- **vivado_config.yaml** — 全局配置：资源限制、Vivado 路径、器件型号、**内存/Cache/DDR3/ClkWiz 参数**
+- **vivado_config.yaml** — 全局配置：资源限制、Vivado 路径、器件型号、**内存/Cache/DDR3/ClkWiz 参数**、**RTL 子目录路径**
 
 ### limits 配置（vivado_config.yaml）
 
@@ -518,6 +518,25 @@ memory:
     clk_out2_freq: 200.0       # DDR ref clock
     clk_out3_freq: 0.0         # 0 = disabled
     reset_type: ACTIVE_LOW
+
+# RTL 子目录路径配置（相对于 dev/rtl/）
+# 修改后影响项目创建和 testbench 导入的源文件搜索路径
+rtl_path:
+  alu: ALU
+  mu: MU
+  fpu: FPU
+  cpu_core: core
+  common: common
+  ahb: axi
+  ahb_ip: axi/ip
+  amba: AMBA
+  ram_wrap: ram_wrap
+  apb: APB
+  apb_header: APB/header
+  apb_perips: APB/perips
+  apb_uart16550: APB/perips/uart16550
+  sys_rtl: ""                   # dev/rtl 根目录
+  tb: ""                        # dev/tb（相对于 dev/ 而非 dev/rtl/）
 ```
 
 ### 生成链
@@ -535,7 +554,7 @@ vivado_config.yaml
 |------|------|
 | `tools/vivado_core/ip_gen.py` | BramConfig + create_ip TCL 生成 + `get_bram_ip_names()` |
 | `tools/vivado_core/cache_header_gen.py` | `cache_def.svh` 生成（地址切片推导） |
-| `tools/vivado_core/config.py` | `MemoryConfig` 数据类 + YAML 解析 |
+| `tools/vivado_core/config.py` | `MemoryConfig` + `RtlPathsConfig` 数据类 + YAML 解析 |
 | `dev/rtl/core/cache_def.svh` | **自动生成**，勿手动编辑 |
 | `dev/rtl/soc_config.vh` | 仿真/FPGA 条件编译宏 |
 
@@ -680,8 +699,7 @@ build.yaml → test_builder.py → rv2coe.py → .coe + .hex
 | 技能 | 关系 |
 |------|------|
 | `vivado-sim-debug` | 仿真调试：`--debug` 开关启用指令追踪/流水线转储/异常追踪/Spike 对比/波形，`trace_analyzer.py` 分析日志 |
-| `vivado-xsim-simulation` | XSim 行为仿真细节：信号路径、$readmemh、BRAM 仿真模型 |
-| `rv2coe-compiler` | RISC-V 编译器：汇编/C → COE/HEX，`test_builder.py` 的底层调用 |
+| `test-builder` | 测试程序构建：`build.yaml` 声明式定义 → `test_builder.py` 批量编译 → COE/HEX，自检协议，MMU 测试约定 |
 | `coding-standards` | 编码规范：复位约定、命名、timescale |
 
 ## 退出码

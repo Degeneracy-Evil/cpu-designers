@@ -93,3 +93,26 @@ memory:
     clk_out2_freq: 100.0         # MHz, sys_clk (AXI interconnect + MIG sys_clk_i)
     clk_out3_freq: 200.0         # MHz, ddr_clk_ref → MIG clk_ref_i
     reset_type: ACTIVE_LOW
+
+# ---------------------------------------------------------------------------
+# RTL path configuration
+# Sub-directory paths relative to dev/rtl/ used by project creation
+# and testbench import.  Change these if the project directory layout
+# is restructured.
+# ---------------------------------------------------------------------------
+rtl_path:
+  alu: ALU
+  mu: MU
+  fpu: FPU
+  cpu_core: core
+  common: common
+  ahb: axi
+  ahb_ip: axi/ip
+  amba: AMBA
+  ram_wrap: ram_wrap
+  apb: APB
+  apb_header: APB/header
+  apb_perips: APB/perips
+  apb_uart16550: APB/perips/uart16550
+  sys_rtl: ""                   # dev/rtl root (empty = dev/rtl itself)
+  tb: ""                        # dev/tb (handled relative to dev/, not dev/rtl/)

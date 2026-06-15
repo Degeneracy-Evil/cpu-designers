@@ -12,7 +12,7 @@ vivado_core/          ← 核心库（无UI依赖）
 ├── sync.py           同步策略（预检 + 增量/全量刷新规划）
 ├── operations.py     高层操作（create/refresh/sim/bitstream/program/archive）
 ├── batch.py          批处理执行（ThreadPoolExecutor + 进度追踪 + 失败策略）
-├── config.py         全局配置 + 内存/Cache 配置（vivado_config.yaml）
+├── config.py         全局配置 + 内存/Cache/RtlPaths 配置（vivado_config.yaml）
 ├── ip_gen.py         配置驱动的 BRAM create_ip TCL 生成
 ├── cache_header_gen.py  cache_def.svh 自动生成（地址切片推导）
 ├── exceptions.py     异常层次（13 个异常类）
@@ -309,6 +309,25 @@ memory:
     tag_width: 7
     line_words: 8
   use_tag_bram: false
+
+# RTL 子目录路径配置（相对于 dev/rtl/）
+# 修改后影响项目创建和 testbench 导入的源文件搜索路径
+rtl_path:
+  alu: ALU
+  mu: MU
+  fpu: FPU
+  cpu_core: core
+  common: common
+  ahb: axi
+  ahb_ip: axi/ip
+  amba: AMBA
+  ram_wrap: ram_wrap
+  apb: APB
+  apb_header: APB/header
+  apb_perips: APB/perips
+  apb_uart16550: APB/perips/uart16550
+  sys_rtl: ""                   # dev/rtl 根目录
+  tb: ""                        # dev/tb（相对于 dev/ 而非 dev/rtl/）
 ```
 
 ## 配置驱动的 IP 生成

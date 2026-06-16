@@ -6,6 +6,7 @@ module fpu_unit(
     input  [6:0]  fpu_funct,    // FPU operation select
     input  [2:0]  fpu_rm,       // rounding mode (from instruction or CSR)
     input  [31:0] src1, src2,   // FPU operands (from float register file)
+    input  [31:0] src3,         // FPU operand rs3 (for FMA instructions)
     input         req_valid,
     input         flush,
     input         result_got,
@@ -40,6 +41,10 @@ module fpu_unit(
   localparam [6:0] FPU_FCVT_WU_S = 7'd17;
   localparam [6:0] FPU_FCVT_S_W  = 7'd18;
   localparam [6:0] FPU_FCVT_S_WU = 7'd19;
+  localparam [6:0] FPU_FMADD     = 7'd20;
+  localparam [6:0] FPU_FMSUB     = 7'd21;
+  localparam [6:0] FPU_FNMSUB    = 7'd22;
+  localparam [6:0] FPU_FNMADD    = 7'd23;
 
   // ===================================================================
   // Handshake registers (mirror mu_unit.sv exactly)
@@ -49,11 +54,13 @@ module fpu_unit(
   reg div_start;
   reg sqrt_start;
   reg cvt_start;
+  reg fma_start;
   reg adder_busy;
   reg mul_busy;
   reg div_busy;
   reg sqrt_busy;
   reg cvt_busy;
+  reg fma_busy;
   reg req_hold;
   reg result_valid_reg;
   reg [31:0] result_hold_reg;
@@ -63,11 +70,12 @@ module fpu_unit(
   reg [2:0]  fpu_rm_reg;
   reg [31:0] src1_reg;
   reg [31:0] src2_reg;
+  reg [31:0] src3_reg;
 
   // ===================================================================
   // Handshake logic (mirror mu_unit.sv)
   // ===================================================================
-  assign fpu_busy  = adder_busy | mul_busy | div_busy | sqrt_busy | cvt_busy;
+  assign fpu_busy  = adder_busy | mul_busy | div_busy | sqrt_busy | cvt_busy | fma_busy;
   assign fpu_ready = (~fpu_busy) & (~req_hold) & (~result_valid_reg);
 
   wire req_fire;
@@ -199,6 +207,25 @@ module fpu_unit(
       .done(cvt_done)
   );
 
+  wire [31:0] fma_result;
+  wire [4:0]  fma_fflags;
+  wire        fma_done;
+
+  fpu_fma u_fma(
+      .clk(clk),
+      .resetn(resetn),
+      .src1(src1_reg),
+      .src2(src2_reg),
+      .src3(src3_reg),
+      .fma_funct(fpu_funct_reg),
+      .rm(fpu_rm_reg),
+      .start(fma_start),
+      .flush(flush),
+      .result(fma_result),
+      .fflags(fma_fflags),
+      .done(fma_done)
+  );
+
   // ===================================================================
   // Combinational sub-module instances (use latched src1_reg/src2_reg)
   // ===================================================================
@@ -284,11 +311,13 @@ module fpu_unit(
       div_start         <= 1'b0;
       sqrt_start        <= 1'b0;
       cvt_start         <= 1'b0;
+      fma_start         <= 1'b0;
       adder_busy        <= 1'b0;
       mul_busy          <= 1'b0;
       div_busy          <= 1'b0;
       sqrt_busy         <= 1'b0;
       cvt_busy          <= 1'b0;
+      fma_busy          <= 1'b0;
       req_hold          <= 1'b0;
       result_valid_reg  <= 1'b0;
       result_hold_reg   <= 32'b0;
@@ -298,6 +327,7 @@ module fpu_unit(
       fpu_rm_reg        <= 3'b0;
       src1_reg          <= 32'b0;
       src2_reg          <= 32'b0;
+      src3_reg          <= 32'b0;
     end
     else
     begin
@@ -307,6 +337,7 @@ module fpu_unit(
       div_start   <= 1'b0;
       sqrt_start  <= 1'b0;
       cvt_start   <= 1'b0;
+      fma_start   <= 1'b0;
 
       if (flush)
       begin
@@ -315,6 +346,7 @@ module fpu_unit(
         div_busy         <= 1'b0;
         sqrt_busy        <= 1'b0;
         cvt_busy         <= 1'b0;
+        fma_busy         <= 1'b0;
         req_hold         <= 1'b0;
         result_valid_reg <= 1'b0;
         // BUG-6 fix: clear hold registers on flush to prevent stale data
@@ -387,6 +419,15 @@ module fpu_unit(
           result_valid_reg <= 1'b1;
         end
 
+        if (fma_done && fma_busy)
+        begin
+          fma_busy         <= 1'b0;
+          result_hold_reg  <= fma_result;
+          fflags_reg       <= fma_fflags;
+          rd_is_int_reg    <= 1'b0;
+          result_valid_reg <= 1'b1;
+        end
+
         // Request dispatch on req_fire
         if (req_fire)
         begin
@@ -394,6 +435,7 @@ module fpu_unit(
           fpu_rm_reg    <= fpu_rm;
           src1_reg      <= src1;
           src2_reg      <= src2;
+          src3_reg      <= src3;
 
           case (fpu_funct)
             FPU_FADD, FPU_FSUB: begin
@@ -416,6 +458,10 @@ module fpu_unit(
             FPU_FCVT_S_W, FPU_FCVT_S_WU: begin
               cvt_start <= 1'b1;
               cvt_busy  <= 1'b1;
+            end
+            FPU_FMADD, FPU_FMSUB, FPU_FNMSUB, FPU_FNMADD: begin
+              fma_start <= 1'b1;
+              fma_busy  <= 1'b1;
             end
             // Combinational operations: inputs are latched above;
             // result captured next cycle by comb_done logic below.

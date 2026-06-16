@@ -7,11 +7,12 @@ module cpu_decode(
     input      [31:0]  rs2_value,
     output     [4:0]   rs1_addr,
     output     [4:0]   rs2_addr,
+    output     [4:0]   rs3_addr,      // FMA rs3 address (inst[31:27])
     output             id_done,
     output             illegal_inst,
     output             dec_is_branch,
     output             dec_need_exe,
-    output     [343:0] id_exe_bus,
+    output     [348:0] id_exe_bus,
 
     output     [31:0]  id_pc,
     output     [31:0]  id_inst,
@@ -50,11 +51,11 @@ module cpu_decode(
   localparam OPCODE_LOAD_FP  = 7'b0000111;  // FLW
   localparam OPCODE_STORE_FP = 7'b0100111;  // FSW
   localparam OPCODE_OP_FP    = 7'b1010011;  // FADD.S/FSUB.S/FMUL.S/FDIV.S/...
+  localparam OPCODE_MADD     = 7'b1000011;  // FMADD.S (R4 format)
+  localparam OPCODE_MSUB     = 7'b1000111;  // FMSUB.S  (R4 format)
+  localparam OPCODE_NMSUB    = 7'b1001011;  // FNMSUB.S (R4 format)
+  localparam OPCODE_NMADD    = 7'b1001111;  // FNMADD.S (R4 format)
   localparam OPCODE_AMO      = 7'b0101111;  // LR.W/SC.W/AMO*.W
-  // NOTE: FMA instructions (FMADD.S/FMSUB.S/FNMSUB.S/FNMADD.S) use opcodes
-  // 1000011/1000111/1001011/1001111 (R4 format). These are intentionally NOT
-  // implemented — R4 format decode is complex and hardware area is large.
-  // They will be decoded as illegal_inst. See process/FPU-extension-process.md.
 
   wire [31:0] pc_plus4;
   wire [31:0] pc;
@@ -67,6 +68,8 @@ module cpu_decode(
   wire [4:0] rs1;
   wire [4:0] rs2;
   wire [4:0] rd;
+  wire [4:0] rs3;        // R4 format: inst[31:27] for FMA instructions
+  wire [1:0] fmt;        // R4 format: inst[26:25] (00=S, 01=D)
   wire [31:0] imm_i;
   wire [31:0] imm_s;
   wire [31:0] imm_b;
@@ -87,6 +90,10 @@ module cpu_decode(
                .immU(imm_u),
                .immJ(imm_j)
              );
+
+  // R4 format fields for FMA instructions
+  assign rs3 = inst[31:27];   // top 5 bits = rs3 in R4 format
+  assign fmt = inst[26:25];   // fmt field: 00=S (single), 01=D (double)
 
   wire inst_lui;
   wire inst_auipc;
@@ -212,6 +219,12 @@ module cpu_decode(
   wire inst_fmv_x_w   = (opcode == OPCODE_OP_FP) && (funct7 == 7'b1110000) && (funct3 == 3'b000) && (rs2 == 5'd0);
   wire inst_fmv_w_x   = (opcode == OPCODE_OP_FP) && (funct7 == 7'b1111000) && (funct3 == 3'b000) && (rs2 == 5'd0);
 
+  // FMA instructions (R4 format): fmt must be S (00) for single-precision
+  wire inst_fmadd_s  = (opcode == OPCODE_MADD)  && (fmt == 2'b00);
+  wire inst_fmsub_s  = (opcode == OPCODE_MSUB)  && (fmt == 2'b00);
+  wire inst_fnmsub_s = (opcode == OPCODE_NMSUB) && (fmt == 2'b00);
+  wire inst_fnmadd_s = (opcode == OPCODE_NMADD) && (fmt == 2'b00);
+
   // A extension instruction matches
   wire [4:0] funct5;
   wire amo_aq;
@@ -302,7 +315,8 @@ wire inst_amomaxu  = (opcode == OPCODE_AMO) && (funct3 == 3'b010) && (funct5 == 
                 inst_fmin_s | inst_fmax_s | inst_fsgnj_s | inst_fsgnjn_s | inst_fsgnjx_s |
                 inst_feq_s | inst_flt_s | inst_fle_s | inst_fclass_s |
                 inst_fmv_x_w | inst_fmv_w_x |
-                inst_fcvt_w_s | inst_fcvt_wu_s | inst_fcvt_s_w | inst_fcvt_s_wu;
+                inst_fcvt_w_s | inst_fcvt_wu_s | inst_fcvt_s_w | inst_fcvt_s_wu |
+                inst_fmadd_s | inst_fmsub_s | inst_fnmsub_s | inst_fnmadd_s;
   wire is_flw = inst_flw;
   wire is_fsw = inst_fsw;
 
@@ -334,6 +348,10 @@ wire inst_amomaxu  = (opcode == OPCODE_AMO) && (funct3 == 3'b010) && (funct5 == 
                      inst_fcvt_wu_s? 7'd17 :
                      inst_fcvt_s_w ? 7'd18 :
                      inst_fcvt_s_wu? 7'd19 :
+                     inst_fmadd_s  ? 7'd20 :
+                     inst_fmsub_s  ? 7'd21 :
+                     inst_fnmsub_s ? 7'd22 :
+                     inst_fnmadd_s ? 7'd23 :
                      7'd0;
 
   wire [2:0] fpu_rm = funct3;  // DYN (111) resolved in execute using CSR frm
@@ -572,6 +590,7 @@ wire inst_amomaxu  = (opcode == OPCODE_AMO) && (funct3 == 3'b010) && (funct5 == 
                                       satp_tvm_violation);
   assign rs1_addr = rs1;
   assign rs2_addr = rs2;
+  assign rs3_addr = rs3;
   assign dec_is_branch = id_valid && valid_inst && is_branch;
   assign dec_need_exe = id_valid && valid_inst && !is_nop_like && !is_fencei && !is_sfence_vma && !is_system_trap && !is_mret && !is_sret && !is_csr;
 
@@ -629,7 +648,9 @@ wire inst_amomaxu  = (opcode == OPCODE_AMO) && (funct3 == 3'b010) && (funct5 == 
            is_sc,          // 1 bit
            funct5,         // 5 bits (amo_funct5)
            amo_aq,         // 1 bit
-           amo_rl          // 1 bit
+           amo_rl,         // 1 bit
+           // --- FMA rs3 ---
+           rs3             // 5 bits (rs3 addr for FMA R4 format)
          };
 
   assign id_pc = pc;

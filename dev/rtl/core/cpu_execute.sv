@@ -5,11 +5,12 @@ module cpu_execute(
     input              clk,
     input              resetn,
     input              exe_valid,
-    input      [343:0] id_exe_bus_r,
+    input      [348:0] id_exe_bus_r,
     input      [31:0]  csr_rdata,
     input      [2:0]   csr_frm,        // CSR frm for DYN rounding mode
     input      [31:0]  frs1_value,     // float register rs1 value
     input      [31:0]  frs2_value,     // float register rs2 value
+    input      [31:0]  frs3_value,     // float register rs3 value (FMA)
     input              trap_pending,   // BUG-16: flush MU/FPU on pending trap
     output             exe_done,
     output     exe_mem_bus_t exe_mem_bus,
@@ -74,6 +75,7 @@ module cpu_execute(
     wire [4:0]  amo_funct5;
     wire        amo_aq;
     wire        amo_rl;
+    wire [4:0]  rs3_addr;      // FMA rs3 address
 
     assign {
         pc_plus4,
@@ -118,7 +120,9 @@ module cpu_execute(
         is_sc,
         amo_funct5,
         amo_aq,
-        amo_rl
+        amo_rl,
+        // FMA rs3
+        rs3_addr
     } = id_exe_bus_r;
 
     wire is_jalr;
@@ -201,6 +205,7 @@ module cpu_execute(
         .fpu_rm(fpu_rm_resolved),
         .src1(fpu_src1_mux),
         .src2(frs2_value),
+        .src3(frs3_value),          // rs3 for FMA instructions
         .req_valid(fpu_req_valid),
         .flush(exe_flush),
         .result_got(fpu_result_got),

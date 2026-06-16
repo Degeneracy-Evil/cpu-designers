@@ -16,6 +16,7 @@
 | Phase 6 | FPU 单元测试 | ✅ 完成 | 2026-06-05 |
 | Phase 7 | 计算器应用 | ✅ 完成 | 2026-06-05 |
 | Phase 8 | 计算器测试 | ✅ 完成 | 2026-06-05 |
+| Phase 9 | FMA 融合乘加指令 | ✅ 完成 | 2026-06-16 |
 
 ---
 
@@ -54,7 +55,7 @@
 | 3.1 | cpu_decode: opcode 识别 | ✅ | LOAD-FP/STORE-FP/OP-FP |
 | 3.2 | cpu_decode: funct5+fmt+rm 译码 | ✅ | 20 条 FPU 指令 |
 | 3.3 | cpu_decode: ID/EX 总线扩展 | ✅ | 320→334 bits |
-| 3.4 | cpu_decode: 操作数选择 | ✅ | |
+| 3.4 | cpu_decode: 操作数选择 | ✅ | rs3 (R4 format) for FMA |
 | 3.5 | cpu_execute: FPU 请求/等待 | ✅ | 握手协议与 MU 一致 |
 | 3.6 | cpu_execute: EX/MEM 总线扩展 | ✅ | 207→216 bits |
 | 3.7 | cpu_mem: FLW/FSW | ✅ | 复用整数 load/store |
@@ -63,12 +64,18 @@
 | 3.10 | cpu_controller: FPU 等待 | ✅ | fpu_active 互斥 |
 | 3.11 | core_top: 实例化 fpu_unit | ✅ | 在 cpu_execute 中实例化 |
 | 3.12 | core_top: 浮点寄存器读端口 | ✅ | frs1/frs2 直传 execute |
+| 3.13 | cpu_decode: FMA R4 译码 | ✅ | FMADD/FMSUB/FNMSUB/FNMADD opcode+fmt+rs3 |
+| 3.14 | fpu_regfile: 第三读端口 | ✅ | raddr3/rdata3 for rs3 |
+| 3.15 | ID/EX 总线: rs3 扩展 | ✅ | 344→349 bits (rs3_addr 5 bits) |
+| 3.16 | core_top: frs3 数据通路 | ✅ | frs3_addr→fpu_regfile.raddr3, frs3_value→cpu_execute |
+| 3.17 | fpu_unit: FMA dispatch | ✅ | fma_start/fma_busy, src3→fpu_fma |
+| 3.18 | fpu_fma.sv | ✅ | 867 行, 6-stage FSM, 48-bit product, 75-bit aligned field, 单次舍入 |
 
 ## Phase 4: 浮点指令 ISA 测试
 
 | 步骤 | 内容 | 状态 | 备注 |
 |------|------|------|------|
-| 4.1 | f_ext.s 测试程序 | ✅ | 26 个子测试覆盖全部 20 条 FPU 指令 |
+| 4.1 | f_ext.s 测试程序 | ✅ | 30 个子测试覆盖全部 24 条 FPU 指令 (含 FMA) |
 | 4.2 | tests.yaml 注册 | ✅ | arch=rv32imf_zicsr_zifencei, abi=ilp32 |
 | 4.3 | tb_isa_f_ext.sv | ✅ | 100000 周期, x28/x29/x30 框架 |
 | 4.4 | tasks.yaml 任务 | ✅ | isa_f_ext 任务 |
@@ -142,6 +149,10 @@
 | 2026-06-05 | calculator (rv2coe .rodata 修复前) | 0 bytes | uart_puts 读到全零 (字符串在 .rodata, 未包含在 COE) |
 | 2026-06-05 | calculator (rv2coe .rodata 修复后, NUL 修复前) | 2/5 pass | NUL 污染: expr 尾部 8'h0 残留 RX 缓冲区, gets() 首字符为 \0 |
 | 2026-06-05 | calculator (全部修复后) | **5/5 ALL TESTS PASSED** | 1+2=3, 3*4=12, 10-3=7, 8/2=4, sqrt(4)=2 ✅ |
+| 2026-06-16 | isa_f_ext (FMA 实现后) | **30/30 pass** | 新增 test_27~30: FMADD/FMSUB/FNMSUB/FNMADD ✅ |
+| 2026-06-16 | isa_f_ext_special (FMA 回归) | **24/24 pass** | 无回归 ✅ |
+| 2026-06-16 | ISA 全回归 (10 任务) | **全 PASS** | isa_alu/branch/csr/m_ext/f_ext/f_ext_special/a_ext/upper_imm/memory/jump ✅ |
+| 2026-06-16 | MMU 全回归 (4 任务) | **全 PASS** | mmu_tlb_flush/megapage/stress/unified_mmu ✅ |
 
 ---
 
@@ -152,7 +163,7 @@
 | 2026-06-04 | BUG 1: fflags 软件写与硬件 OR 冲突 | cpu_csr.sv | 引入 fflags_sw_new/fflags_sw_wen 中间变量, 合并写逻辑: sw+hw 同时发生时先写软件值再 OR 硬件异常 | ✅ 已修复 |
 | 2026-06-04 | BUG 2: FLW 双写整数+浮点寄存器 | cpu_wb.sv | rf_wen 条件增加 `!is_flw`, FLW 只写浮点寄存器 | ✅ 已修复 |
 | 2026-06-04 | BUG 3+4: FMV.W.X/FCVT.S.W 源操作数错误 | cpu_execute.sv | 添加 fpu_src_is_int 判断 + fpu_src1_mux, int→float 指令选择 rs1_value | ✅ 已修复 |
-| 2026-06-04 | BUG 5: FMA 未实现 | cpu_decode.sv | 添加明确注释说明为设计决策, 非缺陷 | ✅ 已注释 |
+| 2026-06-04 | FMA 未实现 | cpu_decode.sv | 添加明确注释说明为设计决策, 非缺陷 | ✅ 已实现 (Phase 9) |
 | 2026-06-04 | BUG 6: f0 硬连线零 | fpu_regfile.sv | 保持现状 (设计选择), 严格合规可后续修复 | ⬜ 低优先级 |
 | 2026-06-04 | BUG 7: FCVT.S.W i_mant_overflow 恒为 1 | fpu_cvt.sv | 将 24 位加法扩展为 25 位, 用 bit[24] 作为真正的进位输出; 旧代码 `{1'b1,i_frac_r}+round_up` 的 bit[23] 始终为 1 (隐含前导 1), 导致指数恒 +1, 结果为正确值的 2 倍 | ✅ 已修复 |
 | 2026-06-04 | BUG 8: FLW/FSW 地址计算错误 | cpu_decode.sv | alu_src2 增加 `is_flw→imm_i, is_fsw→imm_s`; alu_control ADD 路径增加 `is_flw|is_fsw`; 旧代码 FLW/FSW 未包含在 ALU 路径中, alu_control=0 导致 ALU 输出全零, 地址恒为 0 | ✅ 已修复 |
@@ -171,7 +182,7 @@
 | 日期 | 问题 | 决策 | 理由 |
 |------|------|------|------|
 | 2026-06-03 | 是否实现 D 扩展? | 暂不实现，仅实现 F 扩展 | XLEN=32，D 需 FLEN=64，工作量翻倍且计算器不需要双精度 |
-| 2026-06-03 | 是否实现 FMA 指令? | 暂不实现 | R4 格式译码复杂，硬件面积大，计算器非必需 |
+| 2026-06-03 | 是否实现 FMA 指令? | 暂不实现 → Phase 9 实现 | R4 格式译码复杂，硬件面积大；后因完整性需求实现 |
 | 2026-06-03 | FSQRT.S 是否实现? | 实现 | 硬件开销可控，计算器 sqrt 功能需要 |
 | 2026-06-03 | FPU 多周期还是单周期? | 多周期 (与 MU 单元一致) | 浮点除法/平方根需多周期，统一握手协议 |
 | 2026-06-03 | f0 是否硬连线零? | 硬连线零 (与 x0 一致) | 简化设计, 编译器通常不使用 f0 作为通用寄存器 |
@@ -189,3 +200,30 @@
 | 2026-06-05 | printf 是否支持 %f? | 不支持, 用 print_float() | float 在可变参数中提升为 double (C 标准), 但无 D 扩展; print_float() 直接调用 ftoa() 避免 double 提升 |
 | 2026-06-05 | rv2coe 统一输出段范围? | 包含所有可加载段 | CPU 单 BRAM 需同时包含 .text 和 .rodata; 旧版仅提取 .text 导致字符串常量丢失 |
 | 2026-06-05 | testbench 表达式是否含 NUL? | 不含, 仅 newline 终止 | TX 引擎按 EXPRx_LEN 发送字节; 尾部 NUL 会被发送并残留在 RX 缓冲区, 污染下次 gets() 读取 |
+
+---
+
+## Phase 9: FMA 融合乘加指令
+
+| 步骤 | 内容 | 状态 | 备注 |
+|------|------|------|------|
+| 9.1 | fpu_fma.sv 设计与实现 | ✅ | 867 行, 6-stage FSM (S_MUL→S_ALIGN→S_ADD→S_NORM→S_ROUND→S_DONE) |
+| 9.2 | fpu_regfile.sv 第三读端口 | ✅ | raddr3/rdata3 for rs3 (R4 format inst[31:27]) |
+| 9.3 | cpu_decode.sv FMA 译码 | ✅ | OPCODE_MADD/MSUB/NMSUB/NMADD, inst_fmadd_s/fmsub_s/fnmsub_s/fnmadd_s, fpu_funct 20-23 |
+| 9.4 | ID/EX 总线 rs3 扩展 | ✅ | 344→349 bits, 末尾 5 bits 为 rs3_addr |
+| 9.5 | cpu_execute.sv frs3_value | ✅ | 新输入端口, 直传 fpu_unit.src3 |
+| 9.6 | core_top.sv frs3 数据通路 | ✅ | frs3_addr=cpu_decode.rs3_addr→fpu_regfile.raddr3, frs3_value=fpu_regfile.rdata3→cpu_execute |
+| 9.7 | fpu_unit.sv FMA dispatch | ✅ | fma_start/fma_busy, fpu_funct 20-23→fma_start, src3_reg→fpu_fma.src3 |
+| 9.8 | cpu_csr_interface.sv + cpu_trap_csr.sv | ✅ | ID/EX 总线宽度 344→349, 硬编码位索引 +5 |
+| 9.9 | isa_f_ext.s FMA 测试 | ✅ | test_27~30: FMADD(2×3+4=10), FMSUB(2×3-4=2), FNMSUB(-2×3+10=4), FNMADD(-2×3-4=-10) |
+| 9.10 | 仿真验证 + 回归 | ✅ | isa_f_ext 30/30, isa_f_ext_special 24/24, ISA 10 任务全 PASS, MMU 4 任务全 PASS |
+
+### fpu_fma.sv 设计要点
+
+- **内部表示宽度 75 位**: 乘积 48 位放置于 field[74:27], 加数对齐至同域, 二进制小数点在 bit 73
+- **乘积使用 `*` 运算符**: Vivado DSP48 自动推断
+- **有效符号**: `prod_sign_eff = (sign1^sign2) ^ (FNMSUB|FNMADD)`, `addend_sign_eff = sign3 ^ (FMSUB|FNMADD)`
+- **三级进位归一化**: carry2 (bit 75, sum≥4.0) → exp+2; carry1 (bit 74, sum∈[2.0,4.0)) → exp+1; 无进位 → 左移归一化, exp-lz+2
+- **单次舍入**: 乘积与加数对齐后仅做一次 fpu_round, 符合 IEEE 754 融合运算语义
+- **特殊情况**: NaN→qNaN, Inf×0→qNaN, Inf-Inf→qNaN, Inf→带符号 Inf
+- **ID/EX 总线**: rs3_addr 占用末尾 5 bits, 所有现有字段位索引 +5

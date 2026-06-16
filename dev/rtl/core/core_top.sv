@@ -130,12 +130,12 @@ module core_top(
     wire [31:0] exe_misalign_target;
 
     wire [95:0]  if_id_bus;
-    wire [343:0] id_exe_bus;
+    wire [348:0] id_exe_bus;
     exe_mem_bus_t exe_mem_bus;
     wb_bus_t      mem_wb_bus;
 
     reg [95:0]  if_id_bus_r;
-    reg [343:0] id_exe_bus_r;
+    reg [348:0] id_exe_bus_r;
     exe_mem_bus_t exe_mem_bus_r;
     wb_bus_t      mem_wb_bus_r;
 
@@ -188,10 +188,12 @@ module core_top(
     wire wb_is_jal_like;
 
     // Float register file
-    wire [4:0]  frs1_addr;
-    wire [4:0]  frs2_addr;
-    wire [31:0] frs1_value;
-    wire [31:0] frs2_value;
+  wire [4:0]  frs1_addr;
+  wire [4:0]  frs2_addr;
+  wire [4:0]  frs3_addr;
+  wire [31:0] frs1_value;
+  wire [31:0] frs2_value;
+  wire [31:0] frs3_value;
     wire        fp_wen;
     wire [4:0]  fp_waddr;
     wire [31:0] fp_wdata;
@@ -206,7 +208,7 @@ module core_top(
     wire [31:0] wb_pc_plus4;
 
     assign id_pc_plus4  = if_id_bus_r[95:64];
-    assign exe_pc_plus4 = id_exe_bus_r[343:312];
+    assign exe_pc_plus4 = id_exe_bus_r[348:317];
     assign wb_pc_plus4  = mem_wb_bus_r.pc_plus4;
 
     wire [31:0] actual_rf_wdata;
@@ -289,7 +291,7 @@ module core_top(
             pc <= 32'hFC000000;  // Boot ROM @ 0xFC00_0000 (both sim and FPGA)
             priv_mode <= PRIV_M;
             if_id_bus_r <= 96'b0;
-            id_exe_bus_r <= 344'b0;
+            id_exe_bus_r <= 349'b0;
             exe_mem_bus_r <= '0;
             mem_wb_bus_r <= '0;
         end else begin
@@ -548,6 +550,7 @@ module core_top(
         .rs2_value(rs2_value),
         .rs1_addr(rs1_addr),
         .rs2_addr(rs2_addr),
+        .rs3_addr(frs3_addr),
         .id_done(id_done),
         .illegal_inst(dec_illegal),
         .dec_is_branch(dec_is_branch),
@@ -572,6 +575,7 @@ module core_top(
     );
 
     // Float register addresses: same as integer rs1/rs2 for FPU instructions
+    // frs3_addr comes from cpu_decode rs3 output (inst[31:27] for FMA R4 format)
     assign frs1_addr = rs1_addr;
     assign frs2_addr = rs2_addr;
 
@@ -584,6 +588,7 @@ module core_top(
         .csr_frm(csr_frm),
         .frs1_value(frs1_value),
         .frs2_value(frs2_value),
+        .frs3_value(frs3_value),
         .trap_pending(trap_pending),
         .exe_done(exe_done),
         .exe_mem_bus(exe_mem_bus),
@@ -738,10 +743,12 @@ module core_top(
         .wen(fp_wen),
         .raddr1(frs1_addr),
         .raddr2(frs2_addr),
+        .raddr3(frs3_addr),
         .waddr(fp_waddr),
         .wdata(fp_wdata),
         .rdata1(frs1_value),
         .rdata2(frs2_value),
+        .rdata3(frs3_value),
         .dbg_faddr(rf_addr),
         .dbg_fdata(fp_dbg_data)
     );

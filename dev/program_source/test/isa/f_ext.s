@@ -3,8 +3,9 @@
 # 类别:   ISA
 # 描述:   测试 F 扩展指令 (FADD/FSUB/FMUL/FDIV/FSQRT/FMIN/FMAX/
 #         FSGNJ/FSGNJN/FSGNJX/FEQ/FLT/FLE/FCLASS/FMV.W.X/FMV.X.W/
-#         FCVT.S.W/FCVT.S.WU/FCVT.W.S/FCVT.WU.S/FLW/FSW)
-# 子测试: 26
+#         FCVT.S.W/FCVT.S.WU/FCVT.W.S/FCVT.WU.S/FLW/FSW/
+#         FMADD.S/FMSUB.S/FNMSUB.S/FNMADD.S)
+# 子测试: 30
 # 依赖:   framework/test_framework.s, framework/trap_handlers.s
 # ============================================================
 #
@@ -82,6 +83,14 @@ _start:
     la   x11, test_25_fdiv_round
     jal  x1, test_run
     la   x11, test_26_fsqrt_zero
+    jal  x1, test_run
+    la   x11, test_27_fmadd
+    jal  x1, test_run
+    la   x11, test_28_fmsub
+    jal  x1, test_run
+    la   x11, test_29_fnmsub
+    jal  x1, test_run
+    la   x11, test_30_fnmadd
     jal  x1, test_run
 
     # ── 报告结果 ──
@@ -407,4 +416,63 @@ test_26_fsqrt_zero:
     fmv.w.x f10, x0           # f10 = 0.0 (from x0 = 0)
     fsqrt.s f12, f10, rne
     feq.s x10, f12, f10       # sqrt(0.0) == 0.0
+    ret
+
+# Test 27: FMADD.S — (2.0 × 3.0) + 4.0 = 10.0
+#   10.0 = 0x41200000
+test_27_fmadd:
+    lui  x14, 0x40000         # 2.0
+    fmv.w.x f10, x14
+    lui  x14, 0x40400         # 3.0
+    fmv.w.x f11, x14
+    lui  x14, 0x40800         # 4.0
+    fmv.w.x f12, x14
+    fmadd.s f13, f10, f11, f12, rne  # (2.0 * 3.0) + 4.0 = 10.0
+    lui  x14, 0x41200         # 10.0 = 0x41200000
+    fmv.w.x f15, x14
+    feq.s x10, f13, f15
+    ret
+
+# Test 28: FMSUB.S — (2.0 × 3.0) - 4.0 = 2.0
+test_28_fmsub:
+    lui  x14, 0x40000         # 2.0
+    fmv.w.x f10, x14
+    lui  x14, 0x40400         # 3.0
+    fmv.w.x f11, x14
+    lui  x14, 0x40800         # 4.0
+    fmv.w.x f12, x14
+    fmsub.s f13, f10, f11, f12, rne  # (2.0 * 3.0) - 4.0 = 2.0
+    lui  x14, 0x40000         # 2.0
+    fmv.w.x f15, x14
+    feq.s x10, f13, f15
+    ret
+
+# Test 29: FNMSUB.S — -(2.0 × 3.0) + 10.0 = 4.0
+#   FNMSUB computes -(rs1×rs2) + rs3 = -6.0 + 10.0 = 4.0
+test_29_fnmsub:
+    lui  x14, 0x40000         # 2.0
+    fmv.w.x f10, x14
+    lui  x14, 0x40400         # 3.0
+    fmv.w.x f11, x14
+    lui  x14, 0x41200         # 10.0
+    fmv.w.x f12, x14
+    fnmsub.s f13, f10, f11, f12, rne  # -(2.0*3.0) + 10.0 = 4.0
+    lui  x14, 0x40800         # 4.0
+    fmv.w.x f15, x14
+    feq.s x10, f13, f15
+    ret
+
+# Test 30: FNMADD.S — -(2.0 × 3.0) - 4.0 = -10.0
+#   FNMADD computes -(rs1×rs2) - rs3 = -6.0 - 4.0 = -10.0
+test_30_fnmadd:
+    lui  x14, 0x40000         # 2.0
+    fmv.w.x f10, x14
+    lui  x14, 0x40400         # 3.0
+    fmv.w.x f11, x14
+    lui  x14, 0x40800         # 4.0
+    fmv.w.x f12, x14
+    fnmadd.s f13, f10, f11, f12, rne  # -(2.0*3.0) - 4.0 = -10.0
+    lui  x14, 0xC1200         # -10.0 = 0xC1200000
+    fmv.w.x f15, x14
+    feq.s x10, f13, f15
     ret

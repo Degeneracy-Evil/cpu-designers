@@ -13,7 +13,7 @@
 module tb_isa_f_ext;
 
     // ── 参数 ──
-    localparam integer EXPECTED_TOTAL = 26;
+    localparam integer EXPECTED_TOTAL = 30;
     localparam integer SIM_CYCLES    = 100000;
 
 

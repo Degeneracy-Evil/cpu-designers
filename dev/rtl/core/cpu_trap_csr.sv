@@ -30,6 +30,7 @@ module cpu_trap_csr(
     input  [1:0]  priv_mode,
 
     input         ext_meip_in,
+    input         ext_seip_in,
     input         timer_irq,
     input         ext_msip_in,
     input  [63:0] ext_mtime,
@@ -224,6 +225,7 @@ module cpu_trap_csr(
         .hw_sstatus_wdata (hw_sstatus_wdata),
         .timer_irq        (timer_irq),
         .ext_meip_in      (ext_meip_in),
+        .ext_seip_in      (ext_seip_in),
         .ext_msip_in      (ext_msip_in),
         .ext_mtime        (ext_mtime),
         .cycle_en         (cycle_en),

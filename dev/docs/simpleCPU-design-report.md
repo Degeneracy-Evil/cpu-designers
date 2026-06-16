@@ -239,17 +239,17 @@ fpu_unit
 
 #### 2.2.4 PLIC 寄存器映射
 
-基地址：`0x0C00_0000`，AXI4-Lite，支持 8 个中断源（NUM_SRC=8）：
+基地址：`0x0C00_0000`，AXI4-Lite，支持 8 个中断源（NUM_SRC=8），双上下文（NUM_CTX=2）：
 
 | 偏移 | 名称 | 读/写 | 说明 |
 |------|------|-------|------|
-| 0x00 ~ 0x1C | priority[0:7] | RW | 每源优先级（4 字节对齐，addr[7:2] 索引） |
-| 0x400 ~ 0x41F | pending[0:7] | R | 每源挂起状态（只读，硬件置位） |
-| 0x800 | enable | RW | 中断使能掩码（32-bit，每源 1 位） |
-| 0x200_000 | threshold | RW | 优先级阈值（仅优先级 > threshold 的中断可_claim） |
-| 0x200_004 | claim/complete | RW | 声明最高优先级中断（读返回 ID，写完成处理） |
+| 0x000000 ~ 0x00001C | priority[0:7] | RW | 每源优先级（4 字节对齐，addr[7:2] 索引） |
+| 0x001000 | pending | R | 中断挂起状态（32-bit，只读，硬件置位） |
+| 0x002000 + N×0x80 | enable[ctx N] | RW | 中断使能掩码（32-bit，每源 1 位），N=0:M-mode, N=1:S-mode |
+| 0x200000 + N×0x1000 | threshold[ctx N] | RW | 优先级阈值（仅优先级 > threshold 的中断可 claim） |
+| 0x200004 + N×0x1000 | claim/complete[ctx N] | RW | 声明最高优先级中断（读返回 ID，写完成处理） |
 
-> PLIC 中断路由：src[1]=Timer, src[2]=UART, src[3]=SPI, src[4]=GPIO。8 个中断源，优先级 0-7。Context 0: M-mode，Context 1: S-mode。
+> PLIC 中断路由：src[1]=Timer, src[2]=UART, src[3]=SPI, src[4]=GPIO。8 个中断源，优先级 0-7。Context 0: M-mode (o_eip[0]→mip[11])，Context 1: S-mode (o_eip[1]→mip[9])。SiFive 标准地址布局，Linux irq-sifive-plic.c 驱动可直接使用。
 
 #### 2.2.5 APB 外设地址子译码
 

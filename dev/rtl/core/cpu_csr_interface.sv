@@ -25,6 +25,7 @@ module cpu_csr_interface(
 
     input         timer_irq,
     input         ext_meip_in,
+    input         ext_seip_in,
     input         ext_msip_in,
     input  [63:0] ext_mtime,
 
@@ -171,6 +172,7 @@ module cpu_csr_interface(
         .hw_stval_wdata(hw_stval_wdata),
         .hw_sstatus_wdata(hw_sstatus_wdata),
         .ext_meip(ext_meip_in),
+        .ext_seip(ext_seip_in),
         .ext_mtip(timer_irq),
         .ext_msip(ext_msip_in),
         .ext_mtime(ext_mtime),

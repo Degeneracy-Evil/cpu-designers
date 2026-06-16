@@ -815,6 +815,44 @@ class Operations:
             return ""
         return _tcl_path(self.session_mgr.base_dir / "dev" / "program_source" / hex_rel)
 
+    def _check_required_files(self, task: TaskConfig) -> str:
+        """Pre-check that COE and HEX files referenced by the task exist on disk.
+
+        Returns an error message string if any file is missing, or empty string
+        if all files are present.  The message includes the task name, missing
+        file path, and the command to generate it.
+        """
+        base = self.session_mgr.base_dir / "dev" / "program_source"
+        missing = []
+
+        if task.coe:
+            coe_path = base / task.coe
+            if not coe_path.exists():
+                missing.append(("COE", task.coe, coe_path))
+
+        hex_rel = ""
+        if task.hex_file:
+            hex_rel = task.hex_file
+        elif task.coe and task.coe.endswith(".coe"):
+            hex_rel = task.coe[:-4] + ".hex"
+        if hex_rel:
+            hex_path = base / hex_rel
+            if not hex_path.exists():
+                missing.append(("HEX", hex_rel, hex_path))
+
+        if not missing:
+            return ""
+
+        lines = [f"Task '{task.name}' references missing file(s):"]
+        for kind, rel, abs_path in missing:
+            lines.append(f"  {kind}: {rel}  (not found at {abs_path})")
+        lines.append(
+            "Fix: build the test program first, e.g.\n"
+            "  python -m tools.test_builder --category <category>\n"
+            "  python -m tools.test_builder --app <app_name>"
+        )
+        return "\n".join(lines)
+
     def _update_hashes(self, session: Session) -> None:
         """Recompute and persist the current source hashes."""
         session.meta.hashes = self.layered_hash.compute_current()
@@ -898,6 +936,11 @@ class Operations:
         ExecuteResult
         """
         self._ensure_vivado(session)
+
+        # Pre-check: COE/HEX files must exist before creating the project.
+        file_err = self._check_required_files(task)
+        if file_err:
+            return ExecuteResult(output=file_err, success=False, timed_out=False, duration=0.0)
 
         # Regenerate cache_def.svh from current config before creating project.
         self._regenerate_cache_header()
@@ -1122,6 +1165,11 @@ class Operations:
         """
         self._preflight(session, "sim")
         self._ensure_vivado(session)
+
+        # Pre-check: COE/HEX files must exist for simulation to work.
+        file_err = self._check_required_files(task)
+        if file_err:
+            return ExecuteResult(output=file_err, success=False, timed_out=False, duration=0.0)
 
         sim_runtime = runtime or task.runtime or "100000ns"
         base = _tcl_path(self.session_mgr.base_dir)

@@ -70,6 +70,7 @@ module core_top(
     input         init_sig,
     input         timer_irq,
     input         ext_meip_in,
+    input         ext_seip_in,
     input         ext_msip_in,
     input  [63:0] ext_mtime
 );
@@ -777,6 +778,7 @@ module core_top(
         .priv_mode        (priv_mode),
         .timer_irq        (timer_irq),
         .ext_meip_in      (ext_meip_in),
+        .ext_seip_in      (ext_seip_in),
         .ext_msip_in      (ext_msip_in),
         .ext_mtime        (ext_mtime),
         .current_pc       (pc),

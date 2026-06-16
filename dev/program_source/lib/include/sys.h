@@ -73,6 +73,16 @@ static inline void halt(void)
 #define CLINT_MTIMECMP  0x4000U      /* mtimecmp: 64-bit timer compare (lo at +0, hi at +4) */
 #define CLINT_MTIME     0xBFF8U      /* mtime: 64-bit timer count (lo at +0, hi at +4) */
 
+/* PLIC register offsets — Standard SiFive PLIC layout (dual-context) */
+#define PLIC_PRIORITY   0x000000U    /* Priority[src]: base + src*4 */
+#define PLIC_PENDING    0x001000U    /* Pending bits */
+#define PLIC_ENABLE     0x002000U    /* Enable[ctx N]: base + N*0x80 */
+#define PLIC_THRESHOLD  0x200000U    /* Threshold[ctx N]: base + N*0x1000 */
+#define PLIC_CLAIM      0x200004U    /* Claim/Complete[ctx N]: base + N*0x1000 */
+/* Context 0 = M-mode, Context 1 = S-mode */
+#define PLIC_CTX_STRIDE_EN   0x80U   /* Enable context stride */
+#define PLIC_CTX_STRIDE_TH   0x1000U /* Threshold/Claim context stride */
+
 #define APB_BASE        0x10000000U
 #define BOOTROM_BASE    0xFC000000U
 #define SYS_STATUS_BASE 0x04000000U

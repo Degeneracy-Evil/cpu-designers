@@ -169,15 +169,30 @@ Linux 标准 CLINT 驱动（sifive_clint）可直接使用。
 
 | 项目 | 检查结果 | 证据/备注 |
 |------|---------|-----------|
-| 外部中断控制器 | ✅ | PLIC 8 源中断控制器（`axi4lite_plic.sv`），0x0C00_0000 |
-| MEIP | ✅ | Machine external interrupt 可触发 |
-| SEIP | ✅ | 通过 mideleg 委托 |
-| priority | ✅ | 每源 4 字节优先级寄存器 |
-| pending | ✅ | 只读挂起状态 |
-| enable | ✅ | 32-bit 使能掩码 |
-| threshold | ✅ | 优先级阈值寄存器 |
-| claim/complete | ✅ | claim 返回最高优先级中断号并原子清除 pending + 禁用 gateway；complete 重新使能 gateway |
+| 外部中断控制器 | ✅ | PLIC 8 源中断控制器（`axi4lite_plic.sv`），0x0C00_0000，SiFive 标准地址布局 |
+| MEIP | ✅ | Context 0 (M-mode) EIP → ext_meip_in → mip[11] |
+| SEIP | ✅ | Context 1 (S-mode) EIP → ext_seip_in → mip[9]，无需仅靠 mideleg 委托 |
+| priority | ✅ | 每源 4 字节优先级寄存器，偏移 0x000000+S×4 |
+| pending | ✅ | 只读挂起状态，偏移 0x001000 |
+| enable | ✅ | 每上下文 32-bit 使能掩码，ctx N 偏移 0x002000+N×0x80 |
+| threshold | ✅ | 每上下文优先级阈值，ctx N 偏移 0x200000+N×0x1000 |
+| claim/complete | ✅ | claim 返回最高优先级中断号并原子清除 pending + 禁用 gateway；complete 重新使能 gateway。ctx N 偏移 0x200004+N×0x1000 |
+| 双上下文 | ✅ | NUM_CTX=2：ctx0=M-mode (o_eip[0])，ctx1=S-mode (o_eip[1]) |
 | Device Tree 描述 | ❌ | DTB 尚未创建 |
+
+**PLIC 寄存器布局（SiFive 标准布局，已实现）**：
+
+```
+基地址：0x0C00_0000
+  Priority[src]:    0x000000 + src*4   (src 0-7, src 0 保留)
+  Pending:          0x001000
+  Enable[ctx N]:    0x002000 + N*0x80  (ctx 0=M-mode, ctx 1=S-mode)
+  Threshold[ctx N]: 0x200000 + N*0x1000
+  Claim[ctx N]:     0x200004 + N*0x1000
+
+地址译码使用 addr[23:0]（16MB PLIC 窗口）。
+Linux 标准 PLIC 驱动（irq-sifive-plic.c）可直接使用。
+```
 
 **PLIC 中断源映射**：
 
@@ -190,7 +205,14 @@ Linux 标准 CLINT 驱动（sifive_clint）可直接使用。
 | 4 | GPIO |
 | 5-7 | 保留（未使用） |
 
-**注意**：PLIC 为单 context（单 hart），对单核 Linux 足够，SMP 需扩展。
+**PLIC 双上下文 EIP 路由**：
+
+```
+u_plic.o_eip[0] → plic_eip[0] → 2-flop CDC → ext_meip_in → mip[11] (MEIP)
+u_plic.o_eip[1] → plic_eip[1] → 2-flop CDC → ext_seip_in → mip[9]  (SEIP)
+```
+
+S-mode 外部中断使用 seip_bit (mip[9]) 而非 meip_bit (mip[11])，符合 RISC-V 特权规范。
 
 ---
 
@@ -349,7 +371,7 @@ PADDR[4:2] → NS16550A byte offset：
 | Timer | `mtimecmp` | 能触发 timer interrupt | ✅ | MTIP 触发逻辑 |
 | Timer | STIP | Linux 能收到 S-mode timer | ✅ | **已修复**：sip[5] 可写，mip[5]=r_sip[5]，pending 用 csr_mip[5] |
 | Counter | `time/timeh` | S-mode 可读 | ✅ | **已修复**：CSR 0xC01/0xC81 读 ext_mtime（CLINT mtime 经 CDC） |
-| Interrupt | PLIC | claim/complete/enable 可用 | ✅ | PLIC 8 源，单 context |
+| Interrupt | PLIC | claim/complete/enable 可用 | ✅ | PLIC 8 源，SiFive 标准布局，双上下文（M+S） |
 | UART | TX/RX | 能稳定输出和输入 | ✅ | FIFO + 可配波特率 |
 | UART | Linux compatible | ns16550a 或 SBI console | ✅ | **已修复**：uart_16550a 实例化，ns16550a 兼容 |
 | DDR | 基础读写 | CPU-DDR 通信稳定 | ✅ | MIG + DDR3 自检通过 |
@@ -426,7 +448,8 @@ Phase 1 — 软件平台搭建（硬件已就绪）
   │
   ├─ [P1-2] 移植 OpenSBI（platform: 自定义 SoC）
   │         硬件就绪项：UART ns16550a, mtimecmp, STIP 注入, medeleg/mideleg, PMP CSR
-  │         需适配：CLINT 非标准布局, PLIC 单 context, UART 地址
+  │         需适配：CLINT 非标准布局, UART 地址
+         注：PLIC 已标准化为 SiFive 布局 + 双上下文，Linux irq-sifive-plic.c 可直接使用
   │
   └─ [P1-3] Linux kernel 配置与编译
              rv32ima, 自定义 platform, ns16550a console
@@ -447,7 +470,7 @@ Phase 2 — 用户态验证
 | 虚拟内存 | ✅ | Sv32 正确，MMIO 基于物理地址，PTW-dcache 一致性已保证 |
 | 异常/中断 | ✅ | 11 种异常 + 3 种中断，委托正确，M/S 优先级已修复 |
 | 定时器 | ✅ | CLINT mtime/mtimecmp 正确，**寄存器布局已标准化（SiFive 标准布局）**，STIP 可写可注入，time/timeh CSR 已实现 |
-| 中断控制器 | ✅ | PLIC 8 源，claim/complete 正确，单 context |
+| 中断控制器 | ✅ | PLIC 8 源，SiFive 标准地址布局，双上下文（M+S），claim/complete 正确 |
 | 外设 | ✅ | UART ns16550a 兼容，SPI/GPIO/Timer 功能正确 |
 | 内存 | ✅ | DDR3 128MB @ 0x80000000，Boot ROM 32KB @ 0xFC000000 |
 | 缓存 | ✅ | I$/D$ 各 1KB 写回+写分配，MMIO 基于物理地址，sfence.vma 保证一致性 |

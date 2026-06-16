@@ -62,6 +62,7 @@ module cpu_clint(
     wire stie_bit   = csr_sie[5];
     wire ssie_bit   = csr_sie[1];
     wire meip_bit   = csr_mip[11];
+    wire seip_bit   = csr_mip[9];   // S-mode external interrupt pending (PLIC ctx1)
     wire mtip_bit   = ext_mtip;
     wire msip_bit   = csr_mip[3];
     // BUG-FIX (sub-issue ②): Use csr_mip[5] (STIP) for S-mode timer pending
@@ -84,7 +85,7 @@ module cpu_clint(
     // mip register, which includes both hardware MTIP and software-written sip[5].
     wire s_interrupt_pending = sie_bit && ((ssie_bit && (csr_sip[1] | msip_bit)) ||
                                            (stie_bit && stip_bit) ||
-                                           (seie_bit && meip_bit));
+                                           (seie_bit && seip_bit));
 
     wire [31:0] m_interrupt_cause;
     assign m_interrupt_cause = (meie_bit && meip_bit) ? 32'h8000000B :
@@ -94,7 +95,8 @@ module cpu_clint(
 
     wire [31:0] s_interrupt_cause;
     // BUG-FIX (sub-issue ②): Use stip_bit (csr_mip[5]) for S-mode timer cause.
-    assign s_interrupt_cause = (seie_bit && meip_bit) ? 32'h80000009 :
+    // Use seip_bit (csr_mip[9]) for S-mode external cause (PLIC context 1).
+    assign s_interrupt_cause = (seie_bit && seip_bit) ? 32'h80000009 :
                                (ssie_bit && (csr_sip[1] | msip_bit)) ? 32'h80000001 :
                                (stie_bit && stip_bit) ? 32'h80000005 :
                                32'h80000009;
@@ -106,7 +108,8 @@ module cpu_clint(
 
     wire [5:0] s_int_idx;
     // BUG-FIX (sub-issue ②): Use stip_bit (csr_mip[5]) for S-mode timer index.
-    assign s_int_idx = (seie_bit && meip_bit) ? 6'd9 :
+    // Use seip_bit (csr_mip[9]) for S-mode external index (PLIC context 1).
+    assign s_int_idx = (seie_bit && seip_bit) ? 6'd9 :
                        (ssie_bit && (csr_sip[1] | msip_bit)) ? 6'd1 :
                        (stie_bit && stip_bit) ? 6'd5 : 6'd9;
 

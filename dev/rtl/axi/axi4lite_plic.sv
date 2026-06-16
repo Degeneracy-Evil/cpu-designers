@@ -3,7 +3,8 @@
 `include "axi4_def.svh"
 
 module axi4lite_plic #(
-    parameter NUM_SRC = 8
+    parameter NUM_SRC = 8,
+    parameter NUM_CTX = 2
 )(
     input  logic        s_axi_aclk,
     input  logic        s_axi_aresetn,
@@ -37,17 +38,14 @@ module axi4lite_plic #(
     output logic        s_axi_rvalid,
     input  logic        s_axi_rready,
 
-    // Interrupt interface (preserved from AHB version)
+    // Interrupt interface
     input  wire [NUM_SRC-1:0] src_irq,
-    output wire               o_eip
+    output wire [NUM_CTX-1:0] o_eip       // [0]=M-mode, [1]=S-mode
 );
 
     // =========================================================================
     // AXI4-Lite Write FSM
     // =========================================================================
-    // WR_IDLE:  ready to accept AW (awready=1)
-    // WR_DATA:  AW latched, ready to accept W (wready=1)
-    // WR_RESP:  W consumed, driving B response (bvalid=1)
     localparam WR_IDLE = 2'd0;
     localparam WR_DATA = 2'd1;
     localparam WR_RESP = 2'd2;
@@ -85,18 +83,14 @@ module axi4lite_plic #(
         end
     end
 
-    // Write fires when W channel handshake completes
     wire wr_fire = (wr_state == WR_DATA) && s_axi_wvalid;
 
-    // B channel
     assign s_axi_bvalid = (wr_state == WR_RESP);
     assign s_axi_bresp  = `AXI_RESP_OKAY;
 
     // =========================================================================
     // AXI4-Lite Read FSM
     // =========================================================================
-    // RD_IDLE:  ready to accept AR (arready=1)
-    // RD_RESP:  AR latched, driving R response (rvalid=1)
     localparam RD_IDLE = 1'd0;
     localparam RD_RESP = 1'd1;
 
@@ -127,43 +121,61 @@ module axi4lite_plic #(
         end
     end
 
-    // Read fires when AR channel handshake completes
     wire rd_fire = (rd_state == RD_IDLE) && s_axi_arvalid;
 
-    // R channel
     assign s_axi_rvalid = (rd_state == RD_RESP);
     assign s_axi_rresp  = `AXI_RESP_OKAY;
 
     // =========================================================================
-    // Address decode — write path (uses latched wr_addr)
+    // Address decode — SiFive PLIC standard layout
     // =========================================================================
-    wire wr_addr_is_prio   = (wr_addr[23:6] == 18'd0);
-    wire wr_addr_is_pend   = (wr_addr[23:14] == 10'd0) && (wr_addr[13:2] == 12'd256);
-    wire wr_addr_is_enable = (wr_addr[23:14] == 10'd0) && (wr_addr[13:2] == 12'd512);
-    wire wr_addr_is_thresh = (wr_addr[23:4] == {20'h20000});
-    wire wr_addr_is_claim  = (wr_addr[23:4] == {20'h20001});
+    // Priority[S]:    offset 0x000000 + S*4   → addr[23:12]==12'h000, index=addr[7:2]
+    // Pending:        offset 0x001000         → addr[23:12]==12'h001
+    // Enable[ctx N]:  offset 0x002000 + N*0x80 → addr[23:12]==12'h002, ctx=addr[11:7]
+    // Threshold[ctx]: offset 0x200000 + N*0x1000 → addr[23:20]==4'h2, ctx=addr[15:12], sub=addr[3:2]==0
+    // Claim[ctx]:     offset 0x200000 + N*0x1000 + 4 → addr[23:20]==4'h2, ctx=addr[15:12], sub=addr[3:2]==1
 
-    // Address decode — read path (uses latched rd_addr)
-    wire rd_addr_is_prio   = (rd_addr[23:6] == 18'd0);
-    wire rd_addr_is_pend   = (rd_addr[23:14] == 10'd0) && (rd_addr[13:2] == 12'd256);
-    wire rd_addr_is_enable = (rd_addr[23:14] == 10'd0) && (rd_addr[13:2] == 12'd512);
-    wire rd_addr_is_thresh = (rd_addr[23:4] == {20'h20000});
-    wire rd_addr_is_claim  = (rd_addr[23:4] == {20'h20001});
+    // --- Write path (latched wr_addr) ---
+    wire wr_addr_is_prio   = (wr_addr[23:12] == 12'h000);
+    wire wr_addr_is_pend   = (wr_addr[23:12] == 12'h001);
+    wire wr_addr_is_enable = (wr_addr[23:12] == 12'h002);
+    wire wr_addr_is_ctx    = (wr_addr[23:20] == 4'h2);   // threshold or claim
+    wire wr_addr_is_thresh = wr_addr_is_ctx && (wr_addr[3:2] == 2'd0);
+    wire wr_addr_is_claim  = wr_addr_is_ctx && (wr_addr[3:2] == 2'd1);
+
+    wire [3:0] wr_ctx = wr_addr[15:12];   // context index from address
+    wire [4:0] wr_en_ctx = wr_addr[11:7]; // enable context index from address
+
+    // --- Read path (latched rd_addr) ---
+    wire rd_addr_is_prio   = (rd_addr[23:12] == 12'h000);
+    wire rd_addr_is_pend   = (rd_addr[23:12] == 12'h001);
+    wire rd_addr_is_enable = (rd_addr[23:12] == 12'h002);
+    wire rd_addr_is_ctx    = (rd_addr[23:20] == 4'h2);
+    wire rd_addr_is_thresh = rd_addr_is_ctx && (rd_addr[3:2] == 2'd0);
+    wire rd_addr_is_claim  = rd_addr_is_ctx && (rd_addr[3:2] == 2'd1);
+
+    wire [3:0] rd_ctx = rd_addr[15:12];
+    wire [4:0] rd_en_ctx = rd_addr[11:7];
 
     // =========================================================================
-    // Internal registers (identical to AHB version)
+    // Internal registers
     // =========================================================================
+    // Shared across all contexts
     reg  [31:0] r_prio [0:NUM_SRC-1];
     reg  [31:0] r_pending;
-    reg  [31:0] r_enable;
-    reg  [31:0] r_threshold;
     reg  [NUM_SRC-1:0] r_gw_en;
 
-    reg  [7:0]  r_claim_id;   // latched claim ID for rdata
+    // Per-context
+    reg  [31:0] r_enable   [0:NUM_CTX-1];
+    reg  [31:0] r_threshold[0:NUM_CTX-1];
+    reg  [7:0]  r_claim_id [0:NUM_CTX-1];
 
     integer ii;
+    integer ci;
 
-    // find_highest function (identical to AHB version)
+    // =========================================================================
+    // find_highest function — returns highest-priority pending+enabled ID
+    // =========================================================================
     function [7:0] find_highest;
         input [31:0] pend, enbl, thresh;
         input [31:0] prio_arr [0:NUM_SRC-1];
@@ -189,15 +201,21 @@ module axi4lite_plic #(
         end
     endfunction
 
-    wire [7:0] highest_id = find_highest(r_pending, r_enable, r_threshold, r_prio);
-    wire       any_pending = (highest_id != 8'd0);
+    // Per-context highest-priority computation
+    wire [7:0] highest_id [0:NUM_CTX-1];
+    wire       any_pending [0:NUM_CTX-1];
 
-    assign o_eip = any_pending;
+    genvar gi;
+    generate
+        for (gi = 0; gi < NUM_CTX; gi = gi + 1) begin : gen_ctx
+            assign highest_id[gi]  = find_highest(r_pending, r_enable[gi], r_threshold[gi], r_prio);
+            assign any_pending[gi]  = (highest_id[gi] != 8'd0);
+            assign o_eip[gi]        = any_pending[gi];
+        end
+    endgenerate
 
     // =========================================================================
-    // WSTRB-aware write data: only update bytes where WSTRB[i]=1
-    // For AXI4-Lite, WSTRB indicates which byte lanes of WDATA are valid.
-    // Bytes with WSTRB[i]=0 retain their current register value.
+    // WSTRB-aware write data helpers
     // =========================================================================
     wire [31:0] wdata_prio_masked = (wr_addr[7:2] < NUM_SRC) ?
         {(s_axi_wstrb[3] ? s_axi_wdata[31:24] : r_prio[wr_addr[7:2]][31:24]),
@@ -205,30 +223,46 @@ module axi4lite_plic #(
          (s_axi_wstrb[1] ? s_axi_wdata[15:8]  : r_prio[wr_addr[7:2]][15:8]),
          (s_axi_wstrb[0] ? s_axi_wdata[7:0]   : r_prio[wr_addr[7:2]][7:0])} : 32'd0;
 
-    wire [31:0] wdata_enable_masked = {(s_axi_wstrb[3] ? s_axi_wdata[31:24] : r_enable[31:24]),
-                                        (s_axi_wstrb[2] ? s_axi_wdata[23:16] : r_enable[23:16]),
-                                        (s_axi_wstrb[1] ? s_axi_wdata[15:8]  : r_enable[15:8]),
-                                        (s_axi_wstrb[0] ? s_axi_wdata[7:0]   : r_enable[7:0])};
+    // Per-context enable WSTRB masking — computed for the addressed context
+    wire [31:0] wdata_enable_masked [0:NUM_CTX-1];
+    generate
+        for (gi = 0; gi < NUM_CTX; gi = gi + 1) begin : gen_en_mask
+            assign wdata_enable_masked[gi] =
+                {(s_axi_wstrb[3] ? s_axi_wdata[31:24] : r_enable[gi][31:24]),
+                 (s_axi_wstrb[2] ? s_axi_wdata[23:16] : r_enable[gi][23:16]),
+                 (s_axi_wstrb[1] ? s_axi_wdata[15:8]  : r_enable[gi][15:8]),
+                 (s_axi_wstrb[0] ? s_axi_wdata[7:0]   : r_enable[gi][7:0])};
+        end
+    endgenerate
 
-    wire [31:0] wdata_thresh_masked = {(s_axi_wstrb[3] ? s_axi_wdata[31:24] : r_threshold[31:24]),
-                                         (s_axi_wstrb[2] ? s_axi_wdata[23:16] : r_threshold[23:16]),
-                                         (s_axi_wstrb[1] ? s_axi_wdata[15:8]  : r_threshold[15:8]),
-                                         (s_axi_wstrb[0] ? s_axi_wdata[7:0]   : r_threshold[7:0])};
+    // Per-context threshold WSTRB masking
+    wire [31:0] wdata_thresh_masked [0:NUM_CTX-1];
+    generate
+        for (gi = 0; gi < NUM_CTX; gi = gi + 1) begin : gen_th_mask
+            assign wdata_thresh_masked[gi] =
+                {(s_axi_wstrb[3] ? s_axi_wdata[31:24] : r_threshold[gi][31:24]),
+                 (s_axi_wstrb[2] ? s_axi_wdata[23:16] : r_threshold[gi][23:16]),
+                 (s_axi_wstrb[1] ? s_axi_wdata[15:8]  : r_threshold[gi][15:8]),
+                 (s_axi_wstrb[0] ? s_axi_wdata[7:0]   : r_threshold[gi][7:0])};
+        end
+    endgenerate
 
     // =========================================================================
-    // Register update logic (adapted from AHB version)
+    // Register update logic
     // =========================================================================
     always_ff @(posedge s_axi_aclk or negedge s_axi_aresetn) begin
         if (!s_axi_aresetn) begin
-            r_pending    <= 32'd0;
-            r_enable     <= 32'd0;
-            r_threshold  <= 32'd0;
-            r_claim_id   <= 8'd0;
-            r_gw_en      <= {(NUM_SRC){1'b1}};
+            r_pending <= 32'd0;
+            r_gw_en   <= {(NUM_SRC){1'b1}};
             for (ii = 0; ii < NUM_SRC; ii = ii + 1)
                 r_prio[ii] <= 32'd0;
+            for (ci = 0; ci < NUM_CTX; ci = ci + 1) begin
+                r_enable[ci]    <= 32'd0;
+                r_threshold[ci] <= 32'd0;
+                r_claim_id[ci]  <= 8'd0;
+            end
         end else begin
-            // 1. Pending and gateway enable logic (identical)
+            // 1. Pending and gateway enable logic (shared, level-triggered)
             for (ii = 1; ii < NUM_SRC; ii = ii + 1) begin
                 if (r_gw_en[ii] && src_irq[ii])
                     r_pending[ii] <= 1'b1;
@@ -240,36 +274,51 @@ module axi4lite_plic #(
             end
 
             // 2. AXI4-Lite write operations (WSTRB-aware)
+
+            // Priority write (shared)
             if (wr_fire && wr_addr_is_prio && (wr_addr[7:2] < NUM_SRC))
                 r_prio[wr_addr[7:2]] <= wdata_prio_masked;
 
-            if (wr_fire && wr_addr_is_enable)
-                r_enable <= wdata_enable_masked;
+            // Enable write (per-context)
+            if (wr_fire && wr_addr_is_enable) begin
+                for (ci = 0; ci < NUM_CTX; ci = ci + 1) begin
+                    if (wr_en_ctx == ci)
+                        r_enable[ci] <= wdata_enable_masked[ci];
+                end
+            end
 
-            if (wr_fire && wr_addr_is_thresh)
-                r_threshold <= wdata_thresh_masked;
+            // Threshold write (per-context)
+            if (wr_fire && wr_addr_is_thresh) begin
+                for (ci = 0; ci < NUM_CTX; ci = ci + 1) begin
+                    if (wr_ctx == ci)
+                        r_threshold[ci] <= wdata_thresh_masked[ci];
+                end
+            end
 
+            // Claim/Complete write (per-context): Complete re-enables gateway
             if (wr_fire && wr_addr_is_claim) begin
-                // Claim/complete: only byte 0 matters (interrupt ID)
-                if (s_axi_wstrb[0] && (s_axi_wdata >= 1) && (s_axi_wdata < NUM_SRC))
-                    r_gw_en[s_axi_wdata] <= 1'b1;
+                if (s_axi_wstrb[0] && (s_axi_wdata[7:0] >= 1) && (s_axi_wdata[7:0] < NUM_SRC))
+                    r_gw_en[s_axi_wdata[7:0]] <= 1'b1;
             end
 
             // 3. AXI4-Lite read Claim: atomic return highest_id and clear pending
-            //    r_claim_id is latched so the R channel returns the correct ID
-            //    even though the pending clear takes effect one cycle later.
+            //    Claim on ANY context clears the shared r_pending bit and r_gw_en
             if (rd_fire && rd_addr_is_claim) begin
-                r_claim_id <= highest_id;
-                if (any_pending) begin
-                    r_pending[highest_id] <= 1'b0;
-                    r_gw_en[highest_id]   <= 1'b0;
+                for (ci = 0; ci < NUM_CTX; ci = ci + 1) begin
+                    if (rd_ctx == ci) begin
+                        r_claim_id[ci] <= highest_id[ci];
+                        if (any_pending[ci]) begin
+                            r_pending[highest_id[ci]] <= 1'b0;
+                            r_gw_en[highest_id[ci]]   <= 1'b0;
+                        end
+                    end
                 end
             end
         end
     end
 
     // =========================================================================
-    // Read data mux (uses latched rd_addr; claim returns r_claim_id)
+    // Read data mux
     // =========================================================================
     always_comb begin
         s_axi_rdata = 32'd0;
@@ -278,11 +327,21 @@ module axi4lite_plic #(
         end else if (rd_addr_is_pend) begin
             s_axi_rdata = r_pending;
         end else if (rd_addr_is_enable) begin
-            s_axi_rdata = r_enable;
+            // Return enable for the addressed context
+            for (ci = 0; ci < NUM_CTX; ci = ci + 1) begin
+                if (rd_en_ctx == ci)
+                    s_axi_rdata = r_enable[ci];
+            end
         end else if (rd_addr_is_thresh) begin
-            s_axi_rdata = r_threshold;
+            for (ci = 0; ci < NUM_CTX; ci = ci + 1) begin
+                if (rd_ctx == ci)
+                    s_axi_rdata = r_threshold[ci];
+            end
         end else if (rd_addr_is_claim) begin
-            s_axi_rdata = {24'd0, r_claim_id};
+            for (ci = 0; ci < NUM_CTX; ci = ci + 1) begin
+                if (rd_ctx == ci)
+                    s_axi_rdata = {24'd0, r_claim_id[ci]};
+            end
         end
     end
 

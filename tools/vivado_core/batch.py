@@ -565,6 +565,20 @@ class BatchExecutor:
                 })
                 if not res.success:
                     all_success = False
+                    # Abort remaining operations — a failed create/refresh
+                    # leaves the project in an undefined state; running sim
+                    # or bitstream against it would produce meaningless results.
+                    remaining = spec.operations[spec.operations.index(operation) + 1:]
+                    if remaining:
+                        skip_msg = f"Aborted: {operation} failed, skipping {remaining}"
+                        for skip_op in remaining:
+                            op_results.append({
+                                "operation": skip_op,
+                                "success": False,
+                                "duration": 0.0,
+                                "error": skip_msg,
+                            })
+                        break
             except VivadoCoreError as exc:
                 step_duration = time.monotonic() - step_t0
                 op_results.append({
@@ -575,6 +589,7 @@ class BatchExecutor:
                     "error": str(exc),
                 })
                 all_success = False
+                break
             except Exception as exc:
                 step_duration = time.monotonic() - step_t0
                 op_results.append({
@@ -585,6 +600,7 @@ class BatchExecutor:
                     "error": str(exc),
                 })
                 all_success = False
+                break
 
         duration = time.monotonic() - t0
         tracker.on_complete(batch_task.task_name, all_success, duration)

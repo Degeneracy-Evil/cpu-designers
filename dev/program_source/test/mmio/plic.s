@@ -6,22 +6,28 @@
 # Depends: framework/test_framework.s, framework/trap_handlers.s
 # ============================================================
 # PLIC base: 0x0C000000 (HADDR[31:24] == 0x0C)
-# Register map (from ahb_plic.sv):
-#   Priority[src]:  0x0C000000 + src*4  (src 0-7, src 0 reserved)
-#   Pending:        0x0C000400
-#   Enable:         0x0C000800
-#   Threshold:      0x0C200000
-#   Claim/Complete: 0x0C200010
+# Register map — SiFive PLIC standard layout (dual-context):
+#   Priority[src]:    0x0C000000 + src*4  (src 0-7, src 0 reserved)
+#   Pending:          0x0C001000
+#   Enable[ctx0 M]:   0x0C002000
+#   Enable[ctx1 S]:   0x0C002080
+#   Threshold[ctx0]:  0x0C200000
+#   Claim[ctx0]:      0x0C200004
+#   Threshold[ctx1]:  0x0C201000
+#   Claim[ctx1]:      0x0C201004
 # NUM_SRC = 8 (src 1=timer, 2=uart, 3=spi, 4=gpio)
 # ============================================================
 
 .equ PLIC_BASE,    0x0C000000
 .equ PLIC_PRIO1,   0x0C000004   # Priority[1] (timer)
 .equ PLIC_PRIO2,   0x0C000008   # Priority[2] (uart)
-.equ PLIC_PENDING, 0x0C000400
-.equ PLIC_ENABLE,  0x0C000800
-.equ PLIC_THRESH,  0x0C200000
-.equ PLIC_CLAIM,   0x0C200010
+.equ PLIC_PENDING, 0x0C001000
+.equ PLIC_ENABLE,  0x0C002000   # Enable context 0 (M-mode)
+.equ PLIC_ENABLE_S,0x0C002080   # Enable context 1 (S-mode)
+.equ PLIC_THRESH,  0x0C200000   # Threshold context 0 (M-mode)
+.equ PLIC_CLAIM,   0x0C200004   # Claim context 0 (M-mode)
+.equ PLIC_THRESH_S,0x0C201000   # Threshold context 1 (S-mode)
+.equ PLIC_CLAIM_S, 0x0C201004   # Claim context 1 (S-mode)
 
 .section .text.start
 .globl _start
@@ -110,11 +116,11 @@ _thresh_fail:
 
 # ── Sub-test 3: Enable register write/read ──
 test_plic_enable_rw:
-    # Enable register at 0x0C000800 — offset 0x800 exceeds 12-bit signed imm
-    # Use li+add to compute address
+    # Enable register at 0x0C002000 (SiFive standard: ctx0 M-mode)
+    # offset 0x2000 exceeds 12-bit signed imm, use li+add
     lui  x10, 0x0C000         # x10 = 0x0C000000
-    li   x13, 0x800
-    add  x13, x10, x13        # x13 = 0x0C000800 (Enable addr)
+    li   x13, 0x2000
+    add  x13, x10, x13        # x13 = 0x0C002000 (Enable ctx0 addr)
 
     # Write enable = 0x0F (enable sources 0-3)
     li   x11, 0x0F
@@ -133,7 +139,7 @@ test_plic_enable_rw:
 _en_fail:
     # Clean up on failure
     lui  x10, 0x0C000
-    li   x13, 0x800
+    li   x13, 0x2000
     add  x13, x10, x13
     sw   x0, 0(x13)
     li   x10, 0
@@ -145,18 +151,18 @@ test_plic_claim_read:
     # With no interrupts pending and threshold=0, claim should return 0
     # (or the highest pending ID if any; with no sources asserted, it's 0)
 
-    # First ensure no sources are enabled (Enable at 0x0C000800)
+    # First ensure no sources are enabled (Enable at 0x0C002000, SiFive standard)
     lui  x10, 0x0C000
-    li   x13, 0x800
-    add  x13, x10, x13        # x13 = 0x0C000800
+    li   x13, 0x2000
+    add  x13, x10, x13        # x13 = 0x0C002000
     sw   x0, 0(x13)           # Enable = 0
 
     # Threshold at 0x0C200000
     lui  x10, 0x0C200
     sw   x0, 0(x10)           # Threshold = 0
 
-    # Read claim register (0x0C200010)
-    lw   x12, 0x10(x10)       # Claim (offset 0x10 from 0x0C200000)
+    # Read claim register (0x0C200004, SiFive standard: offset 4 from ctx0 base)
+    lw   x12, 4(x10)          # Claim (offset 0x4 from 0x0C200000)
 
     # With no pending interrupts, claim should return 0
     bnez x12, _claim_fail

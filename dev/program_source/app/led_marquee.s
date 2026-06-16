@@ -35,16 +35,22 @@ _start:
     sw x13, 4(x10)
 
     # Setup CLINT Timer: mtimecmp = mtime + TIMER_PERIOD (64-bit safe)
-    lui x15, 0x02000
-    lw x16, 8(x15)
-    lw x14, 12(x15)
+    # Standard SiFive CLINT: mtimecmp@0x4000, mtime@0xBFF8
+    lui x15, 0x0200B        # mtime base (0x0200B000)
+    li x11, 0xFF8
+    add x11, x15, x11       # mtime_lo addr
+    lw x16, 0(x11)          # mtime_lo
+    li x11, 0xFFC
+    add x11, x15, x11       # mtime_hi addr
+    lw x14, 0(x11)          # mtime_hi
     li x11, TIMER_PERIOD
     mv x13, x16
     add x16, x16, x11
     sltu x11, x16, x13
     add x14, x14, x11
-    sw x16, 0(x15)
-    sw x14, 4(x15)
+    lui x15, 0x02004        # mtimecmp base (0x02004000)
+    sw x16, 0(x15)          # mtimecmp_lo
+    sw x14, 4(x15)          # mtimecmp_hi
 
 loop:
     j loop
@@ -60,16 +66,22 @@ isr:
     sw x16, 16(sp)
 
     # Update mtimecmp for next interrupt (64-bit safe)
-    lui x15, 0x02000
-    lw x16, 8(x15)
-    lw x14, 12(x15)
+    # Standard SiFive CLINT: mtimecmp@0x4000, mtime@0xBFF8
+    lui x15, 0x0200B        # mtime base (0x0200B000)
+    li x11, 0xFF8
+    add x11, x15, x11       # mtime_lo addr
+    lw x16, 0(x11)          # mtime_lo
+    li x11, 0xFFC
+    add x11, x15, x11       # mtime_hi addr
+    lw x14, 0(x11)          # mtime_hi
     li x11, TIMER_PERIOD
     mv x13, x16
     add x16, x16, x11
     sltu x11, x16, x13
     add x14, x14, x11
-    sw x16, 0(x15)
-    sw x14, 4(x15)
+    lui x15, 0x02004        # mtimecmp base (0x02004000)
+    sw x16, 0(x15)          # mtimecmp_lo
+    sw x14, 4(x15)          # mtimecmp_hi
 
     # Update LED state
     addi x12, x12, 1

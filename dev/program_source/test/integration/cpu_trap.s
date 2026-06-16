@@ -36,15 +36,21 @@ _start:
     li x10, 0x1888
     csrw mstatus, x10
 
-    lui x10, 0x02000
-    lw x11, 8(x10)
-    lw x12, 12(x10)
+    # Standard SiFive CLINT: mtimecmp@0x4000, mtime@0xBFF8
+    lui x10, 0x0200B        # mtime base (0x0200B000)
+    li x11, 0xFF8
+    add x11, x10, x11       # mtime_lo addr
+    lw x11, 0(x11)          # mtime_lo
+    li x12, 0xFFC
+    add x12, x10, x12       # mtime_hi addr
+    lw x12, 0(x12)          # mtime_hi
     mv x13, x11
     addi x11, x11, 200
     sltu x13, x11, x13
     add x12, x12, x13
-    sw x11, 0(x10)
-    sw x12, 4(x10)
+    lui x10, 0x02004        # mtimecmp base (0x02004000)
+    sw x11, 0(x10)          # mtimecmp_lo
+    sw x12, 4(x10)          # mtimecmp_hi
 
     li x25, 80
 1:
@@ -82,9 +88,9 @@ trap_handler:
 
 timer_int_handler:
     addi x23, x23, 1
-    lui x10, 0x02000
-    sw x0, 0(x10)
-    sw x0, 4(x10)
+    lui x10, 0x02004        # mtimecmp base (0x02004000)
+    sw x0, 0(x10)           # mtimecmp_lo = 0
+    sw x0, 4(x10)           # mtimecmp_hi = 0
     li x10, 0x1888
     csrw mstatus, x10
     mret

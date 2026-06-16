@@ -1,19 +1,17 @@
 # ============================================================
 # mmio/clint.s — CLINT register tests
 # Category: MMIO
-# Description: Test CLINT mtime, mtimecmp registers
+# Description: Test CLINT mtime, mtimecmp, msip registers
 # Sub-tests: 4
 # Depends: framework/test_framework.s, framework/trap_handlers.s
 # ============================================================
-# CLINT base: 0x02000000 (HADDR[31:24] == 0x02)
-# Register map (ahb_clint.sv uses latch_addr[3:0]):
-#   0x02004000: mtimecmp_lo  ([3:0]=0)
-#   0x02004004: mtimecmp_hi  ([3:0]=4)
-#   0x0200BFF8: mtime_lo     ([3:0]=8)
-#   0x0200BFFC: mtime_hi     ([3:0]=C)
-#
-# NOTE: msip at 0x02000000 is broken in RTL — ADDR_MSIP=4'h10
-# overflows to 0, overlapping mtimecmp_lo. Skip msip test.
+# CLINT base: 0x02000000 (Standard SiFive CLINT layout)
+# Register map (axi4lite_clint.sv uses addr[15:0]):
+#   0x02000000: msip         (bit 0)
+#   0x02004000: mtimecmp_lo  (32-bit)
+#   0x02004004: mtimecmp_hi  (32-bit)
+#   0x0200BFF8: mtime_lo     (32-bit)
+#   0x0200BFFC: mtime_hi     (32-bit)
 # ============================================================
 
 .equ CLINT_BASE,  0x02000000

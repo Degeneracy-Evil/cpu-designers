@@ -134,27 +134,37 @@ module axi4lite_clint(
     assign s_axi_rresp  = `AXI_RESP_OKAY;
 
     // =========================================================================
-    // Address decode (identical to AHB version, using latched addresses)
+    // Address decode — Standard SiFive CLINT layout
     // =========================================================================
-    localparam ADDR_MTIMECMP_LO = 4'h0;
-    localparam ADDR_MTIMECMP_HI = 4'h4;
-    localparam ADDR_MTIME_LO    = 4'h8;
-    localparam ADDR_MTIME_HI    = 4'hC;
-    localparam ADDR_MSIP        = 4'h10;
+    //   0x0000: msip         (32-bit, bit 0 effective)
+    //   0x4000: mtimecmp_lo  (32-bit)
+    //   0x4004: mtimecmp_hi  (32-bit)
+    //   0xBFF8: mtime_lo     (32-bit)
+    //   0xBFFC: mtime_hi     (32-bit)
+    //
+    // Decode uses addr[15:0] to cover the full 64KB CLINT window.
+    // The system_top address decoder routes 0x0200_xxxx to this slave,
+    // so addr[15:0] captures the intra-CLINT offset.
+    // =========================================================================
+    localparam ADDR_MSIP        = 16'h0000;
+    localparam ADDR_MTIMECMP_LO = 16'h4000;
+    localparam ADDR_MTIMECMP_HI = 16'h4004;
+    localparam ADDR_MTIME_LO    = 16'hBFF8;
+    localparam ADDR_MTIME_HI    = 16'hBFFC;
 
     // Write path address decode
-    wire wr_addr_cmplo  = (wr_addr[3:0] == ADDR_MTIMECMP_LO);
-    wire wr_addr_cmphi  = (wr_addr[3:0] == ADDR_MTIMECMP_HI);
-    wire wr_addr_timelo = (wr_addr[3:0] == ADDR_MTIME_LO);
-    wire wr_addr_timehi = (wr_addr[3:0] == ADDR_MTIME_HI);
-    wire wr_addr_msip   = (wr_addr[3:0] == ADDR_MSIP);
+    wire wr_addr_msip   = (wr_addr[15:0] == ADDR_MSIP);
+    wire wr_addr_cmplo  = (wr_addr[15:0] == ADDR_MTIMECMP_LO);
+    wire wr_addr_cmphi  = (wr_addr[15:0] == ADDR_MTIMECMP_HI);
+    wire wr_addr_timelo = (wr_addr[15:0] == ADDR_MTIME_LO);
+    wire wr_addr_timehi = (wr_addr[15:0] == ADDR_MTIME_HI);
 
     // Read path address decode
-    wire rd_addr_cmplo  = (rd_addr[3:0] == ADDR_MTIMECMP_LO);
-    wire rd_addr_cmphi  = (rd_addr[3:0] == ADDR_MTIMECMP_HI);
-    wire rd_addr_timelo = (rd_addr[3:0] == ADDR_MTIME_LO);
-    wire rd_addr_timehi = (rd_addr[3:0] == ADDR_MTIME_HI);
-    wire rd_addr_msip   = (rd_addr[3:0] == ADDR_MSIP);
+    wire rd_addr_msip   = (rd_addr[15:0] == ADDR_MSIP);
+    wire rd_addr_cmplo  = (rd_addr[15:0] == ADDR_MTIMECMP_LO);
+    wire rd_addr_cmphi  = (rd_addr[15:0] == ADDR_MTIMECMP_HI);
+    wire rd_addr_timelo = (rd_addr[15:0] == ADDR_MTIME_LO);
+    wire rd_addr_timehi = (rd_addr[15:0] == ADDR_MTIME_HI);
 
     // =========================================================================
     // Internal registers (identical to AHB version)
@@ -233,11 +243,11 @@ module axi4lite_clint(
     // =========================================================================
     always_comb begin
         s_axi_rdata = 32'd0;
-        if (rd_addr_cmplo)       s_axi_rdata = r_mtimecmp_lo;
+        if (rd_addr_msip)       s_axi_rdata = {31'b0, r_msip};
+        else if (rd_addr_cmplo)  s_axi_rdata = r_mtimecmp_lo;
         else if (rd_addr_cmphi)  s_axi_rdata = r_mtimecmp_hi;
         else if (rd_addr_timelo) s_axi_rdata = r_mtime[31:0];
         else if (rd_addr_timehi) s_axi_rdata = r_mtime[63:32];
-        else if (rd_addr_msip)   s_axi_rdata = {31'b0, r_msip};
     end
 
 endmodule

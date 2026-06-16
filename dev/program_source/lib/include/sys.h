@@ -67,6 +67,12 @@ static inline void halt(void)
 #define SRAM_SIZE       DDR3_SIZE    /* Legacy alias */
 #define CLINT_BASE      0x02000000U
 #define PLIC_BASE       0x0C000000U
+
+/* CLINT register offsets — Standard SiFive CLINT layout */
+#define CLINT_MSIP      0x0000U      /* msip: software interrupt pending (bit 0) */
+#define CLINT_MTIMECMP  0x4000U      /* mtimecmp: 64-bit timer compare (lo at +0, hi at +4) */
+#define CLINT_MTIME     0xBFF8U      /* mtime: 64-bit timer count (lo at +0, hi at +4) */
+
 #define APB_BASE        0x10000000U
 #define BOOTROM_BASE    0xFC000000U
 #define SYS_STATUS_BASE 0x04000000U

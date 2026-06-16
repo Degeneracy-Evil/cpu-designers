@@ -6,6 +6,13 @@
 # Sub-tests: 6
 # Depends: framework/test_framework.s, framework/trap_handlers.s
 # ============================================================
+# CLINT base: 0x02000000 (Standard SiFive CLINT layout)
+#   +0x0000: msip         (bit 0)
+#   +0x4000: mtimecmp_lo  (32-bit)
+#   +0x4004: mtimecmp_hi  (32-bit)
+#   +0xBFF8: mtime_lo     (32-bit)
+#   +0xBFFC: mtime_hi     (32-bit)
+# ============================================================
 
 .equ CLINT_BASE, 0x02000000
 
@@ -82,15 +89,20 @@ test_04_mscratch_setup:
 # ── Test 05: Timer interrupt pending (mip.MTIP) ──
 test_05_timer_interrupt_pending:
     # Set mtimecmp < mtime to trigger timer
-    lui x10, 0x02000        # CLINT_BASE
-    lw x11, 8(x10)          # mtime_lo
-    lw x12, 12(x10)         # mtime_hi
-    mv x13, x11
-    addi x11, x11, 200      # mtimecmp = mtime + 200
-    sltu x13, x11, x13
-    add x12, x12, x13
-    sw x11, 0(x10)          # mtimecmp_lo
-    sw x12, 4(x10)          # mtimecmp_hi
+    lui x10, 0x0200B        # mtime base (0x0200B000)
+    li x11, 0xFF8
+    add x11, x10, x11       # mtime_lo addr
+    lw x12, 0(x11)          # mtime_lo
+    li x11, 0xFFC
+    add x11, x10, x11       # mtime_hi addr
+    lw x13, 0(x11)          # mtime_hi
+    mv x14, x12
+    addi x12, x12, 200      # mtimecmp = mtime + 200
+    sltu x14, x12, x14
+    add x13, x13, x14
+    lui x10, 0x02004        # mtimecmp base (0x02004000)
+    sw x12, 0(x10)          # mtimecmp_lo
+    sw x13, 4(x10)          # mtimecmp_hi
 
     # Re-enable interrupts
     li x14, 0x1888
@@ -136,7 +148,7 @@ m_trap_handler:
 timer_int_handler:
     addi x23, x23, 1        # increment interrupt counter
     # Clear timer interrupt by writing mtimecmp far ahead
-    lui x10, 0x02000
+    lui x10, 0x02004        # mtimecmp base (0x02004000)
     sw x0, 0(x10)           # mtimecmp_lo = 0
     sw x0, 4(x10)           # mtimecmp_hi = 0
     li x10, 0x1888

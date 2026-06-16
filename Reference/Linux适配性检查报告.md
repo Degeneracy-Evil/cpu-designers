@@ -140,22 +140,18 @@
 | `scounteren` | ✅ | `cpu_csr.sv:568,619`：可读写 CSR（0x106），S-mode 需 mcounteren AND scounteren 均置位 |
 | SBI set_timer | ⚠️ | 硬件支持 mtimecmp 写入 + STIP 注入，但 OpenSBI 尚未移植 |
 
-**CLINT 寄存器布局注意**：
+**CLINT 寄存器布局**：
 
 ```
-当前实现（非标准布局）：
-  0x0200_0000: mtimecmp_lo  (32-bit)
-  0x0200_0004: mtimecmp_hi  (32-bit)
-  0x0200_0008: mtime_lo     (32-bit)
-  0x0200_000C: mtime_hi     (32-bit)
-  0x0200_0010: msip         (bit 0)
+标准 SiFive CLINT 布局（已实现）：
+  0x0200_0000: msip         (32-bit, bit 0 有效)
+  0x0200_4000: mtimecmp_lo  (32-bit)
+  0x0200_4004: mtimecmp_hi  (32-bit)
+  0x0200_BFF8: mtime_lo     (32-bit)
+  0x0200_BFFC: mtime_hi     (32-bit)
 
-标准 SiFive CLINT 布局：
-  0x0200_0000: msip
-  0x0200_4000: mtimecmp     (64-bit)
-  0x0200_BFF8: mtime         (64-bit)
-
-→ 需在 Device Tree 中使用自定义 compatible 或修改 CLINT RTL 匹配标准布局
+地址译码使用 addr[15:0]，覆盖 64KB CLINT 窗口。
+Linux 标准 CLINT 驱动（sifive_clint）可直接使用。
 ```
 
 ### 6.1 STIP 修复验证（commit 51bd6ef）
@@ -253,7 +249,7 @@ PADDR[4:2] → NS16550A byte offset：
 | `/memory` | ❌ | DTB 未创建 |
 | `/chosen` | ❌ | DTB 未创建 |
 | UART node | ❌ | DTB 未创建（compatible = "ns16550a"） |
-| CLINT/timer node | ❌ | DTB 未创建（注意：CLINT 寄存器布局非标准，需自定义 compatible） |
+| CLINT/timer node | ❌ | DTB 未创建（CLINT 寄存器布局已标准化，可用 compatible = "sifive,clint0"） |
 | PLIC node | ❌ | DTB 未创建 |
 | reserved-memory | ❌ | DTB 未创建 |
 | initrd 信息 | ❌ | DTB 未创建 |
@@ -387,7 +383,7 @@ PADDR[4:2] → NS16550A byte offset：
 | # | 阻塞项 | 当前状态 | 影响范围 | 修复工作量估算 |
 |---|--------|---------|---------|--------------|
 | 4 | PMP 无硬件强制执行 | CSR 实现完整，但输出端口未连接，无地址匹配/权限检查/trap | Linux 依赖 PMP 保护 M-mode 内存不被 S-mode 访问；无强制执行时 S-mode 可直接访问 M-mode 区域 | 中（需实现 PMP checker 模块 + 接入 MMU/memory 路径） |
-| 5 | CLINT 寄存器布局非标准 | mtimecmp@0x00, mtime@0x08, msip@0x10（应为 msip@0x0, mtimecmp@0x4000, mtime@0xBFF8） | 标准 Linux CLINT 驱动（sifive_clint）无法直接使用 | 小（改 CLINT RTL 地址译码，或 DTB 用自定义 compatible） |
+| 5 | ~~CLINT 寄存器布局非标准~~ | ~~mtimecmp@0x00, mtime@0x08, msip@0x10~~ | ~~标准 Linux CLINT 驱动无法直接使用~~ | **已修复**：axi4lite_clint.sv 地址译码已改为 SiFive 标准布局（msip@0x0, mtimecmp@0x4000, mtime@0xBFF8），addr[15:0] 译码 |
 
 ### 中危级（可通过软件绕过但需额外工作）
 
@@ -417,11 +413,10 @@ Phase 0 — 硬件高危修复（建议完成以提高 Linux 稳定性）
   │         方案 B：Linux 不依赖 PMP 强制执行也能启动（S-mode 不会主动访问
   │                 M-mode 区域），可延后实现
   │
-  └─ [P0-2] CLINT 寄存器布局标准化
-            方案 A：修改 axi4lite_clint.sv 地址译码匹配 SiFive 标准布局
-                    msip@0x0, mtimecmp@0x4000, mtime@0xBFF8
-            方案 B：DTB 使用自定义 compatible（如 "custom,clint"），
-                    OpenSBI 平台代码适配自定义布局
+  └─ [P0-2] ~~CLINT 寄存器布局标准化~~ → **已完成**
+            已修改 axi4lite_clint.sv 地址译码匹配 SiFive 标准布局
+            msip@0x0000, mtimecmp@0x4000, mtime@0xBFF8
+            addr[15:0] 译码，Linux 标准 sifive_clint 驱动可直接使用
 
 Phase 1 — 软件平台搭建（硬件已就绪）
   ├─ [P1-1] 创建 Device Tree (DTS → DTB)
@@ -451,7 +446,7 @@ Phase 2 — 用户态验证
 | 特权级 | ✅ | M/S/U 三级完整，委托机制正确 |
 | 虚拟内存 | ✅ | Sv32 正确，MMIO 基于物理地址，PTW-dcache 一致性已保证 |
 | 异常/中断 | ✅ | 11 种异常 + 3 种中断，委托正确，M/S 优先级已修复 |
-| 定时器 | ✅ | CLINT mtime/mtimecmp 正确，STIP 可写可注入，time/timeh CSR 已实现 |
+| 定时器 | ✅ | CLINT mtime/mtimecmp 正确，**寄存器布局已标准化（SiFive 标准布局）**，STIP 可写可注入，time/timeh CSR 已实现 |
 | 中断控制器 | ✅ | PLIC 8 源，claim/complete 正确，单 context |
 | 外设 | ✅ | UART ns16550a 兼容，SPI/GPIO/Timer 功能正确 |
 | 内存 | ✅ | DDR3 128MB @ 0x80000000，Boot ROM 32KB @ 0xFC000000 |
@@ -484,9 +479,8 @@ Phase 2 — 用户态验证
 
 ## 19. 总体判定
 
-**当前 CPU/SoC 硬件已基本具备启动 Linux 的最低条件。** 上一版的 3 项致命阻塞（A 扩展、MMIO 虚拟地址判断、STIP 无置位路径）已全部修复。剩余硬件问题为：
+**当前 CPU/SoC 硬件已基本具备启动 Linux 的最低条件。** 上一版的 3 项致命阻塞（A 扩展、MMIO 虚拟地址判断、STIP 无置位路径）已全部修复。CLINT 寄存器布局已标准化为 SiFive 标准布局，Linux sifive_clint 驱动可直接使用。剩余硬件问题为：
 
 1. **PMP 无硬件强制执行**（⚠️ 中危）— CSR 存储完整但不产生实际保护效果。Linux 不依赖 PMP 强制执行也能启动（S-mode 不会主动访问 M-mode 区域），但长期安全性需要实现。
-2. **CLINT 非标准布局**（⚠️ 低危）— 需在 DTB 或 OpenSBI 中适配。
 
 **下一步**：进入软件平台搭建阶段（OpenSBI 移植 → DTB 创建 → Linux kernel 配置 → initramfs 构建）。硬件侧建议同步推进 PMP 强制执行实现。

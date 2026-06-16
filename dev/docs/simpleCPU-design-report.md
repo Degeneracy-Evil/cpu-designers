@@ -223,19 +223,19 @@ fpu_unit
 
 #### 2.2.3 CLINT 寄存器映射
 
-基地址：`0x0200_0000`，AXI4-Lite，按 `addr[3:0]` 译码：
+基地址：`0x0200_0000`，AXI4-Lite，按 `addr[15:0]` 译码（标准 SiFive CLINT 布局）：
 
 | 偏移 | 名称 | 读/写 | 说明 |
 |------|------|-------|------|
-| 0x00 | mtimecmp_lo | RW | 定时器比较值低 32 位 |
-| 0x04 | mtimecmp_hi | RW | 定时器比较值高 32 位 |
-| 0x08 | mtime_lo | RW | 定时器计数值低 32 位（mtime 由 sys_clk 100MHz 驱动自增） |
-| 0x0C | mtime_hi | RW | 定时器计数值高 32 位 |
-| 0x10 | msip | RW | 软件中断挂起（写 [0] 位设置/清除 MSIP） |
+| 0x0000 | msip | RW | 软件中断挂起（写 [0] 位设置/清除 MSIP） |
+| 0x4000 | mtimecmp_lo | RW | 定时器比较值低 32 位 |
+| 0x4004 | mtimecmp_hi | RW | 定时器比较值高 32 位 |
+| 0xBFF8 | mtime_lo | RW | 定时器计数值低 32 位（mtime 由 sys_clk 100MHz 驱动自增） |
+| 0xBFFC | mtime_hi | RW | 定时器计数值高 32 位 |
 
 > 中断产生条件：`mtime[63:0] >= mtimecmp[63:0]` 时 MTIP=1。
 
-> **CLINT 非标准地址布局**：当前 CLINT 寄存器布局为 mtimecmp_lo @ 0x00, mtimecmp_hi @ 0x04, mtime_lo @ 0x08, mtime_hi @ 0x0C, msip @ 0x10。标准 SiFive CLINT 布局为 msip @ 0x0, mtimecmp @ 0x4000, mtime @ 0xBFF8。**影响**：Linux DTB 须使用自定义 compatible 字符串，或 RTL 地址译码须改为标准布局。mtime 由 sys_clk（100MHz）驱动，非 cpu_clk（50MHz）。
+> **CLINT 标准地址布局**：寄存器布局遵循 SiFive CLINT 标准（msip @ 0x0000, mtimecmp @ 0x4000, mtime @ 0xBFF8），Linux 标准 sifive_clint 驱动可直接使用。mtime 由 sys_clk（100MHz）驱动，非 cpu_clk（50MHz）。
 
 #### 2.2.4 PLIC 寄存器映射
 
@@ -1289,7 +1289,7 @@ UART 外设已替换为 ns16550a 标准串口（`dev/rtl/APB/perips/uart16550/ua
 - **TLB 容量**：4 路 × 4 组 = 16 项，大工作集或频繁上下文切换可能 TLB 抖动
 - **SRAM 字节写**：SRAM 仿真模型（axi_wrap_ram）支持 AXI4 字节写（wstrb），DDR3 通过 MIG 管理
 - **PMP 硬件强制未实现**：pmpcfg0–pmpcfg3 和 pmpaddr0–pmpaddr15 共 20 个 CSR 已实现读写存储，但硬件地址匹配与权限检查未实现。Linux 可在无 PMP 强制下启动
-- **CLINT 非标准地址布局**：mtimecmp_lo @ 0x00, mtimecmp_hi @ 0x04, mtime_lo @ 0x08, mtime_hi @ 0x0C, msip @ 0x10，与标准 SiFive CLINT（msip @ 0x0, mtimecmp @ 0x4000, mtime @ 0xBFF8）不同。Linux DTB 须使用自定义 compatible 字符串
+- **CLINT 标准地址布局**：寄存器布局遵循 SiFive CLINT 标准（msip @ 0x0000, mtimecmp_lo @ 0x4000, mtimecmp_hi @ 0x4004, mtime_lo @ 0xBFF8, mtime_hi @ 0xBFFC），addr[15:0] 译码。Linux 标准 sifive_clint 驱动可直接使用
 - **分支预测**：无分支预测（始终 not-taken），JAL/JALR 静态预测
 - **D 扩展未实现**：双精度浮点暂不支持，XLEN=32 时 D 扩展需 FLEN=64（NaN-boxing、64-bit 浮点寄存器）。仅 F 单精度扩展已实现，无 F/D/Q 扩展组合
 - **f0 硬连线零**：RISC-V 规范不要求 f0=0（与 x0 不同），当前实现 f0 恒为 0 为设计选择
@@ -1522,7 +1522,7 @@ UART 外设已替换为 ns16550a 标准串口（`dev/rtl/APB/perips/uart16550/ua
 42. **misa = 0x40141121**：RV32AIMFSU，A bit[0]=1（原子扩展），F bit[5]=1（浮点扩展），S bit[18]=1，U bit[20]=1，M bit[12]=1
 43. **GPIO 引脚变化中断**：逐引脚中断使能掩码 + 写 1 清除挂起状态
 44. **SPI 传输完成中断**：CTRL[4] 中断使能，传输完成置挂起，写 STATUS 清除
-45. **CLINT 可写 msip**：msip 寄存器（偏移 0x10）支持软件中断，符合 RISC-V CLINT 规范
+45. **CLINT 可写 msip**：msip 寄存器（偏移 0x0000，SiFive 标准布局）支持软件中断，符合 RISC-V CLINT 规范
 46. **IEEE 754 单精度浮点**：22 条 F 扩展指令（含 FMA 四条融合乘加），5 种舍入模式（RNE/RTZ/RDN/RUP/RMM），fflags 异常标志累积
 47. **FPU 多周期握手**：与 MU 单元统一握手协议（req_valid→fpu_ready→fpu_busy→result_valid→result_got），FSM 在 STATE_EXEC 内轮询
 48. **FPU 子模块分工**：加法器（FSM 3-5 周期）、乘法器（组合 1-2 周期）、FMA（融合乘加）、除法器/平方根（非恢复余数 ~27 周期）、比较/分类/最值/符号注入（组合单周期）、转换（FSM 2-3 周期）

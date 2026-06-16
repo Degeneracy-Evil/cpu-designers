@@ -229,25 +229,32 @@ jalr_target:
     # Disarm timer: set mtimecmp to max first so CLINT deasserts MTIP
     # before we compute the real mtimecmp value.
     # (mtimecmp defaults to 0, mtime > 0 since reset → MTIP=1)
-    lui x10, 0x02000
+    # Standard SiFive CLINT: mtimecmp@0x4000, mtime@0xBFF8
+    lui x10, 0x02004        # mtimecmp base (0x02004000)
     li  x11, 0xFFFFFFFF
-    sw  x11, 0(x10)
-    sw  x11, 4(x10)
+    sw  x11, 0(x10)         # mtimecmp_lo = max
+    sw  x11, 4(x10)         # mtimecmp_hi = max
     # Drain AXI write buffer — 40 NOPs ensures store reaches CLINT
     .rept 40
     nop
     .endr
 
     # Now safe to read mtime — MTIP is low
-    lw x11, 8(x10)
-    lw x13, 12(x10)
+    lui x10, 0x0200B        # mtime base (0x0200B000)
+    li  x14, 0xFF8
+    add x14, x10, x14       # mtime_lo addr
+    lw  x11, 0(x14)         # mtime_lo
+    li  x14, 0xFFC
+    add x14, x10, x14       # mtime_hi addr
+    lw  x13, 0(x14)         # mtime_hi
     li x12, 100000
     mv x14, x11
     add x11, x11, x12
     sltu x14, x11, x14
     add x13, x13, x14
-    sw x11, 0(x10)
-    sw x13, 4(x10)
+    lui x10, 0x02004        # mtimecmp base
+    sw x11, 0(x10)          # mtimecmp_lo
+    sw x13, 4(x10)          # mtimecmp_hi
     # Drain again so CLINT sees new mtimecmp before we enable MTIE
     .rept 40
     nop
@@ -299,9 +306,9 @@ timer_handler:
     csrrs x3, mepc, x0
     addi x4, x0, 1
 
-    lui x10, 0x02000
-    sw x0, 0(x10)
-    sw x0, 4(x10)
+    lui x10, 0x02004        # mtimecmp base (0x02004000)
+    sw x0, 0(x10)           # mtimecmp_lo = 0
+    sw x0, 4(x10)           # mtimecmp_hi = 0
 
     li x10, 0x80
     csrw mstatus, x10

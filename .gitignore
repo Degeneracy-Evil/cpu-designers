@@ -51,5 +51,6 @@ webtalk*.jou
 Reference/xv6/
 
 data/
+kernel
 kernel/
 build/

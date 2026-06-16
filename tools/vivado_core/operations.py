@@ -51,6 +51,28 @@ def _tcl_path(p: Path | str) -> str:
 # TCL template helpers
 # ---------------------------------------------------------------------------
 
+def _find_tb_path(tb_dir: str, tb_name: str) -> str:
+    """Resolve the actual path of a testbench file.
+
+    Searches *tb_dir* first, then its immediate subdirectories, for
+    ``{tb_name}.sv``.  This handles testbenches that live in sub-
+    directories (e.g. ``dev/tb/ALU/tb_alu_cpu_integration.sv``).
+
+    Returns the absolute path if found, otherwise falls back to
+    ``{tb_dir}/{tb_name}.sv`` (the old behaviour) so that Vivado
+    will emit its own clear "file not found" error.
+    """
+    direct = Path(tb_dir) / f"{tb_name}.sv"
+    if direct.is_file():
+        return str(direct)
+    for child in sorted(Path(tb_dir).iterdir()):
+        if child.is_dir():
+            candidate = child / f"{tb_name}.sv"
+            if candidate.is_file():
+                return str(candidate)
+    return str(direct)
+
+
 def _resolve_rtl_dirs(dev_dir: str, rtl: RtlPathsConfig) -> dict[str, str]:
     """Build a dict of named RTL directory paths from config.
 
@@ -478,6 +500,8 @@ def _tcl_add_tb(
     tb_dir = d["tb"]
     ip_xci_dir = f"{proj_dir}/{proj_name}.srcs/sources_1/ip"
 
+    tb_path = _find_tb_path(tb_dir, tb_name)
+
     alu_rtl_dir = d["alu"]
     mu_rtl_dir = d["mu"]
     fpu_rtl_dir = d["fpu"]
@@ -519,19 +543,10 @@ set existing_sim_files [get_files -of_objects [get_filesets sim_1] -quiet]
 if {{ [llength $existing_sim_files] > 0 }} {{
     remove_files -fileset sim_1 -quiet $existing_sim_files
 }}
-import_files -fileset sim_1 "{tb_dir}/{tb_name}.sv"
-if {{ [file exists "{tb_dir}/lcd_module_stub.sv"] }} {{
-    import_files -fileset sim_1 "{tb_dir}/lcd_module_stub.sv"
-}}
-# Switch to manual compile order so set_property top is not overridden
-# by Vivado's auto hierarchy update (which replaces testbench top with system_top)
-set_property source_mgmt_mode None [current_project]
-set_property top {tb_name} [get_filesets sim_1]
-set_property top_lib xil_defaultlib [get_filesets sim_1]
 set src_includes [get_property include_dirs [get_filesets sources_1]]
 set_property include_dirs $src_includes [get_filesets sim_1]
 
-# --- import RTL sources into sim_1 ---
+# --- import RTL sources into sim_1 (BEFORE testbench) ---
 # Vivado 2018.3's prj generator only includes files that are
 # imported into sim_1 — it ignores files merely referenced via
 # add_files.  import_files -fileset sim_1 copies each source
@@ -585,7 +600,25 @@ if {{ [file exists "{sys_rtl_dir}/clk_wiz_0_passthrough.sv"] }} {{
     import_files -fileset sim_1 -norecurse "{sys_rtl_dir}/clk_wiz_0_passthrough.sv"
 }}
 
+# --- import testbench LAST (after all RTL) ---
+# Vivado 2018.3: importing the testbench before RTL sources that define
+# packages (e.g. MMU.sv's $unit_MMU_sv) causes xvlog --incr to
+# re-analyze the testbench when the package is overwritten, which
+# silently drops the .sdb file and breaks xelab.
+import_files -fileset sim_1 "{tb_path}"
+if {{ [file exists "{tb_dir}/lcd_module_stub.sv"] }} {{
+    import_files -fileset sim_1 "{tb_dir}/lcd_module_stub.sv"
+}}
+
 update_compile_order -fileset sim_1
+
+# --- set testbench as top (AFTER import_files + update_compile_order) ---
+# Vivado 2018.3: import_files triggers hierarchy re-evaluation that may
+# override the top module.  Setting source_mgmt_mode None and top AFTER
+# all imports + compile order ensures the testbench is validated correctly.
+set_property source_mgmt_mode None [current_project]
+set_property top {tb_name} [get_filesets sim_1]
+set_property top_lib xil_defaultlib [get_filesets sim_1]
 
 # --- update COE ---
 {coe_update}
@@ -661,6 +694,11 @@ def _tcl_run_sim(
 # --- run simulation ---
 update_compile_order -fileset sources_1
 update_compile_order -fileset sim_1
+# Re-assert testbench as top after update_compile_order (Vivado 2018.3 may
+# override it during hierarchy re-evaluation in auto update mode).
+set_property source_mgmt_mode None [current_project]
+set_property top {tb_name} [get_filesets sim_1]
+set_property top_lib xil_defaultlib [get_filesets sim_1]
 
 if {{ [catch {{current_sim_state}} sim_state] == 0 }} {{
     if {{ $sim_state ne "none" }} {{
@@ -981,8 +1019,9 @@ class Operations:
                     )
                 elif step == "add_tb":
                     if task.tb:
+                        tb_path = _find_tb_path(tb_dir, task.tb)
                         tcl_parts.append(
-                            f'add_files -fileset sim_1 "{tb_dir}/{task.tb}.sv"'
+                            f'add_files -fileset sim_1 "{tb_path}"'
                         )
                 elif step == "set_property_top":
                     if task.tb:
@@ -1145,6 +1184,23 @@ class Operations:
         result = session.execute(tcl, timeout=self._limits.sim_timeout)
         result = self._append_timeout_hint(result, "sim")
 
+        # --- Vivado 2018.3 xsim.dir stale library workaround ---
+        # xvlog --incr silently drops the testbench .sdb when files are
+        # imported in the same process, causing xelab "Cannot find design
+        # unit".  Restarting the Vivado process clears the stale in-memory
+        # cache; the fresh process reads the persisted project from disk
+        # and builds a correct library index.
+        if not result.success and task.tb and "Cannot find design unit" in (result.output or ""):
+            logger.info("Vivado 2018.3 incr bug detected — restarting process and retrying sim")
+            xsim_dir = Path(proj_dir) / f"{proj_name}.sim" / "sim_1" / "behav" / "xsim" / "xsim.dir"
+            if xsim_dir.exists():
+                import shutil
+                shutil.rmtree(xsim_dir, ignore_errors=True)
+            session.stop_vivado()
+            tcl_sim_only = _tcl_run_sim(task.tb, sim_runtime, proj_dir, proj_name, wave_level=wave_level)
+            result = session.execute(tcl_sim_only, timeout=self._limits.sim_timeout)
+            result = self._append_timeout_hint(result, "sim")
+
         # --- prj patching ---
         # Vivado 2018.3's dependency resolver frequently produces an
         # incomplete prj that omits sources_1 files (SV→VHDL boundaries,
@@ -1188,17 +1244,24 @@ class Operations:
         prj_path = prj_files[0]
         prj_text = prj_path.read_text(encoding="utf-8", errors="replace")
 
-        # Check if prj is already complete (has many file references)
+        tb_name = task.tb
+        tb_in_prj = any(tb_name in line for line in prj_text.splitlines() if line.strip().startswith('"'))
         file_count = prj_text.count('.sv"') + prj_text.count('.v"')
-        if file_count >= 10:
-            logger.info("prj file looks complete (%d files) — not patching", file_count)
+
+        if tb_in_prj and file_count >= 10:
+            logger.info("prj file looks complete (%d files, tb present) — not patching", file_count)
             return None
 
-        logger.info("Detected incomplete prj (%d files) — patching with sources_1", file_count)
+        if not tb_in_prj:
+            logger.info("Testbench %s missing from prj — patching", tb_name)
+        else:
+            logger.info("Detected incomplete prj (%d files) — patching with sources_1", file_count)
 
         # Collect sources_1 file paths from the project directory
         src_imports = Path(proj_dir) / f"{proj_name}.srcs" / "sources_1" / "imports"
         src_ip = Path(proj_dir) / f"{proj_name}.srcs" / "sources_1" / "ip"
+
+        sim_imports = Path(proj_dir) / f"{proj_name}.srcs" / "sim_1" / "imports"
 
         # Collect files by type
         sv_files: list[str] = []
@@ -1209,6 +1272,22 @@ class Operations:
             if not f.is_file():
                 continue
             rel = os.path.relpath(f, xsim_dir).replace("\\", "/")
+            if f.suffix in (".sv", ".svh"):
+                if f'"{rel}"' not in prj_text and f'"{Path(rel).name}"' not in prj_text:
+                    sv_files.append(rel)
+            elif f.suffix == ".v":
+                if f'"{rel}"' not in prj_text:
+                    v_files.append(rel)
+
+        for f in sorted(sim_imports.rglob("*")):
+            if not f.is_file():
+                continue
+            rel = os.path.relpath(f, xsim_dir).replace("\\", "/")
+            if f'"{rel}"' in prj_text:
+                continue
+            fname = f.name
+            if any(fname in line for line in prj_text.splitlines() if line.strip().startswith('"')):
+                continue
             if f.suffix in (".sv", ".svh"):
                 sv_files.append(rel)
             elif f.suffix == ".v":
@@ -1225,10 +1304,11 @@ class Operations:
             if f.suffix == ".vhd":
                 vhd_files.append(rel)
             elif f.suffix == ".v":
-                v_files.append(rel)
+                if f'"{rel}"' not in prj_text:
+                    v_files.append(rel)
 
         if not (sv_files or v_files or vhd_files):
-            logger.warning("No sources_1 files found — cannot patch prj")
+            logger.warning("No missing files found to patch prj")
             return None
 
         # Simplest approach: find the last file entry in each language group

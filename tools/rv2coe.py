@@ -377,6 +377,7 @@ def compile_source_to_obj(
                 "-fno-pie",
                 "-fno-unwind-tables",
                 "-fno-asynchronous-unwind-tables",
+                "-ffp-contract=off",
             ]
         )
 
@@ -452,6 +453,7 @@ def compile_to_elf(
                     "-fno-pie",
                     "-fno-unwind-tables",
                     "-fno-asynchronous-unwind-tables",
+                    "-ffp-contract=off",
                 ]
             )
 
@@ -541,6 +543,9 @@ def elf_data_to_bin(args: argparse.Namespace, elf_path: Path, bin_path: Path) ->
             "--only-section=.data",
             "--only-section=.rodata",
             "--only-section=.sdata",
+            "--only-section=.srodata",
+            "--only-section=.srodata.cst4",
+            "--only-section=.srodata.cst8",
             str(elf_path),
             str(bin_path),
         ],
@@ -639,7 +644,12 @@ def main() -> int:
             check_isa_whitelist(args, elf_path)
 
         if has_inst:
-            elf_text_to_bin(args, elf_path, inst_bin_path)
+            if has_data:
+                # Harvard: inst=.text only; data gets .rodata/.data separately
+                elf_text_to_bin(args, elf_path, inst_bin_path)
+            else:
+                # Unified: inst needs all PT_LOAD so FLW from .rodata works
+                elf_all_to_bin(args, elf_path, inst_bin_path)
         if has_unified:
             elf_all_to_bin(args, elf_path, unified_bin_path)
         if has_data:

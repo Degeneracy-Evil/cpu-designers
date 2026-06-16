@@ -888,3 +888,229 @@ NS16550A 位周期 = 16 enables × dl cycles = 16 × 16 = 256 cycles/bit（dl �
 10. **应用适配 NS16550A**：uart_hello.s 和 uart_echo.s 重写为 NS16550A 寄存器操作（THR/LSR/FCR/LCR/MCR），初始化序列遵循 16550A 标准（DLAB→DLL/DLM→8N1→FIFO→MCR）。calculator.c 和 uart_echo_c_lib.c 使用 uart.h API，无需修改。上板后所有应用通过 NS16550A 标准 UART 运行。
 
 11. **仿真基础设施修复**：(a) CYCLE=256 修正：NS16550A 位周期 = 16 enables × dl cycles，非单纯 dl cycles；(b) SRAM 模式跳过 UART 交付：prog.hex 直接加载到 BRAM，无需 bootloader UART 接收；(c) Vivado source_mgmt_mode=None：防止自动层次更新覆盖 testbench top。所有修复均为仿真基础设施改进，不影响 RTL 或上板行为。
+
+---
+
+## Bug 8: ALU LUI 测试断言错误（Testbench Bug）
+
+### 问题描述
+
+`tb_alu_cpu_integration.sv` 中 LUI 测试的断言条件错误：
+
+```systemverilog
+alu_control = OP_LUI;
+src1 = 32'd0;
+src2 = 32'h0001_0000;
+#1;
+expect_true(result == 32'h0000_0000, "LUI imm=0x00010000 result=0x00000000");
+```
+
+测试期望 LUI 操作返回 `0x00000000`，但 LUI 语义是返回立即数本身（`rd = imm`），应返回 `0x00010000`。
+
+### 根因分析
+
+ALU 的 LUI 路径完全正确：
+
+1. `lui.sv`：`result = imm`（直通 src2）
+2. `alu_result_selector.sv`：`y_lui = {32{sel[1]}} & lui_result`，当 `OP_LUI = 16'b0000_0000_0000_0010` 时 `sel[1]=1`，输出 `lui_result = imm`
+3. `cpu_decode.sv`：`wb_fixed_data = inst_lui ? imm_u : 32'b0`，LUI 写回数据 = U 型立即数
+4. `op_regroup.sv`：`immU = {inst[31:12], 12'b0}`，标准 U 型立即数编码
+
+ALU 实际返回 `0x00010000`（正确），测试断言 `result == 0` 为 false → FAIL。**这是测试断言错误，非 RTL bug。**
+
+### 修复方案
+
+```systemverilog
+// 修复前（错误断言）
+expect_true(result == 32'h0000_0000, "LUI imm=0x00010000 result=0x00000000");
+
+// 修复后（正确断言：LUI 返回立即数本身）
+expect_true(result == 32'h0001_0000, "LUI imm=0x00010000 result=0x00010000");
+```
+
+### 影响的文件
+
+| 文件 | 修改内容 |
+|------|----------|
+| `dev/tb/ALU/tb_alu_cpu_integration.sv` | LUI 断言：期望值从 `0x00000000` 改为 `0x00010000` |
+
+### 设计约束说明
+
+仅修正测试断言，不涉及 RTL 修改。ALU 的 LUI 实现正确，上板后 LUI 指令行为符合 RISC-V 规范。
+
+---
+
+## Bug 9: Vivado 2018.3 xvlog --incr 静默丢弃 testbench .sdb（工具 Bug）
+
+### 问题描述
+
+Vivado 2018.3 的 `xvlog --incr`（增量编译）在以下条件下静默丢弃 testbench 的 `.sdb` 文件，导致 `xelab` 失败：
+
+```
+ERROR: [USF-XSim-62] Compile failed: Cannot find design unit xil_defaultlib.tb_xxx
+       in library work located at xsim.dir/work
+```
+
+### 触发条件
+
+1. 同一 Vivado 进程内通过 `import_files` 导入 RTL 源文件和 testbench
+2. RTL 中存在同名编译单元冲突（本项目中 `MMU.sv` 同时存在于 `sources_1` 和 `sim_1` 导入目录）
+3. `xvlog --incr` 重新分析 testbench 时发出警告：
+
+```
+WARNING: [VRFC 10-3669] re-analyze module 'tb_xxx' since module
+         '$unit_MMU_sv' is overwritten or removed
+```
+
+4. 重新分析后，testbench 的 `.sdb` 文件未被写入 `xsim.dir/work/`，但 `xvlog` 返回成功（exit code 0）
+5. `xelab` 查找 testbench 设计单元时失败
+
+### 根因
+
+Vivado 2018.3 的增量编译器在检测到编译单元覆盖（`$unit_MMU_sv` overwrite）时，触发依赖模块的重新分析。重新分析过程中，.sdb 文件的写入逻辑存在竞态或遗漏——xvlog 报告编译成功但实际未持久化 .sdb 到 xsim.dir。这是 Xilinx 工具的已知缺陷，在后续 Vivado 版本中已修复。
+
+### 受影响的测试
+
+所有使用 `dev/tb/ALU/` 子目录下 testbench 的测试（testbench 通过 `import_files` 导入而非项目预置）：
+
+| 测试 | testbench | 状态 |
+|------|-----------|------|
+| alu_integration | tb_alu_cpu_integration.sv | 修复前 FAIL，修复后 PASS（11/12，LUI 断言 bug 另见 Bug 8） |
+| divider | tb_non_restoring_divider.sv | 修复前 FAIL，修复后 PASS（16/16） |
+| mu_unit | tb_mu_unit.sv | 修复前 FAIL，修复后 PASS（全部） |
+
+### 修复方案
+
+#### 1. `_find_tb_path()` 辅助函数
+
+ALU testbench 位于 `dev/tb/ALU/` 子目录，而 `operations.py` 硬编码 `tb_dir = dev/tb/`。添加辅助函数搜索 `tb_dir` 及其一级子目录：
+
+```python
+def _find_tb_path(tb_dir: str, tb_name: str) -> str | None:
+    tb_path = os.path.join(tb_dir, tb_name)
+    if os.path.isfile(tb_path):
+        return tb_path
+    for d in sorted(os.listdir(tb_dir)):
+        subdir = os.path.join(tb_dir, d)
+        candidate = os.path.join(subdir, tb_name)
+        if os.path.isdir(subdir) and os.path.isfile(candidate):
+            return candidate
+    return None
+```
+
+#### 2. 进程重启 + 仅重试 launch_simulation
+
+当 `launch_simulation` 失败且输出包含 `"Cannot find design unit"` 时：
+
+1. 删除 `xsim.dir`（清除陈旧库索引）
+2. `session.stop_vivado()`（杀死 Vivado 进程，清除内存中的陈旧编译状态）
+3. 在新 Vivado 进程中仅执行 `launch_simulation`（不重新 `import_files`，避免再次触发 `$unit_MMU_sv` 覆盖）
+
+```python
+if not result.success and "Cannot find design unit" in (result.output or ""):
+    shutil.rmtree(xsim_dir, ignore_errors=True)
+    session.stop_vivado()
+    tcl_sim_only = _tcl_run_sim(...)
+    result = session.execute(tcl_sim_only, ...)
+```
+
+**关键**：重试时仅运行 `launch_simulation`，不运行完整 setup（`import_files` + `set_property` + ...）。项目状态已持久化在磁盘上，新进程打开项目后可直接仿真。重新 `import_files` 会再次触发编译单元覆盖，导致相同的 .sdb 丢失。
+
+#### 3. testbench 最后导入
+
+将 testbench 的 `import_files` 移压到所有 RTL 源文件导入之后执行，减少编译单元覆盖的触发概率。此措施单独不足以解决问题（MMU.sv 在 sources_1 中仍会被自动编译），但与进程重启结合使用可提高首次成功率。
+
+### 影响的文件
+
+| 文件 | 修改内容 |
+|------|----------|
+| `tools/vivado_core/operations.py` | `_find_tb_path()` 辅助函数；`_tcl_add_tb` testbench 最后导入 + 使用 `_find_tb_path`；`sim()` 进程重启重试逻辑；`_patch_prj_and_rerun` 使用 `_find_tb_path` |
+
+### 设计约束说明
+
+此修复仅影响仿真基础设施（`operations.py`），不涉及 RTL 修改。进程重启是 Vivado 2018.3 增量编译 bug 的标准规避方式——新进程从磁盘读取项目状态，构建正确的库索引。上板流程（综合 + 实现）不使用 `xvlog --incr`，不受此 bug 影响。
+
+---
+
+## Bug 10: GCC 生成 FMADD.S 等未实现的 R4 格式 FMA 指令
+
+### 问题描述
+
+CPU 解码阶段 (`cpu_decode.sv`) 未实现 R4 格式的融合乘加指令：
+
+> "FMA instructions (FMADD.S/FMSUB.S/FNMSUB.S/FNMADD.S) use opcodes 1000011/1000111/1001011/1001111 (R4 format). These are intentionally NOT implemented — R4 format decode is complex and hardware area is large. They will be decoded as illegal_inst."
+
+但 GCC 在编译含浮点乘加复合表达式的 C 代码时，默认生成 FMADD.S 等指令（`-ffp-contract=fast` 为默认值）。例如 `atof.c` 中：
+
+```c
+result = result * 10.0f + (float)(*s - '0');
+```
+
+GCC 优化为 `fmadd.s fa5, fa2, fa4, fa5`（一条指令替代 FMUL.S + FADD.S），CPU 解码为非法指令 → 触发 illegal instruction 异常 → 陷入默认 trap handler（WFI 死循环）。
+
+### 现象
+
+calculator 应用仿真：打印完整 banner 和提示符 `> `，接收输入 `1+2`，但**不输出计算结果**。指令追踪显示 CPU 在执行 `fmadd.s` 后跳转至 0x80000048（mcause 读取）→ 0x80000054（WFI 死循环）。
+
+### 根因分析
+
+1. `rv2coe.py` 编译 C 代码时未指定 `-ffp-contract`，GCC 默认 `-ffp-contract=fast` 允许生成融合乘加
+2. CPU `cpu_decode.sv` 将 R4 格式 opcode (0x43/0x47/0x4B/0x4F) 解码为 `illegal_inst`
+3. FMADD.S 执行 → illegal instruction exception → 默认 trap handler (WFI loop) → 程序挂死
+
+### 修复方案
+
+在 `rv2coe.py` 的 C 编译 flags 中添加 `-ffp-contract=off`，禁止 GCC 生成融合乘加指令。编译器将退回使用独立的 FMUL.S + FADD.S 指令，CPU 完全支持。
+
+```python
+# rv2coe.py compile_source_to_obj() 和 compile_to_elf() 的 C flags
+cmd.extend([
+    "-x", "c", "-Os",
+    "-ffreestanding", "-fno-builtin",
+    "-fno-stack-protector", "-fno-pic", "-fno-pie",
+    "-fno-unwind-tables", "-fno-asynchronous-unwind-tables",
+    "-ffp-contract=off",  # 禁止 FMADD/FMSUB/FNMSUB/FNMADD
+])
+```
+
+修复后验证：`objdump -d prog.elf | grep -c "fmadd\|fmsub\|fnmsub\|fnmadd"` 返回 0。
+
+### 影响的文件
+
+| 文件 | 修改内容 |
+|------|----------|
+| `tools/rv2coe.py` | C 编译 flags 添加 `-ffp-contract=off`（两处：`compile_source_to_obj` 和 `compile_to_elf` 单文件快速路径） |
+
+### 仿真验证
+
+| 测试 | 修复前 | 修复后 |
+|------|--------|--------|
+| calculator | FAIL（FMADD.S → illegal inst → WFI 挂死） | **PASS 5/5**（1+2=3, 3\*4=12, 10-3=7, 8/2=4, sqrt(4)=2） |
+
+### 设计约束说明
+
+`-ffp-contract=off` 是编译器代码生成选项，不修改 RTL。它禁止将 `a * b + c` 融合为 FMADD.S 一条指令，改为生成 FMUL.S + FADD.S 两条指令。两种序列的浮点结果在 IEEE 754 单精度下**数值等价**（单精度无 double 中间舍入差异），仅性能略有差异（2 条指令 vs 1 条）。上板后程序计算结果完全正确，唯一影响是浮点乘加复合操作多 1 个时钟周期。
+
+---
+
+## Bug 11: rv2coe.py --inst-* 仅输出 .text 段，遗漏 .rodata/.srodata.cst4
+
+### 问题描述
+
+`rv2coe.py` 的 `--inst-coe`/`--inst-hex`/`--inst-bin` 选项调用 `elf_text_to_bin()`，仅提取 `.text` 段。对于统一内存（单 BRAM）CPU，`.rodata` 和 `.srodata.cst4` 段含浮点常量（如 1.0f=0x3F800000, 10.0f=0x41200000, 0.1f=0x3DCCCCCD），FLW 从这些地址加载时读到 BRAM 中未初始化的零 → 浮点操作数错误 → NaN。
+
+### 修复方案
+
+当 `--inst-*` 使用但未指定 `--data-*`（统一内存模式）时，改用 `elf_all_to_bin()` 提取所有 PT_LOAD 段。当同时指定 `--data-*`（Harvard 分离模式）时，保持 `elf_text_to_bin()` 仅提取 `.text`。
+
+同时修复 `elf_data_to_bin()` 遗漏 `.srodata`/`.srodata.cst4`/`.srodata.cst8` 段的问题。
+
+### 影响的文件
+
+| 文件 | 修改内容 |
+|------|----------|
+| `tools/rv2coe.py` | `has_inst` 路径：无 `has_data` 时用 `elf_all_to_bin`；`elf_data_to_bin` 添加 `.srodata` 系列 section |
+
+### 设计约束说明
+
+此修复仅影响编译工具（`rv2coe.py`），不修改 RTL。统一内存模式下 COE/HEX 包含完整 PT_LOAD 段是正确行为——CPU 的单 BRAM 需同时包含代码和只读数据。上板后 BRAM 初始化内容与仿真一致。

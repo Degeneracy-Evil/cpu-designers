@@ -126,7 +126,7 @@ module tb_alu_cpu_integration;
     src1 = 32'd0;
     src2 = 32'h0001_0000;
     #1;
-    expect_true(result == 32'h0000_0000, "LUI imm=0x00010000 result=0x00000000");
+    expect_true(result == 32'h0001_0000, "LUI imm=0x00010000 result=0x00010000");
 
     $display("========================================");
     $display("ALU Single-Cycle Summary");

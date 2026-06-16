@@ -231,8 +231,7 @@ class Session:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 cwd=str(self.project_dir),
-                text=True,
-                bufsize=1,  # line-buffered
+                bufsize=1,
             )
         except OSError as exc:
             # Release semaphore on failure to start.
@@ -255,7 +254,7 @@ class Session:
                 line = self._process.stdout.readline()
                 if not line:
                     break
-                self._stdout_q.put(line)
+                self._stdout_q.put(line.decode("utf-8", errors="replace"))
         self._reader_thread = threading.Thread(target=_reader, daemon=True)
         self._reader_thread.start()
 
@@ -309,10 +308,10 @@ if {{ [catch {{current_project}} cur_proj] != 0 }} {{
             start = time.monotonic()
 
             # Restore the session project first so commands can rely on it.
-            self._process.stdin.write(project_open)
+            self._process.stdin.write(project_open.encode("utf-8"))
             # Write command + marker to stdin.
-            self._process.stdin.write(cmd + "\n")
-            self._process.stdin.write(marker_line + "\n")
+            self._process.stdin.write((cmd + "\n").encode("utf-8"))
+            self._process.stdin.write((marker_line + "\n").encode("utf-8"))
             self._process.stdin.flush()
 
             # Read stdout until the marker appears.
@@ -390,7 +389,7 @@ if {{ [catch {{current_project}} cur_proj] != 0 }} {{
         if was_alive:
             try:
                 assert self._process.stdin is not None
-                self._process.stdin.write("quit\n")
+                self._process.stdin.write(b"quit\n")
                 self._process.stdin.flush()
                 self._process.wait(timeout=10)
             except Exception:

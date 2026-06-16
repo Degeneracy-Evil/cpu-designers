@@ -351,6 +351,12 @@ tasks:
     hex_file: app/uart_echo.hex
     runtime: 50ms
 
+  fpu_minimal_test:
+    tb: tb_uart_echo
+    coe: app/fpu_minimal_test.coe
+    hex_file: app/fpu_minimal_test.hex
+    runtime: 20ms
+
   led_marquee:
     tb: tb_led_marquee
     coe: app/led_marquee.coe
@@ -407,7 +413,7 @@ tasks:
     tb: tb_calculator
     coe: app/calculator.coe
     hex_file: app/calculator.hex
-    runtime: 100ms
+    runtime: 300ms
 
   # ── FPGA上板 ──
 

@@ -1,18 +1,18 @@
 # SimpleCPU 设计报告
 
-> 生成日期: 2026-06-13 | 项目路径: `dev/rtl/`
+> 生成日期: 2026-06-16 | 项目路径: `dev/rtl/`
 
 ---
 
 ## 1. 项目概述
 
-本项目实现了一个基于 RISC-V RV32IMF 指令集的多周期 CPU，采用五级流水线结构（取指-译码-执行-访存-回写），通过有限状态机（FSM）控制器协调各级运行。CPU 通过 AXI4 总线连接片上存储与外设，支持异常/中断陷阱处理、CSR 读写、M 扩展乘除法运算、F 扩展单精度浮点运算。
+本项目实现了一个基于 RISC-V RV32AIMFSU 指令集的多周期 CPU，采用五级流水线结构（取指-译码-执行-访存-回写），通过有限状态机（FSM）控制器协调各级运行。CPU 通过 AXI4 总线连接片上存储与外设，支持异常/中断陷阱处理、CSR 读写、A 扩展原子运算、M 扩展乘除法运算、F 扩展单精度浮点运算。
 
 ### 1.1 核心特性
 
 | 特性 | 说明 |
 |------|------|
-| 指令集 | RV32IMF（整数 + 乘除法 + 单精度浮点） |
+| 指令集 | RV32AIMFSU（整数 + 原子 + 乘除法 + 单精度浮点 + S/U 特权） |
 | 架构 | 多周期 FSM 控制，五级流水线数据通路 |
 | 数据位宽 | 32-bit |
 | 特权模式 | M/S/U 三级特权模式，支持陷阱委托（medeleg/mideleg） |
@@ -64,12 +64,31 @@
 | `REM` | 有符号取余 |
 | `REMU` | 无符号取余 |
 
+**RV32A 原子扩展（11 条）：**
+
+| 类别 | 指令 | 说明 |
+|------|------|------|
+| Load-Reserved | `LR.W rd, (rs1)` | 加载保留，设置保留集（reservation set） |
+| Store-Conditional | `SC.W rd, rs2, (rs1)` | 条件存储，检查保留集有效性，成功写回返回 0，失败返回 1 |
+| AMO 加算 | `AMOADD.W rd, rs2, (rs1)` | 原子加：rs2 + mem[rs1] |
+| AMO 按位与 | `AMOAND.W rd, rs2, (rs1)` | 原子与：rs2 & mem[rs1] |
+| AMO 按位或 | `AMOOR.W rd, rs2, (rs1)` | 原子或：rs2 \| mem[rs1] |
+| AMO 按位异或 | `AMOXOR.W rd, rs2, (rs1)` | 原子异或：rs2 ^ mem[rs1] |
+| AMO 有符号最大 | `AMOMAX.W rd, rs2, (rs1)` | 原子最大值（有符号比较） |
+| AMO 无符号最大 | `AMOMAXU.W rd, rs2, (rs1)` | 原子最大值（无符号比较） |
+| AMO 有符号最小 | `AMOMIN.W rd, rs2, (rs1)` | 原子最小值（有符号比较） |
+| AMO 无符号最小 | `AMOMINU.W rd, rs2, (rs1)` | 原子最小值（无符号比较） |
+| AMO 交换 | `AMOSWAP.W rd, rs2, (rs1)` | 原子交换：rs2 ↔ mem[rs1] |
+
+> **实现说明**：LR.W 在 dcache 中设置保留集（reservation set）；SC.W 检查保留集是否仍然有效，仅在有效时执行写入并在 rd 返回 0，否则返回 1。AMO 操作在 `cpu_mem.sv` 中通过读-改-写（read-modify-write）周期原子执行。所有 A 扩展指令使用 OPCODE_AMO（0b0101111）。
+
 **RV32F 单精度浮点扩展（22 条）：**
 
 | 类别 | 指令 | 说明 |
 |------|------|------|
-| 计算 | `FADD.S`, `FSUB.S`, `FMUL.S`, `FDIV.S` | IEEE 754 算术运算 |
+| 基础算术 | `FADD.S`, `FSUB.S`, `FMUL.S`, `FDIV.S` | IEEE 754 算术运算 |
 | 平方根 | `FSQRT.S` | Newton-Raphson 迭代 |
+| 融合乘加 | `FMADD.S`, `FMSUB.S`, `FNMSUB.S`, `FNMADD.S` | R4 格式融合乘加/乘减/负乘减/负乘加 |
 | 加载/存储 | `FLW`, `FSW` | 浮点数据访存 |
 | 转换 | `FCVT.W.S`, `FCVT.WU.S`, `FCVT.S.W`, `FCVT.S.WU` | 整数↔浮点互转 |
 | 符号注入 | `FSGNJ.S`, `FSGNJN.S`, `FSGNJX.S` | 符号位操作（FMV.F.X / FNEG / FABS 伪指令基础） |
@@ -78,7 +97,7 @@
 | 分类 | `FCLASS.S` | NaN/Inf/次正规数检测（10-bit 掩码写整数寄存器） |
 | 最值 | `FMIN.S`, `FMAX.S` | 浮点最小/最大值 |
 
-> **未实现**：FMA 四条（FMADD.S / FMSUB.S / FNMSUB.S / FNMADD.S），R4 格式译码复杂且硬件面积大；D 扩展（双精度）暂不实现，XLEN=32 时 FLEN=64 需额外设计。
+> 全部 22 条 F 扩展指令已实现（含 FMA 四条融合乘加指令）。5 种舍入模式（RNE/RTZ/RDN/RUP/RMM），fcsr/frm/fflags CSR，NaN-boxing（32-bit float in 64-bit register），IEEE 754 异常标志（NX/UF/OF/DZ/NV）。D 扩展（双精度）暂不实现，XLEN=32 时 FLEN=64 需额外设计。
 
 ---
 
@@ -116,7 +135,7 @@ system_top
 │   │   ├── apb_decoder
 │   │   └── apb_perips
 │   │       ├── GPIO          ← 16-bit 双向 IO，引脚变化中断（o_irq→PLIC src[4]）
-│   │       ├── UART (TX/RX)  ← TX/RX FIFO（16字节），中断（o_irq→PLIC src[2]），可配波特率，RXDATA peek + STATUS-read auto-arm
+│   │       ├── UART (ns16550a) ← ns16550a 标准串口，16-byte TX/RX FIFO，中断（o_irq→PLIC src[2]），APB4 封装
 │   │       ├── Timer          ← 32-bit 定时器，中断（o_irq→PLIC src[1]）
 │   │       └── SPI            ← 主模式 SPI，传输完成中断（o_irq→PLIC src[3]）
 │   ├── Slave 5: Sys Status (axi4lite_sys_status)         ← AXI4-Lite，addr[31:24]==8'h04
@@ -135,6 +154,7 @@ fpu_unit
 ├── fpu_multiplier ← 浮点乘法器（FMUL.S），组合 24×24 尾数乘
 ├── fpu_divider    ← 浮点除法器（FDIV.S），非恢复余数迭代
 ├── fpu_sqrt       ← 浮点平方根（FSQRT.S），非恢复余数法
+├── fpu_fma        ← 浮点融合乘加（FMADD.S / FMSUB.S / FNMSUB.S / FNMADD.S），R4 格式
 ├── fpu_compare    ← 浮点比较器（FEQ.S / FLT.S / FLE.S），组合逻辑
 ├── fpu_minmax     ← 浮点最值（FMIN.S / FMAX.S），组合逻辑
 ├── fpu_classify   ← 浮点分类（FCLASS.S），组合逻辑
@@ -163,7 +183,7 @@ fpu_unit
 
 > **注意**：Slave 0（DDR3）判定条件为 `addr[31:27]==5'h10`（即 `0x80`~`0x87` 开头），覆盖 128MB 地址窗口。此判定优先于 Default Slave，确保 DDR3 访问不被误路由。
 
-**Cache/MMIO 判定规则**：`addr[31]==0 || addr[30]==1` 为 MMIO 区域（走 AXI 总线旁路缓存），其余为 Cacheable 区域（走 icache/dcache）。
+**Cache/MMIO 判定规则**：`paddr[31]==0 || paddr[30]==1` 为 MMIO 区域（走 AXI 总线旁路缓存），其余为 Cacheable 区域（走 icache/dcache）。使用物理地址（paddr，TLB 翻译后）判断，而非虚拟地址（vaddr），避免 VA≠PA 时 MMIO 误命中缓存（Linux 适配关键修复）。
 
 #### 2.2.2 完整内存映射图
 
@@ -182,7 +202,7 @@ fpu_unit
             │     APB Bridge       │ 0x1000_0000 (Slave 4, 外设桥)
             │  ├─ 0x1000_0000 GPIO  (PSELx[0], PADDR[15:14]==00)
             │  ├─ 0x1000_4000 Timer (PSELx[1], PADDR[15:14]==01)
-            │  ├─ 0x1000_8000 UART  (PSELx[2], PADDR[15:14]==10)
+             │  ├─ 0x1000_8000 UART  (PSELx[2], PADDR[15:14]==10, ns16550a)
             │  └─ 0x1000_C000 SPI   (PSELx[3], PADDR[15:14]==11)
 0x1000_0000 ├──────────────────────┤
             │     未映射区域        │ → Default Slave (DECERR)
@@ -209,11 +229,13 @@ fpu_unit
 |------|------|-------|------|
 | 0x00 | mtimecmp_lo | RW | 定时器比较值低 32 位 |
 | 0x04 | mtimecmp_hi | RW | 定时器比较值高 32 位 |
-| 0x08 | mtime_lo | RW | 定时器计数值低 32 位（mtime 每周期自增 1） |
+| 0x08 | mtime_lo | RW | 定时器计数值低 32 位（mtime 由 sys_clk 100MHz 驱动自增） |
 | 0x0C | mtime_hi | RW | 定时器计数值高 32 位 |
 | 0x10 | msip | RW | 软件中断挂起（写 [0] 位设置/清除 MSIP） |
 
 > 中断产生条件：`mtime[63:0] >= mtimecmp[63:0]` 时 MTIP=1。
+
+> **CLINT 非标准地址布局**：当前 CLINT 寄存器布局为 mtimecmp_lo @ 0x00, mtimecmp_hi @ 0x04, mtime_lo @ 0x08, mtime_hi @ 0x0C, msip @ 0x10。标准 SiFive CLINT 布局为 msip @ 0x0, mtimecmp @ 0x4000, mtime @ 0xBFF8。**影响**：Linux DTB 须使用自定义 compatible 字符串，或 RTL 地址译码须改为标准布局。mtime 由 sys_clk（100MHz）驱动，非 cpu_clk（50MHz）。
 
 #### 2.2.4 PLIC 寄存器映射
 
@@ -227,7 +249,7 @@ fpu_unit
 | 0x200_000 | threshold | RW | 优先级阈值（仅优先级 > threshold 的中断可_claim） |
 | 0x200_004 | claim/complete | RW | 声明最高优先级中断（读返回 ID，写完成处理） |
 
-> PLIC 中断路由：src[1]=Timer, src[2]=UART, src[3]=SPI, src[4]=GPIO。
+> PLIC 中断路由：src[1]=Timer, src[2]=UART, src[3]=SPI, src[4]=GPIO。8 个中断源，优先级 0-7。Context 0: M-mode，Context 1: S-mode。
 
 #### 2.2.5 APB 外设地址子译码
 
@@ -237,7 +259,7 @@ APB Bridge 基地址：`0x1000_0000`，4 个 APB 从设备按 `PADDR[15:14]` 译
 |-----------|----------|--------|----------|------|
 | GPIO | `PADDR[15:14] == 2'b00` | `0x1000_0000` | `0x1000_0000 ~ 0x1000_3FFF` | 16-bit 双向 IO |
 | Timer | `PADDR[15:14] == 2'b01` | `0x1000_4000` | `0x1000_4000 ~ 0x1000_7FFF` | 32-bit 定时器 |
-| UART | `PADDR[15:14] == 2'b10` | `0x1000_8000` | `0x1000_8000 ~ 0x1000_BFFF` | TX/RX FIFO |
+| UART | `PADDR[15:14] == 2'b10` | `0x1000_8000` | `0x1000_8000 ~ 0x1000_BFFF` | ns16550a 标准串口 |
 | SPI | `PADDR[15:14] == 2'b11` | `0x1000_C000` | `0x1000_C000 ~ 0x1000_FFFF` | 主模式 SPI |
 
 **GPIO 寄存器映射**（基址 `0x1000_0000`）：
@@ -257,17 +279,22 @@ APB Bridge 基地址：`0x1000_0000`，4 个 APB 从设备按 `PADDR[15:14]` 译
 | 0x04 | CNT | 当前计数值 |
 | 0x08 | CMP | 比较值 |
 
-**UART 寄存器映射**（基址 `0x1000_8000`）：
+**UART 寄存器映射**（基址 `0x1000_8000`，ns16550a 标准）：
 
-| 偏移 | 名称 | 位定义 | 说明 |
-|------|------|--------|------|
-| 0x00 | CTRL | [0]=TX_EN [1]=RX_EN [2]=TX_IE [3]=RX_IE | 控制/中断使能 |
-| 0x04 | STATUS | [0]=TX_BUSY [1]=RX_VALID [2]=TX_FIFO_FULL [3]=RX_FIFO_EMPTY [4]=TX_FIFO_EMPTY [5]=RX_FIFO_FULL | FIFO 状态；**读取时若 RX_VALID=1 自动武装下次 RXDATA 弹出** |
-| 0x08 | TXDATA | [7:0] | 写入推入 TX FIFO |
-| 0x0C | RXDATA | [7:0] | 读取：若 `rx_pop_armed=1` 弹出 FIFO 并清标志；否则仅 peek |
-| 0x10 | BAUD | [15:0] | 波特率分频系数（0=默认 115200） |
-| 0x14 | IRQ_STAT | [0]=TX_DONE_IRQ [1]=RX_VALID_IRQ | 中断挂起（写 1 清除） |
-| 0x18 | RXPOP | — | 保留（写 1 弹出 RX FIFO） |
+文件：`dev/rtl/APB/perips/uart16550/uart_16550a.sv`，通过 APB4 接口封装在 `apb_perips.sv` 中。
+
+| 偏移 | 名称 | 说明 |
+|------|------|------|
+| 0x00 | THR/RBR/IER | 发送保持/接收缓冲/中断使能（DLAB=0 时 THR/RBR，DLAB=1 时 DLL） |
+| 0x01 | IER/FCR | 中断使能/FIFO 控制（DLAB=0 时 IER，DLAB=1 时 DLM） |
+| 0x02 | ISR/LCR | 中断状态/线控制 |
+| 0x03 | LCR/MCR | 线控制/Modem 控制 |
+| 0x04 | MCR/LSR | Modem 控制/线状态 |
+| 0x05 | LSR/MSR | 线状态/Modem 状态 |
+| 0x06 | MSR/SPR | Modem 状态/Scratch |
+| 0x07 | SPR/SCR | Scratch/Divisor Latch |
+
+> ns16550a 特性：16-byte TX/RX FIFO，可配置波特率（Divisor Latch），Modem 控制信号（CTS/RTS/DSR/DTR/DCD/RI），中断生成（THR 空/RX 数据/RX 超时/Modem 状态/线状态）。替代原自定义 UART，为 Linux 串口控制台提供标准兼容。
 
 **SPI 寄存器映射**（基址 `0x1000_C000`）：
 
@@ -297,12 +324,16 @@ CPU 复位起始地址为 `0xFC00_0000`，启动流程：`复位 PC=0xFC00_0000`
 
 ### 3.1 多周期 FSM 控制器 (`cpu_controller`)
 
-控制器采用 9 状态 FSM 驱动整个数据通路：
+控制器采用 11 状态 FSM 驱动整个数据通路：
 
 ```
 STATE_IDLE (0) → STATE_FETCH (1) → STATE_DECODE (2)
     ├── dec_is_fence/fencei/wfi → STATE_FETCH
     ├── dec_is_mret → STATE_TRAP_RETURN (8)
+    ├── dec_is_sret → STATE_TRAP_RETURN (8)
+    ├── dec_is_ecall → STATE_ECALL (9)
+    ├── dec_is_fencei → STATE_FENCEI (10)
+    ├── dec_is_sfence_vma → STATE_SFENCE_VMA (11)
     ├── exception_at_decode → STATE_TRAP_ENTER (7)
     ├── dec_is_csr → STATE_CSR_ACCESS (6) → STATE_WB (5)
     ├── !dec_need_exe → STATE_FETCH (跳过执行)
@@ -311,6 +342,8 @@ STATE_IDLE (0) → STATE_FETCH (1) → STATE_DECODE (2)
         ├── exe_need_mem → STATE_MEM (4) → STATE_WB (5)
         └── !exe_need_mem → STATE_WB (5) → STATE_FETCH
 ```
+
+11 个状态：STATE_IDLE, STATE_IF, STATE_ID, STATE_EX, STATE_MEM, STATE_WB, STATE_MRET, STATE_SRET, STATE_ECALL, STATE_FENCEI, STATE_SFENCE_VMA。
 
 各级使能信号由当前状态直接译码产生（`if_valid`, `id_valid`, `exe_valid`, `mem_valid`, `wb_valid`, `csr_valid`），确保每个时钟周期仅一级活跃。
 
@@ -325,7 +358,7 @@ STATE_IDLE (0) → STATE_FETCH (1) → STATE_DECODE (2)
 
 **指令重组 (`op_regroup`)**：从 32-bit 指令中提取 opcode、funct3、funct7、rs1、rs2、rd 及五种立即数（I/S/B/U/J 型），均带符号扩展。
 
-**指令识别**：通过 opcode + funct3 + funct7 组合译码，识别全部 70 条指令（含 M 扩展 8 条 + F 扩展 22 条）。
+**指令识别**：通过 opcode + funct3 + funct7 组合译码，识别全部约 80 条指令（含 A 扩展 11 条 + M 扩展 8 条 + F 扩展 22 条）。
 
 **操作数选择**：
 
@@ -334,7 +367,7 @@ STATE_IDLE (0) → STATE_FETCH (1) → STATE_DECODE (2)
 
 **浮点操作数选择**：
 
-- 浮点计算指令（FADD/FSUB/FMUL/FDIV/FSQRT/FEQ/FLT/FLE/FMIN/FMAX/FSGNJ*/FCLASS）读取浮点寄存器 frs1/frs2
+- 浮点计算指令（FADD/FSUB/FMUL/FDIV/FSQRT/FMADD/FMSUB/FNMSUB/FNMADD/FEQ/FLT/FLE/FMIN/FMAX/FSGNJ*/FCLASS）读取浮点寄存器 frs1/frs2（FMA 额外读取 frs3）
 - 整数→浮点指令（FMV.W.X / FCVT.S.W / FCVT.S.WU）读取整数寄存器 rs1，通过 `fpu_src_is_int` 标志在执行级 mux 选择
 - 浮点→整数指令（FMV.X.W / FCVT.W.S / FCVT.WU.S）结果写整数寄存器，通过 `fpu_rd_is_int` 标志路由
 
@@ -364,9 +397,10 @@ STATE_IDLE (0) → STATE_FETCH (1) → STATE_DECODE (2)
 | `is_fpu` | 1 | 当前指令为浮点运算指令 |
 | `is_flw` | 1 | 当前指令为 FLW |
 | `is_fsw` | 1 | 当前指令为 FSW |
-| `fpu_funct` | 7 | 浮点操作码（0=FADD ~ 19=FCVT.S.WU） |
+| `fpu_funct` | 7 | 浮点操作码（0=FADD ~ 19=FCVT.S.WU, 20=FMADD ~ 23=FNMADD） |
 | `fpu_rm` | 3 | 舍入模式（来自 funct3，DYN=111 在执行级用 CSR frm 替换） |
 | `fpu_rd_is_int` | 1 | 结果写整数寄存器（FEQ/FLT/FLE/FCLASS/FMV.X.W/FCVT.W.S/FCVT.WU.S） |
+| `frs3_value` | 32 | FMA 第三操作数（R4 格式 rs3，用于 FMADD/FMSUB/FNMSUB/FNMADD） |
 
 **浮点指令 opcode 识别**：
 
@@ -374,11 +408,15 @@ STATE_IDLE (0) → STATE_FETCH (1) → STATE_DECODE (2)
 |--------|------|------|
 | 0x07 (0000111) | LOAD-FP | FLW |
 | 0x27 (0100111) | STORE-FP | FSW |
+| 0x43 (1000011) | MADD-FP | FMADD.S |
+| 0x47 (1000111) | MSUB-FP | FMSUB.S |
+| 0x4B (1001011) | NMSUB-FP | FNMSUB.S |
+| 0x4F (1001111) | NMADD-FP | FNMADD.S |
 | 0x53 (1010011) | OP-FP | FADD.S/FSUB.S/FMUL.S/FDIV.S/FSQRT.S/FMIN.S/FMAX.S/FSGNJ*/FCVT/FEQ/FLT/FLE/FCLASS/FMV.X.W/FMV.W.X |
 
 **非法指令检测**：无效指令编码、CSR 地址无效、写只读 CSR 均触发非法指令异常。
 
-**ID/EX 总线**（334-bit）：`{pc_plus4, valid_inst, is_alu, is_load, is_store, is_jal_like, is_branch, use_fixed_wb, wb_we, rd, wb_fixed_data, mem_size, mem_unsigned, alu_control[15:0], is_mu, mu_funct3, alu_src1, alu_src2, rs1_value, rs2_value, branch_funct3, is_csr, is_ecall, is_ebreak, is_mret, csr_addr, csr_funct3, csr_uimm, pc, inst, is_fpu, is_flw, is_fsw, fpu_funct[6:0], fpu_rm[2:0], fpu_rd_is_int}`
+**ID/EX 总线**（334-bit）：`{pc_plus4, valid_inst, is_alu, is_load, is_store, is_jal_like, is_branch, use_fixed_wb, wb_we, rd, wb_fixed_data, mem_size, mem_unsigned, alu_control[15:0], is_mu, mu_funct3, alu_src1, alu_src2, rs1_value, rs2_value, branch_funct3, is_csr, is_ecall, is_ebreak, is_mret, csr_addr, csr_funct3, csr_uimm, pc, inst, is_fpu, is_flw, is_fsw, fpu_funct[6:0], fpu_rm[2:0], fpu_rd_is_int, frs3_value[31:0]}`（含 FPU 控制信号、舍入模式、rs3 字段用于 FMA R4 格式）
 
 ### 3.4 执行级 (`cpu_execute`)
 
@@ -412,7 +450,7 @@ alu_32bit
 采用与 `mu_unit` 相同的多周期握手协议，FSM 控制器在 STATE_EXEC 内轮询 `fpu_result_valid`，与 MU 等待逻辑一致，无需新增 FSM 状态。
 
 - 握手协议：`req_valid → fpu_ready → fpu_busy → result_valid → result_got`
-- 操作码 `fpu_funct[6:0]`：20 种浮点操作（FADD=0 ~ FCVT.S.WU=19）
+- 操作码 `fpu_funct[6:0]`：24 种浮点操作（FADD=0 ~ FCVT.S.WU=19, FMADD=20 ~ FNMADD=23）
 - 舍入模式 `fpu_rm[2:0]`：来自指令 funct3，DYN(111) 在执行级用 CSR frm 替换
 - 异常标志 `fflags[4:0]`：{NV, DZ, OF, UF, NX}，写回时 OR 累积至 CSR fflags
 - 结果路由：`fpu_rd_is_int=1` → 写整数寄存器，否则 → 写浮点寄存器
@@ -424,6 +462,7 @@ alu_32bit
 |--------|------|------|--------|
 | `fpu_adder` | FADD.S / FSUB.S | FSM: 对齐→加/减→前导零计数→规格化→舍入 | 3-5 周期 |
 | `fpu_multiplier` | FMUL.S | 组合 24×24 尾数乘 + 规格化 + 舍入 | 1-2 周期 |
+| `fpu_fma` | FMADD.S / FMSUB.S / FNMSUB.S / FNMADD.S | R4 格式：先乘后加/减，含舍入中间步骤 | 3-5 周期 |
 | `fpu_divider` | FDIV.S | 非恢复余数迭代（26-bit 商）+ 规格化 + 舍入 | ~27 周期 |
 | `fpu_sqrt` | FSQRT.S | 非恢复余数法（28-bit 根）+ 规格化 + 舍入 | ~27 周期 |
 | `fpu_cvt` | FCVT.* | FSM: COMPUTE→ROUND | 2-3 周期 |
@@ -529,8 +568,13 @@ MEM_IDLE → MEM_IDLE   (非访存指令，直接完成)
 | 外部中断（MEIE & MEIP） | 0x8000_000B | 最高 |
 | 软件中断（MSIE & MSIP） | 0x8000_0003 | 中 |
 | 定时器中断（MTIE & MTIP） | 0x8000_0007 | 低 |
+| S-mode 外部中断（SEIE & SEIP） | 0x8000_0009 | — |
+| S-mode 软件中断（SSIE & SSIP） | 0x8000_0001 | — |
+| S-mode 定时器中断（STIE & STIP） | 0x8000_0005 | — |
 
 中断使能条件：`mstatus.MIE == 1` 且对应 `mie` 位为 1 且 `mip` 位为 1。
+
+**M/S 中断优先级**：当 M-mode 和 S-mode 中断同时挂起时，M-mode 中断优先被响应。此前存在 S-mode 中断在 M-mode 中断挂起时仍被响应的缺陷，已修复：`cpu_clint.sv` 现先检查 M-mode 挂起，再检查 S-mode。
 
 **陷阱委托机制**：
 
@@ -572,23 +616,49 @@ MEM_IDLE → MEM_IDLE   (非访存指令，直接完成)
 | 0x001 | fflags | 是 | 累积浮点异常标志 {NV, DZ, OF, UF, NX} |
 | 0x002 | frm | 是 | 动态舍入模式（0=RNE, 1=RTZ, 2=RDN, 3=RUP, 4=RMM） |
 | 0x003 | fcsr | 是 | 合并寄存器 {frm[2:0], fflags[4:0]} |
-| 0x301 | misa | 否 | 硬连线 `0x40141120`（RV32IMFSU） |
-| 0x302 | medeleg | 是 | 异常委托寄存器 |
-| 0x303 | mideleg | 是 | 中断委托寄存器 |
+| 0x301 | misa | 否 | 硬连线 `0x40141121`（RV32AIMFSU，A bit[0]=1） |
+| 0x302 | medeleg | 是 | 异常委托寄存器（委托码：0,2,3,6,7,8,9,11,12,13,15,19） |
+| 0x303 | mideleg | 是 | 中断委托寄存器（委托位：MEIP[11], MTIP[7], MSIP[3]） |
 | 0x304 | mie | 是 | MEIE/MTIE/MSIE/SEIE/STIE/SSIE |
 | 0x305 | mtvec | 是 | M-mode Trap 向量基址 |
-| 0x306 | mcounteren | 是 | 计数器使能寄存器 |
+| 0x306 | mcounteren | 是 | 计数器使能寄存器（mcounteren[slice]=1 且 scounteren[slice]=1 时 U-mode 可读 cycle/time/instret） |
 | 0x310 | mstatush | 否 | 硬连线 0 |
 | 0x340 | mscratch | 是 | M-mode 临时寄存器 |
 | 0x341 | mepc | 是 | M-mode 异常/中断返回 PC |
 | 0x342 | mcause | 是 | M-mode 异常/中断原因 |
 | 0x343 | mtval | 是 | M-mode 异常附加信息 |
-| 0x344 | mip | 否 | MEIP/MTIP/MSIP/SEIP/STIP/SSIP（硬件写入） |
+| 0x344 | mip | 否 | MEIP[11]/SEIP[9]/MTIP[7]/STIP[5]/MSIP[3]/SSIP[1]（硬件写入；sip[5] STIP 可由 S-mode 软件写入注入定时器中断） |
 | 0xB00 | mcycle | 是 | 时钟周期计数器低 32 位 |
 | 0xB02 | minstret | 是 | 指令退休计数器低 32 位 |
 | 0xB80 | mcycleh | 是 | 时钟周期计数器高 32 位 |
 | 0xB82 | minstreth | 是 | 指令退休计数器高 32 位 |
 | 0xF11-0xF15 | mvendorid 等 | 否 | 硬连线 0 |
+| 0x3A0 | pmpcfg0 | 是 | PMP 配置寄存器 0（8 个 PMP entry 的配置字段） |
+| 0x3A1 | pmpcfg1 | 是 | PMP 配置寄存器 1 |
+| 0x3A2 | pmpcfg2 | 是 | PMP 配置寄存器 2 |
+| 0x3A3 | pmpcfg3 | 是 | PMP 配置寄存器 3 |
+| 0x3B0 | pmpaddr0 | 是 | PMP 地址寄存器 0 |
+| 0x3B1 | pmpaddr1 | 是 | PMP 地址寄存器 1 |
+| 0x3B2 | pmpaddr2 | 是 | PMP 地址寄存器 2 |
+| 0x3B3 | pmpaddr3 | 是 | PMP 地址寄存器 3 |
+| 0x3B4 | pmpaddr4 | 是 | PMP 地址寄存器 4 |
+| 0x3B5 | pmpaddr5 | 是 | PMP 地址寄存器 5 |
+| 0x3B6 | pmpaddr6 | 是 | PMP 地址寄存器 6 |
+| 0x3B7 | pmpaddr7 | 是 | PMP 地址寄存器 7 |
+| 0x3B8 | pmpaddr8 | 是 | PMP 地址寄存器 8 |
+| 0x3B9 | pmpaddr9 | 是 | PMP 地址寄存器 9 |
+| 0x3BA | pmpaddr10 | 是 | PMP 地址寄存器 10 |
+| 0x3BB | pmpaddr11 | 是 | PMP 地址寄存器 11 |
+| 0x3BC | pmpaddr12 | 是 | PMP 地址寄存器 12 |
+| 0x3BD | pmpaddr13 | 是 | PMP 地址寄存器 13 |
+| 0x3BE | pmpaddr14 | 是 | PMP 地址寄存器 14 |
+| 0x3BF | pmpaddr15 | 是 | PMP 地址寄存器 15 |
+| 0xC01 | time | 否 | mtime 低 32 位（只读，镜像 CLINT mtime，U-mode 计数器别名） |
+| 0xC81 | timeh | 否 | mtime 高 32 位（只读，镜像 CLINT mtime，U-mode 计数器别名） |
+
+> **PMP 说明**：pmpcfg0–pmpcfg3（0x3A0–0x3A3）和 pmpaddr0–pmpaddr15（0x3B0–0x3BF）共 20 个 CSR 已实现读写存储，但硬件强制执行（地址匹配 + 权限检查）未实现。Linux 可在无 PMP 强制执行下启动，此功能延后实现。
+
+> **time/timeh 说明**：`core_top.sv` 将 CLINT mtime 直接路由至 CSR 读路径，U-mode 通过 time(0xC01)/timeh(0xC81) 读取定时器值（需 mcounteren[1]=1 且 scounteren[1]=1）。
 
 **S-mode CSR：**
 
@@ -597,12 +667,12 @@ MEM_IDLE → MEM_IDLE   (非访存指令，直接完成)
 | 0x100 | sstatus | 是 | mstatus 的 S-mode 视图（SIE/SPIE/SPP/UXS/FS/XS/SD） |
 | 0x104 | sie | 是 | SEIE/STIE/SSIE |
 | 0x105 | stvec | 是 | S-mode Trap 向量基址 |
-| 0x106 | scounteren | 是 | S-mode 计数器使能寄存器 |
+| 0x106 | scounteren | 是 | S-mode 计数器使能寄存器（与 mcounteren 联合控制 U-mode 计数器访问） |
 | 0x140 | sscratch | 是 | S-mode 临时寄存器 |
 | 0x141 | sepc | 是 | S-mode 异常/中断返回 PC |
 | 0x142 | scause | 是 | S-mode 异常/中断原因 |
 | 0x143 | stval | 是 | S-mode 异常附加信息 |
-| 0x144 | sip | 否 | SEIP/STIP/SSIP（硬件写入） |
+| 0x144 | sip | 否 | SEIP[9]/STIP[5]/SSIP[1]（STIP[5] 可由 S-mode 软件写入注入定时器中断） |
 | 0x180 | satp | 是 | S-mode 地址翻译与保护（ASID + PPN） |
 
 **sstatus 与 mstatus 的关系**：sstatus 是 mstatus 的受限视图，仅暴露 SIE（位1）、SPIE（位5）、SPP（位8）、FS（位14:13）、UXS（位18:17）、XS（位16:15）、SD（位31）。对 sstatus 的写操作仅修改 mstatus 中对应位，其余位保持不变。
@@ -708,7 +778,7 @@ S_REFILL:        保持 refill_req，等 refill_valid，写 BRAM PortB，
 S_INVALIDATE:    逐组写零标签 BRAM，完成后回 S_IDLE
 ```
 
-- MMIO 旁路：`vaddr[31]==0` 时直接发 AXI 请求，不经过缓存（使用虚拟地址判断，因为物理地址可能在 MMU 未就绪时无效）
+- MMIO 旁路：`paddr[31]==0 || paddr[30]==1` 时直接发 AXI 请求，不经过缓存（使用物理地址判断，即 TLB 翻译后的 paddr；此前使用 vaddr 判断在 VA≠PA 时会导致 MMIO 误命中缓存，为 Linux 适配关键修复）
 - 标签比较在 S_TAG_READ 完成（BRAM 1-cycle 延迟后），命中时进 S_READ 读数据 BRAM
 - 缺失时向 `cpu_bus_bridge` 发 INCR8 读突发请求，8 拍填充整行
 - 数据 BRAM 读使能门控 `mmu_ready`，避免使用过时物理地址
@@ -949,6 +1019,10 @@ PTW 在页表漫游过程中自动管理访问位（A）和脏位（D）：
 - 首次写入某页时，若 PTE.D=0，PTW 写回 PTE 并置 D=1
 - 写回通过 PTW 总线请求完成，旁路 dcache 直接到 AXI→BRAM
 
+**PTW-dcache 一致性维护**：
+
+当 PTW 更新 PTE（置 A/D 位）时，会同时失效 dcache 中对应的缓存行，确保后续读操作看到更新后的 PTE。这修复了一致性缺陷：此前 PTW 修改 PTE 后，dcache 可能仍提供过期的 PTE 数据，导致页错误或权限判断错误。
+
 **translate_en 输入**：
 
 - 指令 MMU：translate_en 恒为 1（取指始终经过地址翻译）
@@ -966,7 +1040,11 @@ PTW 在页表漫游过程中自动管理访问位（A）和脏位（D）：
 
 **SFENCE.VMA 指令**：
 
-执行 SFENCE.VMA 时刷新两个 TLB 的全部项。若指定 rs1（ASID）或 rs2（VPN），可选择性刷新，当前实现为全刷新。
+执行 SFENCE.VMA 时触发 dcache 刷新 + TLB 刷新：
+1. **dcache 刷新**：写回所有脏行（writeback dirty lines），然后失效所有缓存行（invalidate all lines）。实现：`core_top.sv` 检测 sfence.vma，启动 dcache flush FSM（S_FLUSH_SCAN 逐组扫描，S_FLUSH_WB_RD/WB_SD 写回脏行，S_FLUSH_INVALIDATE 失效所有行）
+2. **TLB 刷新**：刷新两个 TLB 的全部项（逐组写零 BRAM，S_FLUSH 状态机）
+
+此前 sfence.vma 仅刷新 TLB；新增 dcache 刷新确保地址翻译一致性——修改页表后 dcache 中缓存的旧 PTE 数据不会干扰后续翻译。若指定 rs1（ASID）或 rs2（VPN），可选择性刷新，当前实现为全刷新。
 
 **FENCE.I 指令**：
 
@@ -1059,12 +1137,12 @@ vivado_config.yaml
 |------|--------|------|
 | GPIO | `0x1000_0000` | 16-bit 双向 IO，引脚变化中断，中断使能/状态寄存器 |
 | Timer | `0x1000_4000` | 32-bit 定时器，产生中断，单次/周期模式 |
-| UART | `0x1000_8000` | TX/RX FIFO（16 字节），中断输出，运行时波特率配置，RXDATA peek + STATUS-read auto-arm（应对 CPU 重复 AXI 事务 bug） |
+| UART | `0x1000_8000` | ns16550a 标准串口，16-byte TX/RX FIFO，中断输出，APB4 封装 |
 | SPI | `0x1000_C000` | 主模式 SPI 控制器，传输完成中断 |
 
-#### 6.2.1 UART STATUS-read auto-arm 机制
+#### 6.2.1 ns16550a UART
 
-由于 CPU 数据总线存在每条 `lw`/`sw` 指令触发两次 AXI4-Lite 事务的 bug，直接弹出 RXDATA 会导致每隔一字节丢失。解决方案：读取 STATUS 且 `RX_VALID=1` 时置 `rx_pop_armed=1`，后续 RXDATA 读取在该标志有效时弹出 FIFO 并清标志，重复读取仅 peek 不弹。此机制使重复总线事务对 FIFO 无副作用。
+UART 外设已替换为 ns16550a 标准串口（`dev/rtl/APB/perips/uart16550/uart_16550a.sv`），通过 APB4 接口封装在 `apb_perips.sv` 中。ns16550a 提供 16-byte TX/RX FIFO、可配置波特率（Divisor Latch）、Modem 控制信号、标准中断生成，为 Linux 串口控制台提供标准兼容。原自定义 UART 的 STATUS-read auto-arm 机制不再需要。
 
 #### 6.2.2 PLIC 中断路由
 
@@ -1096,7 +1174,7 @@ vivado_config.yaml
 
 ### 8.1 应用层验证状态
 
-> 更新时间: 2026-06-13 | 基于 commit `bb4b3fb`（成功完成计算器、echo）
+> 更新时间: 2026-06-16 | 基于 commit `bb4b3fb`（成功完成计算器、echo）
 
 | 应用 | 程序 | 验证方式 | 结果 | 说明 |
 |------|------|----------|------|------|
@@ -1121,7 +1199,7 @@ vivado_config.yaml
 | `tb_isa_upper_imm` | `upper_imm.hex` | 上位立即数 ISA 测试 | — |
 | `tb_isa_m_ext` | `m_ext.hex` | M 扩展 ISA 测试 | — |
 | `tb_isa_csr` | `csr.hex` | CSR ISA 测试 | — |
-| `tb_isa_f_ext` | `f_ext.hex` | F 扩展 ISA 测试 | 26 PASS, 0 FAIL |
+| `tb_isa_f_ext` | `f_ext.hex` | F 扩展 ISA 测试（含 FMA） | 26 PASS, 0 FAIL |
 | `tb_isa_f_ext_special` | `f_ext_special.hex` | F 扩展特殊值/舍入测试 | 24 PASS, 0 FAIL |
 | `tb_exception_illegal_inst` | `illegal_inst.hex` | 非法指令异常测试 | — |
 | `tb_exception_ecall` | `ecall.hex` | ECALL 异常测试 | — |
@@ -1182,7 +1260,7 @@ vivado_config.yaml
 - UART 检查：testbench 内嵌 UART RX 解码器，逐字符比对输出
 - GPIO 检查：监测 GPIO 端口状态变化，验证 LED 跑马灯序列
 - FPU 单元测试：每个 FPU 子模块独立 testbench，边界值（±0, ±Inf, qNaN, sNaN, 最大/最小正规数, 最大/最小次正规数）+ 随机浮点对对照
-- FPU ISA 测试：自检程序（x28=pass, x30=first_fail_id），覆盖全部 22 条浮点指令 + 特殊值 + 5 种舍入模式
+- FPU ISA 测试：自检程序（x28=pass, x30=first_fail_id），覆盖全部 22 条浮点指令（含 FMA 四条融合乘加）+ 特殊值 + 5 种舍入模式
 - 计算器测试：testbench 内嵌 UART TX 引擎发送算式 + RX 解码器捕获输出，逐算式比对结果
 - PASS/FAIL 计数汇总
 - 共享 testbench 框架：`tb_soc_includes.svh`（system_top 实例化 + 时钟/复位 + DDR3 仿真支持 + check_reg/check_mem_word 任务 + pass/fail 计数）
@@ -1210,11 +1288,13 @@ vivado_config.yaml
 - **Cache 容量**：ICache/DCache 各 1KB（8 组 × 4 路 × 32 字节），大工作集程序可能频繁缺失
 - **TLB 容量**：4 路 × 4 组 = 16 项，大工作集或频繁上下文切换可能 TLB 抖动
 - **SRAM 字节写**：SRAM 仿真模型（axi_wrap_ram）支持 AXI4 字节写（wstrb），DDR3 通过 MIG 管理
-- **FMA 未实现**：FMADD.S / FMSUB.S / FNMSUB.S / FNMADD.S 四条融合乘加指令未实现（R4 格式译码复杂，硬件面积大）
-- **D 扩展未实现**：双精度浮点暂不支持，XLEN=32 时 D 扩展需 FLEN=64（NaN-boxing、64-bit 浮点寄存器）
+- **PMP 硬件强制未实现**：pmpcfg0–pmpcfg3 和 pmpaddr0–pmpaddr15 共 20 个 CSR 已实现读写存储，但硬件地址匹配与权限检查未实现。Linux 可在无 PMP 强制下启动
+- **CLINT 非标准地址布局**：mtimecmp_lo @ 0x00, mtimecmp_hi @ 0x04, mtime_lo @ 0x08, mtime_hi @ 0x0C, msip @ 0x10，与标准 SiFive CLINT（msip @ 0x0, mtimecmp @ 0x4000, mtime @ 0xBFF8）不同。Linux DTB 须使用自定义 compatible 字符串
+- **分支预测**：无分支预测（始终 not-taken），JAL/JALR 静态预测
+- **D 扩展未实现**：双精度浮点暂不支持，XLEN=32 时 D 扩展需 FLEN=64（NaN-boxing、64-bit 浮点寄存器）。仅 F 单精度扩展已实现，无 F/D/Q 扩展组合
 - **f0 硬连线零**：RISC-V 规范不要求 f0=0（与 x0 不同），当前实现 f0 恒为 0 为设计选择
 - **mstatus.FS 未强制**：FS=Off 时浮点指令未触发异常，为简化设计
-- **CPU 重复 AXI 事务 bug**：每条 `lw`/`sw` 指令触发两次 AXI4-Lite 总线事务（间隔约 15 周期）。对普通内存无影响（读无副作用），对有副作用的寄存器（如 UART RXDATA）需 RTL workaround（STATUS-read auto-arm 机制）。根本修复需排查 CPU 总线桥接逻辑
+- **CPU 重复 AXI 事务 bug**：每条 `lw`/`sw` 指令触发两次 AXI4-Lite 总线事务（间隔约 15 周期）。对普通内存无影响（读无副作用），对有副作用的寄存器需 RTL workaround。根本修复需排查 CPU 总线桥接逻辑
 
 ---
 
@@ -1266,6 +1346,7 @@ vivado_config.yaml
 | `dev/rtl/FPU/` | `fpu_multiplier.sv` | 浮点乘法器（FMUL.S） |
 | `dev/rtl/FPU/` | `fpu_divider.sv` | 浮点除法器（FDIV.S，非恢复余数） |
 | `dev/rtl/FPU/` | `fpu_sqrt.sv` | 浮点平方根（FSQRT.S，非恢复余数法） |
+| `dev/rtl/FPU/` | `fpu_fma.sv` | 浮点融合乘加（FMADD.S / FMSUB.S / FNMSUB.S / FNMADD.S，R4 格式） |
 | `dev/rtl/FPU/` | `fpu_compare.sv` | 浮点比较器（FEQ.S / FLT.S / FLE.S） |
 | `dev/rtl/FPU/` | `fpu_minmax.sv` | 浮点最值（FMIN.S / FMAX.S） |
 | `dev/rtl/FPU/` | `fpu_classify.sv` | 浮点分类（FCLASS.S） |
@@ -1290,9 +1371,7 @@ vivado_config.yaml
 | `dev/rtl/APB/` | `apb_decoder.sv` | APB 地址译码 |
 | `dev/rtl/APB/perips/` | `apb_perips.sv` | 外设顶层 |
 | `dev/rtl/APB/perips/` | `gpio.sv` | GPIO（16-bit 双向 IO，引脚变化中断） |
-| `dev/rtl/APB/perips/` | `uart_top.sv` | UART（TX/RX FIFO，中断，可配波特率） |
-| `dev/rtl/APB/perips/` | `uart_tx.sv` | UART 发送（可配波特率） |
-| `dev/rtl/APB/perips/` | `uart_rx.sv` | UART 接收（可配波特率） |
+| `dev/rtl/APB/perips/uart16550/` | `uart_16550a.sv` | ns16550a 标准串口（16-byte TX/RX FIFO，APB4 封装） |
 | `dev/rtl/APB/perips/` | `timer.sv` | 定时器 |
 | `dev/rtl/APB/perips/` | `spi.sv` | SPI（主模式，传输完成中断） |
 | `dev/rtl/APB/perips/` | `sync_fifo.sv` | 参数化同步 FIFO |
@@ -1405,48 +1484,54 @@ vivado_config.yaml
 4. **桶形移位器**：5 级级联（1/2/4/8/16），单周期完成任意移位
 5. **Booth 乘法器**：Radix-2 Booth 编码，32 周期迭代，支持有符号/无符号
 6. **非恢复余数除法器**：32 周期迭代 + 修正阶段，处理除零/溢出/符号
-7. **完整陷阱处理**：支持 11 种异常 + 3 种中断，符合 RISC-V 特权规范
+7. **完整陷阱处理**：支持 11 种异常 + 6 种中断（M/S-mode 各 3 种），符合 RISC-V 特权规范
 8. **M/S/U 三级特权模式**：支持陷阱委托（medeleg/mideleg），S-mode 独立陷阱向量与 CSR
 9. **Sv32 二级页表虚拟内存**：硬件页表漫游（PTW），16 项 4 路×4 组组相联 TLB，ASID 感知
-10. **SRET/SFENCE.VMA/fence.i 指令**：S-mode 陷阱返回、TLB 刷新、icache 失效 + dcache 写回
+10. **SRET/SFENCE.VMA/fence.i 指令**：S-mode 陷阱返回、TLB+dcache 刷新、icache 失效 + dcache 写回
 11. **硬件管理 A/D 位**：PTW 自动写回 PTE 的访问位和脏位
-12. **4 路组相联缓存**：ICache/DCache 各 1KB（8 组 × 4 路 × 32B 行），BRAM 标签存储
-13. **Tree-PLRU 替换**：3-bit 状态编码，无效路优先，近似 LRU 替换策略（Cache 和 TLB 均使用）
-14. **写回 + 写分配**：Store 命中仅写 BRAM + 置 dirty，缺失先 Refill 再合并写入，脏行驱逐写回主存
-15. **INCR8 突发传输**：Cache Refill/Writeback 使用 AXI4 INCR8 突发，8 拍传输整行 256-bit 数据
-16. **MMIO 旁路**：`vaddr[31]==0 || vaddr[30]==1` 直接走 AXI 总线，不经过缓存，保证外设访问强序（含 Boot ROM 0xFC000000）
-17. **VIPT（Virtically-Indexed Physically-Tagged）**：Cache 使用虚拟地址的页内偏移位索引，物理地址标签比较，避免 MMU 翻译延迟
-18. **BRAM-based 标签存储**：Tag 使用 BRAM IP（icachet/dcachet），byte-write enable 支持单路更新，S_TAG_READ 状态处理 1-cycle 读延迟
-19. **BRAM-based TLB**：4 路×4 组组相联，tlb_flag/tlb_data 双 BRAM，双端口（i-side/d-side），Tree-PLRU 替换
-20. **AXI4 + AXI4-Lite + APB 三级总线**：高速主存挂 AXI4，控制寄存器挂 AXI4-Lite，低速外设挂 APB，通过桥接互联
-21. **AXI4 Master 接口**：cpu_bus_bridge 五通道 AW/W/B/AR/R，支持 INCR8 突发读/写
-22. **AXI4-Lite 从设备**：PLIC/CLINT/BootROM/SysStatus/APB Bridge，手动地址译码 + 从设备多路复用
-23. **AXI4 时钟域穿越**：Axi_CDC，cpu_clk(50MHz) → sys_clk(100MHz) 异步隔离
-24. **三时钟域架构**：cpu_clk/sys_clk/ddr_clk_ref，reset_sync 复位同步
-25. **DDR3 SDRAM 支持**：axi_wrap_ddr + MIG，可选 SRAM 行为模型（axi_wrap_ram）
-26. **Boot ROM**：0xFC00_0000，32KB BRAM，CPU 复位起始地址，bootloader 跳转至 0x8000_0000
-27. **System Status**：0x0400_0000，MIG 校准/MMCM/clk_wiz 状态只读
-28. **AXI4-Lite Default Slave**：未映射地址返回 DECERR 响应，防止总线挂死
-29. **总线桥优先级**：icache_mmio > dcache_mmio > ptw_i > ptw_d > dcache_wb > icache_refill > dcache_refill，防止饿死与脏行堆积
-30. **数据 MMU translate_en 门控**：mem_en 同步控制 Sv32 翻译使能，消除组合信号竞争
-31. **配置驱动存储几何**：`vivado_config.yaml` → `cache_def.svh` + BRAM create_ip TCL，IP 与 RTL 常量自动同步
-32. **SoC 配置宏**：soc_config.vh，SIMU_USE_PLL / SIMU_USE_DDR 仿真模式选择
-33. **流水线总线结构体**：core_bus_types.svh，替代手工位索引
-34. **外设中断路由**：UART/SPI/GPIO 中断输出经 PLIC 路由至 CPU（src[2]=UART, src[3]=SPI, src[4]=GPIO）
-35. **UART TX/RX FIFO**：各 16 字节同步 FIFO 缓冲，支持连续收发不丢数据
-36. **UART 可配波特率**：BAUD 寄存器运行时设置分频系数，0 回退默认 115200
-37. **UART RXDATA peek + STATUS-read auto-arm**：RXDATA 读取为 peek（不弹 FIFO），STATUS 读取自动武装下次 RXDATA 弹出，应对 CPU 重复 AXI 事务 bug
-37. **GPIO 引脚变化中断**：逐引脚中断使能掩码 + 写 1 清除挂起状态
-38. **SPI 传输完成中断**：CTRL[4] 中断使能，传输完成置挂起，写 STATUS 清除
-39. **CLINT 可写 msip**：msip 寄存器（偏移 0x10）支持软件中断，符合 RISC-V CLINT 规范
-40. **IEEE 754 单精度浮点**：22 条 F 扩展指令，5 种舍入模式（RNE/RTZ/RDN/RUP/RMM），fflags 异常标志累积
-41. **FPU 多周期握手**：与 MU 单元统一握手协议（req_valid→fpu_ready→fpu_busy→result_valid→result_got），FSM 在 STATE_EXEC 内轮询
-42. **FPU 子模块分工**：加法器（FSM 3-5 周期）、乘法器（组合 1-2 周期）、除法器/平方根（非恢复余数 ~27 周期）、比较/分类/最值/符号注入（组合单周期）、转换（FSM 2-3 周期）
-43. **浮点寄存器堆**：32×32-bit（f0 硬连线零），双读单写 + 调试端口，参数化 FLEN 为 D 扩展预留
-44. **F 扩展 CSR**：fflags(0x001) / frm(0x002) / fcsr(0x003)，fflags 软件/硬件写合并（OR 累积），mstatus.FS 域支持
-45. **浮点计算器应用**：基于 UART IO 的递归下降表达式解析器，支持 +,-,*,/,(),sqrt(),neg()
-46. **共享 testbench 框架**：tb_soc_includes.svh，SoC 级仿真 + DDR3 支持
-47. **测试程序分类重组**：isa/exception/cache/mmu/privilege/mmio/regression/ 目录结构
-48. **Boot ROM 启动流程**：CPU 复位 PC=0xFC000000 → bootloader（sp 初始化 + DDR3 自检 + UART 接收程序镜像 + fence.i + 跳转）→ 主程序执行
-49. **系统集成应用验证通过**：LED 跑马灯、UART Echo、浮点计算器三个应用均成功上板运行，Bootloader 全链路仿真通过（2026-06-13）
-50. **完整内存映射模型**：7 从设备地址译码 + APB 4 从设备子译码 + CLINT/PLIC/SysStatus/BootROM 寄存器级映射（见 §2.2）
+12. **PTW-dcache 一致性**：PTW 更新 PTE 后失效 dcache 对应行，确保后续读看到更新 PTE
+13. **4 路组相联缓存**：ICache/DCache 各 1KB（8 组 × 4 路 × 32B 行），BRAM 标签存储
+14. **Tree-PLRU 替换**：3-bit 状态编码，无效路优先，近似 LRU 替换策略（Cache 和 TLB 均使用）
+15. **写回 + 写分配**：Store 命中仅写 BRAM + 置 dirty，缺失先 Refill 再合并写入，脏行驱逐写回主存
+16. **INCR8 突发传输**：Cache Refill/Writeback 使用 AXI4 INCR8 突发，8 拍传输整行 256-bit 数据
+17. **MMIO 旁路**：`paddr[31]==0 || paddr[30]==1` 直接走 AXI 总线，不经过缓存，使用物理地址判断（Linux 适配修复：VA≠PA 时 vaddr 判断导致 MMIO 误命中缓存）
+18. **VIPT（Virtically-Indexed Physically-Tagged）**：Cache 使用虚拟地址的页内偏移位索引，物理地址标签比较，避免 MMU 翻译延迟
+19. **BRAM-based 标签存储**：Tag 使用 BRAM IP（icachet/dcachet），byte-write enable 支持单路更新，S_TAG_READ 状态处理 1-cycle 读延迟
+20. **BRAM-based TLB**：4 路×4 组组相联，tlb_flag/tlb_data 双 BRAM，双端口（i-side/d-side），Tree-PLRU 替换
+21. **AXI4 + AXI4-Lite + APB 三级总线**：高速主存挂 AXI4，控制寄存器挂 AXI4-Lite，低速外设挂 APB，通过桥接互联
+22. **AXI4 Master 接口**：cpu_bus_bridge 五通道 AW/W/B/AR/R，支持 INCR8 突发读/写
+23. **AXI4-Lite 从设备**：PLIC/CLINT/BootROM/SysStatus/APB Bridge，手动地址译码 + 从设备多路复用
+24. **AXI4 时钟域穿越**：Axi_CDC，cpu_clk(50MHz) → sys_clk(100MHz) 异步隔离
+25. **三时钟域架构**：cpu_clk/sys_clk/ddr_clk_ref，reset_sync 复位同步
+26. **DDR3 SDRAM 支持**：axi_wrap_ddr + MIG，可选 SRAM 行为模型（axi_wrap_ram）
+27. **Boot ROM**：0xFC00_0000，32KB BRAM，CPU 复位起始地址，bootloader 跳转至 0x8000_0000
+28. **System Status**：0x0400_0000，MIG 校准/MMCM/clk_wiz 状态只读
+29. **AXI4-Lite Default Slave**：未映射地址返回 DECERR 响应，防止总线挂死
+30. **总线桥优先级**：icache_mmio > dcache_mmio > ptw_i > ptw_d > dcache_wb > icache_refill > dcache_refill，防止饿死与脏行堆积
+31. **数据 MMU translate_en 门控**：mem_en 同步控制 Sv32 翻译使能，消除组合信号竞争
+32. **配置驱动存储几何**：`vivado_config.yaml` → `cache_def.svh` + BRAM create_ip TCL，IP 与 RTL 常量自动同步
+33. **SoC 配置宏**：soc_config.vh，SIMU_USE_PLL / SIMU_USE_DDR 仿真模式选择
+34. **流水线总线结构体**：core_bus_types.svh，替代手工位索引
+35. **外设中断路由**：UART/SPI/GPIO 中断输出经 PLIC 路由至 CPU（src[2]=UART, src[3]=SPI, src[4]=GPIO）
+36. **A 扩展原子指令**：LR.W/SC.W + 9 条 AMO（AMOADD/AMOAND/AMOOR/AMOXOR/AMOMAX/AMOMAXU/AMOMIN/AMOMINU/AMOSWAP），dcache 保留集 + read-modify-write 原子操作，支持 Linux SMP
+37. **ns16550a 标准串口**：替代原自定义 UART，16-byte TX/RX FIFO，标准寄存器映射，APB4 封装，Linux 串口控制台兼容
+38. **sfence.vma 含 dcache 刷新**：sfence.vma 触发 dcache 刷新（写回脏行 + 失效所有行）+ TLB 刷新，确保地址翻译一致性
+39. **MMIO 判定使用 paddr**：MMIO 判断基于物理地址（TLB 翻译后），而非虚拟地址，修复 VA≠PA 时 MMIO 误命中缓存
+40. **PMP CSR 存储**：pmpcfg0–pmpcfg3 + pmpaddr0–pmpaddr15 共 20 个 CSR 读写存储（硬件强制执行未实现）
+41. **time/timeh CSR**：0xC01/0xC81 只读，镜像 CLINT mtime，U-mode 计数器别名（需 mcounteren+scounteren 使能）
+42. **misa = 0x40141121**：RV32AIMFSU，A bit[0]=1（原子扩展），F bit[5]=1（浮点扩展），S bit[18]=1，U bit[20]=1，M bit[12]=1
+43. **GPIO 引脚变化中断**：逐引脚中断使能掩码 + 写 1 清除挂起状态
+44. **SPI 传输完成中断**：CTRL[4] 中断使能，传输完成置挂起，写 STATUS 清除
+45. **CLINT 可写 msip**：msip 寄存器（偏移 0x10）支持软件中断，符合 RISC-V CLINT 规范
+46. **IEEE 754 单精度浮点**：22 条 F 扩展指令（含 FMA 四条融合乘加），5 种舍入模式（RNE/RTZ/RDN/RUP/RMM），fflags 异常标志累积
+47. **FPU 多周期握手**：与 MU 单元统一握手协议（req_valid→fpu_ready→fpu_busy→result_valid→result_got），FSM 在 STATE_EXEC 内轮询
+48. **FPU 子模块分工**：加法器（FSM 3-5 周期）、乘法器（组合 1-2 周期）、FMA（融合乘加）、除法器/平方根（非恢复余数 ~27 周期）、比较/分类/最值/符号注入（组合单周期）、转换（FSM 2-3 周期）
+49. **浮点寄存器堆**：32×32-bit（f0 硬连线零），双读单写 + 调试端口，参数化 FLEN 为 D 扩展预留
+50. **F 扩展 CSR**：fflags(0x001) / frm(0x002) / fcsr(0x003)，fflags 软件/硬件写合并（OR 累积），mstatus.FS 域支持
+51. **浮点计算器应用**：基于 UART IO 的递归下降表达式解析器，支持 +,-,*,/,(),sqrt(),neg()
+52. **共享 testbench 框架**：tb_soc_includes.svh，SoC 级仿真 + DDR3 支持
+53. **测试程序分类重组**：11 类（ISA/MMU/Cache/CSR/Interrupt/Exception/AMO/FPU/Pipeline/Peripheral/Linux-adj），48 个测试程序，329 个子测试
+54. **Boot ROM 启动流程**：CPU 复位 PC=0xFC000000 → bootloader（sp 初始化 + DDR3 自检 + UART 接收程序镜像 + fence.i + 跳转）→ 主程序执行
+55. **系统集成应用验证通过**：LED 跑马灯、UART Echo、浮点计算器三个应用均成功上板运行，Bootloader 全链路仿真通过（2026-06-16）
+56. **完整内存映射模型**：7 从设备地址译码 + APB 4 从设备子译码 + CLINT/PLIC/SysStatus/BootROM 寄存器级映射（见 §2.2）
+57. **Linux 适配修复**：11 项 Linux 启动适配 bug 修复（MMIO paddr 判断、PTW-dcache 一致性、sfence.vma dcache 刷新、M/S 中断优先级、sip STIP 可写、PMP CSR、time/timeh CSR 等），详见 `process/near-linux-bug-fix.md`

@@ -1,0 +1,179 @@
+/dts-v1/;
+
+/ {
+    #address-cells = <1>;
+    #size-cells = <1>;
+
+    compatible = "simplecpu,rv32-fpga";
+    model = "SimpleCPU RV32 FPGA Board";
+
+    aliases {
+        serial0 = &uart0;
+    };
+
+    chosen {
+        stdout-path = "/soc/serial@10008000:115200n8";
+
+        /*
+         * 第一阶段建议先使用 initramfs。
+         * 没有 initramfs 时，kernel 能打印日志后 panic 也算阶段性成功。
+         */
+        bootargs = "console=ttyS0,115200 earlycon=uart8250,mmio32,0x10008000 loglevel=8 rdinit=/init";
+    };
+
+    cpus {
+        #address-cells = <1>;
+        #size-cells = <0>;
+
+        /*
+         * 100 MHz = 0x05F5E100
+         * 必须和 mtime / time CSR 的实际频率一致。
+         */
+        timebase-frequency = <100000000>;
+
+        CPU0: cpu@0 {
+            device_type = "cpu";
+            reg = <0>;
+            status = "okay";
+
+            compatible = "riscv";
+
+            /*
+             * 第一阶段建议不要声明 f。
+             * 即使硬件 misa 里有 F，如果 FPU/fcsr/mstatus.FS 尚未完全验证，
+             * Linux 侧先按 soft-float 跑，减少变量。
+             */
+            riscv,isa = "rv32ima_zicsr_zifencei";
+
+            mmu-type = "riscv,sv32";
+
+            cpu0_intc: interrupt-controller {
+                #interrupt-cells = <1>;
+                interrupt-controller;
+                compatible = "riscv,cpu-intc";
+            };
+        };
+    };
+
+    memory@80000000 {
+        device_type = "memory";
+        reg = <0x80000000 0x08000000>; /* 128 MiB */
+    };
+
+    reserved-memory {
+        #address-cells = <1>;
+        #size-cells = <1>;
+        ranges;
+
+        /*
+         * 先保守预留 0x80000000 ~ 0x803FFFFF 给 OpenSBI / firmware。
+         * Linux kernel 建议放在 0x80400000。
+         * 后续如果 OpenSBI 自动修 DTB reserved-memory，或者你们换了布局，
+         * 这里可以再调整。
+         */
+        opensbi_reserved: firmware@80000000 {
+            reg = <0x80000000 0x00400000>;
+            no-map;
+        };
+    };
+
+    soc {
+        #address-cells = <1>;
+        #size-cells = <1>;
+        compatible = "simple-bus";
+        ranges;
+
+        /*
+         * 假设你们稍后把 CLINT RTL 改成标准 SiFive CLINT 布局：
+         *
+         *   0x0200_0000: msip
+         *   0x0200_4000: mtimecmp
+         *   0x0200_BFF8: mtime
+         *
+         * interrupts-extended:
+         *   3 = Machine software interrupt
+         *   7 = Machine timer interrupt
+         */
+        clint0: clint@2000000 {
+            compatible = "sifive,clint0", "riscv,clint0";
+            reg = <0x02000000 0x00010000>;
+            interrupts-extended = <&cpu0_intc 3>, <&cpu0_intc 7>;
+        };
+
+        /*
+         * PLIC base = 0x0C00_0000
+         * 当前报告中 PLIC 为 8 source，单 hart / 单 context。
+         *
+         * 注意：
+         * 这里先只把 S-mode external interrupt context 暴露给 Linux。
+         * 9 = Supervisor external interrupt
+         *
+         * 如果你们的 PLIC context 设计实际是 M-mode context，
+         * 或者 OpenSBI/Linux 侧需要不同 context 编号，
+         * 这一项后面需要和 PLIC RTL / OpenSBI platform 一起核对。
+         */
+        plic: interrupt-controller@c000000 {
+            compatible = "sifive,plic-1.0.0";
+            reg = <0x0c000000 0x01000000>;
+
+            #address-cells = <0>;
+            #interrupt-cells = <1>;
+            interrupt-controller;
+
+            riscv,ndev = <8>;
+            interrupts-extended = <&cpu0_intc 9>;
+        };
+
+        /*
+         * UART base = 0x1000_8000
+         * PLIC source ID = 2
+         *
+         * 你们的 uart_16550a 使用 PADDR[4:2] 选择 8 个标准寄存器，
+         * 即寄存器间隔 4 字节，所以需要 reg-shift = <2>。
+         */
+        uart0: serial@10008000 {
+            compatible = "ns16550a";
+            reg = <0x10008000 0x1000>;
+
+            reg-shift = <2>;
+            reg-io-width = <4>;
+
+            clock-frequency = <100000000>;
+            current-speed = <115200>;
+
+            interrupt-parent = <&plic>;
+            interrupts = <2>;
+
+            fifo-size = <16>;
+            status = "okay";
+        };
+
+        /*
+         * 下面这些外设先不打开。
+         * 第一阶段只需要 UART console。
+         * GPIO / SPI / APB Timer 等后续等 kernel 能启动后再补。
+         */
+
+        gpio0: gpio@10000000 {
+            compatible = "simplecpu,gpio";
+            reg = <0x10000000 0x1000>;
+            status = "disabled";
+        };
+
+        apb_timer0: timer@10004000 {
+            compatible = "simplecpu,apb-timer";
+            reg = <0x10004000 0x1000>;
+            interrupt-parent = <&plic>;
+            interrupts = <1>;
+            status = "disabled";
+        };
+
+        spi0: spi@1000c000 {
+            compatible = "simplecpu,spi";
+            reg = <0x1000c000 0x1000>;
+            interrupt-parent = <&plic>;
+            interrupts = <3>;
+            status = "disabled";
+        };
+    };
+};

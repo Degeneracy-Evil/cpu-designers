@@ -149,9 +149,12 @@ python -m tools.vivado_cli -task isa_alu -sim --debug all
 
 ### 仿真配置
 
-默认仿真（SRAM 模式）：程序在 elaboration 阶段通过 $readmemh 直接加载到 axi_wrap_ram（BRAM 行为模型），bootloader 仅是一个 2 指令的跳转桩，不涉及 UART。ROM → jr 0x80000000 → 直接执行
+任务字段 `blhex` / `phex` / `blcoe` 控制程序加载方式：
 
-DDR3 模式：程序在运行后通过 tb 发送，AXI4 写入 / UART 交付。ROM → bootloader → UART 接收 → 执行
+- **`blhex` + `phex`（SRAM 模式，默认）**：bootROM 在 elaboration 阶段通过 `$readmemh("bootloader.hex")` 加载 `blhex` 文件，SRAM 通过 `$readmemh("prog.hex")` 加载 `phex` 文件。bootloader 仅是一个 2 指令的跳转桩（`jr 0x80000000`），不涉及 UART。ROM → 直接跳转 → 执行 SRAM 中的程序。
+- **`blcoe`（DDR3/FPGA 模式）**：COE 文件初始化 BRAM IP，程序在运行后通过 tb 发送，AXI4 写入 / UART 交付。ROM → bootloader → UART 接收 → 执行。
+
+`blhex` 和 `blcoe` 互斥，一个任务只能设置其中之一。
 
 波特率均强制 dl=16（加速）
 

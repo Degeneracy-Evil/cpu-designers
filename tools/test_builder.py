@@ -345,12 +345,12 @@ def gen_tasks(all_tests: list[dict]) -> int:
         name = t["name"]
         task_name = name.replace("/", "_")
         tb_name = f"tb_{task_name}"
-        coe_path = f"test/{name}.coe"
+        blcoe_path = f"test/{name}.coe"
         runtime = RUNTIME_MAP.get(t["category"], "10ms")
 
         output_lines.append(f"  {task_name}:")
         output_lines.append(f"    tb: {tb_name}")
-        output_lines.append(f"    coe: {coe_path}")
+        output_lines.append(f"    blcoe: {blcoe_path}")
         output_lines.append(f"    runtime: {runtime}")
         output_lines.append("")
 

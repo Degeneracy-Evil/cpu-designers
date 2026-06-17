@@ -192,11 +192,20 @@ categories:
 ```yaml
   mycategory_mytest:
     tb: tb_mycategory_mytest
-    coe: test/mycategory/mytest.coe
+    blcoe: test/mycategory/mytest.coe
     runtime: 20ms
 ```
 
-### 5.3 Testbench
+### 5.3 任务字段说明
+
+| 字段 | 类型 | 默认 | 说明 |
+|------|------|------|------|
+| `blcoe` | str | `""` | Bootloader COE 文件，用于 FPGA bitstream 生成和 DDR3 仿真。初始化 BRAM IP。相对路径于 `dev/program_source/`。与 `blhex` 互斥。 |
+| `blhex` | str | `""` | Bootloader HEX 文件，用于 SRAM 模式仿真。bootROM 通过 `$readmemh` 加载。正常仿真任务为 `boot/bootloader_phase1.hex`（2 指令跳转桩），DDR3 任务为 `boot/bootloader.hex`（完整 DDR3 初始化 + UART 下载）。与 `blcoe` 互斥。 |
+| `phex` | str | `""` | 程序 HEX 文件，用于 SRAM 模式仿真。SRAM 通过 `$readmemh` 加载。相对路径于 `dev/program_source/`。 |
+| `runtime` | str | `""` | 仿真时间字符串 |
+
+### 5.4 Testbench
 
 ```systemverilog
 module tb_mycategory_mytest;

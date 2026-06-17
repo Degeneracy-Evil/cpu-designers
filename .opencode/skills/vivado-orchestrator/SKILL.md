@@ -171,8 +171,9 @@ python -m tools.vivado_cli -task cpu_full -archive
 |------|------|------|------|
 | `name` | str | (key) | 任务标识符（YAML 键名） |
 | `tb` | str | `""` | Testbench 模块名 |
-| `coe` | str | `""` | COE 文件名（相对于 `dev/program_source/`） |
-| `hex_file` | str | `""` | HEX 文件名（相对于 `dev/program_source/`），用于 `$readmemh` 加载 |
+| `blcoe` | str | `""` | Bootloader COE 文件，用于 FPGA bitstream 生成和 DDR3 仿真。初始化 BRAM IP。与 `blhex` 互斥。 |
+| `blhex` | str | `""` | Bootloader HEX 文件，用于 SRAM 模式仿真。bootROM 通过 `$readmemh("bootloader.hex")` 加载。与 `blcoe` 互斥。 |
+| `phex` | str | `""` | 程序 HEX 文件，用于 SRAM 模式仿真。SRAM 通过 `$readmemh("prog.hex")` 加载。 |
 | `runtime` | str | `""` | 仿真时间字符串 |
 | `top` | str | `""` | 顶层模块名（bitstream 用） |
 | `sim_mode` | str | `""` | 仿真模式标记（如 `"ddr3"`） |
@@ -308,7 +309,7 @@ python -m tools.vivado_cli -task cpu_full -create -sim
 ### 2. 改程序后重仿真
 
 ```bash
-# 编译新程序
+# 编译新程序（生成 .coe 和 .hex）
 python3 tools/rv2coe.py -i my_prog.S -o dev/program_source/cpu_test.coe
 
 # 或批量编译测试程序
@@ -635,7 +636,7 @@ python3 tools/test_builder.py --dry-run      # 仅打印命令不执行
 
 - `task_name`：测试名中 `/` 替换为 `_`
 - `tb`：推导为 `tb_{task_name}`
-- `coe`：推导为 `test/{name}.coe`
+- `blcoe`：推导为 `test/{name}.coe`（正常仿真任务使用 `blhex` + `phex`，仅 DDR3/FPGA 任务使用 `blcoe`）
 - `runtime`：按类别的 RUNTIME_MAP 推导
 
 RUNTIME_MAP 默认值：

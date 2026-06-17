@@ -22,14 +22,15 @@ tasks:
 
   cpu_full:
     tb: tb_simple_cpu_top
-    coe: test/integration/cpu_full.coe
-    hex_file: test/integration/cpu_full.hex
+    blhex: boot/bootloader_phase1.hex
+    phex: test/integration/cpu_full.hex
     runtime: 5000ms
 
   # ── DDR3仿真 ──
 
   cpu_full_ddr3:
     tb: tb_simple_cpu_top
+    blhex: boot/bootloader.hex
     sim_mode: ddr3
     verilog_defines:
       SIM_BYPASS_INIT_CAL: FAST
@@ -38,388 +39,399 @@ tasks:
       SIMU_USE_PLL: 0
       SIMU_DDR_MODE: 1
       sg125: 1
-    hex_file: test/integration/cpu_full.hex
+    phex: test/integration/cpu_full.hex
     runtime: 1s
 
   cpu_compute:
     tb: tb_simple_cpu_compute
-    coe: test/integration/cpu_compute.coe
-    hex_file: test/integration/cpu_compute.hex
+    blhex: boot/bootloader_phase1.hex
+    phex: test/integration/cpu_compute.hex
     runtime: 5ms
 
   cpu_trap:
     tb: tb_simple_cpu_trap
-    coe: test/integration/cpu_trap.coe
-    hex_file: test/integration/cpu_trap.hex
+    blhex: boot/bootloader_phase1.hex
+    phex: test/integration/cpu_trap.hex
     runtime: 3ms
 
   # ── ISA 仿真 ──
 
   isa_alu:
     tb: tb_isa_alu
-    coe: test/isa/alu.coe
-    hex_file: test/isa/alu.hex
+    blhex: boot/bootloader_phase1.hex
+    phex: test/isa/alu.hex
     runtime: 5ms
 
   isa_branch:
     tb: tb_isa_branch
-    coe: test/isa/branch.coe
-    hex_file: test/isa/branch.hex
+    blhex: boot/bootloader_phase1.hex
+    phex: test/isa/branch.hex
     runtime: 5ms
 
   isa_memory:
     tb: tb_isa_memory
-    coe: test/isa/memory.coe
-    hex_file: test/isa/memory.hex
+    blhex: boot/bootloader_phase1.hex
+    phex: test/isa/memory.hex
     runtime: 5ms
 
   isa_upper_imm:
     tb: tb_isa_upper_imm
-    coe: test/isa/upper_imm.coe
-    hex_file: test/isa/upper_imm.hex
+    blhex: boot/bootloader_phase1.hex
+    phex: test/isa/upper_imm.hex
     runtime: 5ms
 
   isa_jump:
     tb: tb_isa_jump
-    coe: test/isa/jump.coe
-    hex_file: test/isa/jump.hex
+    blhex: boot/bootloader_phase1.hex
+    phex: test/isa/jump.hex
     runtime: 5ms
 
   isa_csr:
     tb: tb_isa_csr
-    coe: test/isa/csr.coe
-    hex_file: test/isa/csr.hex
+    blhex: boot/bootloader_phase1.hex
+    phex: test/isa/csr.hex
     runtime: 5ms
 
   isa_m_ext:
     tb: tb_isa_m_ext
-    coe: test/isa/m_ext.coe
-    hex_file: test/isa/m_ext.hex
+    blhex: boot/bootloader_phase1.hex
+    phex: test/isa/m_ext.hex
     runtime: 5ms
 
   isa_a_ext:
     tb: tb_isa_a_ext
-    coe: test/isa/a_ext.coe
-    hex_file: test/isa/a_ext.hex
+    blhex: boot/bootloader_phase1.hex
+    phex: test/isa/a_ext.hex
     runtime: 200ms
 
   isa_f_ext:
     tb: tb_isa_f_ext
-    coe: test/isa/f_ext.coe
-    hex_file: test/isa/f_ext.hex
+    blhex: boot/bootloader_phase1.hex
+    phex: test/isa/f_ext.hex
     runtime: 10ms
 
   isa_f_ext_special:
     tb: tb_isa_f_ext_special
-    coe: test/isa/f_ext_special.coe
-    hex_file: test/isa/f_ext_special.hex
+    blhex: boot/bootloader_phase1.hex
+    phex: test/isa/f_ext_special.hex
     runtime: 10ms
 
   # ── 异常仿真 ──
 
   exception_ecall:
     tb: tb_exception_ecall
-    coe: test/exception/ecall.coe
-    hex_file: test/exception/ecall.hex
+    blhex: boot/bootloader_phase1.hex
+    phex: test/exception/ecall.hex
     runtime: 5ms
 
   exception_ebreak:
     tb: tb_exception_ebreak
-    coe: test/exception/ebreak.coe
-    hex_file: test/exception/ebreak.hex
+    blhex: boot/bootloader_phase1.hex
+    phex: test/exception/ebreak.hex
     runtime: 5ms
 
   exception_illegal_inst:
     tb: tb_exception_illegal_inst
-    coe: test/exception/illegal_inst.coe
-    hex_file: test/exception/illegal_inst.hex
+    blhex: boot/bootloader_phase1.hex
+    phex: test/exception/illegal_inst.hex
     runtime: 5ms
 
   exception_access_fault:
     tb: tb_exception_access_fault
-    coe: test/exception/access_fault.coe
-    hex_file: test/exception/access_fault.hex
+    blhex: boot/bootloader_phase1.hex
+    phex: test/exception/access_fault.hex
     runtime: 5ms
 
   exception_timer_irq:
     tb: tb_exception_timer_irq
-    coe: test/exception/timer_irq.coe
-    hex_file: test/exception/timer_irq.hex
+    blhex: boot/bootloader_phase1.hex
+    phex: test/exception/timer_irq.hex
     runtime: 10ms
 
   exception_interrupt_basic:
     tb: tb_exception_interrupt_basic
-    coe: test/exception/interrupt_basic.coe
-    hex_file: test/exception/interrupt_basic.hex
+    blhex: boot/bootloader_phase1.hex
+    phex: test/exception/interrupt_basic.hex
     runtime: 10ms
 
   # ── 特权仿真 ──
 
   privilege_priv_transition:
     tb: tb_privilege_priv_transition
-    coe: test/privilege/priv_transition.coe
-    hex_file: test/privilege/priv_transition.hex
+    blhex: boot/bootloader_phase1.hex
+    phex: test/privilege/priv_transition.hex
     runtime: 20ms
 
   privilege_delegation:
     tb: tb_privilege_delegation
-    coe: test/privilege/delegation.coe
-    hex_file: test/privilege/delegation.hex
+    blhex: boot/bootloader_phase1.hex
+    phex: test/privilege/delegation.hex
     runtime: 20ms
 
   privilege_csr_access_priv:
     tb: tb_privilege_csr_access_priv
-    coe: test/privilege/csr_access_priv.coe
-    hex_file: test/privilege/csr_access_priv.hex
+    blhex: boot/bootloader_phase1.hex
+    phex: test/privilege/csr_access_priv.hex
     runtime: 10ms
 
   # ── MMU 仿真 ──
 
   mmu_sv32_basic:
     tb: tb_mmu_sv32_basic
-    coe: test/mmu/sv32_basic.coe
-    hex_file: test/mmu/sv32_basic.hex
+    blhex: boot/bootloader_phase1.hex
+    phex: test/mmu/sv32_basic.hex
     runtime: 20ms
 
   mmu_tlb_basic:
     tb: tb_mmu_tlb_basic
-    coe: test/mmu/tlb_basic.coe
-    hex_file: test/mmu/tlb_basic.hex
+    blhex: boot/bootloader_phase1.hex
+    phex: test/mmu/tlb_basic.hex
     runtime: 20ms
 
   mmu_tlb_flush:
     tb: tb_mmu_tlb_flush
-    coe: test/mmu/tlb_flush.coe
-    hex_file: test/mmu/tlb_flush.hex
+    blhex: boot/bootloader_phase1.hex
+    phex: test/mmu/tlb_flush.hex
     runtime: 20ms
 
   mmu_page_fault:
     tb: tb_mmu_page_fault
-    coe: test/mmu/page_fault.coe
-    hex_file: test/mmu/page_fault.hex
+    blhex: boot/bootloader_phase1.hex
+    phex: test/mmu/page_fault.hex
     runtime: 20ms
 
   mmu_permission:
     tb: tb_mmu_permission
-    coe: test/mmu/permission.coe
-    hex_file: test/mmu/permission.hex
+    blhex: boot/bootloader_phase1.hex
+    phex: test/mmu/permission.hex
     runtime: 20ms
 
   mmu_tlb_replace:
     tb: tb_mmu_tlb_replace
-    coe: test/mmu/tlb_replace.coe
-    hex_file: test/mmu/tlb_replace.hex
+    blhex: boot/bootloader_phase1.hex
+    phex: test/mmu/tlb_replace.hex
     runtime: 20ms
 
   mmu_tlb_asid:
     tb: tb_mmu_tlb_asid
-    coe: test/mmu/tlb_asid.coe
-    hex_file: test/mmu/tlb_asid.hex
+    blhex: boot/bootloader_phase1.hex
+    phex: test/mmu/tlb_asid.hex
     runtime: 20ms
 
   mmu_tlb_megapage:
     tb: tb_mmu_tlb_megapage
-    coe: test/mmu/tlb_megapage.coe
-    hex_file: test/mmu/tlb_megapage.hex
+    blhex: boot/bootloader_phase1.hex
+    phex: test/mmu/tlb_megapage.hex
     runtime: 20ms
 
   mmu_tlb_stress:
     tb: tb_mmu_tlb_stress
-    coe: test/mmu/tlb_stress.coe
-    hex_file: test/mmu/tlb_stress.hex
+    blhex: boot/bootloader_phase1.hex
+    phex: test/mmu/tlb_stress.hex
     runtime: 20ms
 
   mmu_ptw_walk:
     tb: tb_mmu_ptw_walk
-    coe: test/mmu/ptw_walk.coe
-    hex_file: test/mmu/ptw_walk.hex
+    blhex: boot/bootloader_phase1.hex
+    phex: test/mmu/ptw_walk.hex
     runtime: 20ms
 
   mmu_sv32_edge:
     tb: tb_mmu_sv32_edge
-    coe: test/mmu/sv32_edge.coe
-    hex_file: test/mmu/sv32_edge.hex
+    blhex: boot/bootloader_phase1.hex
+    phex: test/mmu/sv32_edge.hex
     runtime: 20ms
 
   mmu_unified_mmu:
     tb: tb_mmu_unified_mmu
-    coe: test/mmu/unified_mmu.coe
-    hex_file: test/mmu/unified_mmu.hex
+    blhex: boot/bootloader_phase1.hex
+    phex: test/mmu/unified_mmu.hex
     runtime: 150ms
 
   # ── Cache 仿真 ──
 
   cache_icache_basic:
     tb: tb_cache_icache_basic
-    coe: test/cache/icache_basic.coe
-    hex_file: test/cache/icache_basic.hex
+    blhex: boot/bootloader_phase1.hex
+    phex: test/cache/icache_basic.hex
     runtime: 5ms
 
   cache_dcache_basic:
     tb: tb_cache_dcache_basic
-    coe: test/cache/dcache_basic.coe
-    hex_file: test/cache/dcache_basic.hex
+    blhex: boot/bootloader_phase1.hex
+    phex: test/cache/dcache_basic.hex
     runtime: 5ms
 
   cache_dcache_dirty:
     tb: tb_cache_dcache_dirty
-    coe: test/cache/dcache_dirty.coe
-    hex_file: test/cache/dcache_dirty.hex
+    blhex: boot/bootloader_phase1.hex
+    phex: test/cache/dcache_dirty.hex
     runtime: 5ms
 
   cache_fencei:
     tb: tb_cache_fencei
-    coe: test/cache/fencei.coe
-    hex_file: test/cache/fencei.hex
+    blhex: boot/bootloader_phase1.hex
+    phex: test/cache/fencei.hex
     runtime: 10ms
 
   cache_mmu_interact:
     tb: tb_cache_cache_mmu_interact
-    coe: test/cache/cache_mmu_interact.coe
-    hex_file: test/cache/cache_mmu_interact.hex
+    blhex: boot/bootloader_phase1.hex
+    phex: test/cache/cache_mmu_interact.hex
     runtime: 20ms
 
   # ── MMIO 仿真 ──
 
   mmio_clint:
     tb: tb_mmio_clint
-    coe: test/mmio/clint.coe
-    hex_file: test/mmio/clint.hex
+    blhex: boot/bootloader_phase1.hex
+    phex: test/mmio/clint.hex
     runtime: 150ms
 
   mmio_plic:
     tb: tb_mmio_plic
-    coe: test/mmio/plic.coe
-    hex_file: test/mmio/plic.hex
+    blhex: boot/bootloader_phase1.hex
+    phex: test/mmio/plic.hex
     runtime: 150ms
 
   # ── 回归仿真 ──
 
   reg_tlb_fill_way:
     tb: tb_regression_reg_tlb_fill_way
-    coe: test/regression/reg_tlb_fill_way.coe
-    hex_file: test/regression/reg_tlb_fill_way.hex
+    blhex: boot/bootloader_phase1.hex
+    phex: test/regression/reg_tlb_fill_way.hex
     runtime: 20ms
 
   reg_ptw_fault_latch:
     tb: tb_regression_reg_ptw_fault_latch
-    coe: test/regression/reg_ptw_fault_latch.coe
-    hex_file: test/regression/reg_ptw_fault_latch.hex
+    blhex: boot/bootloader_phase1.hex
+    phex: test/regression/reg_ptw_fault_latch.hex
     runtime: 20ms
 
   reg_sfence_during_walk:
     tb: tb_regression_reg_sfence_during_walk
-    coe: test/regression/reg_sfence_during_walk.coe
-    hex_file: test/regression/reg_sfence_during_walk.hex
+    blhex: boot/bootloader_phase1.hex
+    phex: test/regression/reg_sfence_during_walk.hex
     runtime: 20ms
 
   reg_stale_paddr:
     tb: tb_regression_reg_stale_paddr
-    coe: test/regression/reg_stale_paddr.coe
-    hex_file: test/regression/reg_stale_paddr.hex
+    blhex: boot/bootloader_phase1.hex
+    phex: test/regression/reg_stale_paddr.hex
     runtime: 20ms
 
   reg_bare_no_miss:
     tb: tb_regression_reg_bare_no_miss
-    coe: test/regression/reg_bare_no_miss.coe
-    hex_file: test/regression/reg_bare_no_miss.hex
+    blhex: boot/bootloader_phase1.hex
+    phex: test/regression/reg_bare_no_miss.hex
     runtime: 10ms
 
   reg_mmio_ready:
     tb: tb_regression_reg_mmio_ready
-    coe: test/regression/reg_mmio_ready.coe
-    hex_file: test/regression/reg_mmio_ready.hex
+    blhex: boot/bootloader_phase1.hex
+    phex: test/regression/reg_mmio_ready.hex
     runtime: 60ms
 
   reg_pf_latch:
     tb: tb_regression_reg_pf_latch
-    coe: test/regression/reg_pf_latch.coe
-    hex_file: test/regression/reg_pf_latch.hex
+    blhex: boot/bootloader_phase1.hex
+    phex: test/regression/reg_pf_latch.hex
     runtime: 20ms
 
   # ── 应用仿真 ──
 
   uart_hello:
     tb: tb_uart_hello
-    coe: app/uart_hello.coe
-    hex_file: app/uart_hello.hex
+    blhex: boot/bootloader_phase1.hex
+    phex: app/uart_hello.hex
     runtime: 20ms
 
   uart_echo:
     tb: tb_uart_echo
-    coe: app/uart_echo.coe
-    hex_file: app/uart_echo.hex
+    blhex: boot/bootloader_phase1.hex
+    phex: app/uart_echo.hex
     runtime: 50ms
 
   fpu_minimal_test:
     tb: tb_uart_echo
-    coe: app/fpu_minimal_test.coe
-    hex_file: app/fpu_minimal_test.hex
+    blhex: boot/bootloader_phase1.hex
+    phex: app/fpu_minimal_test.hex
     runtime: 20ms
 
   led_marquee:
     tb: tb_led_marquee
-    coe: app/led_marquee.coe
-    hex_file: app/led_marquee.hex
+    blhex: boot/bootloader_phase1.hex
+    phex: app/led_marquee.hex
     runtime: 2s
 
   # ── 单元仿真 ──
 
   ahb_bus:
     tb: tb_ahb_bus
+    blhex: boot/bootloader_phase1.hex
     runtime: 5000ns
 
   apb_perips:
     tb: tb_apb_perips
+    blhex: boot/bootloader_phase1.hex
     runtime: 2000ns
 
   alu_integration:
     tb: tb_alu_cpu_integration
+    blhex: boot/bootloader_phase1.hex
     runtime: 5000ns
 
   mu_unit:
     tb: tb_mu_unit
+    blhex: boot/bootloader_phase1.hex
     runtime: 5000ns
 
   divider:
     tb: tb_non_restoring_divider
+    blhex: boot/bootloader_phase1.hex
     runtime: 5000ns
 
   fpu_adder:
     tb: tb_fpu_adder
+    blhex: boot/bootloader_phase1.hex
     runtime: 10us
 
   fpu_multiplier:
     tb: tb_fpu_multiplier
+    blhex: boot/bootloader_phase1.hex
     runtime: 10us
 
   fpu_divider:
     tb: tb_fpu_divider
+    blhex: boot/bootloader_phase1.hex
     runtime: 50us
 
   fpu_sqrt:
     tb: tb_fpu_sqrt
+    blhex: boot/bootloader_phase1.hex
     runtime: 50us
 
   fpu_cvt:
     tb: tb_fpu_cvt
+    blhex: boot/bootloader_phase1.hex
     runtime: 10us
 
   fpu_unit:
     tb: tb_fpu_unit
+    blhex: boot/bootloader_phase1.hex
     runtime: 50us
 
   calculator:
     tb: tb_calculator
-    coe: app/calculator.coe
-    hex_file: app/calculator.hex
+    blhex: boot/bootloader_phase1.hex
+    phex: app/calculator.hex
     runtime: 300ms
 
   # ── FPGA上板 ──
 
   fpga:
     top: system_top
-    coe: boot/bootloader.coe
+    blcoe: boot/bootloader.coe
     verilog_defines:
       SIMU_USE_DDR: 1
       SIMU_USE_PLL: 1
@@ -433,6 +445,7 @@ tasks:
 
   ddr3_mig_ex:
     tb: tb_ddr3_mig_ex
+    blhex: boot/bootloader.hex
     sim_mode: ddr3
     verilog_defines:
       SIM_BYPASS_INIT_CAL: FAST
@@ -441,6 +454,7 @@ tasks:
 
   ddr3_ahb_ex:
     tb: tb_ddr3_ahb_ex
+    blhex: boot/bootloader.hex
     sim_mode: ddr3
     verilog_defines:
       SIM_BYPASS_INIT_CAL: FAST
@@ -449,6 +463,7 @@ tasks:
 
   ddr3_basic:
     tb: tb_ddr3_basic
+    blhex: boot/bootloader.hex
     sim_mode: ddr3
     verilog_defines:
       SIM_BYPASS_INIT_CAL: FAST
@@ -457,33 +472,36 @@ tasks:
 
   ddr3_system:
     tb: tb_ddr3_system
+    blhex: boot/bootloader.hex
     sim_mode: ddr3
     verilog_defines:
       SIM_BYPASS_INIT_CAL: FAST
       SIMULATION: "TRUE"
       sg125: 1
       DDR3_BYPASS_CLK_WIZ: 1
-    hex_file: app/ddr3_test.hex
+    phex: app/ddr3_test.hex
     runtime: 100ms
 
   ddr3_system_v2:
     tb: tb_ddr3_system_v2
+    blhex: boot/bootloader.hex
     sim_mode: ddr3
     verilog_defines:
       SIM_BYPASS_INIT_CAL: FAST
       SIMULATION: "TRUE"
       sg125: 1
       DDR3_BYPASS_CLK_WIZ: 1
-    hex_file: app/ddr3_test.hex
+    phex: app/ddr3_test.hex
     runtime: 100ms
 
   ddr3_system_v3:
     tb: tb_ddr3_system_v3
+    blhex: boot/bootloader.hex
     sim_mode: ddr3
     verilog_defines:
       SIM_BYPASS_INIT_CAL: FAST
       SIMULATION: "TRUE"
       sg125: 1
       DDR3_BYPASS_CLK_WIZ: 1
-    hex_file: app/ddr3_test.hex
+    phex: app/ddr3_test.hex
     runtime: 100ms

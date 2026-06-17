@@ -270,7 +270,7 @@ class TaskDef:
     name: str
     tb: str | None = None
     top: str | None = None
-    coe: str | None = None
+    blcoe: str | None = None
     runtime: str | None = None
 
     @property
@@ -296,7 +296,7 @@ def load_tasks(path: Path) -> dict[str, TaskDef]:
             name=name,
             tb=spec.get("tb"),
             top=spec.get("top"),
-            coe=spec.get("coe"),
+            blcoe=spec.get("blcoe"),
             runtime=spec.get("runtime"),
         )
     return result

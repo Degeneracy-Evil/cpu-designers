@@ -235,29 +235,29 @@ python tools/vivado_tui.py
 
 ## 可用任务
 
-| 任务名 | Testbench | COE | Runtime |
-|--------|-----------|-----|---------|
-| `cpu_full` | tb_simple_cpu_top | test/cpu_test.coe | 5ms |
-| `cpu_compute` | tb_simple_cpu_compute | test/cpu_test_compute.coe | 5ms |
-| `cpu_trap` | tb_simple_cpu_trap | test/cpu_test_trap.coe | 3ms |
-| `cpu_fencei` | tb_cpu_test_fencei | test/cpu_test_fencei.coe | 5ms |
-| `cpu_access_fault` | tb_cpu_test_access_fault | test/cpu_test_access_fault.coe | 3ms |
-| `cpu_priv` | tb_simple_cpu_priv | test/cpu_test_priv.coe | 20ms |
-| `isa_alu` | tb_isa_alu | test/isa/alu.coe | 5ms |
-| `isa_branch` | tb_isa_branch | test/isa/branch.coe | 5ms |
-| `isa_memory` | tb_isa_memory | test/isa/memory.coe | 5ms |
-| `isa_upper_imm` | tb_isa_upper_imm | test/isa/upper_imm.coe | 5ms |
-| `isa_jump` | tb_isa_jump | test/isa/jump.coe | 5ms |
-| `isa_csr` | tb_isa_csr | test/isa/csr.coe | 5ms |
-| `isa_m_ext` | tb_isa_m_ext | test/isa/m_ext.coe | 5ms |
-| `exception_*` | (5 个异常测试) | test/exception/*.coe | 5-10ms |
-| `mmu_*` | (10 个 MMU/TLB 测试) | test/mmu/*.coe | 20ms |
-| `cache_*` | (5 个 Cache 测试) | test/cache/*.coe | 5-20ms |
-| `mmio_*` | (2 个 MMIO 测试) | test/mmio/*.coe | 5-10ms |
-| `reg_*` | (7 个回归测试) | test/regression/*.coe | 10-20ms |
-| `uart_hello` | tb_uart_hello | app/uart_hello.coe | 40ms |
-| `uart_echo` | tb_uart_echo | app/uart_echo.coe | 100ms |
-| `led_marquee` | tb_led_marquee | app/led_marquee.coe | 2s |
+| 任务名 | Testbench | blcoe / blhex + phex | Runtime |
+|--------|-----------|----------------------|---------|
+| `cpu_full` | tb_simple_cpu_top | blhex: boot/bootloader_phase1.hex, phex: test/cpu_test.hex | 5ms |
+| `cpu_compute` | tb_simple_cpu_compute | blhex: boot/bootloader_phase1.hex, phex: test/cpu_test_compute.hex | 5ms |
+| `cpu_trap` | tb_simple_cpu_trap | blhex: boot/bootloader_phase1.hex, phex: test/cpu_test_trap.hex | 3ms |
+| `cpu_fencei` | tb_cpu_test_fencei | blhex: boot/bootloader_phase1.hex, phex: test/cpu_test_fencei.hex | 5ms |
+| `cpu_access_fault` | tb_cpu_test_access_fault | blhex: boot/bootloader_phase1.hex, phex: test/cpu_test_access_fault.hex | 3ms |
+| `cpu_priv` | tb_simple_cpu_priv | blhex: boot/bootloader_phase1.hex, phex: test/cpu_test_priv.hex | 20ms |
+| `isa_alu` | tb_isa_alu | blhex: boot/bootloader_phase1.hex, phex: test/isa/alu.hex | 5ms |
+| `isa_branch` | tb_isa_branch | blhex: boot/bootloader_phase1.hex, phex: test/isa/branch.hex | 5ms |
+| `isa_memory` | tb_isa_memory | blhex: boot/bootloader_phase1.hex, phex: test/isa/memory.hex | 5ms |
+| `isa_upper_imm` | tb_isa_upper_imm | blhex: boot/bootloader_phase1.hex, phex: test/isa/upper_imm.hex | 5ms |
+| `isa_jump` | tb_isa_jump | blhex: boot/bootloader_phase1.hex, phex: test/isa/jump.hex | 5ms |
+| `isa_csr` | tb_isa_csr | blhex: boot/bootloader_phase1.hex, phex: test/isa/csr.hex | 5ms |
+| `isa_m_ext` | tb_isa_m_ext | blhex: boot/bootloader_phase1.hex, phex: test/isa/m_ext.hex | 5ms |
+| `exception_*` | (5 个异常测试) | blhex: boot/bootloader_phase1.hex, phex: test/exception/*.hex | 5-10ms |
+| `mmu_*` | (10 个 MMU/TLB 测试) | blhex: boot/bootloader_phase1.hex, phex: test/mmu/*.hex | 20ms |
+| `cache_*` | (5 个 Cache 测试) | blhex: boot/bootloader_phase1.hex, phex: test/cache/*.hex | 5-20ms |
+| `mmio_*` | (2 个 MMIO 测试) | blhex: boot/bootloader_phase1.hex, phex: test/mmio/*.hex | 5-10ms |
+| `reg_*` | (7 个回归测试) | blhex: boot/bootloader_phase1.hex, phex: test/regression/*.hex | 10-20ms |
+| `uart_hello` | tb_uart_hello | blcoe: app/uart_hello.coe | 40ms |
+| `uart_echo` | tb_uart_echo | blcoe: app/uart_echo.coe | 100ms |
+| `led_marquee` | tb_led_marquee | blcoe: app/led_marquee.coe | 2s |
 | `ahb_bus` | tb_ahb_bus | — | 5000ns |
 | `apb_perips` | tb_apb_perips | — | 2000ns |
 | `alu_integration` | tb_alu_cpu_integration | — | 5000ns |
@@ -266,19 +266,45 @@ python tools/vivado_tui.py
 | `fpga` | — | — | — (top: system_top) |
 
 > 通配符速查：`isa_*`(7), `exception_*`(5), `mmu_*`(11), `cache_*`(5), `mmio_*`(2), `reg_*`(7), `cpu_*`(6)
+>
+> **字段互斥规则**：`blcoe` 和 `blhex` 互斥。正常仿真任务使用 `blhex` + `phex`（SRAM 模式，bootROM 通过 `$readmemh` 加载 bootloader，SRAM 通过 `$readmemh` 加载程序）。DDR3/FPGA 任务使用 `blcoe`（COE 文件初始化 BRAM IP）。
 
 ## 配置
 
 ### tasks.yaml
 
+任务字段说明：
+
+| 字段 | 类型 | 默认 | 说明 |
+|------|------|------|------|
+| `name` | str | (key) | 任务标识符（YAML 键名） |
+| `tb` | str | `""` | Testbench 模块名 |
+| `blcoe` | str | `""` | Bootloader COE 文件，用于 FPGA bitstream 和 DDR3 仿真。初始化 BRAM IP。与 `blhex` 互斥。 |
+| `blhex` | str | `""` | Bootloader HEX 文件，用于 SRAM 模式仿真。bootROM 通过 `$readmemh` 加载。与 `blcoe` 互斥。 |
+| `phex` | str | `""` | 程序 HEX 文件，用于 SRAM 模式仿真。SRAM 通过 `$readmemh` 加载。 |
+| `runtime` | str | `""` | 仿真时间字符串 |
+| `top` | str | `""` | 顶层模块名（bitstream 用） |
+| `sim_mode` | str | `""` | 仿真模式标记（如 `"ddr3"`） |
+| `verilog_defines` | dict | `{}` | Verilog defines（仿真时注入） |
+| `mig_param_overrides` | dict | `{}` | MIG 参数覆盖（传递给 xelab 的 `-g` 标志） |
+
+示例：
+
 ```yaml
 tasks:
   cpu_full:
     tb: tb_simple_cpu_top
-    coe: cpu_test.coe
+    blhex: boot/bootloader_phase1.hex
+    phex: test/cpu_test.hex
     runtime: 5ms
+  ddr3_system:
+    tb: tb_ddr3_system
+    blhex: boot/bootloader.hex
+    phex: test/ddr3_system.hex
+    runtime: 100ms
   fpga:
     top: system_top
+    blcoe: app/led_marquee.coe
 ```
 
 ### vivado_config.yaml

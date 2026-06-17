@@ -188,7 +188,7 @@ def _tcl_setup_ip(
     proj_name: str,
     proj_dir: str,
     base_dir: str,
-    coe_file: str,
+    blcoe_file: str,
     mem_config: MemoryConfig,
 ) -> str:
     """Generate TCL for IP creation and ROM COE configuration.
@@ -210,17 +210,17 @@ def _tcl_setup_ip(
     gen_others = "\n".join(_tcl_generate_target(n) for n in ip_names if n != "ROM")
 
     # --- ROM COE configuration + generate_target ---
-    if coe_file:
-        coe_tail = Path(coe_file).name
+    if blcoe_file:
+        coe_tail = Path(blcoe_file).name
         rom_block = f"""\
 set ip_rom [get_ips -all ROM]
-file copy -force {coe_file} "{ip_dir}/ROM/"
+file copy -force {blcoe_file} "{ip_dir}/ROM/"
 set_property -dict [list \\
     CONFIG.Load_Init_File {{true}} \\
     CONFIG.Coe_File "{ip_dir}/ROM/{coe_tail}" \\
 ] $ip_rom
 {_tcl_generate_target("ROM")}
-puts "ROM IP configured (COE: {coe_file})\""""
+puts "ROM IP configured (COE: {blcoe_file})\""""
     else:
         rom_block = f"""\
 set ip_rom [get_ips -all ROM]
@@ -458,13 +458,12 @@ set_property verilog_define {{{define_str}}} [get_filesets sim_1]
 """
 
 
-def _tcl_copy_hex_file(hex_src: str, proj_dir: str, proj_name: str, base_dir: str = "") -> str:
+def _tcl_copy_hex_file(hex_src: str, proj_dir: str, proj_name: str, bl_src: str = "") -> str:
     """Generate TCL for copying HEX files for ``$readmemh`` access.
 
     Copies prog.hex (SRAM) and bootloader.hex (bootrom) to the xsim run directory.
     """
     xsim_dir = f"{proj_dir}/{proj_name}.sim/sim_1/behav/xsim"
-    bl_src = f"{base_dir}/dev/program_source/boot/bootloader.hex" if base_dir else ""
     bl_copy = ""
     if bl_src:
         bl_copy = f"""
@@ -489,7 +488,7 @@ def _tcl_add_tb(
     proj_dir: str,
     proj_name: str,
     tb_name: str,
-    coe_file: str,
+    blcoe_file: str,
     rtl: RtlPathsConfig,
 ) -> str:
     """Generate TCL for adding testbench and updating COE.
@@ -517,16 +516,16 @@ def _tcl_add_tb(
     sys_rtl_dir = d["sys_rtl"]
 
     coe_update = ""
-    if coe_file:
-        coe_tail = Path(coe_file).name
+    if blcoe_file:
+        coe_tail = Path(blcoe_file).name
         coe_update = f"""\
 if {{ [catch {{get_ips ROM}} ip_rom] == 0 && $ip_rom ne "" }} {{
-    file copy -force {coe_file} "{ip_xci_dir}/ROM/"
+    file copy -force {blcoe_file} "{ip_xci_dir}/ROM/"
     set_property -dict [list \\
         CONFIG.Load_Init_File {{true}} \\
         CONFIG.Coe_File "{ip_xci_dir}/ROM/{coe_tail}" \\
     ] $ip_rom
-    puts "COE updated: {coe_file}"
+    puts "COE updated: {blcoe_file}"
     generate_target all $ip_rom
 }}"""
     else:
@@ -786,37 +785,33 @@ class Operations:
                 result.reason,
             )
 
-    def _resolve_coe_path(self, task: TaskConfig) -> str:
-        """Return the absolute COE path for a task, or empty string.
+    def _resolve_blcoe_path(self, task: TaskConfig) -> str:
+        """Return the absolute blcoe path for a task, or empty string.
 
         The path is returned in forward-slash form for TCL safety.
         """
-        if not task.coe:
+        if not task.blcoe:
             return ""
-        return _tcl_path(self.session_mgr.base_dir / "dev" / "program_source" / task.coe)
+        return _tcl_path(self.session_mgr.base_dir / "dev" / "program_source" / task.blcoe)
 
-    def _resolve_hex_path(self, task: TaskConfig) -> str:
-        """Return the absolute HEX path for a task, or empty string.
+    def _resolve_blhex_path(self, task: TaskConfig) -> str:
+        """Return the bootloader hex path for the bootROM $readmemh.
 
-        Auto-derivation: if ``hex_file`` is not explicitly set but ``coe``
-        is, derive the hex path by replacing the ``.coe`` extension with
-        ``.hex``.  This makes the COE→HEX relationship implicit and ensures
-        every simulation task with a COE also gets its HEX delivered to the
-        xsim directory for $readmemh.
-
-        The path is returned in forward-slash form for TCL safety.
+        For SRAM-mode tasks (blhex set): returns the blhex path.
+        For DDR3/FPGA tasks (blcoe set): returns the default bootloader.hex.
         """
-        if task.hex_file:
-            hex_rel = task.hex_file
-        elif task.coe and task.coe.endswith(".coe"):
-            # Auto-derive: test/isa/alu.coe → test/isa/alu.hex
-            hex_rel = task.coe[:-4] + ".hex"
-        else:
+        if task.blhex:
+            return _tcl_path(self.session_mgr.base_dir / "dev" / "program_source" / task.blhex)
+        return _tcl_path(self.session_mgr.base_dir / "dev" / "program_source" / "boot/bootloader.hex")
+
+    def _resolve_phex_path(self, task: TaskConfig) -> str:
+        """Return the program hex path for SRAM $readmemh, or empty string."""
+        if not task.phex:
             return ""
-        return _tcl_path(self.session_mgr.base_dir / "dev" / "program_source" / hex_rel)
+        return _tcl_path(self.session_mgr.base_dir / "dev" / "program_source" / task.phex)
 
     def _check_required_files(self, task: TaskConfig) -> str:
-        """Pre-check that COE and HEX files referenced by the task exist on disk.
+        """Pre-check that blcoe/blhex/phex files referenced by the task exist on disk.
 
         Returns an error message string if any file is missing, or empty string
         if all files are present.  The message includes the task name, missing
@@ -825,20 +820,20 @@ class Operations:
         base = self.session_mgr.base_dir / "dev" / "program_source"
         missing = []
 
-        if task.coe:
-            coe_path = base / task.coe
+        if task.blcoe:
+            coe_path = base / task.blcoe
             if not coe_path.exists():
-                missing.append(("COE", task.coe, coe_path))
+                missing.append(("BLCOE", task.blcoe, coe_path))
 
-        hex_rel = ""
-        if task.hex_file:
-            hex_rel = task.hex_file
-        elif task.coe and task.coe.endswith(".coe"):
-            hex_rel = task.coe[:-4] + ".hex"
-        if hex_rel:
-            hex_path = base / hex_rel
+        if task.blhex:
+            hex_path = base / task.blhex
             if not hex_path.exists():
-                missing.append(("HEX", hex_rel, hex_path))
+                missing.append(("BLHEX", task.blhex, hex_path))
+
+        if task.phex:
+            hex_path = base / task.phex
+            if not hex_path.exists():
+                missing.append(("PHEX", task.phex, hex_path))
 
         if not missing:
             return ""
@@ -951,13 +946,13 @@ class Operations:
         proj_name = self.session_mgr.config.proj_name
         device_part = self.session_mgr.config.device_part
         mem_config = self.session_mgr.config.memory
-        coe_file = self._resolve_coe_path(task)
+        blcoe_file = self._resolve_blcoe_path(task)
         bram_ip_names = get_bram_ip_names(mem_config)
 
         tcl_parts = [
             _tcl_cleanup_ip_gen(proj_dir, proj_name, bram_ip_names, mem_config),
             _tcl_create_project(proj_name, device_part, proj_dir, dev, base, self.session_mgr.config.rtl_path),
-            _tcl_setup_ip(proj_name, proj_dir, base, coe_file, mem_config),
+            _tcl_setup_ip(proj_name, proj_dir, base, blcoe_file, mem_config),
             _tcl_upgrade_ip(),
             _tcl_add_constrs(base),
         ]
@@ -1031,7 +1026,7 @@ class Operations:
         proj_dir = _tcl_path(session.project_dir)
         proj_name = self.session_mgr.config.proj_name
         device_part = self.session_mgr.config.device_part
-        coe_file = self._resolve_coe_path(task)
+        blcoe_file = self._resolve_blcoe_path(task)
 
         if plan.full:
             # Full rebuild: close -> cd up -> delete -> create.
@@ -1041,10 +1036,10 @@ class Operations:
                 f"catch {{ close_project }}\ncd [file dirname {proj_dir}]",
                 f"file delete -force {proj_dir}",
                 _tcl_create_project(proj_name, device_part, proj_dir, dev, base, self.session_mgr.config.rtl_path),
-                _tcl_setup_ip(proj_name, proj_dir, base, coe_file, mem_config),
+                _tcl_setup_ip(proj_name, proj_dir, base, blcoe_file, mem_config),
                 _tcl_upgrade_ip(),
                 _tcl_add_constrs(base),
-                _tcl_add_tb(dev, proj_dir, proj_name, task.tb, coe_file, self.session_mgr.config.rtl_path) if task.tb else "",
+                _tcl_add_tb(dev, proj_dir, proj_name, task.tb, blcoe_file, self.session_mgr.config.rtl_path) if task.tb else "",
             ]
         else:
             # Incremental: execute only the needed steps.
@@ -1074,10 +1069,10 @@ class Operations:
                 elif step == "update_compile_order":
                     tcl_parts.append("update_compile_order -fileset sim_1")
                 elif step == "update_coe":
-                    if coe_file:
-                        coe_tail = Path(coe_file).name
+                    if blcoe_file:
+                        coe_tail = Path(blcoe_file).name
                         tcl_parts.append(
-                            f'file copy -force {coe_file} "{ip_xci_dir}/ROM/"; '
+                            f'file copy -force {blcoe_file} "{ip_xci_dir}/ROM/"; '
                             f'set ip_rom [get_ips -all ROM]; '
                             f'set_property -dict [list CONFIG.Load_Init_File {{true}} '
                             f'CONFIG.Coe_File "{ip_xci_dir}/ROM/{coe_tail}"] $ip_rom; '
@@ -1090,11 +1085,11 @@ class Operations:
                             "generate_target all $ip_rom"
                         )
                 elif step == "set_property_coe":
-                    if coe_file:
-                        coe_tail = Path(coe_file).name
+                    if blcoe_file:
+                        coe_tail = Path(blcoe_file).name
                         tcl_parts.append(
                             f'set ip_rom [get_ips -all ROM]; '
-                            f'file copy -force {coe_file} "{ip_xci_dir}/ROM/"; '
+                            f'file copy -force {blcoe_file} "{ip_xci_dir}/ROM/"; '
                             f'set_property -dict [list CONFIG.Load_Init_File {{true}} '
                             f'CONFIG.Coe_File "{ip_xci_dir}/ROM/{coe_tail}"] $ip_rom'
                         )
@@ -1176,16 +1171,16 @@ class Operations:
         dev = f"{base}/dev"
         proj_dir = _tcl_path(session.project_dir)
         proj_name = self.session_mgr.config.proj_name
-        coe_file = self._resolve_coe_path(task)
+        blcoe_file = self._resolve_blcoe_path(task)
 
-        # NOTE: coe_file is passed to _tcl_add_tb which updates the ROM IP's
+        # NOTE: blcoe_file is passed to _tcl_add_tb which updates the ROM IP's
         # CONFIG.Coe_File property, but this is dead code during simulation —
         # the `ifdef SIMULATION` blocks in axi_wrap_ram.sv and
         # axi4lite_bootrom.sv replace the BRAM IP with behavioral models
         # that use $readmemh instead.  The COE update only matters for
         # FPGA bitstream generation (see create/refresh operations).
         tcl_parts = [
-            _tcl_add_tb(dev, proj_dir, proj_name, task.tb, coe_file, self.session_mgr.config.rtl_path),
+            _tcl_add_tb(dev, proj_dir, proj_name, task.tb, blcoe_file, self.session_mgr.config.rtl_path),
         ]
 
         # BRAM simulation models — always needed for XSim elaboration
@@ -1215,11 +1210,10 @@ class Operations:
 
         # HEX file copy for $readmemh — copies prog.hex + bootloader.hex
         # to the xsim run directory so $readmemh can find them.
-        # hex_path is resolved via _resolve_hex_path which auto-derives
-        # from .coe when hex_file is not explicitly set.
-        hex_path = self._resolve_hex_path(task)
-        if hex_path:
-            tcl_parts.append(_tcl_copy_hex_file(hex_path, proj_dir, proj_name, _tcl_path(self.session_mgr.base_dir)))
+        phex_path = self._resolve_phex_path(task)
+        bl_hex_path = self._resolve_blhex_path(task)
+        if phex_path:
+            tcl_parts.append(_tcl_copy_hex_file(phex_path, proj_dir, proj_name, bl_hex_path))
 
         # Determine waveform level from debug defines
         wave_level = None

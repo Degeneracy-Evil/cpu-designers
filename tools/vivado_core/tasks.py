@@ -1,7 +1,7 @@
 """Task definition loading and querying.
 
 Reads a ``tasks.yaml`` file that maps task names to their configuration
-(testbench, COE file, runtime, top module).
+(testbench, bootloader/program images, runtime, top module).
 """
 from __future__ import annotations
 
@@ -27,20 +27,11 @@ class TaskConfig:
         Unique task identifier (the key in ``tasks.yaml``).
     tb:
         Testbench module name (empty for FPGA-only tasks).
-    coe:
-        COE filename relative to ``dev/program_source/`` (empty if
-        the task does not need a program image).  May include a
-        subdirectory prefix such as ``test/`` or ``app/``.
-
-        .. note::
-           In simulation, the COE file is **not loaded** — the RTL
-           ``ifdef SIMULATION`` blocks bypass BRAM IP and use
-           ``$readmemh("prog.hex")`` instead (see ``axi_wrap_ram.sv``,
-           ``axi4lite_bootrom.sv``).  The ``coe`` field only serves
-           two indirect purposes in simulation: (1) auto-derivation
-           of ``hex_file`` path and (2) COE-layer hash staleness
-           detection.  For FPGA bitstream generation, the COE file
-           IS loaded into the BRAM IP as normal.
+    blcoe:
+        Bootloader COE filename relative to ``dev/program_source/``.
+        Used for FPGA bitstream generation and DDR3 simulation where the
+        BRAM IP is initialised from COE.  Mutually exclusive with
+        ``blhex`` — tasks must set one or the other, never both.
     runtime:
         Simulation runtime string, e.g. ``"5ms"`` or ``"40ms"``.
     top:
@@ -57,20 +48,29 @@ class TaskConfig:
         hierarchical parameter paths to values, e.g.
         ``{"u_dut...u_mig.SIM_BYPASS_INIT_CAL": "FAST"}``.
         Passed as ``-g`` flags to xelab.
-    hex_file:
-        HEX filename relative to ``dev/program_source/`` (empty if
-        the task does not need a program image for ``$readmemh``).
+    blhex:
+        Bootloader HEX filename relative to ``dev/program_source/``.
+        Used for normal (SRAM) simulation where the bootROM reads the
+        hex file via ``$readmemh``.  Mutually exclusive with
+        ``blcoe`` — tasks must set one or the other, never both.
+    phex:
+        Program HEX filename relative to ``dev/program_source/``.
+        Specifies the program image loaded into SRAM via
+        ``$readmemh("prog.hex")`` during simulation.  Only used in
+        SRAM-mode simulation; DDR3 simulation loads the program via
+        UART instead.
     """
 
     name: str
     tb: str = ""
-    coe: str = ""
+    blcoe: str = ""
     runtime: str = ""
     top: str = ""
     sim_mode: str = ""
     verilog_defines: dict[str, str] = field(default_factory=dict)
     mig_param_overrides: dict[str, str] = field(default_factory=dict)
-    hex_file: str = ""
+    blhex: str = ""
+    phex: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -85,19 +85,17 @@ class TaskRegistry:
     yaml_path:
         Path to the YAML file containing task definitions.
 
-    Expected YAML format::
+        Expected YAML format::
 
-        tasks:
-          cpu_full:
-            tb: tb_simple_cpu_top
-            coe: cpu_test.coe
-            runtime: 5ms
-          uart:
-            tb: tb_uart_hello
-            coe: uart_hello.coe
-            runtime: 40ms
-          fpga:
-            top: system_top
+            tasks:
+              cpu_full:
+                tb: tb_simple_cpu_top
+                blhex: boot/bootloader_phase1.hex
+                phex: test/integration/cpu_full.hex
+                runtime: 5ms
+              fpga:
+                top: system_top
+                blcoe: boot/bootloader.coe
     """
 
     def __init__(self, yaml_path: Path | str) -> None:
@@ -131,13 +129,14 @@ class TaskRegistry:
             self._tasks[name] = TaskConfig(
                 name=name,
                 tb=cfg.get("tb", ""),
-                coe=cfg.get("coe", ""),
+                blcoe=cfg.get("blcoe", ""),
                 runtime=cfg.get("runtime", ""),
                 top=cfg.get("top", ""),
                 sim_mode=cfg.get("sim_mode", ""),
                 verilog_defines=cfg.get("verilog_defines", {}) or {},
                 mig_param_overrides=cfg.get("mig_param_overrides", {}) or {},
-                hex_file=cfg.get("hex_file", ""),
+                blhex=cfg.get("blhex", ""),
+                phex=cfg.get("phex", ""),
             )
 
     # ------------------------------------------------------------------

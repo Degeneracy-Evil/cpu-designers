@@ -115,7 +115,7 @@ build.yaml → test_builder.py → rv2coe.py (WSL 回退) → .hex + .coe
 
 - `task_name`: 测试名中 `/` 替换为 `_`
 - `tb`: 推导为 `tb_{task_name}`
-- `coe`: 推导为 `test/{name}.coe`
+- `blcoe`: 推导为 `test/{name}.coe`（正常仿真任务使用 `blhex` + `phex`，仅 DDR3/FPGA 任务使用 `blcoe`）
 - `runtime`: 按类别的 RUNTIME_MAP 推导
 
 RUNTIME_MAP 默认值：

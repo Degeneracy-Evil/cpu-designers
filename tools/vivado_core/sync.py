@@ -139,6 +139,23 @@ class SyncPolicy:
                 stale_layers=stale_layers,
             )
 
+        # src stale + coe NOT stale: sources changed but COE/HEX not yet
+        # rebuilt.  Warn (not block) — the user may be mid-edit.
+        # If both src AND coe are stale, the coe hard-error below takes
+        # precedence (stronger signal), so this block is skipped.
+        if (
+            staleness.get("src", False)
+            and not staleness.get("coe", False)
+            and operation in ("sim",)
+        ):
+            return PreflightResult(
+                ok=True,
+                reason="Source files changed but COE/HEX not yet rebuilt; sim will use stale firmware",
+                fix="Run test_builder.py to rebuild, then refresh",
+                severity="warning",
+                stale_layers=stale_layers,
+            )
+
         if staleness.get("coe", False) and operation in ("sim",):
             return PreflightResult(
                 ok=False,

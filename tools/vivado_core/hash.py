@@ -6,8 +6,9 @@ stale sessions can be detected and incremental refreshes planned.
 Layers:
 - **rtl**:  dev/rtl/**/*.sv + dev/rtl/**/*.svh + Reference/**/*.xci
 - **tb**:   dev/tb/**/*.sv
-- **coe**:  dev/program_source/test/**/*.coe + dev/program_source/test/**/*.hex + dev/program_source/app/**/*.coe + dev/program_source/app/**/*.hex
-  - **fpga**: dev/fpga/**/*.xdc + dev/fpga/**/*.dcp + tools/vivado_core/tcl/**/*.tcl
+- **src**:  dev/program_source/**/*.{s,S,c,h,ld} + build.yaml + test_builder.py + rv2coe.py
+- **coe**:  dev/program_source/{test,app,boot}/**/*.{coe,hex}
+- **fpga**: dev/fpga/**/*.xdc + dev/fpga/**/*.dcp + tools/vivado_core/tcl/**/*.tcl
 """
 from __future__ import annotations
 
@@ -48,6 +49,7 @@ class LayeredHash:
             "dev/program_source/**/*.s",
             "dev/program_source/**/*.S",
             "dev/program_source/**/*.c",
+            "dev/program_source/**/*.h",
             "dev/program_source/**/*.ld",
             "dev/program_source/build.yaml",
             "tools/test_builder.py",
@@ -58,6 +60,8 @@ class LayeredHash:
             "dev/program_source/test/**/*.hex",
             "dev/program_source/app/**/*.coe",
             "dev/program_source/app/**/*.hex",
+            "dev/program_source/boot/**/*.coe",
+            "dev/program_source/boot/**/*.hex",
         ],
         "fpga": [
             "dev/fpga/**/*.xdc",

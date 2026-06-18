@@ -123,7 +123,7 @@ system_top
 │   ├── cpu_trap_csr      ← 陷阱/CSR 子系统
 │   ├── icache_ctrl       ← 指令缓存控制器（4路组相联，VIPT）
 │   ├── dcache_ctrl       ← 数据缓存控制器（4路组相联，写回+写分配，VIPT）
-│   ├── MMU (×2)          ← Sv32 虚拟内存（TLB + PTW 页表漫游）
+│   ├── MMU                ← Sv32 统一实例（双 i/d 接口，共享 TLB + PTW 页表漫游）
 │   └── cpu_bus_bridge    ← AXI4 总线桥接（MMIO + INCR8 突发，AW/W/B/AR/R 五通道）
 ├── Axi_CDC               ← AXI4 时钟域穿越（cpu_clk → sys_clk）
 ├── Address Decoder + Slave Mux  ← 手动地址译码 + 7 从设备多路复用（sys_clk domain）
@@ -699,12 +699,14 @@ CSR 写掩码：mstatus 仅允许写 MPP[12:11]、SPP[8]、MPIE[7]、SPIE[5]、M
 |------|-----|------|
 | 相联度 | 4 路组相联 | 每组 4 个缓存行 |
 | 组数 | 8 | set_idx = addr[7:5] |
-| 标签位 | 7 | tag = addr[14:8] |
+| 标签位 | 19 | tag = addr[26:8] |
 | 字偏移 | 3 位 | word_off = addr[4:2]，每行 8 字（32 字节） |
 | 行大小 | 256-bit（8×32-bit） | 一次 INCR8 突发填充 |
 | 总容量 | 8 组 × 4 路 × 32 字节 = 1KB | ICache 与 DCache 各 1KB |
 
-地址分解：`| tag[14:8] | set[7:5] | word[4:2] | byte[1:0] |`
+地址分解：`| tag[26:8] | set[7:5] | word[4:2] | byte[1:0] |`（19-bit tag 覆盖 128MB DDR3 地址空间 `0x8000_0000~0x87FF_FFFF`）
+
+> **注意**：标签位 19 和 7 的差异说明：实际 RTL 中 `ICACHE_TAG_WIDTH` / `DCACHE_TAG_WIDTH` = 19，`ICACHE_TAG_HI` / `DCACHE_TAG_HI` = 26，`ICACHE_TAG_LO` / `DCACHE_TAG_LO` = 8。报告早期版本误写为 7 位 tag（addr[14:8]），实际应为 19 位（addr[26:8]），其中 addr[29:27] 在 AXI 地址中强制为零，addr[31:30] 用于 Cacheable/MMIO 判定。
 
 ### 5.2 Tree-PLRU 替换策略 (`tree_plru`)
 
@@ -727,17 +729,17 @@ CSR 写掩码：mstatus 仅允许写 MPP[12:11]、SPP[8]、MPIE[7]、SPIE[5]、M
 
 标签使用 BRAM IP 存储（`use_tag_bram: true`），每组 4 路标签打包为一个 BRAM 字，通过 Port A 读取后在下一周期进行 4 路并行比较：
 
-| 缓存 | 标签 BRAM | BRAM 配置 | 每路标签格式 | 说明 |
-|------|-----------|-----------|-------------|------|
-| ICache | `icachet` | 32-bit × 8，True Dual Port，Byte_Enable，Byte_Size=8 | `{V(1), tag[6:0]}` = 8-bit | 无脏位（指令缓存只读） |
-| DCache | `dcachet` | 36-bit × 8，True Dual Port，Byte_Enable，Byte_Size=9 | `{V(1), D(1), tag[6:0]}` = 9-bit | dirty 位标识写回需求 |
+| 缓存 | 标签 BRAM | BRAM 配置 | 每路标签格式 | BRAM 字内容 | 说明 |
+|------|-----------|-----------|-------------|-------------|------|
+| ICache | `icachet` | 144-bit × 8，True Dual Port，Byte_Enable，Byte_Size=36 | `{V(1), tag[18:0]}` = 20-bit | `{Way3[35:0]×4路打包}` = 144-bit（每路 36-bit，含 16-bit 填充） | 无脏位（指令缓存只读） |
+| DCache | `dcachet` | 144-bit × 8，True Dual Port，Byte_Enable，Byte_Size=36 | `{V(1), D(1), tag[18:0]}` = 21-bit | `{Way3[35:0]×4路打包}` = 144-bit（每路 36-bit，含 15-bit 填充） | dirty 位标识写回需求 |
 
 - BRAM 地址 = set_idx（3-bit），每个地址包含一组 4 路标签
-- ICache 标签 BRAM 字：`{Way3[7:0], Way2[7:0], Way1[7:0], Way0[7:0]}` = 32-bit
-- DCache 标签 BRAM 字：`{Way3[8:0], Way2[8:0], Way1[8:0], Way0[8:0]}` = 36-bit
+- ICache 标签 BRAM 字：`{Way3[35:0], Way2[35:0], Way1[35:0], Way0[35:0]}` = 144-bit（每路 36-bit，含 16-bit 填充 + 20-bit 标签项）
+- DCache 标签 BRAM 字：`{Way3[35:0], Way2[35:0], Way1[35:0], Way0[35:0]}` = 144-bit（每路 36-bit，含 15-bit 填充 + 21-bit 标签项）
 - Port A：CPU 读（S_IDLE 使能，S_TAG_READ 出结果）
 - Port B：Refill 写 / Dirty 更新 / Invalidate 写
-- 命中判定：`valid && (tag == paddr[14:8])`，4 路并行，BRAM 读延迟 1 周期
+- 命中判定：`valid && (tag == paddr[26:8])`，4 路并行，BRAM 读延迟 1 周期
 - Byte-write enable 支持单路标签更新（Refill/Dirty 置位时仅写目标路）
 
 ### 5.4 数据存储（BRAM IP）
@@ -746,8 +748,8 @@ CSR 写掩码：mstatus 仅允许写 MPP[12:11]、SPP[8]、MPIE[7]、SPIE[5]、M
 |------|------|--------|--------|
 | icached | 256-bit × 32，True Dual Port，WRITE_FIRST，Byte_Enable | CPU 读 | Refill 写 |
 | dcached | 256-bit × 32，True Dual Port，WRITE_FIRST，Byte_Enable | CPU 读/写 | Refill 写 / Victim 读 |
-| icachet | 32-bit × 8，True Dual Port，Byte_Enable，Byte_Size=8 | CPU 读 | Refill 写 / Invalidate 写 |
-| dcachet | 36-bit × 8，True Dual Port，Byte_Enable，Byte_Size=9 | CPU 读 / Flush 扫描 | Refill 写 / Dirty 更新 / Invalidate 写 |
+| icachet | 144-bit × 8，True Dual Port，Byte_Enable，Byte_Size=36 | CPU 读 | Refill 写 / Invalidate 写 |
+| dcachet | 144-bit × 8，True Dual Port，Byte_Enable，Byte_Size=36 | CPU 读 / Flush 扫描 | Refill 写 / Dirty 更新 / Invalidate 写 |
 | tlb_flag | 128-bit × 4，True Dual Port，Byte_Enable，Byte_Size=8 | i-side 查找 | d-side 查找 / Fill 写 / Flush 写 |
 | tlb_data | 128-bit × 4，True Dual Port，Byte_Enable，Byte_Size=8 | i-side 查找 | d-side 查找 / Fill 写 / Flush 写 |
 
@@ -917,7 +919,8 @@ PTW 写:   S_PTW_AW_W → S_PTW_B
 - AXI4-Lite 只读从设备，32KB BRAM（MEM_DEPTH=8192）
 - 写通道静默应答 OKAY（ROM 只读）
 - 读通道 1 周期 BRAM 延迟，R 通道 FSM 握手需 `rvalid && rready` 双条件（BUG-83 修复）
-- 内容由 `$readmemh` 在 elaboration 阶段加载（bootloader.hex）
+- 内容由 `$readmemh` 在 elaboration 阶段加载（bootloader.hex），而非 COE 文件初始化 BRAM IP
+- **原因**：Vivado 仿真中使用 COE 初始化 BRAM 时，BRAM 输出初始值为 X（未知态），X 传播到后续逻辑后会生成大量 X→0/X→1 的分辨事件（resolution event），导致事件风暴（event storm），仿真速度下降上千倍。`$readmemh` 在 Elaboration 阶段完成初始化，仿真开始时 BRAM 输出已为确定值，完全避免此问题。
 - **启动流程**：CPU 复位 PC=0xFC00_0000 → Boot ROM 取 bootloader → bootloader 初始化 sp → DDR3 自检 → UART 接收程序镜像 → fence.i 刷新缓存 → 跳转至 load_addr → 执行主程序
 
 ### 5.14 System Status (`axi4lite_sys_status`)
@@ -945,7 +948,7 @@ PTW 写:   S_PTW_AW_W → S_PTW_B
 
 ### 5.17 MMU（Sv32 虚拟内存）
 
-CPU 包含两个 MMU 实例：指令 MMU（inst MMU）和数据 MMU（data MMU），各自拥有独立的 TLB 和 PTW。
+CPU 包含一个统一 MMU 实例（`MMU.sv`），提供双 i/d 接口（指令侧和数据侧），内部共享 TLB 和 PTW。
 
 **Sv32 页表格式**：
 

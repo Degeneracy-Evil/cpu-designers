@@ -7,7 +7,7 @@
 
 int main(void)
 {
-    uart_init(UART_BAUD_115200);
+    uart_init(UART_BAUD_230400);
 
     for (;;) {
         char c = uart_getc();

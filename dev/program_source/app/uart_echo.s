@@ -24,7 +24,7 @@
 .equ MCR_INIT,   0x03      # DTR + RTS
 .equ LSR_DR,     0x01      # Data Ready
 .equ LSR_THRE,   0x20      # TX Holding Register Empty
-.equ DIV_115200, 54        # 100MHz / (16 * 115200) ≈ 54
+.equ DIV_230400, 27        # 100MHz / (16 * 230400) ≈ 27
 
 .section .text
 .globl _start
@@ -40,8 +40,8 @@ _start:
     li   t0, DLAB
     sw   t0, UART_LCR(s0)
 
-    # 3. Set baud divisor: DLL = 54, DLM = 0
-    li   t0, DIV_115200
+    # 3. Set baud divisor: DLL = 27, DLM = 0
+    li   t0, DIV_230400
     sw   t0, UART_THR(s0)      # DLL (DLAB=1)
     sw   zero, UART_IER(s0)    # DLM (DLAB=1)
 

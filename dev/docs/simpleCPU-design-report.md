@@ -202,7 +202,7 @@ fpu_unit
             │     APB Bridge       │ 0x1000_0000 (Slave 4, 外设桥)
             │  ├─ 0x1000_0000 GPIO  (PSELx[0], PADDR[15:14]==00)
             │  ├─ 0x1000_4000 Timer (PSELx[1], PADDR[15:14]==01)
-             │  ├─ 0x1000_8000 UART  (PSELx[2], PADDR[15:14]==10, ns16550a)
+            │  ├─ 0x1000_8000 UART  (PSELx[2], PADDR[15:14]==10, ns16550a)
             │  └─ 0x1000_C000 SPI   (PSELx[3], PADDR[15:14]==11)
 0x1000_0000 ├──────────────────────┤
             │     未映射区域        │ → Default Slave (DECERR)

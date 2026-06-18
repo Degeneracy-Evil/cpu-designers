@@ -145,14 +145,14 @@ generate if (`SIMU_USE_DDR == 0) begin: sim_ram_tb
         force u_soc.mig_init_calib_complete_proxy = 1'b1;
         force u_soc.mig_mmcm_locked_proxy        = 1'b1;
         // Force accelerated UART baud divider for simulation speedup
-        // (Default 868 cycles/bit → 16 cycles/bit, ~54× faster)
+        // (Default 432 cycles/bit → 256 cycles/bit, ~1.7× faster)
         // NS16550A: divisor latch is 16-bit (DLL=dl[7:0], DLM=dl[15:8])
         force u_soc.u_apb_perips.u_uart.regs.dl = 16'd16;
     end
 
     // ----------------------------------------------------------------
     // UART TX simulation — drive uart_rx to send bytes to CPU
-    // Accelerated baud rate for simulation (divider=16 vs default 868)
+    // Accelerated baud rate for simulation (divider=16 vs default 27)
     // ----------------------------------------------------------------
     localparam SIM_UART_CYCLE = 256; // cycles per bit (16 enables × dl=16)
                                         // Must match: 16 * forced_dl
@@ -261,7 +261,7 @@ generate if (`SIMU_USE_DDR == 0) begin: sim_ram_tb
         repeat (100) @(posedge clk);
 
         // Force accelerated UART baud divider for simulation speedup
-        // (Default 868 cycles/bit → 16 cycles/bit, ~54× faster)
+        // (Default 432 cycles/bit → 256 cycles/bit, ~1.7× faster)
         // NS16550A: divisor latch is 16-bit (DLL=dl[7:0], DLM=dl[15:8])
         force u_soc.u_apb_perips.u_uart.regs.dl = 16'd16;
 

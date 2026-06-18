@@ -23,7 +23,7 @@
 .equ FCR_INIT,   0x07      # FIFO enable + reset RX + reset TX
 .equ MCR_INIT,   0x03      # DTR + RTS
 .equ LSR_THRE,   0x20      # TX Holding Register Empty
-.equ DIV_115200, 54        # 100MHz / (16 * 115200) ≈ 54
+.equ DIV_230400, 27        # 100MHz / (16 * 230400) ≈ 27
 
 .section .text
 .globl _start
@@ -39,8 +39,8 @@ _start:
     li   x11, DLAB
     sw   x11, UART_LCR(x10)
 
-    # 3. Set baud divisor: DLL = 54, DLM = 0
-    li   x11, DIV_115200
+    # 3. Set baud divisor: DLL = 27, DLM = 0
+    li   x11, DIV_230400
     sw   x11, UART_THR(x10)    # DLL (DLAB=1)
     sw   zero, UART_IER(x10)   # DLM (DLAB=1)
 

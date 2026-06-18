@@ -12,13 +12,13 @@
     };
 
     chosen {
-        stdout-path = "/soc/serial@10008000:115200n8";
+        stdout-path = "/soc/serial@10008000:230400n8";
 
         /*
          * 第一阶段建议先使用 initramfs。
          * 没有 initramfs 时，kernel 能打印日志后 panic 也算阶段性成功。
          */
-        bootargs = "console=ttyS0,115200 earlycon=uart8250,mmio32,0x10008000 loglevel=8 rdinit=/init";
+        bootargs = "console=ttyS0,230400 earlycon=uart8250,mmio32,0x10008000 loglevel=8 rdinit=/init";
     };
 
     cpus {
@@ -139,7 +139,7 @@
             reg-io-width = <4>;
 
             clock-frequency = <100000000>;
-            current-speed = <115200>;
+            current-speed = <230400>;
 
             interrupt-parent = <&plic>;
             interrupts = <2>;

@@ -88,9 +88,11 @@
 /* ---- Baud rate presets (for FREQ = 100 MHz) --------------------- */
 /*  divisor = FREQ_MHz * 1e6 / (16 * baud_rate)                     */
 
+#define UART_DIV_230400       27U   /* 100e6 / (16 * 230400) ≈ 27.13 → 27 */
 #define UART_DIV_115200       54U   /* 100e6 / (16 * 115200) ≈ 54.25 → 54 */
 
-/* Backward compatibility alias */
+/* Backward compatibility aliases */
+#define UART_BAUD_230400     UART_DIV_230400
 #define UART_BAUD_115200     UART_DIV_115200
 
 /* ---- Register-struct view (word-aligned) ------------------------ */

@@ -4,7 +4,7 @@
  * Runs from Boot ROM at 0xFC00_0000. Flow:
  *   1. Wait for MIG init_calib_complete (poll SYS_STATUS)
  *   2. DDR3 self-test: write → fence.i → read → compare → LED
- *   3. Init UART (NS16550A, 115200 baud)
+ *   3. Init UART (NS16550A, 230400 baud)
  *   4. Receive header via UART: magic(4B) + length(4B) + load_addr(4B) + entry_addr(4B)
  *   5. Receive N bytes → write to DDR3 starting at load_addr
  *   6. Jump to entry address
@@ -56,8 +56,8 @@
 # IER bits
 .equ IER_RDA,          0x01            # Received Data Available interrupt
 
-# Baud divisor: 100MHz / (16 × 115200) ≈ 54
-.equ BAUD_DIV,         54
+# Baud divisor: 100MHz / (16 × 230400) ≈ 27
+.equ BAUD_DIV,         27
 
 .equ MAGIC,            0x52495343      # "RISC" in little-endian
 

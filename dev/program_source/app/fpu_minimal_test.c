@@ -27,7 +27,7 @@ static inline unsigned int float_to_bits(float f)
 
 int main(void)
 {
-    uart_init(UART_BAUD_115200);
+    uart_init(UART_BAUD_230400);
 
     uart_puts("\r\n--- FPU minimal test ---\r\n");
 

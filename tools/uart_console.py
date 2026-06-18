@@ -146,7 +146,7 @@ def serial_init(port: str, baudrate: int = 115200):
 
 
 # ── Console read thread ────────────────────────────────────────────────
-def serial_read_thread(ser: serial.Serial):
+def serial_read_thread(ser: serial.Serial, show_hex: bool = False):
     buffer = bytearray()
     try:
         while True:
@@ -172,10 +172,13 @@ def serial_read_thread(ser: serial.Serial):
                 chunk = buffer[:split_idx]
                 buffer = buffer[split_idx:]
 
-                hex_str = ' '.join(f'{b:02X}' for b in chunk)
-                decoded_str = chunk.decode('utf-8', errors='replace')
-                print(f"\n[HEX] {hex_str}")
-                print(f"[TXT] {decoded_str}", end='')
+                if show_hex:
+                    hex_str = ' '.join(f'{b:02X}' for b in chunk)
+                    decoded_str = chunk.decode('utf-8', errors='replace')
+                    print(f"\n[HEX] {hex_str}")
+                    print(f"[TXT] {decoded_str}", end='')
+                else:
+                    sys.stdout.buffer.write(chunk)
                 sys.stdout.flush()
     except serial.SerialException:
         print("\nSerial port closed or error.")
@@ -253,6 +256,8 @@ def main():
                         help="Skip bootloader ready-wait delay")
     parser.add_argument("--raw", action="store_true",
                         help="Send keystrokes immediately instead of line-buffered readline mode")
+    parser.add_argument("--hex", action="store_true",
+                        help="Show hex dump alongside decoded text (default: decoded text only)")
 
     args = parser.parse_args()
 
@@ -274,7 +279,7 @@ def main():
     print(f"Starting console in {mode} mode... (Ctrl+C to exit)")
     print("-" * 60)
 
-    t = threading.Thread(target=serial_read_thread, args=(ser,), daemon=True)
+    t = threading.Thread(target=serial_read_thread, args=(ser, args.hex), daemon=True)
     t.start()
 
     try:

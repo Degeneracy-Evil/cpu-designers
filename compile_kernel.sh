@@ -171,7 +171,7 @@ make ARCH=riscv \
 
 cd ${OPENSBI_HOME}
 
-make clean
+#make clean
 
 make -j$(nproc) \
   PLATFORM=generic \

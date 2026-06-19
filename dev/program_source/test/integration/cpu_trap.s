@@ -13,6 +13,14 @@ _start:
 
     csrw mscratch, x0
 
+    # Set mtimecmp to far-future BEFORE enabling MTIE to prevent
+    # premature timer interrupt (MTIP=1 at reset if mtimecmp=0)
+    lui  x10, 0x02004        # mtimecmp base (0x02004000)
+    li   x11, 0xFFFFFFFF
+    sw   x11, 0(x10)         # mtimecmp_lo = 0xFFFFFFFF
+    li   x11, 0xFFFFFFFF
+    sw   x11, 4(x10)         # mtimecmp_hi = 0xFFFFFFFF
+
     addi x1, x0, 0
     ecall
 
@@ -61,6 +69,7 @@ _start:
     sw x23, 0(x10)
     li x10, 0x80001058
     sw x19, 0(x10)
+    fence.i                     # flush dcache so TB can read stores from BRAM
 
 end_loop:
     j end_loop
@@ -88,9 +97,12 @@ trap_handler:
 
 timer_int_handler:
     addi x23, x23, 1
+    # Set mtimecmp to far-future to prevent immediate re-fire
+    # (old code set mtimecmp=0 which caused infinite re-trap)
     lui x10, 0x02004        # mtimecmp base (0x02004000)
-    sw x0, 0(x10)           # mtimecmp_lo = 0
-    sw x0, 4(x10)           # mtimecmp_hi = 0
+    li  x11, 0xFFFFFFFF
+    sw  x11, 0(x10)         # mtimecmp_lo = 0xFFFFFFFF
+    sw  x11, 4(x10)         # mtimecmp_hi = 0xFFFFFFFF
     li x10, 0x1888
     csrw mstatus, x10
     mret

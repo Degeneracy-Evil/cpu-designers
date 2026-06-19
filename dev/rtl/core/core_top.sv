@@ -20,6 +20,33 @@ module core_top(
     output [31:0] wb_inst,
     output [31:0] display_state,
 
+    // ---------- Trap/CSR debug outputs ----------
+    output        trap_enter_valid,
+    output        trap_return_valid,
+    output [31:0] trap_csr_pc,
+    output [31:0] csr_mtvec,
+    output [31:0] csr_mepc,
+    output [31:0] csr_mcause,
+    output [31:0] csr_stvec,
+    output [31:0] csr_sepc,
+    output [31:0] csr_scause,
+    output [1:0]  priv_mode,
+    output [1:0]  target_priv,
+
+    // ---------- Extended debug outputs ----------
+    output [31:0] csr_sstatus,       // S-mode status
+    output [31:0] csr_sscratch,      // S-mode scratch
+    output [31:0] csr_stval,         // S-mode trap value
+    output [31:0] csr_satp,          // S-mode address translation
+    output [31:0] hw_trap_epc,       // faulting PC at trap entry
+    output [31:0] hw_trap_cause,     // raw cause at trap entry
+    output [31:0] hw_trap_tval,      // trap value at trap entry
+    output [31:0] exe_mem_vaddr,     // load/store virtual address
+    output        exe_is_store,      // memory write flag
+    output        exe_is_load,       // memory read flag
+    output [31:0] gpr_tp,            // x4 (tp) value
+    output [31:0] gpr_sp,            // x2 (sp) value
+
     // ---------- AXI4 Master — AW Channel ----------
     output [3:0]  awid,
     output [31:0] awaddr,
@@ -265,6 +292,7 @@ module core_top(
     wire [31:0] csr_mie;
     wire [31:0] csr_mtvec;
     wire [31:0] csr_mepc;
+    wire [31:0] csr_mcause;
     wire [31:0] csr_mip;
     wire [31:0] csr_medeleg;
     wire [31:0] csr_mideleg;
@@ -281,6 +309,22 @@ module core_top(
     wire [31:0] csr_scounteren;
     // Debug: CSR access permission from trap_csr (used internally; not consumed at core_top)
     wire csr_access_ok;
+
+    // Extended debug wires
+    wire [31:0] hw_trap_epc_w;
+    wire [31:0] hw_trap_cause_w;
+    wire [31:0] hw_trap_tval_w;
+    wire [31:0] gpr_tp_w;
+    wire [31:0] gpr_sp_w;
+
+    assign hw_trap_epc   = hw_trap_epc_w;
+    assign hw_trap_cause = hw_trap_cause_w;
+    assign hw_trap_tval  = hw_trap_tval_w;
+    assign gpr_tp        = gpr_tp_w;
+    assign gpr_sp        = gpr_sp_w;
+    assign exe_mem_vaddr = mem_dataAddr_32;
+    assign exe_is_store  = exe_mem_bus.is_store;
+    assign exe_is_load   = exe_mem_bus.is_load;
 
     wire [1:0] mpp_field;
     assign mpp_field = csr_mstatus[12:11];
@@ -735,7 +779,11 @@ module core_top(
         .rdata1(rs1_value),
         .rdata2(rs2_value),
         .dbg_raddr(rf_addr),
-        .dbg_rdata(rf_data)
+        .dbg_rdata(rf_data),
+        .dbg_raddr2(5'd4),       // tp = x4
+        .dbg_rdata2(gpr_tp_w),
+        .dbg_raddr3(5'd2),       // sp = x2
+        .dbg_rdata3(gpr_sp_w)
     );
 
     fpu_regfile u_fregfile(
@@ -819,6 +867,7 @@ module core_top(
         .csr_mie          (csr_mie),
         .csr_mtvec        (csr_mtvec),
         .csr_mepc         (csr_mepc),
+        .csr_mcause       (csr_mcause),
         .csr_mip          (csr_mip),
         .csr_medeleg      (csr_medeleg),
         .csr_mideleg      (csr_mideleg),
@@ -857,7 +906,11 @@ module core_top(
         .csr_pmpaddr14    (),
         .csr_pmpaddr15    (),
         .fflags_wdata     (wb_fflags),
-        .fflags_wen       (wb_valid && (wb_fflags != 5'b0))
+        .fflags_wen       (wb_valid && (wb_fflags != 5'b0)),
+        // Extended debug outputs
+        .hw_trap_epc      (hw_trap_epc_w),
+        .hw_trap_cause    (hw_trap_cause_w),
+        .hw_trap_tval     (hw_trap_tval_w)
     );
 
     // Unified MMU: single instance with dual i/d interfaces

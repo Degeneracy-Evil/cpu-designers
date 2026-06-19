@@ -160,7 +160,7 @@ test_04_sfence_preserves_global:
     li x14, 0x80004000
     li x15, 0xFEEDFACE
     sw x15, 0(x14)             # global page data
-    li x14, 0x80008000
+    li x14, 0x80005000
     li x15, 0xCAFEBABE
     sw x15, 0(x14)             # non-global page data
     fence.i                     # flush dcache so PTW sees updated PTE
@@ -173,7 +173,7 @@ s_sfence_global:
     lw x15, 0(x14)             # fill global entry
     li x16, 0xFEEDFACE
     bne x15, x16, 1f
-    li x14, 0x80008000
+    li x14, 0x80005000
     lw x15, 0(x14)             # fill non-global entry
     li x16, 0xCAFEBABE
     bne x15, x16, 1f
@@ -185,7 +185,7 @@ s_sfence_global:
     li x16, 0xFEEDFACE
     bne x15, x16, 1f
     # Access non-global page → should miss (flushed), re-fill
-    li x14, 0x80008000
+    li x14, 0x80005000
     lw x15, 0(x14)
     li x16, 0xCAFEBABE
     bne x15, x16, 1f; li x14, 1; j 2f

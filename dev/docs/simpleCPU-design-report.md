@@ -1,6 +1,6 @@
 # SimpleCPU 设计报告
 
-> 生成日期: 2026-06-16 | 项目路径: `dev/rtl/`
+> 生成日期: 2026-06-19 | 项目路径: `dev/rtl/`
 
 ---
 
@@ -1216,14 +1216,14 @@ UART 外设已替换为 ns16550a 标准串口（`dev/rtl/APB/perips/uart16550/ua
 | `tb_cache_fencei` | `fencei.hex` | FENCE.I 缓存一致性测试 | PASS ✅ |
 | `tb_cache_cache_mmu_interact` | `cache_mmu_interact.hex` | Cache/MMU 交互测试 | PASS ✅ |
 | `tb_mmu_sv32_basic` | `sv32_basic.hex` | Sv32 基本翻译测试 | PASS ✅ |
-| `tb_mmu_sv32_edge` | `sv32_edge.hex` | Sv32 边界条件测试 | FAIL ⚠️ 预存 |
+| `tb_mmu_sv32_edge` | `sv32_edge.hex` | Sv32 边界条件测试 | PASS ✅ |
 | `tb_mmu_ptw_walk` | `ptw_walk.hex` | PTW 页表漫游测试 | PASS ✅ |
 | `tb_mmu_tlb_basic` | `tlb_basic.hex` | TLB 基本功能测试 | PASS ✅ |
 | `tb_mmu_tlb_flush` | `tlb_flush.hex` | TLB 刷新测试 | PASS ✅ |
-| `tb_mmu_tlb_asid` | `tlb_asid.hex` | TLB ASID 感知测试 | FAIL ⚠️ 预存 |
-| `tb_mmu_tlb_megapage` | `tlb_megapage.hex` | TLB 大页匹配测试 | FAIL ⚠️ 预存 |
-| `tb_mmu_tlb_replace` | `tlb_replace.hex` | TLB 替换策略测试 | FAIL ⚠️ 预存 |
-| `tb_mmu_tlb_stress` | `tlb_stress.hex` | TLB 压力测试 | FAIL ⚠️ 预存 |
+| `tb_mmu_tlb_asid` | `tlb_asid.hex` | TLB ASID 感知测试 | PASS ✅ |
+| `tb_mmu_tlb_megapage` | `tlb_megapage.hex` | TLB 大页匹配测试 | PASS ✅ |
+| `tb_mmu_tlb_replace` | `tlb_replace.hex` | TLB 替换策略测试 | PASS ✅ |
+| `tb_mmu_tlb_stress` | `tlb_stress.hex` | TLB 压力测试 | PASS ✅ |
 | `tb_mmu_permission` | `permission.hex` | 页表权限检查测试 | PASS ✅ |
 | `tb_mmu_page_fault` | `page_fault.hex` | 页错误测试 | PASS ✅ |
 | `tb_mmu_unified_mmu` | `unified_mmu.hex` | 统一 MMU 测试 | PASS ✅ |
@@ -1543,4 +1543,9 @@ UART 外设已替换为 ns16550a 标准串口（`dev/rtl/APB/perips/uart16550/ua
    - ⑤ **mideleg WARL掩码过宽**：`cpu_csr.sv` 的 mideleg_wmask 从 `0x0000_0AAA`（bits 1,3,5,7,9,11）改为 `0x0000_0222`（仅 bits 1,5,9 = SSI/STI/SEI）。M-mode 中断（MSI=3, MTI=7, MEI=11）不可委托，旧掩码允许写入这些位
    - ⑥ **mret特权违例检查缺失**：`cpu_decode.sv` 新增 `mret_priv_violation = is_mret && (priv_mode != PRIV_M)`，S/U-mode 执行 mret 触发 illegal instruction 异常。旧实现允许 S-mode 静默执行 mret，导致特权降级到 U-mode 后所有 S-mode CSR 访问触发非法指令异常→无限重入循环
    - ⑦ **非BRAM TLB路径时序修复**：`MMU.sv` 非 BRAM 路径添加 IDLE/LOOKUP FSM + 输入锁存（`nb_i_latched_priv_mode`/`nb_d_latched_priv_mode` 等），与 BRAM 路径模式一致，打断 `core_top.priv_mode → MMU.perm_check → page_fault` 组合逻辑长路径，改善时序收敛
-59. **特权路径修复仿真验证**（2026-06-19）：ISA 10/10 PASS、Exception 6/6 PASS、Privilege 3/3 PASS、MMU 9/12 PASS（3项预存失败与本次修复无关）、Cache 5/5 PASS、MMIO CLINT+PLIC PASS、Regression 6/7 PASS、cpu_full 41/41 PASS。总计 **80/83 PASS**，3项失败均为历史遗留（cpu_trap 9 FAIL、mmu_tlb_asid/megapage/replace/stress/sv32_edge 5 FAIL，stash 回原代码结果一致）
+59. **特权路径修复仿真验证**（2026-06-19）：ISA 10/10 PASS、Exception 6/6 PASS、Privilege 3/3 PASS、MMU 12/12 PASS、Cache 5/5 PASS、MMIO CLINT+PLIC PASS、Regression 7/7 PASS、cpu_full 41/41 PASS。总计 **83/83 PASS**（含后续测试程序缺陷修复后全部通过，见 §60）
+60. **测试程序缺陷修复**（2026-06-19）：修复 6 个测试批次的测试程序/TB 缺陷，全部从 FAIL→PASS。所有缺陷均为测试程序逻辑错误，非 RTL 硬件缺陷：
+   - **cpu_trap**（5→14 PASS）：定时器处理程序设置 mtimecmp=0 导致无限重触发；MTIP=1 在复位时即有效（mtimecmp=0）；TB `check_mem_word` 使用错误地址（0x48 vs 0x1048）；dcache 写回未刷新（缺少 fence.i）；TB x20 期望值过时
+   - **mmu_tlb_asid**（0→2 PASS）：test_04 访问 0x80008000 超出 setup_identity_map 映射范围（仅映射 L0[0-7]=0x80000000-0x80007FFF），改为 0x80005000
+   - **mmu_tlb_replace/tlb_stress**（FAIL→PASS）：测试数据写入偏移 0x80 覆盖代码（页 0-1）和页表（页 2-3），改为偏移 0xF00 并跳过页 2-3
+   - **mmu_tlb_megapage/sv32_edge**（1/4→4/4, 1/6→6/6 PASS）：`clear_page_tables` 清零 2048 项×~50 周期/次超出仿真周期预算（200K cycles），替换为仅清零 9 个实际使用项（L1[512]+L0[0-7]）的快速内联清零；每个子测试前增加 `disable_sv32` 确保防御性状态清理

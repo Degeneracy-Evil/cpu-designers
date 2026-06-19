@@ -77,6 +77,7 @@ module cpu_trap_csr(
     output [31:0] csr_mie,
     output [31:0] csr_mtvec,
     output [31:0] csr_mepc,
+    output [31:0] csr_mcause,
     output [31:0] csr_mip,
     output [31:0] csr_medeleg,
     output [31:0] csr_mideleg,
@@ -91,6 +92,11 @@ module cpu_trap_csr(
     output [31:0] csr_satp,
     output [31:0] csr_mcounteren,
     output [31:0] csr_scounteren,
+
+    // ---------- Trap write-data outputs (for debug latch) ----------
+    output [31:0] hw_trap_epc,       // faulting PC (mepc/sepc write value)
+    output [31:0] hw_trap_cause,     // raw cause (mcause/scause write value)
+    output [31:0] hw_trap_tval,      // trap value (mtval/stval write value)
 
     output        csr_access_ok,
 
@@ -237,6 +243,7 @@ module cpu_trap_csr(
         .csr_mie          (csr_mie),
         .csr_mtvec        (csr_mtvec),
         .csr_mepc         (csr_mepc),
+        .csr_mcause       (csr_mcause),
         .csr_mip          (csr_mip),
         .csr_medeleg      (csr_medeleg),
         .csr_mideleg      (csr_mideleg),
@@ -277,5 +284,11 @@ module cpu_trap_csr(
         .fflags_wdata     (fflags_wdata),
         .fflags_wen       (fflags_wen)
     );
+
+    // Trap write-data outputs for debug latch
+    // hw_mepc_wdata == hw_sepc_wdata, hw_mcause_wdata == hw_scause_wdata, etc.
+    assign hw_trap_epc   = hw_mepc_wdata;
+    assign hw_trap_cause = hw_mcause_wdata;
+    assign hw_trap_tval  = hw_mtval_wdata;
 
 endmodule

@@ -42,7 +42,15 @@ end_loop:
 # L1 index 512 = VPN[1]=512 = VA[31:22]=0x200 → VA 0x80000000-0x803FFFFF.
 test_01_megapage_basic:
     la x5, mmu_saved_ra; sw x1, 0(x5); sw x0, 4(x5)
-    jal x1, clear_page_tables
+    jal x1, disable_sv32
+    # Fast clear: only L1[512] and L0[0-7] are modified by any test
+    la  x14, l1_page_table
+    li  x15, 0x800
+    add x14, x14, x15
+    sw  x0, 0(x14)
+    la  x14, l0_page_table
+    sw  x0, 0(x14);  sw x0, 4(x14);  sw x0, 8(x14);  sw x0, 12(x14)
+    sw  x0, 16(x14); sw x0, 20(x14); sw x0, 24(x14); sw x0, 28(x14)
     la x14, l1_page_table
     li x15, 0x80000            # PPN = 0x80000 (0x80000000 >> 12)
     slli x15, x15, 10
@@ -71,7 +79,15 @@ s_mega_basic:
 # Both should hit the same megapage TLB entry and return correct data.
 test_02_megapage_vpn_low_ignored:
     la x5, mmu_saved_ra; sw x1, 0(x5); sw x0, 4(x5)
-    jal x1, clear_page_tables
+    jal x1, disable_sv32
+    # Fast clear: only L1[512] and L0[0-7] are modified by any test
+    la  x14, l1_page_table
+    li  x15, 0x800
+    add x14, x14, x15
+    sw  x0, 0(x14)
+    la  x14, l0_page_table
+    sw  x0, 0(x14);  sw x0, 4(x14);  sw x0, 8(x14);  sw x0, 12(x14)
+    sw  x0, 16(x14); sw x0, 20(x14); sw x0, 24(x14); sw x0, 28(x14)
     la x14, l1_page_table
     li x15, 0x80000            # PPN = 0x80000
     slli x15, x15, 10
@@ -111,7 +127,15 @@ s_mega_vpn_low:
 # Write a distinctive value, access through megapage, verify correct translation.
 test_03_megapage_ppn_alignment:
     la x5, mmu_saved_ra; sw x1, 0(x5); sw x0, 4(x5)
-    jal x1, clear_page_tables
+    jal x1, disable_sv32
+    # Fast clear: only L1[512] and L0[0-7] are modified by any test
+    la  x14, l1_page_table
+    li  x15, 0x800
+    add x14, x14, x15
+    sw  x0, 0(x14)
+    la  x14, l0_page_table
+    sw  x0, 0(x14);  sw x0, 4(x14);  sw x0, 8(x14);  sw x0, 12(x14)
+    sw  x0, 16(x14); sw x0, 20(x14); sw x0, 24(x14); sw x0, 28(x14)
     la x14, l1_page_table
     li x15, 0x80000            # PPN = 0x80000, PPN[9:0]=0 (aligned)
     slli x15, x15, 10
@@ -149,7 +173,15 @@ s_mega_aligned:
 # translated through either a 2-level walk or a megapage.
 test_04_megapage_vs_normal_page:
     la x5, mmu_saved_ra; sw x1, 0(x5); sw x0, 4(x5)
-    jal x1, clear_page_tables
+    jal x1, disable_sv32
+    # Fast clear: only L1[512] and L0[0-7] are modified by any test
+    la  x14, l1_page_table
+    li  x15, 0x800
+    add x14, x14, x15
+    sw  x0, 0(x14)
+    la  x14, l0_page_table
+    sw  x0, 0(x14);  sw x0, 4(x14);  sw x0, 8(x14);  sw x0, 12(x14)
+    sw  x0, 16(x14); sw x0, 20(x14); sw x0, 24(x14); sw x0, 28(x14)
     # Phase 1: Set up normal 2-level translation
     la x14, l1_page_table
     la x15, l0_page_table

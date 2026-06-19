@@ -267,7 +267,10 @@ wire inst_amomaxu  = (opcode == OPCODE_AMO) && (funct3 == 3'b010) && (funct5 == 
   assign inst_sret   = (opcode == OPCODE_SYSTEM) && (funct3 == 3'b000) && (inst[31:7] == 25'b0001000_00010_00000_000_00000);
   assign inst_fence  = (opcode == OPCODE_FENCE)  && (funct3 == 3'b000);
   assign inst_fencei = (opcode == OPCODE_FENCE)  && (funct3 == 3'b001);
-  assign inst_sfence_vma = (opcode == OPCODE_SYSTEM) && (funct3 == 3'b000) && (inst[31:7] == 25'b0001001_00000_00000_000_00000);
+  // Accept sfence.vma with any rs1, rs2 (not just x0, x0).
+  // rs1/rs2 are ignored — always treated as full TLB flush (same as sfence.vma x0, x0).
+  // Encoding: funct7=0001001, funct3=000, rd=x0, rs1/rs2=any.
+  assign inst_sfence_vma = (opcode == OPCODE_SYSTEM) && (funct3 == 3'b000) && (inst[31:25] == 7'b0001001) && (inst[11:7] == 5'b00000);
 
   assign inst_csrrw  = (opcode == OPCODE_SYSTEM) && (funct3 == 3'b001);
   assign inst_csrrs  = (opcode == OPCODE_SYSTEM) && (funct3 == 3'b010);

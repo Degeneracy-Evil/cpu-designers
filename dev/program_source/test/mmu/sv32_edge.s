@@ -49,8 +49,15 @@ end_loop:
 # This maps the entire 4MB region starting at 0x80000000
 test_megapage_translation:
     la x5, mmu_saved_ra; sw x1, 0(x5); sw x0, 4(x5)
-    # Clear page tables first
-    jal x1, clear_page_tables
+    jal x1, disable_sv32
+    # Fast clear: only L1[512] and L0[0-7] are modified by any test
+    la  x14, l1_page_table
+    li  x15, 0x800
+    add x14, x14, x15
+    sw  x0, 0(x14)
+    la  x14, l0_page_table
+    sw  x0, 0(x14);  sw x0, 4(x14);  sw x0, 8(x14);  sw x0, 12(x14)
+    sw  x0, 16(x14); sw x0, 20(x14); sw x0, 24(x14); sw x0, 28(x14)
     # Set up L1[512] as megapage (leaf PTE, not pointer to L0)
     la x14, l1_page_table
     li x15, 0x80000            # PPN = 0x80000 (0x80000000 >> 12)
@@ -80,8 +87,16 @@ test_ad_bit_auto_update:
     la x5, mmu_saved_ra; sw x1, 0(x5)
     la x5, post_ad_check; la x6, mmu_return_pc; sw x5, 0(x6)
     sw x0, 8(x6)             # clear got_fault
+    jal x1, disable_sv32
+    # Fast clear: only L1[512] and L0[0-7] are modified by any test
+    la  x14, l1_page_table
+    li  x15, 0x800
+    add x14, x14, x15
+    sw  x0, 0(x14)
+    la  x14, l0_page_table
+    sw  x0, 0(x14);  sw x0, 4(x14);  sw x0, 8(x14);  sw x0, 12(x14)
+    sw  x0, 16(x14); sw x0, 20(x14); sw x0, 24(x14); sw x0, 28(x14)
     # Set up page tables with A=0, D=0 on L0[4]
-    jal x1, clear_page_tables
     la x14, l1_page_table
     la x15, l0_page_table
     # L1[512] → pointer to L0
@@ -147,6 +162,7 @@ post_ad_check:
 # and verify the global entry still hits (no re-fill needed).
 test_global_page:
     la x5, mmu_saved_ra; sw x1, 0(x5); sw x0, 4(x5)
+    jal x1, disable_sv32
     # Set up identity map with G=1 on L0[0]
     jal x1, setup_identity_map
     # Add G bit to L0[0]
@@ -180,6 +196,7 @@ s_global:
 # sfence.vma, then access should trigger re-fill.
 test_asid_change:
     la x5, mmu_saved_ra; sw x1, 0(x5); sw x0, 4(x5)
+    jal x1, disable_sv32
     jal x1, setup_identity_map
     # L0[0] is non-global (G=0) by default
     jal x1, enable_sv32
@@ -209,6 +226,7 @@ test_zero_page_access:
     la x5, mmu_saved_ra; sw x1, 0(x5)
     la x5, post_zero_check; la x6, mmu_return_pc; sw x5, 0(x6)
     sw x0, 8(x6)             # clear got_fault
+    jal x1, disable_sv32
     jal x1, setup_identity_map
     jal x1, enable_sv32
     la x5, s_zero_page; csrw mepc, x5; li x5, 0x880; csrw mstatus, x5; mret
@@ -235,6 +253,7 @@ test_high_vma_access:
     la x5, mmu_saved_ra; sw x1, 0(x5)
     la x5, post_high_vma_check; la x6, mmu_return_pc; sw x5, 0(x6)
     sw x0, 8(x6)             # clear got_fault
+    jal x1, disable_sv32
     jal x1, setup_identity_map
     jal x1, enable_sv32
     la x5, s_high_vma; csrw mepc, x5; li x5, 0x880; csrw mstatus, x5; mret

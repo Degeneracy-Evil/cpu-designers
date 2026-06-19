@@ -237,6 +237,33 @@ module system_top(
     wire [31:0] wb_inst;
     wire [31:0] display_state;
 
+    // Trap/CSR debug wires (from core_top)
+    wire        trap_enter_valid;
+    wire        trap_return_valid;
+    wire [31:0] trap_csr_pc;
+    wire [31:0] csr_mtvec;
+    wire [31:0] csr_mepc;
+    wire [31:0] csr_mcause;
+    wire [31:0] csr_stvec;
+    wire [31:0] csr_sepc;
+    wire [31:0] csr_scause;
+    wire [1:0]  priv_mode;
+    wire [1:0]  target_priv;
+
+    // Extended debug wires (from core_top)
+    wire [31:0] csr_sstatus;
+    wire [31:0] csr_sscratch;
+    wire [31:0] csr_stval;
+    wire [31:0] csr_satp;
+    wire [31:0] hw_trap_epc;
+    wire [31:0] hw_trap_cause;
+    wire [31:0] hw_trap_tval;
+    wire [31:0] exe_mem_vaddr;
+    wire        exe_is_store;
+    wire        exe_is_load;
+    wire [31:0] gpr_tp;
+    wire [31:0] gpr_sp;
+
     // IRQ wires
     wire        timer_irq;
     wire [1:0]  plic_eip;
@@ -278,6 +305,183 @@ module system_top(
         end
     end
 
+    // ========================================================================
+    // Trap State Latch — captures PC + CSR when if_pc enters 0xC... and trap fires
+    // ========================================================================
+    // All source signals are in cpu_clk domain. Latch in cpu_clk.
+    // Display logic reads from sys_clk domain (stable latched values, safe async read).
+    wire trap_c_region = (if_pc[31:28] == 4'hC);
+    wire trap_latch_trigger = trap_c_region & trap_enter_valid;
+
+    reg        trap_latched_r;
+    reg [31:0] trap_latch_pc_r;
+    reg [31:0] trap_latch_mtvec_r;
+    reg [31:0] trap_latch_mepc_r;
+    reg [31:0] trap_latch_mcause_r;
+    reg [31:0] trap_latch_stvec_r;
+    reg [31:0] trap_latch_sepc_r;
+    reg [31:0] trap_latch_scause_r;
+    reg [1:0]  trap_latch_priv_r;
+    reg [1:0]  trap_latch_target_priv_r;
+    reg [31:0] trap_latch_trap_pc_r;
+    reg [15:0] trap_latch_count_r;
+
+    always_ff @(posedge cpu_clk or negedge cpu_resetn) begin
+        if (!cpu_resetn) begin
+            trap_latched_r           <= 1'b0;
+            trap_latch_pc_r          <= 32'b0;
+            trap_latch_mtvec_r       <= 32'b0;
+            trap_latch_mepc_r        <= 32'b0;
+            trap_latch_mcause_r      <= 32'b0;
+            trap_latch_stvec_r       <= 32'b0;
+            trap_latch_sepc_r        <= 32'b0;
+            trap_latch_scause_r      <= 32'b0;
+            trap_latch_priv_r        <= 2'b0;
+            trap_latch_target_priv_r <= 2'b0;
+            trap_latch_trap_pc_r     <= 32'b0;
+            trap_latch_count_r       <= 16'b0;
+        end else if (trap_latch_trigger) begin
+            trap_latched_r           <= 1'b1;
+            trap_latch_pc_r          <= if_pc;
+            trap_latch_mtvec_r       <= csr_mtvec;
+            trap_latch_mepc_r        <= csr_mepc;
+            trap_latch_mcause_r      <= csr_mcause;
+            trap_latch_stvec_r       <= csr_stvec;
+            trap_latch_sepc_r        <= csr_sepc;
+            trap_latch_scause_r      <= csr_scause;
+            trap_latch_priv_r        <= priv_mode;
+            trap_latch_target_priv_r <= target_priv;
+            trap_latch_trap_pc_r     <= trap_csr_pc;
+            trap_latch_count_r       <= trap_latch_count_r + 16'd1;
+        end
+    end
+
+    // ========================================================================
+    // Debug Block 1: Last S-origin Trap Latch
+    // Captures every trap whose faulting instruction came from S-mode.
+    // Includes both S→S and S→M traps. Does not filter interrupts.
+    // ========================================================================
+    localparam [1:0] PRIV_S = 2'b01;
+
+    wire dbg_s_origin_trap = trap_enter_valid && (priv_mode == PRIV_S);
+
+    reg        dbg_s_valid_r;
+    reg [31:0] dbg_s_epc_r;
+    reg [31:0] dbg_s_cause_r;
+    reg [31:0] dbg_s_tval_r;
+    reg [3:0]  dbg_s_from_to_r;
+    reg [31:0] dbg_s_status_r;
+    reg [31:0] dbg_s_tvec_r;
+    reg [31:0] dbg_s_scratch_r;
+    reg [31:0] dbg_s_satp_r;
+    reg [15:0] dbg_s_count_r;
+
+    always_ff @(posedge cpu_clk or negedge cpu_resetn) begin
+        if (!cpu_resetn) begin
+            dbg_s_valid_r    <= 1'b0;
+            dbg_s_epc_r      <= 32'b0;
+            dbg_s_cause_r    <= 32'b0;
+            dbg_s_tval_r     <= 32'b0;
+            dbg_s_from_to_r  <= 4'b0;
+            dbg_s_status_r   <= 32'b0;
+            dbg_s_tvec_r     <= 32'b0;
+            dbg_s_scratch_r  <= 32'b0;
+            dbg_s_satp_r     <= 32'b0;
+            dbg_s_count_r    <= 16'b0;
+        end else if (dbg_s_origin_trap) begin
+            dbg_s_valid_r    <= 1'b1;
+            dbg_s_epc_r      <= hw_trap_epc;
+            dbg_s_cause_r    <= hw_trap_cause;
+            dbg_s_tval_r     <= hw_trap_tval;
+            dbg_s_from_to_r  <= {priv_mode, target_priv};
+            dbg_s_status_r   <= csr_sstatus;
+            dbg_s_tvec_r     <= csr_stvec;
+            dbg_s_scratch_r  <= csr_sscratch;
+            dbg_s_satp_r     <= csr_satp;
+            dbg_s_count_r    <= dbg_s_count_r + 16'd1;
+        end
+    end
+
+    // ========================================================================
+    // Debug Block 2: S-mode Trap Entry Monitor
+    // Continuously updates while CPU executes inside stvec ~ stvec+0x100.
+    // ========================================================================
+    wire [31:0] s_entry_end = csr_stvec + 32'h100;
+    wire dbg_in_s_entry = (priv_mode == PRIV_S) &&
+                         (exe_pc >= csr_stvec) &&
+                         (exe_pc <  s_entry_end);
+
+    reg        dbg_entry_valid_r;
+    reg [31:0] dbg_entry_pc_r;
+    reg [31:0] dbg_entry_inst_r;
+    reg [31:0] dbg_entry_tp_r;
+    reg [31:0] dbg_entry_sp_r;
+    reg [31:0] dbg_entry_sscratch_r;
+    reg [31:0] dbg_entry_sstatus_r;
+    reg [31:0] dbg_entry_satp_r;
+    reg [31:0] dbg_entry_mem_addr_r;
+    reg        dbg_entry_mem_write_r;
+    reg        dbg_entry_mem_read_r;
+
+    always_ff @(posedge cpu_clk or negedge cpu_resetn) begin
+        if (!cpu_resetn) begin
+            dbg_entry_valid_r    <= 1'b0;
+            dbg_entry_pc_r       <= 32'b0;
+            dbg_entry_inst_r     <= 32'b0;
+            dbg_entry_tp_r       <= 32'b0;
+            dbg_entry_sp_r       <= 32'b0;
+            dbg_entry_sscratch_r <= 32'b0;
+            dbg_entry_sstatus_r  <= 32'b0;
+            dbg_entry_satp_r     <= 32'b0;
+            dbg_entry_mem_addr_r <= 32'b0;
+            dbg_entry_mem_write_r<= 1'b0;
+            dbg_entry_mem_read_r <= 1'b0;
+        end else if (dbg_in_s_entry) begin
+            dbg_entry_valid_r    <= 1'b1;
+            dbg_entry_pc_r       <= exe_pc;
+            dbg_entry_inst_r     <= exe_inst;
+            dbg_entry_tp_r       <= gpr_tp;
+            dbg_entry_sp_r       <= gpr_sp;
+            dbg_entry_sscratch_r <= csr_sscratch;
+            dbg_entry_sstatus_r  <= csr_sstatus;
+            dbg_entry_satp_r     <= csr_satp;
+            dbg_entry_mem_addr_r <= exe_mem_vaddr;
+            dbg_entry_mem_write_r<= exe_is_store;
+            dbg_entry_mem_read_r <= exe_is_load;
+        end
+    end
+
+    // ========================================================================
+    // Debug Block 3: Recursive Trap Detector
+    // Counts traps whose faulting PC is inside the S-mode trap entry itself.
+    // ========================================================================
+    wire dbg_recursive_s_trap = trap_enter_valid &&
+                                (priv_mode == PRIV_S) &&
+                                (hw_trap_epc >= csr_stvec) &&
+                                (hw_trap_epc <  s_entry_end);
+
+    reg        dbg_recursive_valid_r;
+    reg [31:0] dbg_recursive_epc_r;
+    reg [31:0] dbg_recursive_cause_r;
+    reg [31:0] dbg_recursive_tval_r;
+    reg [15:0] dbg_recursive_count_r;
+
+    always_ff @(posedge cpu_clk or negedge cpu_resetn) begin
+        if (!cpu_resetn) begin
+            dbg_recursive_valid_r <= 1'b0;
+            dbg_recursive_epc_r   <= 32'b0;
+            dbg_recursive_cause_r <= 32'b0;
+            dbg_recursive_tval_r  <= 32'b0;
+            dbg_recursive_count_r <= 16'b0;
+        end else if (dbg_recursive_s_trap) begin
+            dbg_recursive_valid_r <= 1'b1;
+            dbg_recursive_epc_r   <= hw_trap_epc;
+            dbg_recursive_cause_r <= hw_trap_cause;
+            dbg_recursive_tval_r  <= hw_trap_tval;
+            dbg_recursive_count_r <= dbg_recursive_count_r + 16'd1;
+        end
+    end
+
     core_top cpu(
         .clk          (cpu_clk),
         .resetn       (cpu_resetn),
@@ -294,6 +498,31 @@ module system_top(
         .wb_pc        (wb_pc),
         .wb_inst      (wb_inst),
         .display_state(display_state),
+        // Trap/CSR debug outputs
+        .trap_enter_valid(trap_enter_valid),
+        .trap_return_valid(trap_return_valid),
+        .trap_csr_pc     (trap_csr_pc),
+        .csr_mtvec       (csr_mtvec),
+        .csr_mepc        (csr_mepc),
+        .csr_mcause      (csr_mcause),
+        .csr_stvec       (csr_stvec),
+        .csr_sepc        (csr_sepc),
+        .csr_scause      (csr_scause),
+        .priv_mode       (priv_mode),
+        .target_priv     (target_priv),
+        // Extended debug outputs
+        .csr_sstatus     (csr_sstatus),
+        .csr_sscratch    (csr_sscratch),
+        .csr_stval       (csr_stval),
+        .csr_satp        (csr_satp),
+        .hw_trap_epc     (hw_trap_epc),
+        .hw_trap_cause   (hw_trap_cause),
+        .hw_trap_tval    (hw_trap_tval),
+        .exe_mem_vaddr   (exe_mem_vaddr),
+        .exe_is_store    (exe_is_store),
+        .exe_is_load     (exe_is_load),
+        .gpr_tp          (gpr_tp),
+        .gpr_sp          (gpr_sp),
         // AXI4 AW Channel
         .awid         (cpu_awid),
         .awaddr       (cpu_awaddr),
@@ -1467,11 +1696,267 @@ module system_top(
     assign rf_addr = display_number - 6'd11;
 
     // BUG-FIX: 使用同步化后的 sys_resetn 而非原始板级 resetn，避免复位释放时恢复时间违例
+    // sw[7:6]=00: Page 1 (original display)
+    // sw[7:6]=10: Page 2 (existing trap latch display)
+    // sw[7:6]=01: Page 3 (S-origin trap + recursive trap detector)
+    // sw[7:6]=11: Page 4 (S-mode trap entry monitor)
     always_ff @(posedge sys_clk or negedge sys_resetn) begin
         if (!sys_resetn) begin
             display_valid  <= 1'b0;
             display_name   <= 40'b0;
             display_value  <= 32'b0;
+        end else if (sw[7] && !sw[6]) begin
+            // ── Page 2: Trap latch display ──────────────────────
+            case(display_number)
+                6'd1: begin  // Latched PC at trap time
+                    display_valid <= 1'b1;
+                    display_name  <= "T_PC ";
+                    display_value <= trap_latch_pc_r;
+                end
+                6'd2: begin  // Latched mcause
+                    display_valid <= 1'b1;
+                    display_name  <= "MCAUS";
+                    display_value <= trap_latch_mcause_r;
+                end
+                6'd3: begin  // Latched mtvec
+                    display_valid <= 1'b1;
+                    display_name  <= "MTVEC";
+                    display_value <= trap_latch_mtvec_r;
+                end
+                6'd4: begin  // Latched mepc
+                    display_valid <= 1'b1;
+                    display_name  <= "MEPC ";
+                    display_value <= trap_latch_mepc_r;
+                end
+                6'd5: begin  // Latched stvec
+                    display_valid <= 1'b1;
+                    display_name  <= "STVEC";
+                    display_value <= trap_latch_stvec_r;
+                end
+                6'd6: begin  // Latched sepc
+                    display_valid <= 1'b1;
+                    display_name  <= "SEPC ";
+                    display_value <= trap_latch_sepc_r;
+                end
+                6'd7: begin  // Latched scause
+                    display_valid <= 1'b1;
+                    display_name  <= "SCAUS";
+                    display_value <= trap_latch_scause_r;
+                end
+                6'd8: begin  // Latched privilege mode
+                    display_valid <= 1'b1;
+                    display_name  <= "PRIV ";
+                    display_value <= {30'b0, trap_latch_priv_r};
+                end
+                6'd9: begin  // Latched target privilege
+                    display_valid <= 1'b1;
+                    display_name  <= "TPRIV";
+                    display_value <= {30'b0, trap_latch_target_priv_r};
+                end
+                6'd10: begin  // Latched trap target PC
+                    display_valid <= 1'b1;
+                    display_name  <= "TPC  ";
+                    display_value <= trap_latch_trap_pc_r;
+                end
+                6'd11: begin  // Latch flag (1=data valid)
+                    display_valid <= 1'b1;
+                    display_name  <= "TRAP?";
+                    display_value <= {31'b0, trap_latched_r};
+                end
+                6'd12: begin  // Trap latch count
+                    display_valid <= 1'b1;
+                    display_name  <= "CNT  ";
+                    display_value <= {16'b0, trap_latch_count_r};
+                end
+                6'd13: begin  // Real-time if_pc
+                    display_valid <= 1'b1;
+                    display_name  <= "C_PC ";
+                    display_value <= if_pc;
+                end
+                6'd14: begin  // Real-time mcause
+                    display_valid <= 1'b1;
+                    display_name  <= "C_MCU";
+                    display_value <= csr_mcause;
+                end
+                6'd15: begin  // Real-time mtvec
+                    display_valid <= 1'b1;
+                    display_name  <= "C_MTV";
+                    display_value <= csr_mtvec;
+                end
+                6'd16: begin  // Real-time trap_enter_valid
+                    display_valid <= 1'b1;
+                    display_name  <= "C_TRP";
+                    display_value <= {31'b0, trap_enter_valid};
+                end
+                6'd17: begin  // Real-time priv_mode
+                    display_valid <= 1'b1;
+                    display_name  <= "C_PRV";
+                    display_value <= {30'b0, priv_mode};
+                end
+                default: begin
+                    display_valid <= 1'b0;
+                    display_name  <= 40'd0;
+                    display_value <= 32'b0;
+                end
+            endcase
+        end else if (!sw[7] && sw[6]) begin
+            // ── Page 3: S-origin trap + recursive trap detector ───
+            case(display_number)
+                6'd1: begin  // Last S-origin trap valid
+                    display_valid <= 1'b1;
+                    display_name  <= "S_VLD";
+                    display_value <= {31'b0, dbg_s_valid_r};
+                end
+                6'd2: begin  // Last S-origin trap EPC (faulting PC)
+                    display_valid <= 1'b1;
+                    display_name  <= "S_EPC";
+                    display_value <= dbg_s_epc_r;
+                end
+                6'd3: begin  // Last S-origin trap cause
+                    display_valid <= 1'b1;
+                    display_name  <= "S_CAU";
+                    display_value <= dbg_s_cause_r;
+                end
+                6'd4: begin  // Last S-origin trap tval
+                    display_valid <= 1'b1;
+                    display_name  <= "S_TVL";
+                    display_value <= dbg_s_tval_r;
+                end
+                6'd5: begin  // Last S-origin from→to privilege
+                    display_valid <= 1'b1;
+                    display_name  <= "S_PVM";
+                    display_value <= {28'b0, dbg_s_from_to_r};
+                end
+                6'd6: begin  // Last S-origin sstatus
+                    display_valid <= 1'b1;
+                    display_name  <= "S_STT";
+                    display_value <= dbg_s_status_r;
+                end
+                6'd7: begin  // Last S-origin stvec
+                    display_valid <= 1'b1;
+                    display_name  <= "S_TVC";
+                    display_value <= dbg_s_tvec_r;
+                end
+                6'd8: begin  // Last S-origin sscratch
+                    display_valid <= 1'b1;
+                    display_name  <= "S_SCR";
+                    display_value <= dbg_s_scratch_r;
+                end
+                6'd9: begin  // Last S-origin satp
+                    display_valid <= 1'b1;
+                    display_name  <= "S_SAT";
+                    display_value <= dbg_s_satp_r;
+                end
+                6'd10: begin  // S-origin trap count
+                    display_valid <= 1'b1;
+                    display_name  <= "S_CNT";
+                    display_value <= {16'b0, dbg_s_count_r};
+                end
+                6'd11: begin  // Recursive trap valid
+                    display_valid <= 1'b1;
+                    display_name  <= "R_VLD";
+                    display_value <= {31'b0, dbg_recursive_valid_r};
+                end
+                6'd12: begin  // Recursive trap EPC
+                    display_valid <= 1'b1;
+                    display_name  <= "R_EPC";
+                    display_value <= dbg_recursive_epc_r;
+                end
+                6'd13: begin  // Recursive trap cause
+                    display_valid <= 1'b1;
+                    display_name  <= "R_CAU";
+                    display_value <= dbg_recursive_cause_r;
+                end
+                6'd14: begin  // Recursive trap tval
+                    display_valid <= 1'b1;
+                    display_name  <= "R_TVL";
+                    display_value <= dbg_recursive_tval_r;
+                end
+                6'd15: begin  // Recursive trap count
+                    display_valid <= 1'b1;
+                    display_name  <= "R_CNT";
+                    display_value <= {16'b0, dbg_recursive_count_r};
+                end
+                default: begin
+                    display_valid <= 1'b0;
+                    display_name  <= 40'd0;
+                    display_value <= 32'b0;
+                end
+            endcase
+        end else if (sw[7] && sw[6]) begin
+            // ── Page 4: S-mode trap entry monitor ──────────────────
+            case(display_number)
+                6'd1: begin  // Entry monitor valid
+                    display_valid <= 1'b1;
+                    display_name  <= "E_VLD";
+                    display_value <= {31'b0, dbg_entry_valid_r};
+                end
+                6'd2: begin  // Entry PC
+                    display_valid <= 1'b1;
+                    display_name  <= "E_PC ";
+                    display_value <= dbg_entry_pc_r;
+                end
+                6'd3: begin  // Entry instruction
+                    display_valid <= 1'b1;
+                    display_name  <= "E_INS";
+                    display_value <= dbg_entry_inst_r;
+                end
+                6'd4: begin  // Entry tp (x4)
+                    display_valid <= 1'b1;
+                    display_name  <= "E_TP ";
+                    display_value <= dbg_entry_tp_r;
+                end
+                6'd5: begin  // Entry sp (x2)
+                    display_valid <= 1'b1;
+                    display_name  <= "E_SP ";
+                    display_value <= dbg_entry_sp_r;
+                end
+                6'd6: begin  // Entry sscratch
+                    display_valid <= 1'b1;
+                    display_name  <= "E_SCR";
+                    display_value <= dbg_entry_sscratch_r;
+                end
+                6'd7: begin  // Entry sstatus
+                    display_valid <= 1'b1;
+                    display_name  <= "E_STT";
+                    display_value <= dbg_entry_sstatus_r;
+                end
+                6'd8: begin  // Entry satp
+                    display_valid <= 1'b1;
+                    display_name  <= "E_SAT";
+                    display_value <= dbg_entry_satp_r;
+                end
+                6'd9: begin  // Entry memory address (load/store vaddr)
+                    display_valid <= 1'b1;
+                    display_name  <= "E_MAD";
+                    display_value <= dbg_entry_mem_addr_r;
+                end
+                6'd10: begin  // Entry mem write flag
+                    display_valid <= 1'b1;
+                    display_name  <= "E_MWR";
+                    display_value <= {31'b0, dbg_entry_mem_write_r};
+                end
+                6'd11: begin  // Entry mem read flag
+                    display_valid <= 1'b1;
+                    display_name  <= "E_MRD";
+                    display_value <= {31'b0, dbg_entry_mem_read_r};
+                end
+                6'd12: begin  // Live stvec (for reference)
+                    display_valid <= 1'b1;
+                    display_name  <= "E_TVC";
+                    display_value <= csr_stvec;
+                end
+                6'd13: begin  // Live priv_mode
+                    display_valid <= 1'b1;
+                    display_name  <= "E_PRV";
+                    display_value <= {30'b0, priv_mode};
+                end
+                default: begin
+                    display_valid <= 1'b0;
+                    display_name  <= 40'd0;
+                    display_value <= 32'b0;
+                end
+            endcase
         end else if (display_number > 6'd10 && display_number < 6'd43) begin
             display_valid       <= 1'b1;
             display_name[39:16] <= "REG";
@@ -1553,5 +2038,39 @@ module system_top(
             endcase
         end
     end
+
+    // ========================================================================
+    // ILA Debug Probes (FPGA only — enabled via ENABLE_ILA define)
+    // ========================================================================
+    // When ENABLE_ILA is defined, Vivado replaces ila_stub modules with real
+    // ILA IP cores. In simulation, ila_stub.sv provides empty bodies.
+    // Trigger: set probe6[31:28] == 4'hC to capture if_pc entering 0xC... region
+`ifdef ENABLE_ILA
+    // ILA #1: cpu_clk domain — CPU-side AXI + if_pc
+    ila_cpu_axi u_ila_cpu_axi (
+        .clk   (cpu_clk),
+        .probe0(cpu_awaddr),      // [31:0] CPU AXI write address
+        .probe1({cpu_awvalid, cpu_awready, cpu_wvalid, cpu_wready,
+                 cpu_arvalid, cpu_arready, cpu_rvalid, cpu_rready}),  // [7:0]
+        .probe2(cpu_wdata),       // [31:0] CPU write data
+        .probe3(cpu_araddr),      // [31:0] CPU read address (includes fetch addr)
+        .probe4(cpu_rdata),       // [31:0] CPU read data
+        .probe5({cpu_bvalid, cpu_bready, cpu_rvalid, cpu_rready}),   // [3:0]
+        .probe6(if_pc)            // [31:0] instruction fetch PC
+    );
+
+    // ILA #2: sys_clk domain — reset status + CDC-side AXI
+    ila_reset_axi u_ila_reset_axi (
+        .clk   (sys_clk),
+        .probe0({sys_resetn, cpu_resetn, clk_wiz_locked, ddr_aresetn, resetn}),  // [4:0]
+        .probe1(cdc_awaddr),      // [31:0] CDC write address
+        .probe2({cdc_awvalid, cdc_awready, cdc_wvalid, cdc_wready,
+                 cdc_arvalid, cdc_arready, cdc_rvalid, cdc_rready}),  // [7:0]
+        .probe3(cdc_wdata),       // [31:0] CDC write data
+        .probe4(cdc_araddr),      // [31:0] CDC read address
+        .probe5(cdc_rdata),       // [31:0] CDC read data
+        .probe6({cdc_bvalid, cdc_bready, cdc_rvalid, cdc_rready})    // [3:0]
+    );
+`endif
 
 endmodule

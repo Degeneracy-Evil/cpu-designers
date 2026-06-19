@@ -576,6 +576,12 @@ wire inst_amomaxu  = (opcode == OPCODE_AMO) && (funct3 == 3'b010) && (funct5 == 
   wire write_ro_csr   = is_csr && csr_read_only && csr_is_write;
 
   wire sret_priv_violation = is_sret && (priv_mode == PRIV_U);
+  // BUG-FIX (sub-issue ⑥): Per RISC-V Privileged Spec, mret from S-mode or
+  // U-mode must raise an illegal instruction exception. Without this check,
+  // S-mode could execute mret and silently drop to the privilege level in MPP
+  // (set to U-mode=0 by the previous mret), causing all subsequent S-mode CSR
+  // accesses to trap as illegal instructions → infinite re-trap loop.
+  wire mret_priv_violation = is_mret && (priv_mode != PRIV_M);
   wire tw_bit = csr_mstatus[21];
   wire wfi_priv_violation = inst_wfi && tw_bit && (priv_mode != PRIV_M);
   wire tsr_bit = csr_mstatus[22];
@@ -585,9 +591,9 @@ wire inst_amomaxu  = (opcode == OPCODE_AMO) && (funct3 == 3'b010) && (funct5 == 
   wire satp_tvm_violation = is_csr && (csr_addr == CSR_SATP) && csr_is_write && tvm_bit && (priv_mode == PRIV_S);
 
   assign illegal_inst = id_valid && (!valid_inst || csr_addr_invalid || write_ro_csr ||
-                                      sret_priv_violation || wfi_priv_violation ||
-                                      sret_tsr_violation || sfence_tvm_violation ||
-                                      satp_tvm_violation);
+                                      sret_priv_violation || mret_priv_violation ||
+                                      wfi_priv_violation || sret_tsr_violation ||
+                                      sfence_tvm_violation || satp_tvm_violation);
   assign rs1_addr = rs1;
   assign rs2_addr = rs2;
   assign rs3_addr = rs3;

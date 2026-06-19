@@ -24,7 +24,7 @@ tasks:
     tb: tb_simple_cpu_top
     blhex: boot/bootloader_phase1.hex
     phex: test/integration/cpu_full.hex
-    runtime: 5000ms
+    runtime: 50s
 
   # ── DDR3仿真 ──
 

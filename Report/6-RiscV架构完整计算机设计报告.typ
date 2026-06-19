@@ -857,6 +857,7 @@ RR is low
 
 ```plantuml
 @startuml AXI4_Burst_Read_Timing
+robust "CLOCK" as CLK
 robust "ARVALID" as ARV
 robust "ARREADY" as ARR
 robust "RVALID" as RV
@@ -866,49 +867,62 @@ concise "RDATA" as RD
 robust "RLAST" as RL
 
 @0
+CLK is low
 ARV is low
 RV is low
 RL is low
 
 @50
+CLK is high
 ARV is high
 ARA is "base_addr"
 
 @100
+CLK is low
 ARR is high
 
 @150
+CLK is high
 ARV is low
 RV is high
 RD is "word0"
 ARR is low
 
 @200
+CLK is low
 RR is high
 
 @250
+CLK is high
 RD is "word1"
 
 @300
+CLK is low
 RD is "word2"
 
 @350
+CLK is high
 RD is "word3"
 
 @400
+CLK is low
 RD is "word4"
 
 @450
+CLK is high
 RD is "word5"
 
 @500
+CLK is low
 RD is "word6"
 
 @550
+CLK is high
 RD is "word7"
 RL is high
 
 @600
+CLK is low
 RV is low
 RL is low
 

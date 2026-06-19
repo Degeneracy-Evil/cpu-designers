@@ -424,8 +424,12 @@ module cpu_csr(
     wire [31:0] medeleg_wmask;
     assign medeleg_wmask = sw_csr_wdata & 32'h0000_B3FF;
 
+    // BUG-FIX (sub-issue ⑤): Per RISC-V Privileged Spec, M-mode interrupts
+    // (MSI=3, MTI=7, MEI=11) are NOT delegatable and must be hardwired to 0.
+    // Old mask 0xAAA allowed writing bits 3,7,11 — if set, M-mode interrupts
+    // would be incorrectly delegated to S-mode (e.g., PLIC MEI→S-mode).
     wire [31:0] mideleg_wmask;
-    assign mideleg_wmask = sw_csr_wdata & 32'h0000_0AAA;
+    assign mideleg_wmask = sw_csr_wdata & 32'h0000_0222;  // only SSI(1), STI(5), SEI(9)
 
     wire [31:0] sie_wmask;
     assign sie_wmask = {20'd0, sw_csr_wdata[9], 3'd0, sw_csr_wdata[5], 3'd0, sw_csr_wdata[1], 3'd0};

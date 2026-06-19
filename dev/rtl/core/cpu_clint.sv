@@ -134,10 +134,16 @@ module cpu_clint(
 
     wire exc_delegated = exception_valid && csr_medeleg[exc_code_idx];
 
+    // BUG-FIX (sub-issue ④): Per RISC-V Privileged Spec §3.1.10, delegation only
+    // applies when the trap originates from a LOWER privilege level. Traps from
+    // M-mode must ALWAYS go to M-mode regardless of medeleg/mideleg settings.
+    // Without this gate, an M-mode exception (e.g., during OpenSBI's trap handler)
+    // with medeleg[cause]=1 would incorrectly trap to S-mode, bypassing OpenSBI
+    // and corrupting the S-mode context — causing immediate re-trap / crash.
     wire trap_to_s;
     wire trap_to_m;
-    assign trap_to_s = (exception_valid && exc_delegated) ||
-                       (m_interrupt_pending && m_int_delegated) ||
+    assign trap_to_s = (exception_valid && exc_delegated && (priv_mode != PRIV_M)) ||
+                       (m_interrupt_pending && m_int_delegated && (priv_mode != PRIV_M)) ||
                        (!exception_valid && s_int_taken);
     assign trap_to_m = !trap_to_s;
 

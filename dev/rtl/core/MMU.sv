@@ -664,8 +664,19 @@ module MMU #(
 `else // !USE_TLB_BRAM
 
     // =========================================================================
-    // Non-BRAM: combinational MMU with dual lookup (no state machine needed)
+    // Non-BRAM: combinational TLB with latched inputs for timing safety
     // =========================================================================
+    // Timing fix (sub-issue ⑦): The original non-BRAM path used raw priv_mode,
+    // satp, mstatus_sum, mstatus_mxr combinationally in the permission check
+    // and sv32 calculation. This created a long combinational path from
+    // core_top.priv_mode → MMU.perm_check → page_fault output that could fail
+    // timing closure at target frequency.
+    //
+    // Fix: Add IDLE/LOOKUP FSM per side (matching BRAM path pattern) that
+    // latches all permission-relevant inputs at IDLE→LOOKUP transition.
+    // This breaks the combinational path into two shorter paths:
+    //   Path 1: core_top.priv_mode → MMU.latch_register  (1 cycle)
+    //   Path 2: MMU.latch_register → perm_check → pf output (combinational)
 
     // ── Wire declarations (before TLB/PTW instantiation) ──
     wire        i_tlb_hit, i_tlb_r, i_tlb_w, i_tlb_x, i_tlb_u;
@@ -726,46 +737,157 @@ module MMU #(
         .flush_done()
     );
 
-    // ── i-side permission check (always FETCH) ──
+    // ── Latched inputs for timing-safe permission checks ──
+    localparam NB_IDLE   = 1'b0;
+    localparam NB_LOOKUP = 1'b1;
+
+    // i-side latched values
+    reg [31:0] nb_i_latched_vaddr;
+    reg [1:0]  nb_i_latched_priv_mode;
+    reg [31:0] nb_i_latched_satp;
+    reg        nb_i_latched_translate_en;
+    reg        nb_i_latched_mstatus_sum;
+    reg        nb_i_latched_mstatus_mxr;
+    reg        nb_i_state;
+
+    wire nb_i_latched_sv32 = nb_i_latched_satp[31] &&
+                             (nb_i_latched_priv_mode != PRIV_M) &&
+                             nb_i_latched_translate_en;
+
+    // i-side input change detection
+    wire nb_i_input_changed = (i_vaddr != nb_i_latched_vaddr) ||
+                              (priv_mode != nb_i_latched_priv_mode) ||
+                              (satp != nb_i_latched_satp) ||
+                              (i_translate_en != nb_i_latched_translate_en) ||
+                              (mstatus_sum != nb_i_latched_mstatus_sum) ||
+                              (mstatus_mxr != nb_i_latched_mstatus_mxr);
+
+    // d-side latched values
+    reg [31:0] nb_d_latched_vaddr;
+    reg [1:0]  nb_d_latched_access_type;
+    reg [1:0]  nb_d_latched_priv_mode;
+    reg [31:0] nb_d_latched_satp;
+    reg        nb_d_latched_translate_en;
+    reg        nb_d_latched_mstatus_sum;
+    reg        nb_d_latched_mstatus_mxr;
+    reg        nb_d_state;
+
+    wire nb_d_latched_sv32 = nb_d_latched_satp[31] &&
+                             (nb_d_latched_priv_mode != PRIV_M) &&
+                             nb_d_latched_translate_en;
+
+    // d-side input change detection
+    wire nb_d_input_changed = (d_vaddr != nb_d_latched_vaddr) ||
+                              (d_access_type != nb_d_latched_access_type) ||
+                              (priv_mode != nb_d_latched_priv_mode) ||
+                              (satp != nb_d_latched_satp) ||
+                              (d_translate_en != nb_d_latched_translate_en) ||
+                              (mstatus_sum != nb_d_latched_mstatus_sum) ||
+                              (mstatus_mxr != nb_d_latched_mstatus_mxr);
+
+    // ── i-side FSM ──
+    always_ff @(posedge clk or negedge resetn) begin
+        if (!resetn) begin
+            nb_i_state                <= NB_IDLE;
+            nb_i_latched_vaddr        <= 32'b0;
+            nb_i_latched_priv_mode    <= PRIV_M;
+            nb_i_latched_satp         <= 32'b0;
+            nb_i_latched_translate_en <= 1'b0;
+            nb_i_latched_mstatus_sum  <= 1'b0;
+            nb_i_latched_mstatus_mxr  <= 1'b0;
+        end else begin
+            case (nb_i_state)
+                NB_IDLE: begin
+                    // Latch all inputs, then proceed to lookup
+                    nb_i_latched_vaddr        <= i_vaddr;
+                    nb_i_latched_priv_mode    <= priv_mode;
+                    nb_i_latched_satp         <= satp;
+                    nb_i_latched_translate_en <= i_translate_en;
+                    nb_i_latched_mstatus_sum  <= mstatus_sum;
+                    nb_i_latched_mstatus_mxr  <= mstatus_mxr;
+                    nb_i_state                <= NB_LOOKUP;
+                end
+                NB_LOOKUP: begin
+                    if (sfence_vma || nb_i_input_changed) begin
+                        nb_i_state <= NB_IDLE;  // Re-latch on change or flush
+                    end
+                end
+                default: nb_i_state <= NB_IDLE;
+            endcase
+        end
+    end
+
+    // ── d-side FSM ──
+    always_ff @(posedge clk or negedge resetn) begin
+        if (!resetn) begin
+            nb_d_state                <= NB_IDLE;
+            nb_d_latched_vaddr        <= 32'b0;
+            nb_d_latched_access_type  <= 2'b0;
+            nb_d_latched_priv_mode    <= PRIV_M;
+            nb_d_latched_satp         <= 32'b0;
+            nb_d_latched_translate_en <= 1'b0;
+            nb_d_latched_mstatus_sum  <= 1'b0;
+            nb_d_latched_mstatus_mxr  <= 1'b0;
+        end else begin
+            case (nb_d_state)
+                NB_IDLE: begin
+                    nb_d_latched_vaddr        <= d_vaddr;
+                    nb_d_latched_access_type  <= d_access_type;
+                    nb_d_latched_priv_mode    <= priv_mode;
+                    nb_d_latched_satp         <= satp;
+                    nb_d_latched_translate_en <= d_translate_en;
+                    nb_d_latched_mstatus_sum  <= mstatus_sum;
+                    nb_d_latched_mstatus_mxr  <= mstatus_mxr;
+                    nb_d_state                <= NB_LOOKUP;
+                end
+                NB_LOOKUP: begin
+                    if (sfence_vma || nb_d_input_changed) begin
+                        nb_d_state <= NB_IDLE;
+                    end
+                end
+                default: nb_d_state <= NB_IDLE;
+            endcase
+        end
+    end
+
+    // ── i-side permission check (using latched values) ──
     wire i_tlb_perm_fault;
-    assign i_tlb_perm_fault = (priv_mode == 2'b00 && !i_tlb_u) ? 1'b1 :
-                              (priv_mode == 2'b01 && i_tlb_u) ? 1'b1 :  // S-mode + U-page → fetch pf
+    assign i_tlb_perm_fault = (nb_i_latched_priv_mode == 2'b00 && !i_tlb_u) ? 1'b1 :
+                              (nb_i_latched_priv_mode == 2'b01 && i_tlb_u) ? 1'b1 :  // S-mode + U-page → fetch pf
                               (!i_tlb_x) ? 1'b1 : 1'b0;
 
     wire [33:0] i_translated_paddr;
     assign i_translated_paddr = i_tlb_is_megapage ?
-        {i_tlb_ppn[21:10], i_vaddr[21:0]} :
-        {i_tlb_ppn, i_vaddr[11:0]};
+        {i_tlb_ppn[21:10], nb_i_latched_vaddr[21:0]} :
+        {i_tlb_ppn, nb_i_latched_vaddr[11:0]};
 
-    wire i_sv32 = satp[31] && (priv_mode != PRIV_M) && i_translate_en;
-    wire i_translation_ok = i_sv32 && i_tlb_hit && !i_tlb_perm_fault;
-    wire i_tlb_miss       = i_sv32 && !i_tlb_hit;
-    wire i_tlb_pf         = i_sv32 && i_tlb_hit && i_tlb_perm_fault;
+    wire i_translation_ok = nb_i_latched_sv32 && i_tlb_hit && !i_tlb_perm_fault;
+    wire i_tlb_miss       = nb_i_latched_sv32 && !i_tlb_hit;
+    wire i_tlb_pf         = nb_i_latched_sv32 && i_tlb_hit && i_tlb_perm_fault;
 
-    assign i_paddr = !i_sv32 ? i_vaddr :
-                     i_translation_ok ? i_translated_paddr[31:0] : i_vaddr;
+    assign i_paddr = !nb_i_latched_sv32 ? nb_i_latched_vaddr :
+                     i_translation_ok ? i_translated_paddr[31:0] : nb_i_latched_vaddr;
 
-    // ── d-side permission check ──
+    // ── d-side permission check (using latched values) ──
     wire d_tlb_perm_fault;
-    assign d_tlb_perm_fault = (priv_mode == 2'b00 && !d_tlb_u) ? 1'b1 :
-                              (priv_mode == 2'b01 && d_tlb_u &&
-                               (d_access_type == ACCESS_FETCH || !mstatus_sum)) ? 1'b1 :
-                              (d_access_type == ACCESS_FETCH && !d_tlb_x) ? 1'b1 :
-                              (d_access_type == ACCESS_LOAD && !d_tlb_r && !(d_tlb_x && mstatus_mxr)) ? 1'b1 :
-                              (d_access_type == ACCESS_STORE && !d_tlb_w) ? 1'b1 : 1'b0;
+    assign d_tlb_perm_fault = (nb_d_latched_priv_mode == 2'b00 && !d_tlb_u) ? 1'b1 :
+                              (nb_d_latched_priv_mode == 2'b01 && d_tlb_u &&
+                               (nb_d_latched_access_type == ACCESS_FETCH || !nb_d_latched_mstatus_sum)) ? 1'b1 :
+                              (nb_d_latched_access_type == ACCESS_FETCH && !d_tlb_x) ? 1'b1 :
+                              (nb_d_latched_access_type == ACCESS_LOAD && !d_tlb_r && !(d_tlb_x && nb_d_latched_mstatus_mxr)) ? 1'b1 :
+                              (nb_d_latched_access_type == ACCESS_STORE && !d_tlb_w) ? 1'b1 : 1'b0;
 
     wire [33:0] d_translated_paddr;
     assign d_translated_paddr = d_tlb_is_megapage ?
-        {d_tlb_ppn[21:10], d_vaddr[21:0]} :
-        {d_tlb_ppn, d_vaddr[11:0]};
+        {d_tlb_ppn[21:10], nb_d_latched_vaddr[21:0]} :
+        {d_tlb_ppn, nb_d_latched_vaddr[11:0]};
 
-    wire d_sv32 = satp[31] && (priv_mode != PRIV_M) && d_translate_en;
-    wire d_translation_ok = d_sv32 && d_tlb_hit && !d_tlb_perm_fault;
-    wire d_tlb_miss       = d_sv32 && !d_tlb_hit;
-    wire d_tlb_pf         = d_sv32 && d_tlb_hit && d_tlb_perm_fault;
+    wire d_translation_ok = nb_d_latched_sv32 && d_tlb_hit && !d_tlb_perm_fault;
+    wire d_tlb_miss       = nb_d_latched_sv32 && !d_tlb_hit;
+    wire d_tlb_pf         = nb_d_latched_sv32 && d_tlb_hit && d_tlb_perm_fault;
 
-    assign d_paddr = !d_sv32 ? d_vaddr :
-                     d_translation_ok ? d_translated_paddr[31:0] : d_vaddr;
+    assign d_paddr = !nb_d_latched_sv32 ? nb_d_latched_vaddr :
+                     d_translation_ok ? d_translated_paddr[31:0] : nb_d_latched_vaddr;
 
     // ── Walk active tracking + walk side (single shared walker) ──
     reg walk_active_r;
@@ -810,14 +932,20 @@ module MMU #(
     end
 
     // BUG-3: PTW input mux based on walk side
-    wire [31:0] nb_walk_vaddr   = walk_is_d_r ? d_vaddr : i_vaddr;
-    wire [1:0]  nb_walk_access  = walk_is_d_r ? d_access_type : ACCESS_FETCH;
-    wire [19:0] nb_fill_vpn     = walk_is_d_r ? d_vaddr[31:12] : i_vaddr[31:12];
+    wire [31:0] nb_walk_vaddr   = walk_is_d_r ? nb_d_latched_vaddr : nb_i_latched_vaddr;
+    wire [1:0]  nb_walk_access  = walk_is_d_r ? nb_d_latched_access_type : ACCESS_FETCH;
+    wire [19:0] nb_fill_vpn     = walk_is_d_r ? nb_d_latched_vaddr[31:12] : nb_i_latched_vaddr[31:12];
 
-    assign i_miss = (i_tlb_miss && !walk_active_r) || pending_i_walk;  // BUG-10: include pending
-    assign d_miss = (d_tlb_miss && !walk_active_r) || pending_d_walk;  // BUG-10: include pending
-    assign i_ready = !i_miss;
-    assign d_ready = !d_miss;
+    // Ready/miss gated by FSM state (matching BRAM path pattern).
+    // Only report results when in NB_LOOKUP with stable inputs.
+    assign i_miss = (nb_i_state == NB_LOOKUP) && !nb_i_input_changed &&
+                    ((i_tlb_miss && !walk_active_r) || pending_i_walk);
+    assign d_miss = (nb_d_state == NB_LOOKUP) && !nb_d_input_changed &&
+                    ((d_tlb_miss && !walk_active_r) || pending_d_walk);
+    assign i_ready = (nb_i_state == NB_LOOKUP) && !nb_i_input_changed &&
+                     (!nb_i_latched_sv32 || (i_tlb_hit && !i_tlb_perm_fault));
+    assign d_ready = (nb_d_state == NB_LOOKUP) && !nb_d_input_changed &&
+                     (!nb_d_latched_sv32 || (d_tlb_hit && !d_tlb_perm_fault));
 
     // ── i-side page fault ──
     reg i_pf_r;
@@ -834,10 +962,10 @@ module MMU #(
         end else begin
             i_pf_r <= 1'b0;
             i_pf_from_ptw_r <= 1'b0;
-            if (i_tlb_pf && !walk_active_r) begin
+            if (nb_i_state == NB_LOOKUP && i_tlb_pf && !nb_i_input_changed && !walk_active_r) begin
                 i_pf_r <= 1'b1;
                 i_pf_from_ptw_r <= 1'b0;   // TLB permission fault
-                i_pf_vaddr_r <= i_vaddr;
+                i_pf_vaddr_r <= nb_i_latched_vaddr;
                 i_pf_cause_r <= 4'd12;  // inst page fault
             end else if (ptw_walk_fault && walk_active_r && !walk_is_d_r) begin  // BUG-4: only i-side
                 i_pf_r <= 1'b1;
@@ -867,11 +995,11 @@ module MMU #(
         end else begin
             d_pf_r <= 1'b0;
             d_pf_from_ptw_r <= 1'b0;
-            if (d_tlb_pf && !walk_active_r) begin
+            if (nb_d_state == NB_LOOKUP && d_tlb_pf && !nb_d_input_changed && !walk_active_r) begin
                 d_pf_r <= 1'b1;
                 d_pf_from_ptw_r <= 1'b0;   // TLB permission fault
-                d_pf_vaddr_r <= d_vaddr;
-                case (d_access_type)
+                d_pf_vaddr_r <= nb_d_latched_vaddr;
+                case (nb_d_latched_access_type)
                     ACCESS_LOAD:  d_pf_cause_r <= 4'd13;
                     default:      d_pf_cause_r <= 4'd15;
                 endcase

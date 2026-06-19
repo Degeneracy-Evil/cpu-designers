@@ -92,6 +92,9 @@ class BatchSpec:
         Specific layers to refresh, or ``None`` for all stale layers.
     runtime_override:
         Global runtime override applied to all tasks.
+    log_dir:
+        Directory for per-session log files.  When set, each session
+        automatically writes Vivado output to ``{log_dir}/{session_name}.log``.
     """
 
     tasks: list[BatchTask]
@@ -100,6 +103,7 @@ class BatchSpec:
     operations: list[str] = field(default_factory=list)
     refresh_layers: list[str] | None = None
     runtime_override: str | None = None
+    log_dir: str | None = None
 
 
 @dataclass
@@ -313,6 +317,12 @@ class BatchExecutor:
     def execute(self, spec: BatchSpec) -> BatchResult:
         """Execute a batch specification.
 
+        When the number of tasks requiring new sessions exceeds
+        ``max_sessions``, the tasks are automatically split into rounds.
+        Each round runs at most ``max_sessions`` tasks concurrently.
+        After a round completes, its sessions are destroyed to free
+        slots for the next round.
+
         Parameters
         ----------
         spec:
@@ -331,20 +341,177 @@ class BatchExecutor:
             if bt.task_name not in self._task_registry:
                 raise TaskNotFoundError(bt.task_name)
 
+        # --- Determine if round-based execution is needed ---
+        needs_create = "create" in spec.operations
+        max_sessions = self._config.limits.max_sessions
+
+        if needs_create and len(spec.tasks) > max_sessions:
+            return self._execute_rounds(spec, max_sessions, t0)
+
+        # --- Single-round (or no-create) path ---
+        return self._execute_single_round(spec, t0)
+
+    def _execute_rounds(
+        self, spec: BatchSpec, max_sessions: int, t0: float
+    ) -> BatchResult:
+        """Execute tasks in multiple rounds, destroying sessions between rounds.
+
+        Parameters
+        ----------
+        spec:
+            Original batch specification.
+        max_sessions:
+            Maximum sessions per round.
+        t0:
+            Start time from the outer call.
+
+        Returns
+        -------
+        BatchResult
+        """
+        all_results: list[TaskResult] = []
+        all_tasks = spec.tasks
+        total = len(all_tasks)
+        num_rounds = (total + max_sessions - 1) // max_sessions
+
+        logger.info(
+            "Batch: %d tasks exceed max_sessions=%d — splitting into %d rounds",
+            total, max_sessions, num_rounds,
+        )
+
+        global_cancel = threading.Event()
+        global_failure_seen = threading.Event()
+        global_skipped = 0
+
+        for round_idx in range(num_rounds):
+            if global_cancel.is_set():
+                remaining_start = round_idx * max_sessions
+                for bt in all_tasks[remaining_start:]:
+                    all_results.append(TaskResult(
+                        task_name=bt.task_name,
+                        session_name=bt.session_name or "",
+                        success=False,
+                        error="Cancelled by fail-fast (round skipped)",
+                    ))
+                    global_skipped += 1
+                break
+
+            if spec.on_error == "stop-accepting" and global_failure_seen.is_set():
+                remaining_start = round_idx * max_sessions
+                for bt in all_tasks[remaining_start:]:
+                    all_results.append(TaskResult(
+                        task_name=bt.task_name,
+                        session_name=bt.session_name or "",
+                        success=False,
+                        error="Skipped: stop-accepting after earlier failure",
+                    ))
+                    global_skipped += 1
+                break
+
+            start = round_idx * max_sessions
+            end = min(start + max_sessions, total)
+            round_tasks = all_tasks[start:end]
+
+            logger.info(
+                "Round %d/%d: tasks %d-%d (%d tasks)",
+                round_idx + 1, num_rounds, start + 1, end, len(round_tasks),
+            )
+
+            round_spec = BatchSpec(
+                tasks=round_tasks,
+                max_parallel=min(spec.max_parallel, len(round_tasks)),
+                on_error=spec.on_error,
+                operations=spec.operations,
+                refresh_layers=spec.refresh_layers,
+                runtime_override=spec.runtime_override,
+                log_dir=spec.log_dir,
+            )
+
+            round_result = self._execute_single_round(round_spec, time.monotonic())
+
+            all_results.extend(round_result.results)
+
+            for tr in round_result.results:
+                if not tr.success:
+                    if spec.on_error == "fail-fast":
+                        global_cancel.set()
+                    elif spec.on_error == "stop-accepting":
+                        global_failure_seen.set()
+
+            # Destroy sessions from this round to free slots for the next round
+            # (skip on the last round — no next round needs the slots)
+            if round_idx < num_rounds - 1:
+                destroyed = []
+                for tr in round_result.results:
+                    if tr.session_name:
+                        try:
+                            self._session_mgr.destroy_session(tr.session_name)
+                            destroyed.append(tr.session_name)
+                        except Exception as e:
+                            logger.warning(
+                                "Failed to destroy session %s: %s",
+                                tr.session_name, e,
+                            )
+                if destroyed:
+                    logger.info(
+                        "Round %d complete: destroyed %d sessions (%s)",
+                        round_idx + 1, len(destroyed),
+                        ", ".join(destroyed[:5]) + ("..." if len(destroyed) > 5 else ""),
+                    )
+
+        # --- Aggregate across all rounds ---
+        duration = time.monotonic() - t0
+        succeeded = sum(1 for r in all_results if r.success)
+        failed = sum(
+            1 for r in all_results
+            if not r.success
+            and r.error != "Skipped: stop-accepting after earlier failure"
+            and not (r.error and r.error.startswith("Cancelled"))
+        )
+        skipped = sum(
+            1 for r in all_results
+            if r.error and (
+                r.error.startswith("Skipped:")
+                or r.error.startswith("Cancelled")
+            )
+        )
+
+        exit_code = 0 if failed == 0 and all(r.success for r in all_results) else 1
+
+        return BatchResult(
+            total=total,
+            succeeded=succeeded,
+            failed=failed,
+            skipped=skipped,
+            duration=duration,
+            results=all_results,
+            exit_code=exit_code,
+        )
+
+    def _execute_single_round(self, spec: BatchSpec, t0: float) -> BatchResult:
+        """Execute a single round of batch tasks (fits within max_sessions).
+
+        Parameters
+        ----------
+        spec:
+            Batch specification for this round.
+        t0:
+            Monotonic start time.
+
+        Returns
+        -------
+        BatchResult
+        """
         # --- Pre-check resource limits ---
         existing_sessions = self._session_mgr.list_sessions()
         new_sessions_needed = len(spec.tasks)
         if "create" not in spec.operations:
-            # Without 'create', sessions must already exist — no new sessions needed.
             new_sessions_needed = 0
 
         if new_sessions_needed > 0:
             available_slots = max(
                 self._config.limits.max_sessions - len(existing_sessions), 0
             )
-            # Auto-eviction can free at most len(existing_sessions) slots,
-            # but we keep at least 1 for running tasks. Practical cap:
-            # max_sessions total (after evicting all idle sessions).
             if new_sessions_needed > self._config.limits.max_sessions:
                 raise SessionLimitError(
                     len(existing_sessions),
@@ -498,6 +665,18 @@ class BatchExecutor:
             ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
             session_name = f"{batch_task.task_name}_batch_{ts}"
 
+        # --- Per-session log file (auto-logging in batch mode) ---
+        session_log_fh: Any = None
+        if spec.log_dir:
+            log_dir = Path(spec.log_dir)
+            log_dir.mkdir(parents=True, exist_ok=True)
+            log_path = log_dir / f"{session_name}.log"
+            session_log_fh = log_path.open("a", encoding="utf-8")
+            session_log_fh.write(f"\n{'=' * 60}\n")
+            session_log_fh.write(f"Session: {session_name}  Task: {batch_task.task_name}  Started: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}\n")
+            session_log_fh.write(f"{'=' * 60}\n")
+            session_log_fh.flush()
+
         tracker.on_start(batch_task.task_name)
         t0 = time.monotonic()
 
@@ -520,6 +699,11 @@ class BatchExecutor:
         except VivadoCoreError as exc:
             duration = time.monotonic() - t0
             tracker.on_complete(batch_task.task_name, False, duration)
+            if session_log_fh is not None:
+                try:
+                    session_log_fh.close()
+                except Exception:
+                    pass
             return TaskResult(
                 task_name=batch_task.task_name,
                 session_name=session_name,
@@ -531,6 +715,19 @@ class BatchExecutor:
         # --- Execute operations ---
         if self._output_callback is not None:
             session.output_callback = self._output_callback
+        if session_log_fh is not None:
+            def _session_log_cb(line: str) -> None:
+                ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+                session_log_fh.write(f"[{ts}] {line}\n")
+                session_log_fh.flush()
+            if session.output_callback is not None:
+                outer_cb = session.output_callback
+                def _dual_cb(line: str) -> None:
+                    outer_cb(line)
+                    _session_log_cb(line)
+                session.output_callback = _dual_cb
+            else:
+                session.output_callback = _session_log_cb
         ops = self._get_operations()
         task_obj = self._task_registry.get(batch_task.task_name)
         runtime = spec.runtime_override or batch_task.runtime or task_obj.runtime or None
@@ -612,6 +809,12 @@ class BatchExecutor:
             session.stop_vivado()
         except Exception as e:
             logger.warning("Failed to stop Vivado for session %s: %s", session_name, e)
+
+        if session_log_fh is not None:
+            try:
+                session_log_fh.close()
+            except Exception:
+                pass
 
         return TaskResult(
             task_name=batch_task.task_name,
@@ -793,6 +996,10 @@ def load_batch_plan(path: Path) -> BatchSpec:
     if runtime_override is not None:
         runtime_override = str(runtime_override)
 
+    log_dir = raw.get("log_dir")
+    if log_dir is not None:
+        log_dir = str(log_dir)
+
     # Build task list
     tasks: list[BatchTask] = []
     tasks_raw = raw.get("tasks", [])
@@ -831,4 +1038,5 @@ def load_batch_plan(path: Path) -> BatchSpec:
         operations=operations,
         refresh_layers=refresh_layers,
         runtime_override=runtime_override,
+        log_dir=log_dir,
     )

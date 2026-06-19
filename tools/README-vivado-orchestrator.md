@@ -141,7 +141,32 @@ python -m tools.vivado_cli -batch "isa_*" -create -sim --format json
 # 并行增量刷新 + 重仿真
 python -m tools.vivado_cli -batch "cpu_*" -refresh --layers coe
 python -m tools.vivado_cli -batch "cpu_*" -sim
+
+# 自定义日志目录（默认自动写入 log/ 目录）
+python -m tools.vivado_cli -batch "isa_*" -create -sim --log /custom/log/dir
 ```
+
+#### 分轮执行
+
+当 batch 任务数超过 `max_sessions` 时，自动分轮执行：
+
+- 每轮运行最多 `max_sessions` 个任务
+- 前一轮完成后，销毁该轮所有 session（释放目录和并发信号量）
+- 下一轮创建新 session 替代前轮
+- 错误策略跨轮传播：`fail-fast` 跳过所有后续轮，`stop-accepting` 跳过未开始的轮
+- 最后一轮不销毁 session（保留结果供查看）
+
+示例：`max_sessions=5`，batch 20 个任务 → 4 轮，每轮 5 个。
+
+#### 自动日志
+
+Batch 模式**自动为每个 session 开启日志**，无需手动指定 `--log`：
+
+- 日志目录默认为 `{project_root}/log/`
+- 每个 session 生成独立日志文件：`log/{session_name}.log`
+- 每行输出带时间戳 `[HH:MM:SS.mmm]`
+- 若指定 `--log FILE`，则该文件父目录作为日志目录
+- YAML 批处理计划支持 `log_dir` 字段自定义目录
 
 #### 批处理计划 YAML 格式
 
@@ -150,6 +175,7 @@ python -m tools.vivado_cli -batch "cpu_*" -sim
 max_parallel: 3
 on_error: continue
 operations: [create, sim]
+log_dir: log                   # 可选：日志目录（默认 log/）
 tasks:
   - task: cpu_full
     runtime: 5ms
@@ -223,6 +249,7 @@ python tools/vivado_tui.py
 | `-batch-plan FILE` | 批处理：从 YAML 文件读取执行计划 |
 | `--max-parallel N` | 批处理最大并行会话数（默认=min(任务数, max_concurrent)） |
 | `--on-error STRATEGY` | 批处理失败策略：`continue`/`fail-fast`/`stop-accepting` |
+| `--log FILE` | 日志输出文件（batch 模式自动启用，默认写入 `log/` 目录） |
 | `--status` | 显示所有会话状态 |
 | `--cleanup` | 清理最旧的会话（保留 `max_sessions - 1` 个），腾出一个配额 |
 | `--cleanup-all` | 彻底覆盖清理全部会话 |
@@ -410,5 +437,5 @@ vivado_config.yaml
 - `-task` 与 `-sim` 解耦：先选目标，再执行操作
 - 多会话并行：不同任务可同时运行
 - 跨调用持久化：会话状态天然保存在项目目录
-- **批处理模式**：`-batch` 一条命令并行操作多个任务，支持通配符、YAML 计划、失败策略
+- **批处理模式**：`-batch` 一条命令并行操作多个任务，支持通配符、YAML 计划、失败策略、分轮执行（任务超限时自动分批）、自动日志
 - **Semaphore 并发门控**：原子控制 Vivado 进程数，消除竞态条件

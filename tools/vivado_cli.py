@@ -761,6 +761,17 @@ def main(argv: list[str] | None = None) -> int:
                 runtime_override=args.runtime,
             )
 
+        # --- Auto-enable per-session logging in batch mode ---
+        if not batch_spec.log_dir:
+            if getattr(args, "log", None):
+                log_arg = Path(args.log)
+                if log_arg.is_dir() or not log_arg.suffix:
+                    batch_spec.log_dir = str(log_arg)
+                else:
+                    batch_spec.log_dir = str(log_arg.parent)
+            else:
+                batch_spec.log_dir = str(project_root / "log")
+
         # --- Validate batch tasks ---
         for bt in batch_spec.tasks:
             if bt.task_name not in task_registry:  # type: ignore[attr-defined]

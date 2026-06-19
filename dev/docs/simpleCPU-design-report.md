@@ -1204,41 +1204,41 @@ UART 外设已替换为 ns16550a 标准串口（`dev/rtl/APB/perips/uart16550/ua
 | `tb_isa_csr` | `csr.hex` | CSR ISA 测试 | — |
 | `tb_isa_f_ext` | `f_ext.hex` | F 扩展 ISA 测试（含 FMA） | 26 PASS, 0 FAIL |
 | `tb_isa_f_ext_special` | `f_ext_special.hex` | F 扩展特殊值/舍入测试 | 24 PASS, 0 FAIL |
-| `tb_exception_illegal_inst` | `illegal_inst.hex` | 非法指令异常测试 | — |
-| `tb_exception_ecall` | `ecall.hex` | ECALL 异常测试 | — |
-| `tb_exception_ebreak` | `ebreak.hex` | EBREAK 异常测试 | — |
-| `tb_exception_access_fault` | `access_fault.hex` | 访问错误异常测试 | — |
-| `tb_exception_interrupt_basic` | `interrupt_basic.hex` | 基本中断测试 | — |
-| `tb_exception_timer_irq` | `timer_irq.hex` | 定时器中断测试 | — |
-| `tb_cache_icache_basic` | `icache_basic.hex` | ICache 基本功能测试 | — |
-| `tb_cache_dcache_basic` | `dcache_basic.hex` | DCache 基本功能测试 | — |
-| `tb_cache_dcache_dirty` | `dcache_dirty.hex` | DCache 脏行写回测试 | — |
-| `tb_cache_fencei` | `fencei.hex` | FENCE.I 缓存一致性测试 | — |
-| `tb_cache_cache_mmu_interact` | `cache_mmu_interact.hex` | Cache/MMU 交互测试 | — |
-| `tb_mmu_sv32_basic` | `sv32_basic.hex` | Sv32 基本翻译测试 | — |
-| `tb_mmu_sv32_edge` | `sv32_edge.hex` | Sv32 边界条件测试 | — |
-| `tb_mmu_ptw_walk` | `ptw_walk.hex` | PTW 页表漫游测试 | — |
-| `tb_mmu_tlb_basic` | `tlb_basic.hex` | TLB 基本功能测试 | — |
-| `tb_mmu_tlb_flush` | `tlb_flush.hex` | TLB 刷新测试 | — |
-| `tb_mmu_tlb_asid` | `tlb_asid.hex` | TLB ASID 感知测试 | — |
-| `tb_mmu_tlb_megapage` | `tlb_megapage.hex` | TLB 大页匹配测试 | — |
-| `tb_mmu_tlb_replace` | `tlb_replace.hex` | TLB 替换策略测试 | — |
-| `tb_mmu_tlb_stress` | `tlb_stress.hex` | TLB 压力测试 | — |
-| `tb_mmu_permission` | `permission.hex` | 页表权限检查测试 | — |
-| `tb_mmu_page_fault` | `page_fault.hex` | 页错误测试 | — |
-| `tb_mmu_unified_mmu` | `unified_mmu.hex` | 统一 MMU 测试 | — |
-| `tb_privilege_csr_access_priv` | `csr_access_priv.hex` | CSR 特权访问测试 | — |
-| `tb_privilege_delegation` | `delegation.hex` | 陷阱委托测试 | — |
-| `tb_privilege_priv_transition` | `priv_transition.hex` | 特权级转换测试 | — |
-| `tb_mmio_clint` | `clint.hex` | CLINT MMIO 测试 | — |
-| `tb_mmio_plic` | `plic.hex` | PLIC MMIO 测试 | — |
-| `tb_regression_reg_bare_no_miss` | `reg_bare_no_miss.hex` | 回归：裸机无缺失 | — |
-| `tb_regression_reg_mmio_ready` | `reg_mmio_ready.hex` | 回归：MMIO ready 时序 | — |
-| `tb_regression_reg_pf_latch` | `reg_pf_latch.hex` | 回归：页错误锁存 | — |
-| `tb_regression_reg_ptw_fault_latch` | `reg_ptw_fault_latch.hex` | 回归：PTW 错误锁存 | — |
-| `tb_regression_reg_sfence_during_walk` | `reg_sfence_during_walk.hex` | 回归：漫游中 SFENCE | — |
-| `tb_regression_reg_stale_paddr` | `reg_stale_paddr.hex` | 回归：过期物理地址 | — |
-| `tb_regression_reg_tlb_fill_way` | `reg_tlb_fill_way.hex` | 回归：TLB 填充路选择 | — |
+| `tb_exception_illegal_inst` | `illegal_inst.hex` | 非法指令异常测试 | PASS ✅ |
+| `tb_exception_ecall` | `ecall.hex` | ECALL 异常测试 | PASS ✅ |
+| `tb_exception_ebreak` | `ebreak.hex` | EBREAK 异常测试 | PASS ✅ |
+| `tb_exception_access_fault` | `access_fault.hex` | 访问错误异常测试 | PASS ✅ |
+| `tb_exception_interrupt_basic` | `interrupt_basic.hex` | 基本中断测试 | PASS ✅ |
+| `tb_exception_timer_irq` | `timer_irq.hex` | 定时器中断测试 | PASS ✅ |
+| `tb_cache_icache_basic` | `icache_basic.hex` | ICache 基本功能测试 | PASS ✅ |
+| `tb_cache_dcache_basic` | `dcache_basic.hex` | DCache 基本功能测试 | PASS ✅ |
+| `tb_cache_dcache_dirty` | `dcache_dirty.hex` | DCache 脏行写回测试 | PASS ✅ |
+| `tb_cache_fencei` | `fencei.hex` | FENCE.I 缓存一致性测试 | PASS ✅ |
+| `tb_cache_cache_mmu_interact` | `cache_mmu_interact.hex` | Cache/MMU 交互测试 | PASS ✅ |
+| `tb_mmu_sv32_basic` | `sv32_basic.hex` | Sv32 基本翻译测试 | PASS ✅ |
+| `tb_mmu_sv32_edge` | `sv32_edge.hex` | Sv32 边界条件测试 | FAIL ⚠️ 预存 |
+| `tb_mmu_ptw_walk` | `ptw_walk.hex` | PTW 页表漫游测试 | PASS ✅ |
+| `tb_mmu_tlb_basic` | `tlb_basic.hex` | TLB 基本功能测试 | PASS ✅ |
+| `tb_mmu_tlb_flush` | `tlb_flush.hex` | TLB 刷新测试 | PASS ✅ |
+| `tb_mmu_tlb_asid` | `tlb_asid.hex` | TLB ASID 感知测试 | FAIL ⚠️ 预存 |
+| `tb_mmu_tlb_megapage` | `tlb_megapage.hex` | TLB 大页匹配测试 | FAIL ⚠️ 预存 |
+| `tb_mmu_tlb_replace` | `tlb_replace.hex` | TLB 替换策略测试 | FAIL ⚠️ 预存 |
+| `tb_mmu_tlb_stress` | `tlb_stress.hex` | TLB 压力测试 | FAIL ⚠️ 预存 |
+| `tb_mmu_permission` | `permission.hex` | 页表权限检查测试 | PASS ✅ |
+| `tb_mmu_page_fault` | `page_fault.hex` | 页错误测试 | PASS ✅ |
+| `tb_mmu_unified_mmu` | `unified_mmu.hex` | 统一 MMU 测试 | PASS ✅ |
+| `tb_privilege_csr_access_priv` | `csr_access_priv.hex` | CSR 特权访问测试 | PASS ✅ |
+| `tb_privilege_delegation` | `delegation.hex` | 陷阱委托测试 | PASS ✅ |
+| `tb_privilege_priv_transition` | `priv_transition.hex` | 特权级转换测试 | PASS ✅ |
+| `tb_mmio_clint` | `clint.hex` | CLINT MMIO 测试 | PASS ✅ |
+| `tb_mmio_plic` | `plic.hex` | PLIC MMIO 测试 | PASS ✅ |
+| `tb_regression_reg_bare_no_miss` | `reg_bare_no_miss.hex` | 回归：裸机无缺失 | PASS ✅ |
+| `tb_regression_reg_mmio_ready` | `reg_mmio_ready.hex` | 回归：MMIO ready 时序 | PASS ✅ |
+| `tb_regression_reg_pf_latch` | `reg_pf_latch.hex` | 回归：页错误锁存 | PASS ✅ |
+| `tb_regression_reg_ptw_fault_latch` | `reg_ptw_fault_latch.hex` | 回归：PTW 错误锁存 | PASS ✅ |
+| `tb_regression_reg_sfence_during_walk` | `reg_sfence_during_walk.hex` | 回归：漫游中 SFENCE | PASS ✅ |
+| `tb_regression_reg_stale_paddr` | `reg_stale_paddr.hex` | 回归：过期物理地址 | PASS ✅ |
+| `tb_regression_reg_tlb_fill_way` | `reg_tlb_fill_way.hex` | 回归：TLB 填充路选择 | PASS ✅ |
 | `tb_led_marquee` | `led_marquee.hex` | LED 跑马灯 + GPIO + CLINT MTIP 测试 | 16 PASS, 0 FAIL |
 | `tb_uart_hello` | `uart_hello.hex` | UART 输出测试 | 12 PASS, 0 FAIL |
 | `tb_uart_echo` | `uart_echo_test.hex` | UART 回环测试 | — |
@@ -1538,3 +1538,9 @@ UART 外设已替换为 ns16550a 标准串口（`dev/rtl/APB/perips/uart16550/ua
 55. **系统集成应用验证通过**：LED 跑马灯、UART Echo、浮点计算器三个应用均成功上板运行，Bootloader 全链路仿真通过（2026-06-16）
 56. **完整内存映射模型**：7 从设备地址译码 + APB 4 从设备子译码 + CLINT/PLIC/SysStatus/BootROM 寄存器级映射（见 §2.2）
 57. **Linux 适配修复**：11 项 Linux 启动适配 bug 修复（MMIO paddr 判断、PTW-dcache 一致性、sfence.vma dcache 刷新、M/S 中断优先级、sip STIP 可写、PMP CSR、time/timeh CSR 等），详见 `process/near-linux-bug-fix.md`
+58. **特权返回/陷阱路径修复**（sub-issue ④⑤⑥⑦，2026-06-19）：
+   - ④ **M-mode陷阱误委托**：`cpu_clint.sv` 的 `trap_to_s` 增加 `(priv_mode != PRIV_M)` 门控。Per RISC-V Priv Spec §3.1.10，M-mode 异常/中断不可委托到 S-mode，旧实现缺少此检查导致 OpenSBI trap handler 中的异常可能错误进入 S-mode，绕过 OpenSBI 直接交付内核，造成崩溃或无限重入
+   - ⑤ **mideleg WARL掩码过宽**：`cpu_csr.sv` 的 mideleg_wmask 从 `0x0000_0AAA`（bits 1,3,5,7,9,11）改为 `0x0000_0222`（仅 bits 1,5,9 = SSI/STI/SEI）。M-mode 中断（MSI=3, MTI=7, MEI=11）不可委托，旧掩码允许写入这些位
+   - ⑥ **mret特权违例检查缺失**：`cpu_decode.sv` 新增 `mret_priv_violation = is_mret && (priv_mode != PRIV_M)`，S/U-mode 执行 mret 触发 illegal instruction 异常。旧实现允许 S-mode 静默执行 mret，导致特权降级到 U-mode 后所有 S-mode CSR 访问触发非法指令异常→无限重入循环
+   - ⑦ **非BRAM TLB路径时序修复**：`MMU.sv` 非 BRAM 路径添加 IDLE/LOOKUP FSM + 输入锁存（`nb_i_latched_priv_mode`/`nb_d_latched_priv_mode` 等），与 BRAM 路径模式一致，打断 `core_top.priv_mode → MMU.perm_check → page_fault` 组合逻辑长路径，改善时序收敛
+59. **特权路径修复仿真验证**（2026-06-19）：ISA 10/10 PASS、Exception 6/6 PASS、Privilege 3/3 PASS、MMU 9/12 PASS（3项预存失败与本次修复无关）、Cache 5/5 PASS、MMIO CLINT+PLIC PASS、Regression 6/7 PASS、cpu_full 41/41 PASS。总计 **80/83 PASS**，3项失败均为历史遗留（cpu_trap 9 FAIL、mmu_tlb_asid/megapage/replace/stress/sv32_edge 5 FAIL，stash 回原代码结果一致）

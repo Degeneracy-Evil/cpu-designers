@@ -54,3 +54,4 @@ data/
 kernel
 kernel/
 build/
+log/

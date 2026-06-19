@@ -294,6 +294,28 @@ python -m tools.vivado_cli -task cpu_full -sim --log sim_output.log
 | `--max-parallel N` | 最大并行会话数（默认=min(任务数, max_concurrent)） |
 | `--on-error STRATEGY` | `continue`（默认）/ `fail-fast`（首败即停）/ `stop-accepting`（停提交等完成） |
 
+### 分轮执行
+
+当 batch 任务数超过 `max_sessions` 时，自动分轮执行：
+
+- 每轮运行最多 `max_sessions` 个任务
+- 前一轮完成后，销毁该轮所有 session，释放目录和并发信号量
+- 下一轮创建新 session 替代前轮
+- 错误策略跨轮传播：`fail-fast` 跳过所有后续轮，`stop-accepting` 跳过未开始的轮
+- 最后一轮不销毁 session（保留结果供查看）
+
+示例：`max_sessions=5`，batch 20 个任务 → 4 轮，每轮 5 个。
+
+### 自动日志
+
+Batch 模式**自动为每个 session 开启日志**，无需手动指定 `--log`：
+
+- 日志目录默认为 `{project_root}/log/`
+- 每个 session 生成独立日志文件：`log/{session_name}.log`
+- 每行输出带时间戳 `[HH:MM:SS.mmm]`
+- 若指定 `--log FILE`，则该文件父目录作为日志目录
+- YAML 批处理计划支持 `log_dir` 字段自定义目录
+
 ### 并发门控
 
 `SessionManager` 使用 `threading.Semaphore(max_concurrent)` 原子控制 Vivado 进程并发数，`Session.start_vivado()` 时 acquire，`stop_vivado()` 时 release。批处理模式下 `ThreadPoolExecutor` 的 `max_workers` 由 `min(len(tasks), max_concurrent, --max-parallel)` 决定。
@@ -371,7 +393,12 @@ python -m tools.vivado_cli -batch "isa_*" -create -sim --format json
 # 并行增量刷新 + 重仿真
 python -m tools.vivado_cli -batch "cpu_*" -refresh --layers coe
 python -m tools.vivado_cli -batch "cpu_*" -sim
+
+# 自定义日志目录（默认自动写入 log/ 目录）
+python -m tools.vivado_cli -batch "isa_*" -create -sim --log /custom/log/dir
 ```
+
+> **分轮执行**：当任务数超过 `max_sessions` 时，自动分轮。每轮完成后销毁旧 session，下一轮创建新 session 替代。日志自动写入 `log/{session_name}.log`。
 
 #### 批处理计划 YAML 格式
 
@@ -382,6 +409,7 @@ on_error: continue
 operations: [create, sim]
 refresh_layers: [coe]          # 可选：批处理级增量刷新层
 runtime_override: "5ms"        # 可选：批处理级仿真时间覆盖
+log_dir: log                   # 可选：日志目录（默认 log/）
 tasks:
   - task: cpu_full
     runtime: 5ms               # 可选：任务级仿真时间覆盖

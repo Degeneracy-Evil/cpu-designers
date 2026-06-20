@@ -108,6 +108,14 @@ module core_top(
     output        dbg_icache_refill_valid,
     output        dbg_ptw_walk_active,
     output        dbg_pending_i_walk,
+    output [2:0]  dbg_mmu_i_state,
+    output        dbg_mmu_i_input_changed,
+    output [31:0] dbg_mmu_i_latched_vaddr,
+    output        dbg_mmu_i_sv32,
+    output        dbg_mmu_i_tlb_hit,
+    output        dbg_mmu_i_tlb_valid,
+    output        dbg_mmu_i_tlb_perm_fault,
+    output [1:0]  dbg_mmu_walk_state,
 
     // ---------- AXI4 Master — AW Channel ----------
     output [3:0]  awid,
@@ -248,6 +256,14 @@ module core_top(
     wire        mmu_data_ready;
     wire        mmu_dbg_i_walk_active;
     wire        mmu_dbg_pending_i_walk;
+    wire [2:0]  mmu_dbg_i_state;
+    wire        mmu_dbg_i_input_changed;
+    wire [31:0] mmu_dbg_i_latched_vaddr;
+    wire        mmu_dbg_i_sv32;
+    wire        mmu_dbg_i_tlb_hit;
+    wire        mmu_dbg_i_tlb_valid;
+    wire        mmu_dbg_i_tlb_perm_fault;
+    wire [1:0]  mmu_dbg_walk_state;
 
     // Single PTW bus (unified MMU)
     wire        ptw_bus_req;
@@ -840,11 +856,15 @@ module core_top(
     wire [31:0] dcache_refill_addr;
     wire [255:0] dcache_refill_data;
     wire        dcache_refill_valid;
+    wire        dcache_refill_done;
+    wire        dcache_refill_error;
 
     wire        dcache_wb_req;
     wire [31:0] dcache_wb_addr;
     wire [255:0] dcache_wb_data;
     wire        dcache_wb_valid;
+    wire        dcache_wb_done;
+    wire        dcache_wb_error;
     wire        dbg_dcache_lh_valid_w;
     wire [31:0] dbg_dcache_lh_data_w;
     wire [31:0] dbg_dcache_lh_count_w;
@@ -1025,11 +1045,15 @@ module core_top(
         .refill_addr(dcache_refill_addr),
         .refill_data(dcache_refill_data),
         .refill_valid(dcache_refill_valid),
+        .refill_done(dcache_refill_done),
+        .refill_error(dcache_refill_error),
 
         .wb_req(dcache_wb_req),
         .wb_addr(dcache_wb_addr),
         .wb_data(dcache_wb_data),
         .wb_valid(dcache_wb_valid),
+        .wb_done(dcache_wb_done),
+        .wb_error(dcache_wb_error),
 
         .flush_req(dcache_flush_req),
         .flush_done(dcache_flush_done),
@@ -1293,7 +1317,15 @@ module core_top(
         // sfence completion
         .sfence_done(mmu_sfence_done),
         .dbg_i_walk_active(mmu_dbg_i_walk_active),
-        .dbg_pending_i_walk(mmu_dbg_pending_i_walk)
+        .dbg_pending_i_walk(mmu_dbg_pending_i_walk),
+        .dbg_nb_i_state(mmu_dbg_i_state),
+        .dbg_nb_i_input_changed(mmu_dbg_i_input_changed),
+        .dbg_nb_i_latched_vaddr(mmu_dbg_i_latched_vaddr),
+        .dbg_nb_i_latched_sv32(mmu_dbg_i_sv32),
+        .dbg_i_tlb_hit(mmu_dbg_i_tlb_hit),
+        .dbg_i_tlb_valid(mmu_dbg_i_tlb_valid),
+        .dbg_i_tlb_perm_fault(mmu_dbg_i_tlb_perm_fault),
+        .dbg_walk_state(mmu_dbg_walk_state)
     );
 
     cpu_bus_bridge u_bus_bridge(
@@ -1320,10 +1352,14 @@ module core_top(
         .dcache_refill_addr (dcache_refill_addr),
         .dcache_refill_data (dcache_refill_data),
         .dcache_refill_valid (dcache_refill_valid),
+        .dcache_refill_done (dcache_refill_done),
+        .dcache_refill_error(dcache_refill_error),
         .dcache_wb_req      (dcache_wb_req),
         .dcache_wb_addr     (dcache_wb_addr),
         .dcache_wb_data     (dcache_wb_data),
         .dcache_wb_valid    (dcache_wb_valid),
+        .dcache_wb_done     (dcache_wb_done),
+        .dcache_wb_error    (dcache_wb_error),
         .ptw_req           (ptw_bus_req),
         .ptw_addr          (ptw_bus_addr),
         .ptw_we            (ptw_bus_we),
@@ -1385,6 +1421,14 @@ module core_top(
     assign dbg_icache_refill_valid = icache_refill_valid;
     assign dbg_ptw_walk_active = mmu_dbg_i_walk_active;
     assign dbg_pending_i_walk = mmu_dbg_pending_i_walk;
+    assign dbg_mmu_i_state = mmu_dbg_i_state;
+    assign dbg_mmu_i_input_changed = mmu_dbg_i_input_changed;
+    assign dbg_mmu_i_latched_vaddr = mmu_dbg_i_latched_vaddr;
+    assign dbg_mmu_i_sv32 = mmu_dbg_i_sv32;
+    assign dbg_mmu_i_tlb_hit = mmu_dbg_i_tlb_hit;
+    assign dbg_mmu_i_tlb_valid = mmu_dbg_i_tlb_valid;
+    assign dbg_mmu_i_tlb_perm_fault = mmu_dbg_i_tlb_perm_fault;
+    assign dbg_mmu_walk_state = mmu_dbg_walk_state;
 
     assign id_pc   = id_pc_wire;
     assign id_inst = id_inst_wire;

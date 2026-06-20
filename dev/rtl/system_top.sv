@@ -325,6 +325,14 @@ module system_top(
     wire        dbg_icache_refill_valid;
     wire        dbg_ptw_walk_active;
     wire        dbg_pending_i_walk;
+    wire [2:0]  dbg_mmu_i_state;
+    wire        dbg_mmu_i_input_changed;
+    wire [31:0] dbg_mmu_i_latched_vaddr;
+    wire        dbg_mmu_i_sv32;
+    wire        dbg_mmu_i_tlb_hit;
+    wire        dbg_mmu_i_tlb_valid;
+    wire        dbg_mmu_i_tlb_perm_fault;
+    wire [1:0]  dbg_mmu_walk_state;
 
     // IRQ wires
     wire        timer_irq;
@@ -710,6 +718,14 @@ module system_top(
         .dbg_icache_refill_valid (dbg_icache_refill_valid),
         .dbg_ptw_walk_active     (dbg_ptw_walk_active),
         .dbg_pending_i_walk      (dbg_pending_i_walk),
+        .dbg_mmu_i_state         (dbg_mmu_i_state),
+        .dbg_mmu_i_input_changed (dbg_mmu_i_input_changed),
+        .dbg_mmu_i_latched_vaddr (dbg_mmu_i_latched_vaddr),
+        .dbg_mmu_i_sv32          (dbg_mmu_i_sv32),
+        .dbg_mmu_i_tlb_hit       (dbg_mmu_i_tlb_hit),
+        .dbg_mmu_i_tlb_valid     (dbg_mmu_i_tlb_valid),
+        .dbg_mmu_i_tlb_perm_fault(dbg_mmu_i_tlb_perm_fault),
+        .dbg_mmu_walk_state      (dbg_mmu_walk_state),
         // AXI4 AW Channel
         .awid         (cpu_awid),
         .awaddr       (cpu_awaddr),
@@ -2166,45 +2182,85 @@ module system_top(
                 end
                 6'd14: begin
                     display_valid <= 1'b1;
+                    display_name  <= "MI_ST";
+                    display_value <= {29'b0, dbg_mmu_i_state};
+                end
+                6'd15: begin
+                    display_valid <= 1'b1;
+                    display_name  <= "MI_CH";
+                    display_value <= {31'b0, dbg_mmu_i_input_changed};
+                end
+                6'd16: begin
+                    display_valid <= 1'b1;
+                    display_name  <= "MI_VA";
+                    display_value <= dbg_mmu_i_latched_vaddr;
+                end
+                6'd17: begin
+                    display_valid <= 1'b1;
+                    display_name  <= "MI_SV";
+                    display_value <= {31'b0, dbg_mmu_i_sv32};
+                end
+                6'd18: begin
+                    display_valid <= 1'b1;
+                    display_name  <= "MI_HI";
+                    display_value <= {31'b0, dbg_mmu_i_tlb_hit};
+                end
+                6'd19: begin
+                    display_valid <= 1'b1;
+                    display_name  <= "MI_VL";
+                    display_value <= {31'b0, dbg_mmu_i_tlb_valid};
+                end
+                6'd20: begin
+                    display_valid <= 1'b1;
+                    display_name  <= "MI_PM";
+                    display_value <= {31'b0, dbg_mmu_i_tlb_perm_fault};
+                end
+                6'd21: begin
+                    display_valid <= 1'b1;
+                    display_name  <= "MW_ST";
+                    display_value <= {30'b0, dbg_mmu_walk_state};
+                end
+                6'd22: begin
+                    display_valid <= 1'b1;
                     display_name  <= "S_EPC";
                     display_value <= dbg_s_epc_r;
                 end
-                6'd15: begin
+                6'd23: begin
                     display_valid <= 1'b1;
                     display_name  <= "S_CAU";
                     display_value <= dbg_s_cause_r;
                 end
-                6'd16: begin
+                6'd24: begin
                     display_valid <= 1'b1;
                     display_name  <= "S_TVL";
                     display_value <= dbg_s_tval_r;
                 end
-                6'd17: begin
+                6'd25: begin
                     display_valid <= 1'b1;
                     display_name  <= "STVEC";
                     display_value <= dbg_s_tvec_r;
                 end
-                6'd18: begin
+                6'd26: begin
                     display_valid <= 1'b1;
                     display_name  <= "SEPC ";
                     display_value <= csr_sepc;
                 end
-                6'd19: begin
+                6'd27: begin
                     display_valid <= 1'b1;
                     display_name  <= "S_CNT";
                     display_value <= {16'b0, dbg_s_count_r};
                 end
-                6'd20: begin
+                6'd28: begin
                     display_valid <= 1'b1;
                     display_name  <= "T_IRQ";
                     display_value <= {31'b0, clint_mtip_cpuclk_ff2};
                 end
-                6'd21: begin
+                6'd29: begin
                     display_valid <= 1'b1;
                     display_name  <= "CMPLO";
                     display_value <= clint_mtimecmp[31:0];
                 end
-                6'd22: begin
+                6'd30: begin
                     display_valid <= 1'b1;
                     display_name  <= "CMPHI";
                     display_value <= clint_mtimecmp[63:32];

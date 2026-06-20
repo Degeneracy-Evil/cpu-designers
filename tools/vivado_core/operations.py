@@ -1257,6 +1257,20 @@ class Operations:
             if patched is not None:
                 return patched
 
+        # --- Semantic pass/fail check on sim output ---
+        # The normal path uses session.execute().success which only checks
+        # for Vivado "ERROR:" lines.  Strengthen with text-level PASS/FAIL
+        # detection so a sim that ran cleanly but reported FAIL in output
+        # is correctly classified.
+        if result.success and "PASS" in result.output:
+            if "FAIL" in result.output:
+                result = ExecuteResult(
+                    output=result.output,
+                    success=False,
+                    timed_out=result.timed_out,
+                    duration=result.duration,
+                )
+
         session.update_last_used()
         return result
 
@@ -1453,7 +1467,7 @@ if {{ [file exists $sim_log_file] }} {{
         rerun_result = self._append_timeout_hint(rerun_result, "sim")
 
         combined_output = f"Patched prj with {total} sources_1 entries\n{rerun_result.output}"
-        success = "ALL TESTS PASSED" in combined_output or "PASS" in combined_output
+        success = "PASS" in combined_output and "FAIL" not in combined_output
 
         return ExecuteResult(
             output=combined_output,

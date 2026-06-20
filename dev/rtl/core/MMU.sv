@@ -49,7 +49,15 @@ module MMU #(
     // ── sfence completion ──
     output wire        sfence_done,
     output wire        dbg_i_walk_active,
-    output wire        dbg_pending_i_walk
+    output wire        dbg_pending_i_walk,
+    output wire [2:0]  dbg_nb_i_state,
+    output wire        dbg_nb_i_input_changed,
+    output wire [31:0] dbg_nb_i_latched_vaddr,
+    output wire        dbg_nb_i_latched_sv32,
+    output wire        dbg_i_tlb_hit,
+    output wire        dbg_i_tlb_valid,
+    output wire        dbg_i_tlb_perm_fault,
+    output wire [1:0]  dbg_walk_state
 );
 
     localparam PRIV_M = 2'b11;
@@ -57,6 +65,9 @@ module MMU #(
     localparam ACCESS_FETCH = 2'b00;
     localparam ACCESS_LOAD  = 2'b01;
     localparam ACCESS_STORE = 2'b10;
+    localparam PTW_FAULT_NONE   = 2'd0;
+    localparam PTW_FAULT_PAGE   = 2'd1;
+    localparam PTW_FAULT_ACCESS = 2'd2;
 
     // =========================================================================
     // VPN / ASID / sv32 for each side
@@ -154,10 +165,16 @@ module MMU #(
     // PTW done/fault (declared early for tlb_fill_req)
     wire        ptw_walk_done;
     wire        ptw_walk_fault;
+    wire [1:0]  ptw_fault_kind_out;
 
     // TLB lookup requests
-    wire i_tlb_lookup_req = (i_state == I_IDLE) && !sfence_vma;
-    wire d_tlb_lookup_req = (d_state == D_IDLE) && !sfence_vma;
+    // BUG-16 fix: keep lookup req active during I_LOOKUP/D_LOOKUP so BRAM-based
+    // TLB i_lookup_valid_r/d_lookup_valid_r stay high. Otherwise the 1-cycle
+    // valid pulse expires and the MMU deadlocks (valid=0, hit=1, ready=0, miss=0).
+    wire i_req_active = (i_state == I_LOOKUP) && !i_input_changed;
+    wire d_req_active = (d_state == D_LOOKUP) && !d_input_changed;
+    wire i_tlb_lookup_req = i_req_active && !sfence_vma;
+    wire d_tlb_lookup_req = d_req_active && !sfence_vma && !d_lookup_stalled;
 
     // PTW fill signals (declared early — used by TLB instance below)
     wire [21:0] ptw_fill_ppn;
@@ -256,9 +273,9 @@ module MMU #(
         {i_tlb_ppn[21:10], i_latched_vaddr[21:0]} :
         {i_tlb_ppn, i_latched_vaddr[11:0]};
 
-    wire i_translation_ok = i_latched_sv32 && i_tlb_hit && !i_tlb_perm_fault;
-    wire i_tlb_miss       = i_latched_sv32 && !i_tlb_hit;
-    wire i_tlb_pf         = i_latched_sv32 && i_tlb_hit && i_tlb_perm_fault;
+    wire i_translation_ok = i_latched_sv32 && i_tlb_valid && i_tlb_hit && !i_tlb_perm_fault;
+    wire i_tlb_miss       = i_latched_sv32 && i_tlb_valid && !i_tlb_hit;
+    wire i_tlb_pf         = i_latched_sv32 && i_tlb_valid && i_tlb_hit && i_tlb_perm_fault;
 
     assign i_paddr = !i_latched_sv32 ? i_latched_vaddr :
                      i_translation_ok ? i_translated_paddr[31:0] : i_latched_vaddr;
@@ -268,9 +285,9 @@ module MMU #(
         {d_tlb_ppn[21:10], d_latched_vaddr[21:0]} :
         {d_tlb_ppn, d_latched_vaddr[11:0]};
 
-    wire d_translation_ok = d_latched_sv32 && d_tlb_hit && !d_tlb_perm_fault;
-    wire d_tlb_miss       = d_latched_sv32 && !d_tlb_hit;
-    wire d_tlb_pf         = d_latched_sv32 && d_tlb_hit && d_tlb_perm_fault;
+    wire d_translation_ok = d_latched_sv32 && d_tlb_valid && d_tlb_hit && !d_tlb_perm_fault;
+    wire d_tlb_miss       = d_latched_sv32 && d_tlb_valid && !d_tlb_hit;
+    wire d_tlb_pf         = d_latched_sv32 && d_tlb_valid && d_tlb_hit && d_tlb_perm_fault;
 
     assign d_paddr = !d_latched_sv32 ? d_latched_vaddr :
                      d_translation_ok ? d_translated_paddr[31:0] : d_latched_vaddr;
@@ -280,13 +297,13 @@ module MMU #(
     // =========================================================================
     // BUG-11 fix (symmetric): i_ready 仅在翻译真正完成且无 fault 时有效。
     assign i_ready = (i_state == I_LOOKUP) && !i_input_changed
-                     && (!i_latched_sv32 || (i_tlb_hit && !i_tlb_perm_fault));
+                     && (!i_latched_sv32 || (i_tlb_valid && i_tlb_hit && !i_tlb_perm_fault));
     assign i_miss  = (i_state == I_LOOKUP) && i_latched_sv32 && i_tlb_miss && !i_input_changed;
 
     // BUG-11 fix: d_ready 仅在翻译真正完成且无 fault 时有效。
     // bare 模式 (!d_latched_sv32) 无需翻译；Sv32 模式必须 hit 且无 perm fault。
     assign d_ready = (d_state == D_LOOKUP) && !d_input_changed && !d_lookup_stalled
-                     && (!d_latched_sv32 || (d_tlb_hit && !d_tlb_perm_fault));
+                     && (!d_latched_sv32 || (d_tlb_valid && d_tlb_hit && !d_tlb_perm_fault));
     assign d_miss  = (d_state == D_LOOKUP) && d_latched_sv32 && d_tlb_miss && !d_input_changed && !d_lookup_stalled;
 
     // =========================================================================
@@ -405,11 +422,11 @@ module MMU #(
                 I_LOOKUP: begin
                     if (sfence_vma) begin
                         i_state <= I_FLUSH;
-                    end else if (i_latched_sv32 && !i_tlb_hit) begin
-                        // Miss: signal walk arbiter (handled below)
-                        i_state <= I_WALK_PENDING;
                     end else if (i_input_changed) begin
                         i_state <= I_IDLE;
+                    end else if (i_tlb_miss) begin
+                        // Miss: signal walk arbiter (handled below)
+                        i_state <= I_WALK_PENDING;
                     end
                 end
 
@@ -482,11 +499,11 @@ module MMU #(
                         // Port B is filling (PTW done for other side).
                         // d-side BRAM output is stale — must re-lookup.
                         d_state <= D_IDLE;
-                    end else if (d_latched_sv32 && !d_tlb_hit) begin
-                        // Miss: signal walk arbiter
-                        d_state <= D_WALK_PENDING;
                     end else if (d_input_changed) begin
                         d_state <= D_IDLE;
+                    end else if (d_tlb_miss) begin
+                        // Miss: signal walk arbiter
+                        d_state <= D_WALK_PENDING;
                     end
                 end
 
@@ -537,8 +554,10 @@ module MMU #(
     // Walk arbiter FSM (manages single PTW instance)
     // =========================================================================
     // Walk request pulses from each side (detected in I_LOOKUP / D_LOOKUP on miss)
-    wire i_walk_req = (i_state == I_LOOKUP) && i_latched_sv32 && !i_tlb_hit && !i_input_changed;
-    wire d_walk_req = (d_state == D_LOOKUP) && d_latched_sv32 && !d_tlb_hit && !d_input_changed && !d_lookup_stalled;
+    wire i_walk_req = (i_state == I_LOOKUP) && i_tlb_miss && !i_input_changed;
+    wire d_walk_req = (d_state == D_LOOKUP) && d_tlb_miss && !d_input_changed && !d_lookup_stalled;
+    wire selected_d_walk = pending_d_walk || (!pending_i_walk && d_walk_req);
+    wire selected_i_walk = pending_i_walk || (!selected_d_walk && i_walk_req);
 
     always_ff @(posedge clk or negedge resetn) begin
         if (!resetn) begin
@@ -611,9 +630,8 @@ module MMU #(
     // BUG-2 fix: use "start" conditions for the startup instant when walk_state
     // is still W_IDLE but the arbiter is about to transition to W_D_WALK/W_I_WALK.
     // During active walk, walk_state is already correct.
-    wire start_d_walk = (walk_state == W_IDLE) && !pending_i_walk && !pending_d_walk && d_walk_req;
-    wire start_i_walk = (walk_state == W_IDLE) &&
-        (pending_i_walk || (!pending_d_walk && !d_walk_req && i_walk_req));
+    wire start_d_walk = (walk_state == W_IDLE) && selected_d_walk;
+    wire start_i_walk = (walk_state == W_IDLE) && !selected_d_walk && selected_i_walk;
 
     wire active_d_walk = (walk_state == W_D_WALK) || start_d_walk;
     // active_i_walk = !active_d_walk (only two sides)
@@ -628,7 +646,7 @@ module MMU #(
     // PTW walk_req: pulse when walk arbiter starts a new walk
     // Includes pending_i_walk/pending_d_walk: when W_IDLE services a queued miss, PTW needs restart
     wire ptw_walk_req_pulse = (walk_state == W_IDLE) &&
-        (pending_i_walk || pending_d_walk || d_walk_req || i_walk_req);
+        (selected_d_walk || selected_i_walk);
 
     ptw u_ptw(
         .clk(clk),
@@ -645,6 +663,7 @@ module MMU #(
         .walk_fault(ptw_walk_fault),
         .walk_fault_cause(ptw_fault_cause_out),
         .walk_fault_vaddr(ptw_fault_vaddr_out),
+        .walk_fault_kind(ptw_fault_kind_out),
         .walk_ppn(ptw_fill_ppn),
         .walk_r(ptw_fill_r),
         .walk_w(ptw_fill_w),
@@ -662,6 +681,17 @@ module MMU #(
         .ptw_bus_done(ptw_bus_done),
         .ptw_bus_error(ptw_bus_error)
     );
+
+    assign dbg_i_walk_active  = (walk_state != W_IDLE);
+    assign dbg_pending_i_walk = pending_i_walk;
+    assign dbg_nb_i_state = {2'b0, i_state};
+    assign dbg_nb_i_input_changed = i_input_changed;
+    assign dbg_nb_i_latched_vaddr = i_latched_vaddr;
+    assign dbg_nb_i_latched_sv32 = i_latched_sv32;
+    assign dbg_i_tlb_hit = i_tlb_hit;
+    assign dbg_i_tlb_valid = i_tlb_valid;
+    assign dbg_i_tlb_perm_fault = i_tlb_perm_fault;
+    assign dbg_walk_state = walk_state;
 
 `else // !USE_TLB_BRAM
 
@@ -687,6 +717,9 @@ module MMU #(
     wire        d_tlb_hit, d_tlb_r, d_tlb_w, d_tlb_x, d_tlb_u;
     wire        d_tlb_a, d_tlb_d, d_tlb_g, d_tlb_is_megapage;
     wire [21:0] d_tlb_ppn;
+    wire [1:0]  ptw_fault_kind_out;
+    wire        nb_i_req_active = (nb_i_state == NB_LOOKUP) && !nb_i_input_changed;
+    wire        nb_d_req_active = (nb_d_state == NB_LOOKUP) && !nb_d_input_changed;
 
     // (ptw_fill_* signals declared above, before TLB instance)
     wire        ptw_walk_done, ptw_walk_fault;
@@ -697,7 +730,7 @@ module MMU #(
         .resetn(resetn),
         .i_lookup_vpn(i_vpn),
         .i_lookup_asid(i_asid),
-        .i_lookup_req(1'b1),
+        .i_lookup_req(nb_i_req_active),
         .i_lookup_hit(i_tlb_hit),
         .i_lookup_ppn(i_tlb_ppn),
         .i_lookup_r(i_tlb_r),
@@ -711,7 +744,7 @@ module MMU #(
         .i_lookup_valid(),
         .d_lookup_vpn(d_vpn),
         .d_lookup_asid(d_asid),
-        .d_lookup_req(1'b1),
+        .d_lookup_req(nb_d_req_active),
         .d_lookup_hit(d_tlb_hit),
         .d_lookup_ppn(d_tlb_ppn),
         .d_lookup_r(d_tlb_r),
@@ -1034,6 +1067,7 @@ module MMU #(
         .walk_fault(ptw_walk_fault),
         .walk_fault_cause(ptw_fault_cause_out),
         .walk_fault_vaddr(ptw_fault_vaddr_out),
+        .walk_fault_kind(ptw_fault_kind_out),
         .walk_ppn(ptw_fill_ppn),
         .walk_r(ptw_fill_r),
         .walk_w(ptw_fill_w),
@@ -1052,9 +1086,16 @@ module MMU #(
         .ptw_bus_error(ptw_bus_error)
     );
 
-`endif // USE_TLB_BRAM
-
-    assign dbg_i_walk_active = walk_active_r;
+    assign dbg_i_walk_active  = walk_active_r;
     assign dbg_pending_i_walk = pending_i_walk;
+    assign dbg_nb_i_state = {2'b0, nb_i_state};
+    assign dbg_nb_i_input_changed = nb_i_input_changed;
+    assign dbg_nb_i_latched_vaddr = nb_i_latched_vaddr;
+    assign dbg_nb_i_latched_sv32 = nb_i_latched_sv32;
+    assign dbg_i_tlb_hit = i_tlb_hit;
+    assign dbg_i_tlb_valid = 1'b1;
+    assign dbg_i_tlb_perm_fault = i_tlb_perm_fault;
+    assign dbg_walk_state = walk_state;
+`endif // USE_TLB_BRAM
 
 endmodule

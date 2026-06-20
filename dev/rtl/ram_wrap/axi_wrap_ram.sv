@@ -103,6 +103,22 @@ reg [31:0] BRAM [0:MEM_DEPTH-1];
 initial begin
     $readmemh("prog.hex", BRAM);
 end
+
+reg        sim_inject_rresp_pending;
+reg [31:0] sim_inject_rresp_addr;
+reg [1 :0] sim_inject_rresp_code;
+reg        sim_inject_bresp_pending;
+reg [31:0] sim_inject_bresp_addr;
+reg [1 :0] sim_inject_bresp_code;
+
+initial begin
+    sim_inject_rresp_pending = 1'b0;
+    sim_inject_rresp_addr    = 32'd0;
+    sim_inject_rresp_code    = 2'b10;
+    sim_inject_bresp_pending = 1'b0;
+    sim_inject_bresp_addr    = 32'd0;
+    sim_inject_bresp_code    = 2'b10;
+end
 `endif
 
 // ===========================================================================
@@ -136,6 +152,7 @@ reg [2:0]  r_size;       // burst size
 reg [1:0]  r_burst;      // burst type
 reg [3:0]  r_id;         // transaction ID
 reg [17:0] r_word_addr;  // word-aligned address for BRAM indexing
+reg [1 :0] r_resp;
 
 // Computed next address for INCR burst
 wire [31:0] r_next_addr;
@@ -144,7 +161,7 @@ assign r_next_addr = r_addr + (32'b1 << r_size);
 // BRAM read data (combinational — zero-latency read)
 wire [31:0] r_bram_data = BRAM[r_word_addr];
 
-always_ff @(posedge aclk or negedge aresetn) begin
+always @(posedge aclk or negedge aresetn) begin
     if (!aresetn) begin
         r_state     <= R_IDLE;
         r_addr      <= 32'd0;
@@ -154,6 +171,7 @@ always_ff @(posedge aclk or negedge aresetn) begin
         r_burst     <= 2'd0;
         r_id        <= 4'd0;
         r_word_addr <= 18'd0;
+        r_resp      <= 2'b00;
 
     end else begin
         case (r_state)
@@ -168,6 +186,16 @@ always_ff @(posedge aclk or negedge aresetn) begin
                     r_burst <= axi_arburst;
                     r_id    <= axi_arid;
                     r_word_addr <= remapped_araddr[19:2];  // word index
+`ifdef SIMULATION
+                    if (sim_inject_rresp_pending && (remapped_araddr == sim_inject_rresp_addr)) begin
+                        r_resp <= sim_inject_rresp_code;
+                        sim_inject_rresp_pending <= 1'b0;
+                    end else begin
+                        r_resp <= 2'b00;
+                    end
+`else
+                    r_resp <= 2'b00;
+`endif
                     // WRAP burst assertion — this model does not implement WRAP
                     `ifdef SIMULATION
                     assert (axi_arburst != 2'b10) else
@@ -208,7 +236,7 @@ assign axi_arready = (r_state == R_IDLE);
 assign axi_rvalid  = (r_state == R_BURST);
 assign axi_rid     = r_id;
 assign axi_rdata   = r_bram_data;
-assign axi_rresp   = 2'b00;  // OKAY
+assign axi_rresp   = r_resp;
 assign axi_rlast   = (r_state == R_BURST) && (r_count == 8'd0);
 
 // ===========================================================================
@@ -225,6 +253,8 @@ reg [7:0]  w_count;      // beats remaining
 reg [2:0]  w_size;       // burst size
 reg [1:0]  w_burst;      // burst type
 reg [3:0]  w_id;         // transaction ID
+reg [31:0] w_base_addr;  // burst base address for response injection matching
+reg [1 :0] w_resp;
 
 // Computed next address for INCR burst
 wire [31:0] w_next_addr;
@@ -239,10 +269,10 @@ assign axi_wready  = (w_state == W_DATA);
 // B channel: valid when in RESP phase
 assign axi_bvalid  = (w_state == W_RESP);
 assign axi_bid     = w_id;
-assign axi_bresp   = 2'b00;  // OKAY
+assign axi_bresp   = w_resp;
 
 // BRAM write and state machine
-always_ff @(posedge aclk or negedge aresetn) begin
+always @(posedge aclk or negedge aresetn) begin
     if (!aresetn) begin
         w_state <= W_IDLE;
         w_addr  <= 32'd0;
@@ -250,6 +280,8 @@ always_ff @(posedge aclk or negedge aresetn) begin
         w_size  <= 3'd0;
         w_burst <= 2'd0;
         w_id    <= 4'd0;
+        w_base_addr <= 32'd0;
+        w_resp  <= 2'b00;
     end else begin
         case (w_state)
             W_IDLE: begin
@@ -261,6 +293,17 @@ always_ff @(posedge aclk or negedge aresetn) begin
                     w_size  <= axi_awsize;
                     w_burst <= axi_awburst;
                     w_id    <= axi_awid;
+                    w_base_addr <= remapped_awaddr;
+`ifdef SIMULATION
+                    if (sim_inject_bresp_pending && (remapped_awaddr == sim_inject_bresp_addr)) begin
+                        w_resp <= sim_inject_bresp_code;
+                        sim_inject_bresp_pending <= 1'b0;
+                    end else begin
+                        w_resp <= 2'b00;
+                    end
+`else
+                    w_resp <= 2'b00;
+`endif
                     // WRAP burst assertion — this model does not implement WRAP
                     `ifdef SIMULATION
                     assert (axi_awburst != 2'b10) else

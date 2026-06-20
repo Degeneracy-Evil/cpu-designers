@@ -122,11 +122,16 @@ categories:
       - regression/reg_pf_latch
       - regression/reg_linux_ptr_reload
       - regression/reg_linux_field_values
+      - regression/reg_bug16_tlb_valid_pulse
 
   regression_common:
     framework: common
     tests:
       - regression/reg_mmio_ready
+      - regression/reg_dcache_refill_error
+      - regression/reg_dcache_wb_error
+      - regression/reg_fencei_wb_error
+      - regression/reg_sfence_wb_error
 
   integration:
     framework: none

@@ -217,8 +217,13 @@ module cpu_mem(
             end
 
             // ── Reservation invalidation: trap entry ──
+            // Also clear mem_en_reg and reset mem_state to prevent stale
+            // dcache requests from retrying after a trap (e.g. after a
+            // refill/write-back AXI error that never set cpu_req_ready).
             if (trap_enter) begin
                 lr_reservation_valid <= 1'b0;
+                mem_en_reg           <= 1'b0;
+                mem_state            <= MEM_IDLE;
             end
 
             case (mem_state)

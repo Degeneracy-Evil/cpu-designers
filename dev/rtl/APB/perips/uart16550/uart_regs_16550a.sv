@@ -344,7 +344,7 @@ module uart_regs_16550a (
     assign lsr7 = rf_error_bit | rf_overrun;            // Error Indicator
 
     // THRE set enable: simplified (no USART block counter)
-    assign thre_set_en = 1'b1;
+    assign thre_set_en = (tstate == 3'd0);   // S_IDLE: THRE only when shift register idle
 
     // LSR bit 0 (DR) - edge detect
     reg lsr0_d;

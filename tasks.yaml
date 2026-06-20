@@ -320,6 +320,12 @@ tasks:
     phex: test/regression/reg_stale_paddr.hex
     runtime: 20ms
 
+  reg_bug16_tlb_valid_pulse:
+    tb: tb_regression_reg_bug16_tlb_valid_pulse
+    blhex: boot/bootloader_phase1.hex
+    phex: test/regression/reg_bug16_tlb_valid_pulse.hex
+    runtime: 20ms
+
   reg_bare_no_miss:
     tb: tb_regression_reg_bare_no_miss
     blhex: boot/bootloader_phase1.hex
@@ -331,6 +337,30 @@ tasks:
     blhex: boot/bootloader_phase1.hex
     phex: test/regression/reg_mmio_ready.hex
     runtime: 60ms
+
+  reg_dcache_refill_error:
+    tb: tb_regression_reg_dcache_refill_error
+    blhex: boot/bootloader_phase1.hex
+    phex: test/regression/reg_dcache_refill_error.hex
+    runtime: 20ms
+
+  reg_dcache_wb_error:
+    tb: tb_regression_reg_dcache_wb_error
+    blhex: boot/bootloader_phase1.hex
+    phex: test/regression/reg_dcache_wb_error.hex
+    runtime: 20ms
+
+  reg_fencei_wb_error:
+    tb: tb_regression_reg_fencei_wb_error
+    blhex: boot/bootloader_phase1.hex
+    phex: test/regression/reg_fencei_wb_error.hex
+    runtime: 20ms
+
+  reg_sfence_wb_error:
+    tb: tb_regression_reg_sfence_wb_error
+    blhex: boot/bootloader_phase1.hex
+    phex: test/regression/reg_sfence_wb_error.hex
+    runtime: 20ms
 
   reg_pf_latch:
     tb: tb_regression_reg_pf_latch

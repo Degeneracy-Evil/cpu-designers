@@ -43,11 +43,15 @@ module cpu_bus_bridge(
     input  [31:0] dcache_refill_addr,
     output [255:0] dcache_refill_data,
     output        dcache_refill_valid,
+    output        dcache_refill_done,
+    output        dcache_refill_error,
 
     input         dcache_wb_req,
     input  [31:0] dcache_wb_addr,
     input  [255:0] dcache_wb_data,
     output        dcache_wb_valid,
+    output        dcache_wb_done,
+    output        dcache_wb_error,
 
     input         ptw_req,
     input  [31:0] ptw_addr,
@@ -168,11 +172,17 @@ module cpu_bus_bridge(
     reg        icache_refill_valid_r;
     reg        dcache_refill_valid_r;
     reg        dcache_wb_valid_r;
+    reg        dcache_refill_done_r;
+    reg        dcache_refill_error_r;
+    reg        dcache_wb_done_r;
+    reg        dcache_wb_error_r;
 
     reg        icache_error_r;
     reg        dcache_error_r;
     reg        dcache_error_is_store_r;
     reg [31:0] bus_error_addr_r;
+    reg [2:0]  wb_starve_cnt_r;
+    reg        wb_boost_r;
 
     reg [31:0] ptw_rdata_r;
     reg        ptw_done_r;
@@ -201,7 +211,11 @@ module cpu_bus_bridge(
     assign icache_refill_valid = icache_refill_valid_r;
     assign dcache_refill_data  = refill_shift_reg_with_current;
     assign dcache_refill_valid = dcache_refill_valid_r;
+    assign dcache_refill_done  = dcache_refill_done_r;
+    assign dcache_refill_error = dcache_refill_error_r;
     assign dcache_wb_valid     = dcache_wb_valid_r;
+    assign dcache_wb_done      = dcache_wb_done_r;
+    assign dcache_wb_error     = dcache_wb_error_r;
 
     assign icache_error        = icache_error_r;
     assign dcache_error        = dcache_error_r;
@@ -274,10 +288,16 @@ module cpu_bus_bridge(
             icache_refill_valid_r  <= 1'b0;
             dcache_refill_valid_r  <= 1'b0;
             dcache_wb_valid_r      <= 1'b0;
+            dcache_refill_done_r   <= 1'b0;
+            dcache_refill_error_r  <= 1'b0;
+            dcache_wb_done_r       <= 1'b0;
+            dcache_wb_error_r      <= 1'b0;
             icache_error_r         <= 1'b0;
             dcache_error_r         <= 1'b0;
             dcache_error_is_store_r <= 1'b0;
             bus_error_addr_r       <= 32'b0;
+            wb_starve_cnt_r        <= 3'd0;
+            wb_boost_r             <= 1'b0;
             ptw_rdata_r            <= 32'b0;
             ptw_done_r             <= 1'b0;
             ptw_error_r            <= 1'b0;
@@ -311,6 +331,10 @@ module cpu_bus_bridge(
             icache_refill_valid_r  <= 1'b0;
             dcache_refill_valid_r  <= 1'b0;
             dcache_wb_valid_r      <= 1'b0;
+            dcache_refill_done_r   <= 1'b0;
+            dcache_refill_error_r  <= 1'b0;
+            dcache_wb_done_r       <= 1'b0;
+            dcache_wb_error_r      <= 1'b0;
             icache_error_r         <= 1'b0;
             dcache_error_r         <= 1'b0;
             dcache_error_is_store_r <= 1'b0;
@@ -318,6 +342,25 @@ module cpu_bus_bridge(
             ptw_error_r            <= 1'b0;
             icache_mmio_accept_r   <= 1'b0;
             dcache_mmio_accept_r   <= 1'b0;
+
+            if (state == S_IDLE) begin
+                if (dcache_wb_req) begin
+                    if ((icache_mmio_req || dcache_mmio_req || ptw_req) && !wb_boost_r) begin
+                        if (wb_starve_cnt_r == 3'd3) begin
+                            wb_boost_r      <= 1'b1;
+                            wb_starve_cnt_r <= 3'd0;
+                        end else begin
+                            wb_starve_cnt_r <= wb_starve_cnt_r + 3'd1;
+                        end
+                    end else if (!(icache_mmio_req || dcache_mmio_req || ptw_req)) begin
+                        wb_starve_cnt_r <= 3'd0;
+                    end
+                end else begin
+                    wb_starve_cnt_r <= 3'd0;
+                    wb_boost_r      <= 1'b0;
+                end
+            end
+
             case (state)
                 // =====================================================
                 // S_IDLE — Arbitrate among request sources
@@ -328,7 +371,19 @@ module cpu_bus_bridge(
                     wvalid  <= 1'b0;
                     arvalid <= 1'b0;
 
-                    if (icache_mmio_req && !ahb_inst_valid_r) begin
+                    if (dcache_wb_req && wb_boost_r && !dcache_wb_valid_r) begin
+                        state           <= S_WB_AW;
+                        addr_r          <= dcache_wb_addr;
+                        write_r         <= 1'b1;
+                        burst_base_addr <= dcache_wb_addr;
+                        beat_cnt        <= 3'd0;
+                        wb_shift_reg    <= dcache_wb_data;
+                        aw_hs_done_r    <= 1'b0;
+                        w_hs_done_r     <= 1'b0;
+                        wb_boost_r      <= 1'b0;
+                        wb_starve_cnt_r <= 3'd0;
+                    end
+                    else if (icache_mmio_req && !ahb_inst_valid_r) begin
                         // MMIO instruction read → AR channel
                         state       <= S_MMIO_AR;
                         addr_r      <= icache_mmio_addr;
@@ -389,6 +444,8 @@ module cpu_bus_bridge(
                         wb_shift_reg    <= dcache_wb_data;
                         aw_hs_done_r    <= 1'b0;
                         w_hs_done_r     <= 1'b0;
+                        wb_boost_r      <= 1'b0;
+                        wb_starve_cnt_r <= 3'd0;
                     end
                     else if (icache_refill_req && !icache_refill_valid_r) begin
                         // Icache refill burst → AR then R
@@ -557,9 +614,13 @@ module cpu_bus_bridge(
                     arvalid <= 1'b0;  // AR channel done — clear valid
                     if (rvalid) begin
                         if (r_error) begin
-                            state           <= S_IDLE;
-                            icache_error_r  <= 1'b1;
-                            bus_error_addr_r <= burst_base_addr;
+                            // Consume remaining beats before returning to S_IDLE
+                            // to prevent RAM from getting stuck in R_BURST
+                            if (rlast) begin
+                                state           <= S_IDLE;
+                                icache_error_r  <= 1'b1;
+                                bus_error_addr_r <= burst_base_addr;
+                            end
                         end else begin
                             refill_shift_reg[beat_cnt*32 +: 32] <= rdata;
                             if (rlast) begin
@@ -597,15 +658,23 @@ module cpu_bus_bridge(
                     arvalid <= 1'b0;  // AR channel done — clear valid
                     if (rvalid) begin
                         if (r_error) begin
-                            state            <= S_IDLE;
-                            dcache_error_r   <= 1'b1;
-                            dcache_error_is_store_r <= 1'b0;
-                            bus_error_addr_r <= burst_base_addr;
+                            // Consume remaining beats before returning to S_IDLE
+                            // to prevent RAM from getting stuck in R_BURST
+                            if (rlast) begin
+                                state            <= S_IDLE;
+                                dcache_error_r   <= 1'b1;
+                                dcache_error_is_store_r <= 1'b0;
+                                bus_error_addr_r <= burst_base_addr;
+                                dcache_refill_done_r  <= 1'b1;
+                                dcache_refill_error_r <= 1'b1;
+                            end
                         end else begin
                             refill_shift_reg[beat_cnt*32 +: 32] <= rdata;
                             if (rlast) begin
                                 state                  <= S_IDLE;
                                 dcache_refill_valid_r  <= 1'b1;
+                                dcache_refill_done_r   <= 1'b1;
+                                dcache_refill_error_r  <= 1'b0;
                             end else begin
                                 beat_cnt <= beat_cnt + 3'd1;
                             end
@@ -694,9 +763,13 @@ module cpu_bus_bridge(
                             dcache_error_r   <= 1'b1;
                             dcache_error_is_store_r <= 1'b1;
                             bus_error_addr_r <= burst_base_addr;
+                            dcache_wb_done_r  <= 1'b1;
+                            dcache_wb_error_r <= 1'b1;
                         end else begin
                             state            <= S_IDLE;
                             dcache_wb_valid_r <= 1'b1;
+                            dcache_wb_done_r  <= 1'b1;
+                            dcache_wb_error_r <= 1'b0;
                         end
                     end
                 end

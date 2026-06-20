@@ -142,14 +142,9 @@ scripts/config --file "$KERNEL_BUILD/.config" \
   -d RISCV_APLIC_MSI \
   -d RISCV_IMSIC \
   -d RISCV_RPMI_SYSMSI \
-  -d NONPORTABLE \
   -d ERRATA_ANDES \
   -d ERRATA_SIFIVE \
   -d ERRATA_THEAD \
-  -d TOOLCHAIN_HAS_ZIHINTPAUSE \
-  -d TOOLCHAIN_HAS_ZICOND \
-  -d TOOLCHAIN_HAS_VECTOR_CRYPTO \
-  -d TOOLCHAIN_NEEDS_EXPLICIT_ZICSR_ZIFENCEI \
   -d RISCV_MISALIGNED \
   -d RISCV_SCALAR_MISALIGNED \
   -d RISCV_PROBE_UNALIGNED_ACCESS \
@@ -175,7 +170,12 @@ scripts/config --file "$KERNEL_BUILD/.config" \
   -d STRICT_MODULE_RWX \
   -d DEBUG_ALIGN_RODATA \
   -d RANDOMIZE_BASE \
-  \
+
+scripts/config --file "$KERNEL_BUILD/.config" \
+  -e NONPORTABLE \
+  -d PORTABLE \
+  -d EFI \
+  -d ACPI \
   -d RISCV_ISA_C
 
 # 自动补充生成内核配置

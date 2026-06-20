@@ -17,7 +17,7 @@ export OPENSBI_HOME=${CPU_HOME}/kernel/opensbi
 export OPENSBI_BUILD=${CPU_HOME}/build/opensbi
 
 # 准备环境
-rm -rf ${CPU_HOME}/build
+rm -rf ${CPU_HOME}/build/{dtb,kernel,opensbi}
 mkdir -p $DTB_BUILD
 mkdir -p $KERNEL_BUILD
 mkdir -p $OPENSBI_BUILD

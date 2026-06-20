@@ -46,9 +46,16 @@ module core_top(
     output        exe_is_load,       // memory read flag
     output [31:0] gpr_tp,            // x4 (tp) value
     output [31:0] gpr_sp,            // x2 (sp) value
+    output [31:0] gpr_ra,            // x1 (ra) value
     output [31:0] gpr_s1,            // x9 (s1) value
+    output [31:0] gpr_a0,            // x10 (a0) value
+    output [31:0] gpr_a1,            // x11 (a1) value
+    output [31:0] gpr_a2,            // x12 (a2) value
+    output [31:0] gpr_a3,            // x13 (a3) value
     output [31:0] gpr_a4,            // x14 (a4) value
     output [31:0] gpr_a5,            // x15 (a5) value
+    output [31:0] gpr_a6,            // x16 (a6) value
+    output [31:0] gpr_a7,            // x17 (a7) value
     output [31:0] gpr_s2,            // x18 (s2) value
     output [31:0] gpr_s3,            // x19 (s3) value
     output        dbg_watch_valid,
@@ -91,6 +98,16 @@ module core_top(
     output [31:0] dbg_focus_load_wb_status,
     output [31:0] dbg_focus_load_wb_rfdata,
     output [31:0] dbg_focus_load_wb_s2,
+    output        dbg_if_done,
+    output        dbg_inst_valid,
+    output        dbg_mmu_i_ready,
+    output        dbg_mmu_i_miss,
+    output        dbg_i_page_fault,
+    output [2:0]  dbg_icache_state,
+    output        dbg_icache_refill_req,
+    output        dbg_icache_refill_valid,
+    output        dbg_ptw_walk_active,
+    output        dbg_pending_i_walk,
 
     // ---------- AXI4 Master — AW Channel ----------
     output [3:0]  awid,
@@ -229,6 +246,8 @@ module core_top(
 
     wire        mmu_inst_ready;
     wire        mmu_data_ready;
+    wire        mmu_dbg_i_walk_active;
+    wire        mmu_dbg_pending_i_walk;
 
     // Single PTW bus (unified MMU)
     wire        ptw_bus_req;
@@ -361,9 +380,16 @@ module core_top(
     wire [31:0] hw_trap_tval_w;
     wire [31:0] gpr_tp_w;
     wire [31:0] gpr_sp_w;
+    wire [31:0] gpr_ra_w;
     wire [31:0] gpr_s1_w;
+    wire [31:0] gpr_a0_w;
+    wire [31:0] gpr_a1_w;
+    wire [31:0] gpr_a2_w;
+    wire [31:0] gpr_a3_w;
     wire [31:0] gpr_a4_w;
     wire [31:0] gpr_a5_w;
+    wire [31:0] gpr_a6_w;
+    wire [31:0] gpr_a7_w;
     wire [31:0] gpr_s2_w;
     wire [31:0] gpr_s3_w;
     wire [2:0]  dbg_load_mem_size_w;
@@ -408,9 +434,16 @@ module core_top(
     assign hw_trap_tval  = hw_trap_tval_w;
     assign gpr_tp        = gpr_tp_w;
     assign gpr_sp        = gpr_sp_w;
+    assign gpr_ra        = gpr_ra_w;
     assign gpr_s1        = gpr_s1_w;
+    assign gpr_a0        = gpr_a0_w;
+    assign gpr_a1        = gpr_a1_w;
+    assign gpr_a2        = gpr_a2_w;
+    assign gpr_a3        = gpr_a3_w;
     assign gpr_a4        = gpr_a4_w;
     assign gpr_a5        = gpr_a5_w;
+    assign gpr_a6        = gpr_a6_w;
+    assign gpr_a7        = gpr_a7_w;
     assign gpr_s2        = gpr_s2_w;
     assign gpr_s3        = gpr_s3_w;
     assign dbg_watch_valid = dbg_watch_valid_r;
@@ -573,6 +606,7 @@ module core_top(
     wire [31:0] icache_refill_addr;
     wire [255:0] icache_refill_data;
     wire        icache_refill_valid;
+    wire [2:0]  icache_dbg_state;
 
     wire        dcache_flush_req;
     wire        dcache_flush_done;
@@ -701,7 +735,8 @@ module core_top(
         .refill_valid(icache_refill_valid),
 
         .invalidate_req(icache_invalidate_req),
-        .invalidate_done(icache_invalidate_done)
+        .invalidate_done(icache_invalidate_done),
+        .dbg_state(icache_dbg_state)
     );
 
     cpu_fetch u_fetch(
@@ -1076,9 +1111,16 @@ module core_top(
         .dbg_rdata2(gpr_tp_w),
         .dbg_raddr3(5'd2),       // sp = x2
         .dbg_rdata3(gpr_sp_w),
+        .dbg_x1(gpr_ra_w),
         .dbg_x9(gpr_s1_w),
+        .dbg_x10(gpr_a0_w),
+        .dbg_x11(gpr_a1_w),
+        .dbg_x12(gpr_a2_w),
+        .dbg_x13(gpr_a3_w),
         .dbg_x14(gpr_a4_w),
         .dbg_x15(gpr_a5_w),
+        .dbg_x16(gpr_a6_w),
+        .dbg_x17(gpr_a7_w),
         .dbg_x18(gpr_s2_w),
         .dbg_x19(gpr_s3_w)
     );
@@ -1249,7 +1291,9 @@ module core_top(
         // flush
         .sfence_vma(sfence_vma_to_mmu_pulse),
         // sfence completion
-        .sfence_done(mmu_sfence_done)
+        .sfence_done(mmu_sfence_done),
+        .dbg_i_walk_active(mmu_dbg_i_walk_active),
+        .dbg_pending_i_walk(mmu_dbg_pending_i_walk)
     );
 
     cpu_bus_bridge u_bus_bridge(
@@ -1331,6 +1375,16 @@ module core_top(
     );
 
     assign display_state = {28'b0, fsm_state};
+    assign dbg_if_done = if_done;
+    assign dbg_inst_valid = inst_valid_mux;
+    assign dbg_mmu_i_ready = mmu_inst_ready;
+    assign dbg_mmu_i_miss = mmu_inst_miss;
+    assign dbg_i_page_fault = mmu_inst_page_fault;
+    assign dbg_icache_state = icache_dbg_state;
+    assign dbg_icache_refill_req = icache_refill_req;
+    assign dbg_icache_refill_valid = icache_refill_valid;
+    assign dbg_ptw_walk_active = mmu_dbg_i_walk_active;
+    assign dbg_pending_i_walk = mmu_dbg_pending_i_walk;
 
     assign id_pc   = id_pc_wire;
     assign id_inst = id_inst_wire;

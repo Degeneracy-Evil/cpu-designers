@@ -24,7 +24,8 @@ module icache_ctrl(
     input  wire        refill_valid,
 
     input  wire        invalidate_req,
-    output wire        invalidate_done
+    output wire        invalidate_done,
+    output wire [2:0]  dbg_state
 );
 
     // --- Cache geometry from config ---
@@ -227,6 +228,7 @@ module icache_ctrl(
 
     assign cpu_req_ready = cpu_req_ready_r;
     assign invalidate_done = invalidate_done_r;
+    assign dbg_state = state;
 
     wire [NUM_WAYS-2:0] plru_next_refill;
     tree_plru u_plru_refill(

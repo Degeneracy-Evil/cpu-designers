@@ -263,9 +263,16 @@ module system_top(
     wire        exe_is_load;
     wire [31:0] gpr_tp;
     wire [31:0] gpr_sp;
+    wire [31:0] gpr_ra;
     wire [31:0] gpr_s1;
+    wire [31:0] gpr_a0;
+    wire [31:0] gpr_a1;
+    wire [31:0] gpr_a2;
+    wire [31:0] gpr_a3;
     wire [31:0] gpr_a4;
     wire [31:0] gpr_a5;
+    wire [31:0] gpr_a6;
+    wire [31:0] gpr_a7;
     wire [31:0] gpr_s2;
     wire [31:0] gpr_s3;
     wire        dbg_watch_valid;
@@ -308,6 +315,16 @@ module system_top(
     wire [31:0] dbg_focus_load_wb_status;
     wire [31:0] dbg_focus_load_wb_rfdata;
     wire [31:0] dbg_focus_load_wb_s2;
+    wire        dbg_if_done;
+    wire        dbg_inst_valid;
+    wire        dbg_mmu_i_ready;
+    wire        dbg_mmu_i_miss;
+    wire        dbg_i_page_fault;
+    wire [2:0]  dbg_icache_state;
+    wire        dbg_icache_refill_req;
+    wire        dbg_icache_refill_valid;
+    wire        dbg_ptw_walk_active;
+    wire        dbg_pending_i_walk;
 
     // IRQ wires
     wire        timer_irq;
@@ -403,8 +420,13 @@ module system_top(
     end
 
     // ========================================================================
-    // Debug Block 1: Last S-origin Trap Latch
+    // Debug Block 1: LAST_S_* latches
     // Captures every trap whose faulting instruction came from S-mode.
+    // These correspond to latched sepc/scause/stval at trap entry:
+    //   dbg_s_epc_r   == LAST_S_EPC
+    //   dbg_s_cause_r == LAST_S_CAUSE
+    //   dbg_s_tval_r  == LAST_S_TVAL
+    //   dbg_s_count_r == LAST_S_COUNT (custom counter)
     // Includes both S→S and S→M traps. Does not filter interrupts.
     // ========================================================================
     localparam [1:0] PRIV_S = 2'b01;
@@ -423,8 +445,15 @@ module system_top(
     reg [31:0] dbg_s_gpr_s1_r;
     reg [31:0] dbg_s_gpr_s2_r;
     reg [31:0] dbg_s_gpr_s3_r;
+    reg [31:0] dbg_s_gpr_a0_r;
+    reg [31:0] dbg_s_gpr_a1_r;
+    reg [31:0] dbg_s_gpr_a2_r;
+    reg [31:0] dbg_s_gpr_a3_r;
     reg [31:0] dbg_s_gpr_a4_r;
     reg [31:0] dbg_s_gpr_a5_r;
+    reg [31:0] dbg_s_gpr_a6_r;
+    reg [31:0] dbg_s_gpr_a7_r;
+    reg [31:0] dbg_s_gpr_ra_r;
     reg [15:0] dbg_s_count_r;
 
     always_ff @(posedge cpu_clk or negedge cpu_resetn) begin
@@ -441,8 +470,15 @@ module system_top(
             dbg_s_gpr_s1_r   <= 32'b0;
             dbg_s_gpr_s2_r   <= 32'b0;
             dbg_s_gpr_s3_r   <= 32'b0;
+            dbg_s_gpr_a0_r   <= 32'b0;
+            dbg_s_gpr_a1_r   <= 32'b0;
+            dbg_s_gpr_a2_r   <= 32'b0;
+            dbg_s_gpr_a3_r   <= 32'b0;
             dbg_s_gpr_a4_r   <= 32'b0;
             dbg_s_gpr_a5_r   <= 32'b0;
+            dbg_s_gpr_a6_r   <= 32'b0;
+            dbg_s_gpr_a7_r   <= 32'b0;
+            dbg_s_gpr_ra_r   <= 32'b0;
             dbg_s_count_r    <= 16'b0;
         end else if (dbg_s_origin_trap) begin
             dbg_s_valid_r    <= 1'b1;
@@ -457,8 +493,15 @@ module system_top(
             dbg_s_gpr_s1_r   <= gpr_s1;
             dbg_s_gpr_s2_r   <= gpr_s2;
             dbg_s_gpr_s3_r   <= gpr_s3;
+            dbg_s_gpr_a0_r   <= gpr_a0;
+            dbg_s_gpr_a1_r   <= gpr_a1;
+            dbg_s_gpr_a2_r   <= gpr_a2;
+            dbg_s_gpr_a3_r   <= gpr_a3;
             dbg_s_gpr_a4_r   <= gpr_a4;
             dbg_s_gpr_a5_r   <= gpr_a5;
+            dbg_s_gpr_a6_r   <= gpr_a6;
+            dbg_s_gpr_a7_r   <= gpr_a7;
+            dbg_s_gpr_ra_r   <= gpr_ra;
             dbg_s_count_r    <= dbg_s_count_r + 16'd1;
         end
     end
@@ -483,6 +526,11 @@ module system_top(
     reg [31:0] dbg_entry_mem_addr_r;
     reg        dbg_entry_mem_write_r;
     reg        dbg_entry_mem_read_r;
+    reg        dbg_ret_valid_r;
+    reg [31:0] dbg_ret_pc_r;
+    reg [31:0] dbg_ret_a0_r;
+    reg [31:0] dbg_ret_a1_r;
+    reg [31:0] dbg_ret_status_r;
 
     always_ff @(posedge cpu_clk or negedge cpu_resetn) begin
         if (!cpu_resetn) begin
@@ -497,6 +545,11 @@ module system_top(
             dbg_entry_mem_addr_r <= 32'b0;
             dbg_entry_mem_write_r<= 1'b0;
             dbg_entry_mem_read_r <= 1'b0;
+            dbg_ret_valid_r      <= 1'b0;
+            dbg_ret_pc_r         <= 32'b0;
+            dbg_ret_a0_r         <= 32'b0;
+            dbg_ret_a1_r         <= 32'b0;
+            dbg_ret_status_r     <= 32'b0;
         end else if (dbg_in_s_entry) begin
             dbg_entry_valid_r    <= 1'b1;
             dbg_entry_pc_r       <= exe_pc;
@@ -509,12 +562,23 @@ module system_top(
             dbg_entry_mem_addr_r <= exe_mem_vaddr;
             dbg_entry_mem_write_r<= exe_is_store;
             dbg_entry_mem_read_r <= exe_is_load;
+        end else if (trap_return_valid) begin
+            dbg_ret_valid_r  <= 1'b1;
+            dbg_ret_pc_r     <= trap_csr_pc;
+            dbg_ret_a0_r     <= gpr_a0;
+            dbg_ret_a1_r     <= gpr_a1;
+            dbg_ret_status_r <= {26'b0, priv_mode, target_priv, trap_return_valid, trap_enter_valid};
         end
     end
 
     // ========================================================================
-    // Debug Block 3: Recursive Trap Detector
+    // Debug Block 3: RECUR_* latches
     // Counts traps whose faulting PC is inside the S-mode trap entry itself.
+    // These correspond to:
+    //   dbg_recursive_epc_r   == RECUR_EPC
+    //   dbg_recursive_cause_r == RECUR_CAUSE
+    //   dbg_recursive_tval_r  == RECUR_TVAL
+    //   dbg_recursive_count_r == RECUR_COUNT
     // ========================================================================
     wire dbg_recursive_s_trap = trap_enter_valid &&
                                 (priv_mode == PRIV_S) &&
@@ -584,9 +648,16 @@ module system_top(
         .exe_is_load     (exe_is_load),
         .gpr_tp          (gpr_tp),
         .gpr_sp          (gpr_sp),
+        .gpr_ra          (gpr_ra),
         .gpr_s1          (gpr_s1),
+        .gpr_a0          (gpr_a0),
+        .gpr_a1          (gpr_a1),
+        .gpr_a2          (gpr_a2),
+        .gpr_a3          (gpr_a3),
         .gpr_a4          (gpr_a4),
         .gpr_a5          (gpr_a5),
+        .gpr_a6          (gpr_a6),
+        .gpr_a7          (gpr_a7),
         .gpr_s2          (gpr_s2),
         .gpr_s3          (gpr_s3),
         .dbg_watch_valid (dbg_watch_valid),
@@ -629,6 +700,16 @@ module system_top(
         .dbg_focus_load_wb_status(dbg_focus_load_wb_status),
         .dbg_focus_load_wb_rfdata(dbg_focus_load_wb_rfdata),
         .dbg_focus_load_wb_s2    (dbg_focus_load_wb_s2),
+        .dbg_if_done             (dbg_if_done),
+        .dbg_inst_valid          (dbg_inst_valid),
+        .dbg_mmu_i_ready         (dbg_mmu_i_ready),
+        .dbg_mmu_i_miss          (dbg_mmu_i_miss),
+        .dbg_i_page_fault        (dbg_i_page_fault),
+        .dbg_icache_state        (dbg_icache_state),
+        .dbg_icache_refill_req   (dbg_icache_refill_req),
+        .dbg_icache_refill_valid (dbg_icache_refill_valid),
+        .dbg_ptw_walk_active     (dbg_ptw_walk_active),
+        .dbg_pending_i_walk      (dbg_pending_i_walk),
         // AXI4 AW Channel
         .awid         (cpu_awid),
         .awaddr       (cpu_awaddr),
@@ -1901,8 +1982,8 @@ module system_top(
                     display_value <= {30'b0, priv_mode};
                 end
                 default: begin
-                    display_valid <= 1'b0;
-                    display_name  <= 40'd0;
+                    display_valid <= 1'b1;
+                    display_name  <= 40'h20_20_20_20_20;
                     display_value <= 32'b0;
                 end
             endcase
@@ -2010,227 +2091,127 @@ module system_top(
                     display_value <= dbg_s_gpr_a5_r;
                 end
                 default: begin
-                    display_valid <= 1'b0;
-                    display_name  <= 40'd0;
+                    display_valid <= 1'b1;
+                    display_name  <= 40'h20_20_20_20_20;
                     display_value <= 32'b0;
                 end
             endcase
         end else if (sw[7] && sw[6]) begin
-            // ── Page 4: S-mode trap entry monitor ──────────────────
+            // ── Page 4: Live fetch-path debug page ──────────────────
             case(display_number)
-                6'd1: begin  // Entry monitor valid
+                6'd1: begin
                     display_valid <= 1'b1;
-                    display_name  <= "E_VLD";
-                    display_value <= {31'b0, dbg_entry_valid_r};
+                    display_name  <= "IF_PC";
+                    display_value <= if_pc;
                 end
-                6'd2: begin  // Entry PC
+                6'd2: begin
                     display_valid <= 1'b1;
-                    display_name  <= "E_PC ";
-                    display_value <= dbg_entry_pc_r;
+                    display_name  <= "IF_IN";
+                    display_value <= if_inst;
                 end
-                6'd3: begin  // Entry instruction
+                6'd3: begin
                     display_valid <= 1'b1;
-                    display_name  <= "E_INS";
-                    display_value <= dbg_entry_inst_r;
+                    display_name  <= "STATE";
+                    display_value <= display_state;
                 end
-                6'd4: begin  // Entry tp (x4)
+                6'd4: begin
                     display_valid <= 1'b1;
-                    display_name  <= "E_TP ";
-                    display_value <= dbg_entry_tp_r;
+                    display_name  <= "IFDON";
+                    display_value <= {31'b0, dbg_if_done};
                 end
-                6'd5: begin  // Entry sp (x2)
+                6'd5: begin
                     display_valid <= 1'b1;
-                    display_name  <= "E_SP ";
-                    display_value <= dbg_entry_sp_r;
+                    display_name  <= "INVAL";
+                    display_value <= {31'b0, dbg_inst_valid};
                 end
-                6'd6: begin  // Entry sscratch
+                6'd6: begin
                     display_valid <= 1'b1;
-                    display_name  <= "E_SCR";
-                    display_value <= dbg_entry_sscratch_r;
+                    display_name  <= "I_RDY";
+                    display_value <= {31'b0, dbg_mmu_i_ready};
                 end
-                6'd7: begin  // Entry sstatus
+                6'd7: begin
                     display_valid <= 1'b1;
-                    display_name  <= "E_STT";
-                    display_value <= dbg_entry_sstatus_r;
+                    display_name  <= "I_MIS";
+                    display_value <= {31'b0, dbg_mmu_i_miss};
                 end
-                6'd8: begin  // Entry satp
+                6'd8: begin
                     display_valid <= 1'b1;
-                    display_name  <= "E_SAT";
-                    display_value <= dbg_entry_satp_r;
+                    display_name  <= "I_PF ";
+                    display_value <= {31'b0, dbg_i_page_fault};
                 end
-                6'd9: begin  // Entry memory address (load/store vaddr)
+                6'd9: begin
                     display_valid <= 1'b1;
-                    display_name  <= "E_MAD";
-                    display_value <= dbg_entry_mem_addr_r;
+                    display_name  <= "IC_ST";
+                    display_value <= {29'b0, dbg_icache_state};
                 end
-                6'd10: begin  // Entry mem write flag
+                6'd10: begin
                     display_valid <= 1'b1;
-                    display_name  <= "E_MWR";
-                    display_value <= {31'b0, dbg_entry_mem_write_r};
+                    display_name  <= "IC_RF";
+                    display_value <= {31'b0, dbg_icache_refill_req};
                 end
-                6'd11: begin  // Entry mem read flag
+                6'd11: begin
                     display_valid <= 1'b1;
-                    display_name  <= "E_MRD";
-                    display_value <= {31'b0, dbg_entry_mem_read_r};
+                    display_name  <= "RF_V ";
+                    display_value <= {31'b0, dbg_icache_refill_valid};
                 end
-                6'd12: begin  // Live stvec (for reference)
+                6'd12: begin
                     display_valid <= 1'b1;
-                    display_name  <= "E_TVC";
-                    display_value <= csr_stvec;
+                    display_name  <= "PTWAC";
+                    display_value <= {31'b0, dbg_ptw_walk_active};
                 end
-                6'd13: begin  // Live priv_mode
+                6'd13: begin
                     display_valid <= 1'b1;
-                    display_name  <= "E_PRV";
-                    display_value <= {30'b0, priv_mode};
+                    display_name  <= "PIWLK";
+                    display_value <= {31'b0, dbg_pending_i_walk};
                 end
                 6'd14: begin
                     display_valid <= 1'b1;
-                    display_name  <= "LM_V ";
-                    display_value <= {31'b0, dbg_watch_load_valid};
+                    display_name  <= "S_EPC";
+                    display_value <= dbg_s_epc_r;
                 end
                 6'd15: begin
                     display_valid <= 1'b1;
-                    display_name  <= "LM_ST";
-                    display_value <= dbg_watch_load_status;
+                    display_name  <= "S_CAU";
+                    display_value <= dbg_s_cause_r;
                 end
                 6'd16: begin
                     display_valid <= 1'b1;
-                    display_name  <= "LM_RD";
-                    display_value <= dbg_watch_load_rdata;
+                    display_name  <= "S_TVL";
+                    display_value <= dbg_s_tval_r;
                 end
                 6'd17: begin
                     display_valid <= 1'b1;
-                    display_name  <= "LM_WB";
-                    display_value <= dbg_watch_load_wbdata;
+                    display_name  <= "STVEC";
+                    display_value <= dbg_s_tvec_r;
                 end
                 6'd18: begin
                     display_valid <= 1'b1;
-                    display_name  <= "LM_PC";
-                    display_value <= dbg_watch_load_pc;
+                    display_name  <= "SEPC ";
+                    display_value <= csr_sepc;
                 end
-                6'd19: begin  // CPU-visible timer interrupt input
+                6'd19: begin
+                    display_valid <= 1'b1;
+                    display_name  <= "S_CNT";
+                    display_value <= {16'b0, dbg_s_count_r};
+                end
+                6'd20: begin
                     display_valid <= 1'b1;
                     display_name  <= "T_IRQ";
                     display_value <= {31'b0, clint_mtip_cpuclk_ff2};
                 end
-                6'd20: begin  // CLINT mtimecmp low word
+                6'd21: begin
                     display_valid <= 1'b1;
                     display_name  <= "CMPLO";
                     display_value <= clint_mtimecmp[31:0];
                 end
-                6'd21: begin  // CLINT mtimecmp high word
+                6'd22: begin
                     display_valid <= 1'b1;
                     display_name  <= "CMPHI";
                     display_value <= clint_mtimecmp[63:32];
                 end
-                6'd22: begin  // Watchpoint valid: store to pcpu list head next
-                    display_valid <= 1'b1;
-                    display_name  <= "W_VLD";
-                    display_value <= {31'b0, dbg_focus_store_valid};
-                end
-                6'd23: begin
-                    display_valid <= 1'b1;
-                    display_name  <= "W_PC ";
-                    display_value <= dbg_focus_store_pc;
-                end
-                6'd24: begin
-                    display_valid <= 1'b1;
-                    display_name  <= "W_ST ";
-                    display_value <= dbg_focus_store_status;
-                end
-                6'd25: begin
-                    display_valid <= 1'b1;
-                    display_name  <= "W_VA ";
-                    display_value <= dbg_focus_store_vaddr;
-                end
-                6'd26: begin
-                    display_valid <= 1'b1;
-                    display_name  <= "W_S2 ";
-                    display_value <= dbg_focus_store_paddr;
-                end
-                6'd27: begin
-                    display_valid <= 1'b1;
-                    display_name  <= "W_DAT";
-                    display_value <= dbg_focus_store_wdata;
-                end
-                6'd28: begin
-                    display_valid <= 1'b1;
-                    display_name  <= "WINS ";
-                    display_value <= dbg_focus_store_inst;
-                end
-                6'd29: begin
-                    display_valid <= 1'b1;
-                    display_name  <= "RH_V ";
-                    display_value <= {31'b0, dbg_dcache_lh_valid};
-                end
-                6'd30: begin
-                    display_valid <= 1'b1;
-                    display_name  <= "RH_WD";
-                    display_value <= dbg_dcache_lh_data;
-                end
-                6'd31: begin
-                    display_valid <= 1'b1;
-                    display_name  <= "RH_ST";
-                    display_value <= dbg_dcache_lh_count;
-                end
-                6'd32: begin
-                    display_valid <= 1'b1;
-                    display_name  <= "RF_V ";
-                    display_value <= {31'b0, dbg_dcache_rf_valid};
-                end
-                6'd33: begin
-                    display_valid <= 1'b1;
-                    display_name  <= "RF_DT";
-                    display_value <= dbg_dcache_rf_data;
-                end
-                6'd34: begin
-                    display_valid <= 1'b1;
-                    display_name  <= "RF_CT";
-                    display_value <= dbg_dcache_rf_count;
-                end
-                6'd35: begin
-                    display_valid <= 1'b1;
-                    display_name  <= "WB_V ";
-                    display_value <= {31'b0, dbg_dcache_wb_valid};
-                end
-                6'd36: begin
-                    display_valid <= 1'b1;
-                    display_name  <= "WB_DT";
-                    display_value <= dbg_dcache_wb_data;
-                end
-                6'd37: begin
-                    display_valid <= 1'b1;
-                    display_name  <= "WB_CT";
-                    display_value <= dbg_dcache_wb_count;
-                end
-                6'd38: begin
-                    display_valid <= 1'b1;
-                    display_name  <= "LD_V ";
-                    display_value <= {31'b0, dbg_focus_load_wb_valid};
-                end
-                6'd39: begin
-                    display_valid <= 1'b1;
-                    display_name  <= "LD_PC";
-                    display_value <= dbg_focus_load_wb_pc;
-                end
-                6'd40: begin
-                    display_valid <= 1'b1;
-                    display_name  <= "LD_ST";
-                    display_value <= dbg_focus_load_wb_status;
-                end
-                6'd41: begin
-                    display_valid <= 1'b1;
-                    display_name  <= "LD_RF";
-                    display_value <= dbg_focus_load_wb_rfdata;
-                end
-                6'd42: begin
-                    display_valid <= 1'b1;
-                    display_name  <= "LD_S2";
-                    display_value <= dbg_focus_load_wb_s2;
-                end
                 default: begin
-                    display_valid <= 1'b0;
-                    display_name  <= 40'd0;
+                    display_valid <= 1'b1;
+                    display_name  <= 40'h20_20_20_20_20;
                     display_value <= 32'b0;
                 end
             endcase
@@ -2318,8 +2299,8 @@ module system_top(
                     display_value <= clint_mtime_cpuclk_ff2[31:0];
                 end
                 default: begin
-                    display_valid <= 1'b0;
-                    display_name  <= 40'd0;
+                    display_valid <= 1'b1;
+                    display_name  <= 40'h20_20_20_20_20;
                     display_value <= 32'b0;
                 end
             endcase

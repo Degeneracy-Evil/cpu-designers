@@ -47,7 +47,9 @@ module MMU #(
     input              sfence_vma,
 
     // ── sfence completion ──
-    output wire        sfence_done
+    output wire        sfence_done,
+    output wire        dbg_i_walk_active,
+    output wire        dbg_pending_i_walk
 );
 
     localparam PRIV_M = 2'b11;
@@ -1051,5 +1053,8 @@ module MMU #(
     );
 
 `endif // USE_TLB_BRAM
+
+    assign dbg_i_walk_active = walk_active_r;
+    assign dbg_pending_i_walk = pending_i_walk;
 
 endmodule

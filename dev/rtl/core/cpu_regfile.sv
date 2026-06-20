@@ -16,9 +16,16 @@ module cpu_regfile(
     output [31:0] dbg_rdata2,
     input  [4:0]  dbg_raddr3,
     output [31:0] dbg_rdata3,
+    output [31:0] dbg_x1,
     output [31:0] dbg_x9,
+    output [31:0] dbg_x10,
+    output [31:0] dbg_x11,
+    output [31:0] dbg_x12,
+    output [31:0] dbg_x13,
     output [31:0] dbg_x14,
     output [31:0] dbg_x15,
+    output [31:0] dbg_x16,
+    output [31:0] dbg_x17,
     output [31:0] dbg_x18,
     output [31:0] dbg_x19
 );
@@ -38,9 +45,16 @@ module cpu_regfile(
     assign dbg_rdata  = (dbg_raddr  == 5'd0) ? 32'b0 : rf[dbg_raddr];
     assign dbg_rdata2 = (dbg_raddr2 == 5'd0) ? 32'b0 : rf[dbg_raddr2];
     assign dbg_rdata3 = (dbg_raddr3 == 5'd0) ? 32'b0 : rf[dbg_raddr3];
+    assign dbg_x1     = rf[1];   // ra
     assign dbg_x9     = rf[9];   // s1
+    assign dbg_x10    = rf[10];  // a0
+    assign dbg_x11    = rf[11];  // a1
+    assign dbg_x12    = rf[12];  // a2
+    assign dbg_x13    = rf[13];  // a3
     assign dbg_x14    = rf[14];  // a4
     assign dbg_x15    = rf[15];  // a5
+    assign dbg_x16    = rf[16];  // a6
+    assign dbg_x17    = rf[17];  // a7
     assign dbg_x18    = rf[18];  // s2
     assign dbg_x19    = rf[19];  // s3
 

@@ -41,7 +41,16 @@ module dcache_ctrl(
     // Single-line invalidation (for PTW A/D bit writeback coherency)
     input  wire        inv_line_req,
     input  wire [31:0] inv_line_addr,
-    output wire        inv_line_done
+    output wire        inv_line_done,
+    output wire        dbg_watch_lh_valid,
+    output wire [31:0] dbg_watch_lh_data,
+    output wire [31:0] dbg_watch_lh_count,
+    output wire        dbg_watch_rf_valid,
+    output wire [31:0] dbg_watch_rf_data,
+    output wire [31:0] dbg_watch_rf_count,
+    output wire        dbg_watch_wb_valid,
+    output wire [31:0] dbg_watch_wb_data,
+    output wire [31:0] dbg_watch_wb_count
 );
 
     // --- Cache geometry from config ---
@@ -61,6 +70,12 @@ module dcache_ctrl(
     // Derived: address layout
     localparam ADDR_UPPER_ZEROS = 30 - `DCACHE_TAG_HI;
     localparam ADDR_LOWER_ZEROS = `DCACHE_SET_IDX_LO;
+`ifdef SIMULATION
+    localparam [31:0] DBG_WATCH_LINE_ADDR = 32'h8000_21E0;
+`else
+    localparam [31:0] DBG_WATCH_LINE_ADDR = 32'h807B_21E0;
+`endif
+    localparam integer DBG_WATCH_WORD_OFF = 7;
 
     // 状态机状态
     localparam S_IDLE             = 4'd0;
@@ -231,6 +246,19 @@ module dcache_ctrl(
     reg        inv_line_done_r;
     reg [TAG_WIDTH-1:0]  inv_latched_tag;
     reg [SET_IDX_W-1:0]  inv_latched_set;
+    reg [SET_IDX_W-1:0]  hit_set_r;
+    reg [WAY_W-1:0]      hit_way_r;
+    reg [SET_IDX_W-1:0]  hit_word_off_r;
+    reg                  hit_watch_r;
+    reg                  dbg_watch_lh_valid_r;
+    reg [31:0]           dbg_watch_lh_data_r;
+    reg [31:0]           dbg_watch_lh_count_r;
+    reg                  dbg_watch_rf_valid_r;
+    reg [31:0]           dbg_watch_rf_data_r;
+    reg [31:0]           dbg_watch_rf_count_r;
+    reg                  dbg_watch_wb_valid_r;
+    reg [31:0]           dbg_watch_wb_data_r;
+    reg [31:0]           dbg_watch_wb_count_r;
 
     // =========================================================================
     // Data BRAM (dcached) — 256-bit × 32 deep
@@ -336,10 +364,17 @@ module dcache_ctrl(
     reg        mmio_hwrite_r;
     reg [2:0]  mmio_hsize_r;
 
-    wire [31:0] rdata_word = bram_douta[word_off*32 +: 32];
+    wire [31:0] rdata_word = bram_douta[hit_word_off_r*32 +: 32];
     wire [31:0] refill_word = refill_data[latched_word_off*32 +: 32];
+    wire [31:0] live_cpu_rdata =
+        ((state == S_READ_HIT)) ? rdata_word :
+        ((state == S_REFILL) && refill_valid) ? refill_word :
+        bypass_data;
 
-    assign cpu_req_rdata = is_mmio ? mmio_rdata : bypass_data;
+    // Response data must not depend on the live request address. Once a request
+    // is in flight, the return path should be driven only by the completing
+    // source (hit/refill/MMIO) via live_cpu_rdata/bypass_data.
+    assign cpu_req_rdata = live_cpu_rdata;
 
     assign cpu_req_ready = cpu_req_ready_r;
 
@@ -356,6 +391,15 @@ module dcache_ctrl(
 
     assign flush_done  = flush_done_r;
     assign inv_line_done = inv_line_done_r;
+    assign dbg_watch_lh_valid = dbg_watch_lh_valid_r;
+    assign dbg_watch_lh_data  = dbg_watch_lh_data_r;
+    assign dbg_watch_lh_count = dbg_watch_lh_count_r;
+    assign dbg_watch_rf_valid = dbg_watch_rf_valid_r;
+    assign dbg_watch_rf_data  = dbg_watch_rf_data_r;
+    assign dbg_watch_rf_count = dbg_watch_rf_count_r;
+    assign dbg_watch_wb_valid = dbg_watch_wb_valid_r;
+    assign dbg_watch_wb_data  = dbg_watch_wb_data_r;
+    assign dbg_watch_wb_count = dbg_watch_wb_count_r;
 
     assign mmio_req    = mmio_pending_r;
     assign mmio_addr   = mmio_addr_r;
@@ -369,6 +413,14 @@ module dcache_ctrl(
         .victim_way (),
         .access_way (latched_victim_way),
         .next_state (plru_next_miss)
+    );
+
+    wire [NUM_WAYS-2:0] plru_next_hit;
+    tree_plru u_plru_hit(
+        .plru_state (plru_state[hit_set_r]),
+        .victim_way (),
+        .access_way (hit_way_r),
+        .next_state (plru_next_hit)
     );
 
     // =========================================================================
@@ -421,6 +473,19 @@ module dcache_ctrl(
             inv_line_done_r  <= 1'b0;
             inv_latched_tag  <= {TAG_WIDTH{1'b0}};
             inv_latched_set  <= {SET_IDX_W{1'b0}};
+            hit_set_r        <= {SET_IDX_W{1'b0}};
+            hit_way_r        <= {WAY_W{1'b0}};
+            hit_word_off_r   <= {SET_IDX_W{1'b0}};
+            hit_watch_r      <= 1'b0;
+            dbg_watch_lh_valid_r <= 1'b0;
+            dbg_watch_lh_data_r  <= 32'b0;
+            dbg_watch_lh_count_r <= 32'b0;
+            dbg_watch_rf_valid_r <= 1'b0;
+            dbg_watch_rf_data_r  <= 32'b0;
+            dbg_watch_rf_count_r <= 32'b0;
+            dbg_watch_wb_valid_r <= 1'b0;
+            dbg_watch_wb_data_r  <= 32'b0;
+            dbg_watch_wb_count_r <= 32'b0;
             tag_bram_enb_r   <= 1'b0;
             tag_bram_web_r   <= {TAG_BRAM_WEA{1'b0}};
             tag_bram_addrb_r <= {SET_IDX_W{1'b0}};
@@ -505,6 +570,10 @@ module dcache_ctrl(
                             state <= S_IDLE;  // must return to S_IDLE; tag BRAM output is stale for new request
                         end else begin
                             // Load hit: enable data BRAM, go to S_READ_HIT
+                            hit_set_r      <= set_idx;
+                            hit_way_r      <= hit_way;
+                            hit_word_off_r <= word_off;
+                            hit_watch_r    <= ({cpu_req_addr[31:5], 5'b0} == DBG_WATCH_LINE_ADDR);
                             state <= S_READ_HIT;
                         end
                     end else begin
@@ -531,7 +600,12 @@ module dcache_ctrl(
                 S_READ_HIT: begin
                     bypass_data     <= rdata_word;
                     cpu_req_ready_r <= 1'b1;
-                    plru_state[set_idx] <= plru_next;
+                    plru_state[hit_set_r] <= plru_next_hit;
+                    if (hit_watch_r) begin
+                        dbg_watch_lh_valid_r <= 1'b1;
+                        dbg_watch_lh_data_r  <= rdata_word;
+                        dbg_watch_lh_count_r <= dbg_watch_lh_count_r + 32'd1;
+                    end
                     state <= S_IDLE;
                 end
 
@@ -543,6 +617,11 @@ module dcache_ctrl(
                 S_WB_SEND: begin
                     wb_req_r <= 1'b1;
                     if (wb_valid) begin
+                        if ({wb_addr_r[31:5], 5'b0} == DBG_WATCH_LINE_ADDR) begin
+                            dbg_watch_wb_valid_r <= 1'b1;
+                            dbg_watch_wb_data_r  <= bram_doutb[DBG_WATCH_WORD_OFF*32 +: 32];
+                            dbg_watch_wb_count_r <= dbg_watch_wb_count_r + 32'd1;
+                        end
                         wb_req_r      <= 1'b0;
                         // Clear dirty bit in tag BRAM
                         tag_bram_enb_r   <= 1'b1;
@@ -558,6 +637,20 @@ module dcache_ctrl(
                 S_REFILL: begin
                     refill_req_r <= 1'b1;
                     if (refill_valid) begin
+                        if ({refill_addr_r[31:5], 5'b0} == DBG_WATCH_LINE_ADDR) begin
+                            dbg_watch_lh_valid_r <= 1'b1;
+                            dbg_watch_lh_data_r  <= refill_word;
+                            dbg_watch_lh_count_r <= {
+                                21'b0,
+                                refill_addr_r[`DCACHE_WORD_OFF_HI:`DCACHE_WORD_OFF_LO],
+                                latched_word_off,
+                                state,
+                                refill_valid
+                            };
+                            dbg_watch_rf_valid_r <= 1'b1;
+                            dbg_watch_rf_data_r  <= refill_data[DBG_WATCH_WORD_OFF*32 +: 32];
+                            dbg_watch_rf_count_r <= dbg_watch_rf_count_r + 32'd1;
+                        end
                         refill_req_r    <= 1'b0;
                         bypass_data     <= refill_word;
                         cpu_req_ready_r <= 1'b1;

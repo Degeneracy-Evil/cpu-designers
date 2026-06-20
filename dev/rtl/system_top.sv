@@ -263,6 +263,51 @@ module system_top(
     wire        exe_is_load;
     wire [31:0] gpr_tp;
     wire [31:0] gpr_sp;
+    wire [31:0] gpr_s1;
+    wire [31:0] gpr_a4;
+    wire [31:0] gpr_a5;
+    wire [31:0] gpr_s2;
+    wire [31:0] gpr_s3;
+    wire        dbg_watch_valid;
+    wire [31:0] dbg_watch_pc;
+    wire [31:0] dbg_watch_inst;
+    wire [31:0] dbg_watch_vaddr;
+    wire [31:0] dbg_watch_paddr;
+    wire [31:0] dbg_watch_wdata;
+    wire [31:0] dbg_watch_count;
+    wire        dbg_dcache_lh_valid;
+    wire [31:0] dbg_dcache_lh_data;
+    wire [31:0] dbg_dcache_lh_count;
+    wire        dbg_dcache_rf_valid;
+    wire [31:0] dbg_dcache_rf_data;
+    wire [31:0] dbg_dcache_rf_count;
+    wire        dbg_dcache_wb_valid;
+    wire [31:0] dbg_dcache_wb_data;
+    wire [31:0] dbg_dcache_wb_count;
+    wire        dbg_watch_load_valid;
+    wire [31:0] dbg_watch_load_pc;
+    wire [31:0] dbg_watch_load_rdata;
+    wire [31:0] dbg_watch_load_wbdata;
+    wire [31:0] dbg_watch_load_count;
+    wire [31:0] dbg_watch_load_status;
+    wire        dbg_focus_store_valid;
+    wire [31:0] dbg_focus_store_pc;
+    wire [31:0] dbg_focus_store_inst;
+    wire [31:0] dbg_focus_store_vaddr;
+    wire [31:0] dbg_focus_store_paddr;
+    wire [31:0] dbg_focus_store_wdata;
+    wire [31:0] dbg_focus_store_status;
+    wire        dbg_focus_load_valid;
+    wire [31:0] dbg_focus_load_pc;
+    wire [31:0] dbg_focus_load_inst;
+    wire [31:0] dbg_focus_load_paddr;
+    wire [31:0] dbg_focus_load_rdata;
+    wire [31:0] dbg_focus_load_status;
+    wire        dbg_focus_load_wb_valid;
+    wire [31:0] dbg_focus_load_wb_pc;
+    wire [31:0] dbg_focus_load_wb_status;
+    wire [31:0] dbg_focus_load_wb_rfdata;
+    wire [31:0] dbg_focus_load_wb_s2;
 
     // IRQ wires
     wire        timer_irq;
@@ -270,6 +315,7 @@ module system_top(
     wire        clint_mtip;
     wire        clint_msip;
     wire [63:0] clint_mtime;
+    wire [63:0] clint_mtimecmp;
     logic       plic_eip_cpuclk_ff1, plic_eip_cpuclk_ff2;
     logic       plic_seip_cpuclk_ff1, plic_seip_cpuclk_ff2;
     logic       clint_mtip_cpuclk_ff1, clint_mtip_cpuclk_ff2;
@@ -374,6 +420,11 @@ module system_top(
     reg [31:0] dbg_s_tvec_r;
     reg [31:0] dbg_s_scratch_r;
     reg [31:0] dbg_s_satp_r;
+    reg [31:0] dbg_s_gpr_s1_r;
+    reg [31:0] dbg_s_gpr_s2_r;
+    reg [31:0] dbg_s_gpr_s3_r;
+    reg [31:0] dbg_s_gpr_a4_r;
+    reg [31:0] dbg_s_gpr_a5_r;
     reg [15:0] dbg_s_count_r;
 
     always_ff @(posedge cpu_clk or negedge cpu_resetn) begin
@@ -387,6 +438,11 @@ module system_top(
             dbg_s_tvec_r     <= 32'b0;
             dbg_s_scratch_r  <= 32'b0;
             dbg_s_satp_r     <= 32'b0;
+            dbg_s_gpr_s1_r   <= 32'b0;
+            dbg_s_gpr_s2_r   <= 32'b0;
+            dbg_s_gpr_s3_r   <= 32'b0;
+            dbg_s_gpr_a4_r   <= 32'b0;
+            dbg_s_gpr_a5_r   <= 32'b0;
             dbg_s_count_r    <= 16'b0;
         end else if (dbg_s_origin_trap) begin
             dbg_s_valid_r    <= 1'b1;
@@ -398,6 +454,11 @@ module system_top(
             dbg_s_tvec_r     <= csr_stvec;
             dbg_s_scratch_r  <= csr_sscratch;
             dbg_s_satp_r     <= csr_satp;
+            dbg_s_gpr_s1_r   <= gpr_s1;
+            dbg_s_gpr_s2_r   <= gpr_s2;
+            dbg_s_gpr_s3_r   <= gpr_s3;
+            dbg_s_gpr_a4_r   <= gpr_a4;
+            dbg_s_gpr_a5_r   <= gpr_a5;
             dbg_s_count_r    <= dbg_s_count_r + 16'd1;
         end
     end
@@ -523,6 +584,51 @@ module system_top(
         .exe_is_load     (exe_is_load),
         .gpr_tp          (gpr_tp),
         .gpr_sp          (gpr_sp),
+        .gpr_s1          (gpr_s1),
+        .gpr_a4          (gpr_a4),
+        .gpr_a5          (gpr_a5),
+        .gpr_s2          (gpr_s2),
+        .gpr_s3          (gpr_s3),
+        .dbg_watch_valid (dbg_watch_valid),
+        .dbg_watch_pc    (dbg_watch_pc),
+        .dbg_watch_inst  (dbg_watch_inst),
+        .dbg_watch_vaddr (dbg_watch_vaddr),
+        .dbg_watch_paddr (dbg_watch_paddr),
+        .dbg_watch_wdata (dbg_watch_wdata),
+        .dbg_watch_count (dbg_watch_count),
+        .dbg_dcache_lh_valid(dbg_dcache_lh_valid),
+        .dbg_dcache_lh_data (dbg_dcache_lh_data),
+        .dbg_dcache_lh_count(dbg_dcache_lh_count),
+        .dbg_dcache_rf_valid(dbg_dcache_rf_valid),
+        .dbg_dcache_rf_data (dbg_dcache_rf_data),
+        .dbg_dcache_rf_count(dbg_dcache_rf_count),
+        .dbg_dcache_wb_valid(dbg_dcache_wb_valid),
+        .dbg_dcache_wb_data (dbg_dcache_wb_data),
+        .dbg_dcache_wb_count(dbg_dcache_wb_count),
+        .dbg_watch_load_valid(dbg_watch_load_valid),
+        .dbg_watch_load_pc   (dbg_watch_load_pc),
+        .dbg_watch_load_rdata(dbg_watch_load_rdata),
+        .dbg_watch_load_wbdata(dbg_watch_load_wbdata),
+        .dbg_watch_load_count(dbg_watch_load_count),
+        .dbg_watch_load_status(dbg_watch_load_status),
+        .dbg_focus_store_valid(dbg_focus_store_valid),
+        .dbg_focus_store_pc   (dbg_focus_store_pc),
+        .dbg_focus_store_inst (dbg_focus_store_inst),
+        .dbg_focus_store_vaddr(dbg_focus_store_vaddr),
+        .dbg_focus_store_paddr(dbg_focus_store_paddr),
+        .dbg_focus_store_wdata(dbg_focus_store_wdata),
+        .dbg_focus_store_status(dbg_focus_store_status),
+        .dbg_focus_load_valid (dbg_focus_load_valid),
+        .dbg_focus_load_pc    (dbg_focus_load_pc),
+        .dbg_focus_load_inst  (dbg_focus_load_inst),
+        .dbg_focus_load_paddr (dbg_focus_load_paddr),
+        .dbg_focus_load_rdata (dbg_focus_load_rdata),
+        .dbg_focus_load_status(dbg_focus_load_status),
+        .dbg_focus_load_wb_valid (dbg_focus_load_wb_valid),
+        .dbg_focus_load_wb_pc    (dbg_focus_load_wb_pc),
+        .dbg_focus_load_wb_status(dbg_focus_load_wb_status),
+        .dbg_focus_load_wb_rfdata(dbg_focus_load_wb_rfdata),
+        .dbg_focus_load_wb_s2    (dbg_focus_load_wb_s2),
         // AXI4 AW Channel
         .awid         (cpu_awid),
         .awaddr       (cpu_awaddr),
@@ -1397,7 +1503,8 @@ module system_top(
         .s_axi_rready  (clint_rready),
         .o_mtip        (clint_mtip),
         .o_msip        (clint_msip),
-        .o_mtime       (clint_mtime)
+        .o_mtime       (clint_mtime),
+        .o_mtimecmp    (clint_mtimecmp)
     );
 
     // ========================================================================
@@ -1877,6 +1984,31 @@ module system_top(
                     display_name  <= "R_CNT";
                     display_value <= {16'b0, dbg_recursive_count_r};
                 end
+                6'd16: begin  // Fault-time s1 (x9)
+                    display_valid <= 1'b1;
+                    display_name  <= "F_S1 ";
+                    display_value <= dbg_s_gpr_s1_r;
+                end
+                6'd17: begin  // Fault-time s2 (x18)
+                    display_valid <= 1'b1;
+                    display_name  <= "F_S2 ";
+                    display_value <= dbg_s_gpr_s2_r;
+                end
+                6'd18: begin  // Fault-time s3 (x19)
+                    display_valid <= 1'b1;
+                    display_name  <= "F_S3 ";
+                    display_value <= dbg_s_gpr_s3_r;
+                end
+                6'd19: begin  // Fault-time a4 (x14)
+                    display_valid <= 1'b1;
+                    display_name  <= "F_A4 ";
+                    display_value <= dbg_s_gpr_a4_r;
+                end
+                6'd20: begin  // Fault-time a5 (x15)
+                    display_valid <= 1'b1;
+                    display_name  <= "F_A5 ";
+                    display_value <= dbg_s_gpr_a5_r;
+                end
                 default: begin
                     display_valid <= 1'b0;
                     display_name  <= 40'd0;
@@ -1950,6 +2082,151 @@ module system_top(
                     display_valid <= 1'b1;
                     display_name  <= "E_PRV";
                     display_value <= {30'b0, priv_mode};
+                end
+                6'd14: begin
+                    display_valid <= 1'b1;
+                    display_name  <= "LM_V ";
+                    display_value <= {31'b0, dbg_watch_load_valid};
+                end
+                6'd15: begin
+                    display_valid <= 1'b1;
+                    display_name  <= "LM_ST";
+                    display_value <= dbg_watch_load_status;
+                end
+                6'd16: begin
+                    display_valid <= 1'b1;
+                    display_name  <= "LM_RD";
+                    display_value <= dbg_watch_load_rdata;
+                end
+                6'd17: begin
+                    display_valid <= 1'b1;
+                    display_name  <= "LM_WB";
+                    display_value <= dbg_watch_load_wbdata;
+                end
+                6'd18: begin
+                    display_valid <= 1'b1;
+                    display_name  <= "LM_PC";
+                    display_value <= dbg_watch_load_pc;
+                end
+                6'd19: begin  // CPU-visible timer interrupt input
+                    display_valid <= 1'b1;
+                    display_name  <= "T_IRQ";
+                    display_value <= {31'b0, clint_mtip_cpuclk_ff2};
+                end
+                6'd20: begin  // CLINT mtimecmp low word
+                    display_valid <= 1'b1;
+                    display_name  <= "CMPLO";
+                    display_value <= clint_mtimecmp[31:0];
+                end
+                6'd21: begin  // CLINT mtimecmp high word
+                    display_valid <= 1'b1;
+                    display_name  <= "CMPHI";
+                    display_value <= clint_mtimecmp[63:32];
+                end
+                6'd22: begin  // Watchpoint valid: store to pcpu list head next
+                    display_valid <= 1'b1;
+                    display_name  <= "W_VLD";
+                    display_value <= {31'b0, dbg_focus_store_valid};
+                end
+                6'd23: begin
+                    display_valid <= 1'b1;
+                    display_name  <= "W_PC ";
+                    display_value <= dbg_focus_store_pc;
+                end
+                6'd24: begin
+                    display_valid <= 1'b1;
+                    display_name  <= "W_ST ";
+                    display_value <= dbg_focus_store_status;
+                end
+                6'd25: begin
+                    display_valid <= 1'b1;
+                    display_name  <= "W_VA ";
+                    display_value <= dbg_focus_store_vaddr;
+                end
+                6'd26: begin
+                    display_valid <= 1'b1;
+                    display_name  <= "W_S2 ";
+                    display_value <= dbg_focus_store_paddr;
+                end
+                6'd27: begin
+                    display_valid <= 1'b1;
+                    display_name  <= "W_DAT";
+                    display_value <= dbg_focus_store_wdata;
+                end
+                6'd28: begin
+                    display_valid <= 1'b1;
+                    display_name  <= "WINS ";
+                    display_value <= dbg_focus_store_inst;
+                end
+                6'd29: begin
+                    display_valid <= 1'b1;
+                    display_name  <= "RH_V ";
+                    display_value <= {31'b0, dbg_dcache_lh_valid};
+                end
+                6'd30: begin
+                    display_valid <= 1'b1;
+                    display_name  <= "RH_WD";
+                    display_value <= dbg_dcache_lh_data;
+                end
+                6'd31: begin
+                    display_valid <= 1'b1;
+                    display_name  <= "RH_ST";
+                    display_value <= dbg_dcache_lh_count;
+                end
+                6'd32: begin
+                    display_valid <= 1'b1;
+                    display_name  <= "RF_V ";
+                    display_value <= {31'b0, dbg_dcache_rf_valid};
+                end
+                6'd33: begin
+                    display_valid <= 1'b1;
+                    display_name  <= "RF_DT";
+                    display_value <= dbg_dcache_rf_data;
+                end
+                6'd34: begin
+                    display_valid <= 1'b1;
+                    display_name  <= "RF_CT";
+                    display_value <= dbg_dcache_rf_count;
+                end
+                6'd35: begin
+                    display_valid <= 1'b1;
+                    display_name  <= "WB_V ";
+                    display_value <= {31'b0, dbg_dcache_wb_valid};
+                end
+                6'd36: begin
+                    display_valid <= 1'b1;
+                    display_name  <= "WB_DT";
+                    display_value <= dbg_dcache_wb_data;
+                end
+                6'd37: begin
+                    display_valid <= 1'b1;
+                    display_name  <= "WB_CT";
+                    display_value <= dbg_dcache_wb_count;
+                end
+                6'd38: begin
+                    display_valid <= 1'b1;
+                    display_name  <= "LD_V ";
+                    display_value <= {31'b0, dbg_focus_load_wb_valid};
+                end
+                6'd39: begin
+                    display_valid <= 1'b1;
+                    display_name  <= "LD_PC";
+                    display_value <= dbg_focus_load_wb_pc;
+                end
+                6'd40: begin
+                    display_valid <= 1'b1;
+                    display_name  <= "LD_ST";
+                    display_value <= dbg_focus_load_wb_status;
+                end
+                6'd41: begin
+                    display_valid <= 1'b1;
+                    display_name  <= "LD_RF";
+                    display_value <= dbg_focus_load_wb_rfdata;
+                end
+                6'd42: begin
+                    display_valid <= 1'b1;
+                    display_name  <= "LD_S2";
+                    display_value <= dbg_focus_load_wb_s2;
                 end
                 default: begin
                     display_valid <= 1'b0;
@@ -2029,6 +2306,16 @@ module system_top(
                     display_valid <= 1'b1;
                     display_name  <= "SW   ";
                     display_value <= {24'b0, sw};
+                end
+                6'd45: begin
+                    display_valid <= 1'b1;
+                    display_name  <= "T_LO ";
+                    display_value <= clint_mtime[31:0];
+                end
+                6'd46: begin
+                    display_valid <= 1'b1;
+                    display_name  <= "TC_LO";
+                    display_value <= clint_mtime_cpuclk_ff2[31:0];
                 end
                 default: begin
                     display_valid <= 1'b0;

@@ -120,6 +120,8 @@ categories:
       - regression/reg_stale_paddr
       - regression/reg_bare_no_miss
       - regression/reg_pf_latch
+      - regression/reg_linux_ptr_reload
+      - regression/reg_linux_field_values
 
   regression_common:
     framework: common

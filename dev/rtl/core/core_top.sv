@@ -46,6 +46,51 @@ module core_top(
     output        exe_is_load,       // memory read flag
     output [31:0] gpr_tp,            // x4 (tp) value
     output [31:0] gpr_sp,            // x2 (sp) value
+    output [31:0] gpr_s1,            // x9 (s1) value
+    output [31:0] gpr_a4,            // x14 (a4) value
+    output [31:0] gpr_a5,            // x15 (a5) value
+    output [31:0] gpr_s2,            // x18 (s2) value
+    output [31:0] gpr_s3,            // x19 (s3) value
+    output        dbg_watch_valid,
+    output [31:0] dbg_watch_pc,
+    output [31:0] dbg_watch_inst,
+    output [31:0] dbg_watch_vaddr,
+    output [31:0] dbg_watch_paddr,
+    output [31:0] dbg_watch_wdata,
+    output [31:0] dbg_watch_count,
+    output        dbg_dcache_lh_valid,
+    output [31:0] dbg_dcache_lh_data,
+    output [31:0] dbg_dcache_lh_count,
+    output        dbg_dcache_rf_valid,
+    output [31:0] dbg_dcache_rf_data,
+    output [31:0] dbg_dcache_rf_count,
+    output        dbg_dcache_wb_valid,
+    output [31:0] dbg_dcache_wb_data,
+    output [31:0] dbg_dcache_wb_count,
+    output        dbg_watch_load_valid,
+    output [31:0] dbg_watch_load_pc,
+    output [31:0] dbg_watch_load_rdata,
+    output [31:0] dbg_watch_load_wbdata,
+    output [31:0] dbg_watch_load_count,
+    output [31:0] dbg_watch_load_status,
+    output        dbg_focus_store_valid,
+    output [31:0] dbg_focus_store_pc,
+    output [31:0] dbg_focus_store_inst,
+    output [31:0] dbg_focus_store_vaddr,
+    output [31:0] dbg_focus_store_paddr,
+    output [31:0] dbg_focus_store_wdata,
+    output [31:0] dbg_focus_store_status,
+    output        dbg_focus_load_valid,
+    output [31:0] dbg_focus_load_pc,
+    output [31:0] dbg_focus_load_inst,
+    output [31:0] dbg_focus_load_paddr,
+    output [31:0] dbg_focus_load_rdata,
+    output [31:0] dbg_focus_load_status,
+    output        dbg_focus_load_wb_valid,
+    output [31:0] dbg_focus_load_wb_pc,
+    output [31:0] dbg_focus_load_wb_status,
+    output [31:0] dbg_focus_load_wb_rfdata,
+    output [31:0] dbg_focus_load_wb_s2,
 
     // ---------- AXI4 Master — AW Channel ----------
     output [3:0]  awid,
@@ -316,12 +361,98 @@ module core_top(
     wire [31:0] hw_trap_tval_w;
     wire [31:0] gpr_tp_w;
     wire [31:0] gpr_sp_w;
+    wire [31:0] gpr_s1_w;
+    wire [31:0] gpr_a4_w;
+    wire [31:0] gpr_a5_w;
+    wire [31:0] gpr_s2_w;
+    wire [31:0] gpr_s3_w;
+    wire [2:0]  dbg_load_mem_size_w;
+    wire        dbg_load_mem_unsigned_w;
+    wire [31:0] dbg_load_addr_w;
+    wire [31:0] dbg_load_raw_rdata_w;
+    wire [31:0] dbg_load_value_w;
+    reg         dbg_watch_valid_r;
+    reg [31:0] dbg_watch_pc_r;
+    reg [31:0] dbg_watch_inst_r;
+    reg [31:0] dbg_watch_vaddr_r;
+    reg [31:0] dbg_watch_paddr_r;
+    reg [31:0] dbg_watch_wdata_r;
+    reg [31:0] dbg_watch_count_r;
+    reg        dbg_watch_load_valid_r;
+    reg [31:0] dbg_watch_load_pc_r;
+    reg [31:0] dbg_watch_load_rdata_r;
+    reg [31:0] dbg_watch_load_wbdata_r;
+    reg [31:0] dbg_watch_load_count_r;
+    reg [31:0] dbg_watch_load_status_r;
+    reg        dbg_focus_store_valid_r;
+    reg [31:0] dbg_focus_store_pc_r;
+    reg [31:0] dbg_focus_store_inst_r;
+    reg [31:0] dbg_focus_store_vaddr_r;
+    reg [31:0] dbg_focus_store_paddr_r;
+    reg [31:0] dbg_focus_store_wdata_r;
+    reg [31:0] dbg_focus_store_status_r;
+    reg        dbg_focus_load_valid_r;
+    reg [31:0] dbg_focus_load_pc_r;
+    reg [31:0] dbg_focus_load_inst_r;
+    reg [31:0] dbg_focus_load_paddr_r;
+    reg [31:0] dbg_focus_load_rdata_r;
+    reg [31:0] dbg_focus_load_status_r;
+    reg        dbg_focus_load_wb_valid_r;
+    reg [31:0] dbg_focus_load_wb_pc_r;
+    reg [31:0] dbg_focus_load_wb_status_r;
+    reg [31:0] dbg_focus_load_wb_rfdata_r;
+    reg [31:0] dbg_focus_load_wb_s2_r;
 
     assign hw_trap_epc   = hw_trap_epc_w;
     assign hw_trap_cause = hw_trap_cause_w;
     assign hw_trap_tval  = hw_trap_tval_w;
     assign gpr_tp        = gpr_tp_w;
     assign gpr_sp        = gpr_sp_w;
+    assign gpr_s1        = gpr_s1_w;
+    assign gpr_a4        = gpr_a4_w;
+    assign gpr_a5        = gpr_a5_w;
+    assign gpr_s2        = gpr_s2_w;
+    assign gpr_s3        = gpr_s3_w;
+    assign dbg_watch_valid = dbg_watch_valid_r;
+    assign dbg_watch_pc    = dbg_watch_pc_r;
+    assign dbg_watch_inst  = dbg_watch_inst_r;
+    assign dbg_watch_vaddr = dbg_watch_vaddr_r;
+    assign dbg_watch_paddr = dbg_watch_paddr_r;
+    assign dbg_watch_wdata = dbg_watch_wdata_r;
+    assign dbg_watch_count = dbg_watch_count_r;
+    assign dbg_dcache_lh_valid = dbg_dcache_lh_valid_w;
+    assign dbg_dcache_lh_data  = dbg_dcache_lh_data_w;
+    assign dbg_dcache_lh_count = dbg_dcache_lh_count_w;
+    assign dbg_dcache_rf_valid = dbg_dcache_rf_valid_w;
+    assign dbg_dcache_rf_data  = dbg_dcache_rf_data_w;
+    assign dbg_dcache_rf_count = dbg_dcache_rf_count_w;
+    assign dbg_dcache_wb_valid = dbg_dcache_wb_valid_w;
+    assign dbg_dcache_wb_data  = dbg_dcache_wb_data_w;
+    assign dbg_dcache_wb_count = dbg_dcache_wb_count_w;
+    assign dbg_watch_load_valid  = dbg_watch_load_valid_r;
+    assign dbg_watch_load_pc     = dbg_watch_load_pc_r;
+    assign dbg_watch_load_rdata  = dbg_watch_load_rdata_r;
+    assign dbg_watch_load_wbdata = dbg_watch_load_wbdata_r;
+    assign dbg_watch_load_count  = dbg_watch_load_count_r;
+    assign dbg_watch_load_status = dbg_watch_load_status_r;
+    assign dbg_focus_store_valid  = dbg_focus_store_valid_r;
+    assign dbg_focus_store_pc     = dbg_focus_store_pc_r;
+    assign dbg_focus_store_inst   = dbg_focus_store_inst_r;
+    assign dbg_focus_store_vaddr  = dbg_focus_store_vaddr_r;
+    assign dbg_focus_store_paddr  = dbg_focus_store_paddr_r;
+    assign dbg_focus_store_wdata  = dbg_focus_store_wdata_r;
+    assign dbg_focus_store_status = dbg_focus_store_status_r;
+    assign dbg_focus_load_valid   = dbg_focus_load_valid_r;
+    assign dbg_focus_load_pc      = dbg_focus_load_pc_r;
+    assign dbg_focus_load_inst    = dbg_focus_load_inst_r;
+    assign dbg_focus_load_paddr   = dbg_focus_load_paddr_r;
+    assign dbg_focus_load_rdata   = dbg_focus_load_rdata_r;
+    assign dbg_focus_load_status  = dbg_focus_load_status_r;
+    assign dbg_focus_load_wb_valid  = dbg_focus_load_wb_valid_r;
+    assign dbg_focus_load_wb_pc     = dbg_focus_load_wb_pc_r;
+    assign dbg_focus_load_wb_status = dbg_focus_load_wb_status_r;
+    assign dbg_focus_load_wb_rfdata = dbg_focus_load_wb_rfdata_r;
+    assign dbg_focus_load_wb_s2     = dbg_focus_load_wb_s2_r;
     assign exe_mem_vaddr = mem_dataAddr_32;
     assign exe_is_store  = exe_mem_bus.is_store;
     assign exe_is_load   = exe_mem_bus.is_load;
@@ -679,11 +810,158 @@ module core_top(
     wire [31:0] dcache_wb_addr;
     wire [255:0] dcache_wb_data;
     wire        dcache_wb_valid;
+    wire        dbg_dcache_lh_valid_w;
+    wire [31:0] dbg_dcache_lh_data_w;
+    wire [31:0] dbg_dcache_lh_count_w;
+    wire        dbg_dcache_rf_valid_w;
+    wire [31:0] dbg_dcache_rf_data_w;
+    wire [31:0] dbg_dcache_rf_count_w;
+    wire        dbg_dcache_wb_valid_w;
+    wire [31:0] dbg_dcache_wb_data_w;
+    wire [31:0] dbg_dcache_wb_count_w;
 
     wire        bridge_icache_error;
     wire        bridge_dcache_error;
     wire        bridge_dcache_error_is_store;
     wire [31:0] bridge_bus_error_addr;
+
+`ifdef SIMULATION
+    localparam [31:0] DBG_WATCH_PADDR = 32'h8000_21FC;
+    localparam [31:0] DBG_FOCUS_STORE_PC0 = 32'h8000_00E0;
+    localparam [31:0] DBG_FOCUS_STORE_PC1 = 32'h8000_0108;
+    localparam [31:0] DBG_FOCUS_LOAD_PC0  = 32'h8000_00F8;
+`else
+    localparam [31:0] DBG_WATCH_PADDR = 32'h807B_21FC;
+    localparam [31:0] DBG_FOCUS_STORE_PC0 = 32'hC00F_E334;
+    localparam [31:0] DBG_FOCUS_STORE_PC1 = 32'hC00F_E580;
+    localparam [31:0] DBG_FOCUS_LOAD_PC0  = 32'hC00F_E570;
+`endif
+    wire dbg_focus_store_pc_match = (exe_pc == DBG_FOCUS_STORE_PC0) || (exe_pc == DBG_FOCUS_STORE_PC1);
+    wire dbg_focus_load_pc_match  = (exe_pc == DBG_FOCUS_LOAD_PC0);
+    wire dbg_focus_load_mem_pc_match = (mem_pc == DBG_FOCUS_LOAD_PC0);
+    wire dbg_focus_load_wb_pc_match = (wb_pc == DBG_FOCUS_LOAD_PC0);
+    wire dbg_focus_store_hit = exe_valid && dbg_focus_store_pc_match;
+    wire dbg_focus_load_hit  = exe_valid && dbg_focus_load_pc_match;
+    wire dbg_focus_load_wb_hit = wb_valid && dbg_focus_load_wb_pc_match;
+    wire [31:0] dbg_focus_store_status_w = {
+        14'b0,
+        exe_mem_bus.wb_rd,
+        priv_mode,
+        exe_mem_bus.wb_we,
+        exe_mem_bus.is_store,
+        exe_mem_bus.is_load,
+        exe_need_mem,
+        exe_done,
+        exe_valid
+    };
+    wire [31:0] dbg_focus_load_status_w = {
+        14'b0,
+        exe_mem_bus.wb_rd,
+        priv_mode,
+        exe_mem_bus.wb_we,
+        exe_mem_bus.is_store,
+        exe_mem_bus.is_load,
+        exe_need_mem,
+        exe_done,
+        exe_valid
+    };
+    wire [31:0] dbg_focus_load_wb_status_w = {
+        22'b0,
+        rf_waddr,
+        rf_wen,
+        mem_wb_bus_r.wb_we,
+        wb_valid,
+        mem_wb_bus_r.is_csr,
+        mem_wb_bus_r.is_jal_like
+    };
+    wire dbg_watch_store_commit = data_valid_mux && mem_en && mem_hwrite &&
+                                  mmu_data_ready &&
+                                  ((mmu_data_paddr == DBG_WATCH_PADDR) || dbg_focus_store_pc_match);
+    wire dbg_watch_load_commit = data_valid_mux && mem_en && !mem_hwrite &&
+                                 dbg_focus_load_mem_pc_match;
+    wire [31:0] dbg_watch_load_status_w = {
+        26'b0,
+        dbg_load_mem_unsigned_w,
+        dbg_load_mem_size_w,
+        dbg_load_addr_w[1:0]
+    };
+
+    always_ff @(posedge clk or negedge resetn) begin
+        if (!resetn) begin
+            dbg_watch_valid_r <= 1'b0;
+            dbg_watch_pc_r    <= 32'b0;
+            dbg_watch_inst_r  <= 32'b0;
+            dbg_watch_vaddr_r <= 32'b0;
+            dbg_watch_paddr_r <= 32'b0;
+            dbg_watch_wdata_r <= 32'b0;
+            dbg_watch_count_r <= 32'b0;
+            dbg_watch_load_valid_r  <= 1'b0;
+            dbg_watch_load_pc_r     <= 32'b0;
+            dbg_watch_load_rdata_r  <= 32'b0;
+            dbg_watch_load_wbdata_r <= 32'b0;
+            dbg_watch_load_count_r  <= 32'b0;
+            dbg_watch_load_status_r <= 32'b0;
+            dbg_focus_store_valid_r  <= 1'b0;
+            dbg_focus_store_pc_r     <= 32'b0;
+            dbg_focus_store_inst_r   <= 32'b0;
+            dbg_focus_store_vaddr_r  <= 32'b0;
+            dbg_focus_store_paddr_r  <= 32'b0;
+            dbg_focus_store_wdata_r  <= 32'b0;
+            dbg_focus_store_status_r <= 32'b0;
+            dbg_focus_load_valid_r   <= 1'b0;
+            dbg_focus_load_pc_r      <= 32'b0;
+            dbg_focus_load_inst_r    <= 32'b0;
+            dbg_focus_load_paddr_r   <= 32'b0;
+            dbg_focus_load_rdata_r   <= 32'b0;
+            dbg_focus_load_status_r  <= 32'b0;
+            dbg_focus_load_wb_valid_r  <= 1'b0;
+            dbg_focus_load_wb_pc_r     <= 32'b0;
+            dbg_focus_load_wb_status_r <= 32'b0;
+            dbg_focus_load_wb_rfdata_r <= 32'b0;
+            dbg_focus_load_wb_s2_r     <= 32'b0;
+        end else begin
+            if (dbg_focus_store_hit) begin
+                dbg_focus_store_valid_r  <= 1'b1;
+                dbg_focus_store_pc_r     <= exe_pc;
+                dbg_focus_store_inst_r   <= exe_inst;
+                dbg_focus_store_vaddr_r  <= exe_mem_bus.result_reg;
+                dbg_focus_store_paddr_r  <= gpr_s2_w;
+                dbg_focus_store_wdata_r  <= exe_mem_bus.rs2_value;
+                dbg_focus_store_status_r <= dbg_focus_store_status_w;
+            end
+            if (dbg_focus_load_hit) begin
+                dbg_focus_load_valid_r  <= 1'b1;
+                dbg_focus_load_pc_r     <= exe_pc;
+                dbg_focus_load_inst_r   <= exe_inst;
+                dbg_focus_load_paddr_r  <= exe_mem_bus.result_reg;
+                dbg_focus_load_rdata_r  <= gpr_s1_w;
+                dbg_focus_load_status_r <= dbg_focus_load_status_w;
+            end
+            if (dbg_focus_load_wb_hit) begin
+                dbg_focus_load_wb_valid_r  <= 1'b1;
+                dbg_focus_load_wb_pc_r     <= wb_pc;
+                dbg_focus_load_wb_status_r <= dbg_focus_load_wb_status_w;
+                dbg_focus_load_wb_rfdata_r <= actual_rf_wdata;
+                dbg_focus_load_wb_s2_r     <= gpr_s2_w;
+            end
+            if (dbg_watch_store_commit) begin
+                dbg_watch_valid_r <= 1'b1;
+                dbg_watch_pc_r    <= mem_pc;
+                dbg_watch_inst_r  <= mem_inst;
+                dbg_watch_vaddr_r <= mem_dataAddr_32;
+                dbg_watch_paddr_r <= mmu_data_paddr;
+                dbg_watch_wdata_r <= mem_writeData_32;
+                dbg_watch_count_r <= dbg_watch_count_r + 32'd1;
+            end else if (dbg_watch_load_commit) begin
+                dbg_watch_load_valid_r  <= 1'b1;
+                dbg_watch_load_pc_r     <= mem_pc;
+                dbg_watch_load_rdata_r  <= dbg_load_raw_rdata_w;
+                dbg_watch_load_wbdata_r <= dbg_load_value_w;
+                dbg_watch_load_count_r  <= dbg_watch_load_count_r + 32'd1;
+                dbg_watch_load_status_r <= dbg_watch_load_status_w;
+            end
+        end
+    end
 
     dcache_ctrl u_dcache_wrap (
         .clk(clk),
@@ -724,7 +1002,16 @@ module core_top(
         // Single-line invalidation for PTW A/D bit coherency
         .inv_line_req(ptw_ad_inv_req),
         .inv_line_addr(ptw_ad_inv_addr),
-        .inv_line_done(ptw_ad_inv_done)
+        .inv_line_done(ptw_ad_inv_done),
+        .dbg_watch_lh_valid(dbg_dcache_lh_valid_w),
+        .dbg_watch_lh_data(dbg_dcache_lh_data_w),
+        .dbg_watch_lh_count(dbg_dcache_lh_count_w),
+        .dbg_watch_rf_valid(dbg_dcache_rf_valid_w),
+        .dbg_watch_rf_data(dbg_dcache_rf_data_w),
+        .dbg_watch_rf_count(dbg_dcache_rf_count_w),
+        .dbg_watch_wb_valid(dbg_dcache_wb_valid_w),
+        .dbg_watch_wb_data(dbg_dcache_wb_data_w),
+        .dbg_watch_wb_count(dbg_dcache_wb_count_w)
     );
 
     cpu_mem u_mem(
@@ -748,7 +1035,12 @@ module core_top(
         .mem_misalign_load(mem_misalign_load),
         .mem_misalign_store(mem_misalign_store),
         .mem_misalign_addr(mem_misalign_addr),
-        .mem_data_access(mem_data_access)
+        .mem_data_access(mem_data_access),
+        .dbg_load_mem_size(dbg_load_mem_size_w),
+        .dbg_load_mem_unsigned(dbg_load_mem_unsigned_w),
+        .dbg_load_addr(dbg_load_addr_w),
+        .dbg_load_raw_rdata(dbg_load_raw_rdata_w),
+        .dbg_load_value(dbg_load_value_w)
     );
 
     cpu_wb u_wb(
@@ -783,7 +1075,12 @@ module core_top(
         .dbg_raddr2(5'd4),       // tp = x4
         .dbg_rdata2(gpr_tp_w),
         .dbg_raddr3(5'd2),       // sp = x2
-        .dbg_rdata3(gpr_sp_w)
+        .dbg_rdata3(gpr_sp_w),
+        .dbg_x9(gpr_s1_w),
+        .dbg_x14(gpr_a4_w),
+        .dbg_x15(gpr_a5_w),
+        .dbg_x18(gpr_s2_w),
+        .dbg_x19(gpr_s3_w)
     );
 
     fpu_regfile u_fregfile(
@@ -845,11 +1142,11 @@ module core_top(
         // BUG-10 fix: 移除 mem_en 门控 — mem_en=0 时 MMU d-side 不翻译 (d_translate_en=mem_en),
         // d_page_fault 不会产生，因此 mem_en 门控是冗余的。保留 mem_en 会在 PTW 完成
         // 后 mem_en 已变 0 时吞掉 PF 信号。
-        .load_page_fault(mmu_data_page_fault && !mem_hwrite),
+        .load_page_fault(mmu_data_page_fault && (mmu_data_pf_cause == 4'd13)),
         .load_page_fault_vaddr(mmu_data_pf_vaddr),
-        .store_page_fault(mmu_data_page_fault && mem_hwrite),
+        .store_page_fault(mmu_data_page_fault && (mmu_data_pf_cause == 4'd15)),
         .store_page_fault_vaddr(mmu_data_pf_vaddr),
-        .mem_page_fault_pc(exe_pc),
+        .mem_page_fault_pc(mem_pc),
         .cycle_en         (cycle_en),
         .inst_retire      (inst_retire),
         .exception_at_decode(exception_at_decode),

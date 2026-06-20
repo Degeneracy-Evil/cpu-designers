@@ -191,9 +191,15 @@ module cpu_bus_bridge(
     assign ahb_data_rdata    = ahb_data_rdata_r;
     assign ahb_data_valid    = ahb_data_valid_r;
     assign dcache_mmio_accept = dcache_mmio_accept_r;
-    assign icache_refill_data  = refill_shift_reg;
+    wire refill_capture_active = ((state == S_IREFILL_R) || (state == S_DREFILL_R)) && rvalid && !r_error;
+    wire [255:0] refill_shift_reg_with_current =
+        refill_capture_active ? ((refill_shift_reg & ~({224'b0, 32'hFFFF_FFFF} << (beat_cnt * 32))) |
+                                 ({224'b0, rdata} << (beat_cnt * 32))) :
+                                refill_shift_reg;
+
+    assign icache_refill_data  = refill_shift_reg_with_current;
     assign icache_refill_valid = icache_refill_valid_r;
-    assign dcache_refill_data  = refill_shift_reg;
+    assign dcache_refill_data  = refill_shift_reg_with_current;
     assign dcache_refill_valid = dcache_refill_valid_r;
     assign dcache_wb_valid     = dcache_wb_valid_r;
 

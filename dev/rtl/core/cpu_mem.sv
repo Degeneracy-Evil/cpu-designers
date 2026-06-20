@@ -25,7 +25,13 @@ module cpu_mem(
         output             mem_misalign_load,
         output             mem_misalign_store,
         output     [31:0]  mem_misalign_addr,
-        output             mem_data_access
+        output             mem_data_access,
+
+        output     [2:0]   dbg_load_mem_size,
+        output             dbg_load_mem_unsigned,
+        output     [31:0]  dbg_load_addr,
+        output     [31:0]  dbg_load_raw_rdata,
+        output     [31:0]  dbg_load_value
     );
 
     localparam MEM_IDLE      = 3'd0;
@@ -443,5 +449,10 @@ module cpu_mem(
     assign mem_misalign_store = (is_store | is_fsw | is_sc | (is_amo & ~is_lr)) && misalign_addr;
     assign mem_misalign_addr  = alu_result;
     assign mem_data_access    = is_load || is_store || is_flw || is_fsw || is_amo;
+    assign dbg_load_mem_size     = mem_size_reg;
+    assign dbg_load_mem_unsigned = mem_unsigned_reg;
+    assign dbg_load_addr         = addr_reg;
+    assign dbg_load_raw_rdata    = readData_32;
+    assign dbg_load_value        = load_value;
 
 endmodule

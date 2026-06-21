@@ -44,6 +44,17 @@ webtalk*.log
 webtalk*.jou
 *.ltx
 
+# vivado xsim command-line flow temp files
+xelab.log
+xelab.pb
+xvlog.log
+xvlog.pb
+xsim.log
+xsim.jou
+xsim_*.backup.log
+xsim_*.backup.jou
+xsim_*_work/
+
 #omo
 .omo/
 

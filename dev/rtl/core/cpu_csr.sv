@@ -547,6 +547,18 @@ module cpu_csr(
                     ADDR_MTVAL:      r_mtval     <= sw_csr_wdata;
                     ADDR_MEDELEG:    r_medeleg   <= medeleg_wmask;
                     ADDR_MIDELEG:    r_mideleg   <= mideleg_wmask;
+                    ADDR_MIP: begin
+                        // M-mode writes to mip update only software-writable bits
+                        // via r_sip. Hardware bits (MTIP/MSIP/MEIP) are read-only.
+                        //   bit 9 = SEIP (software portion, OR'd with ext_seip)
+                        //   bit 5 = STIP
+                        //   bit 1 = SSIP
+                        // This allows OpenSBI to inject/clear STIP and SSIP via
+                        // csr_set(CSR_MIP, ...) / csr_clear(CSR_MIP, ...).
+                        r_sip[9] <= sw_csr_wdata[9];
+                        r_sip[5] <= sw_csr_wdata[5];
+                        r_sip[1] <= sw_csr_wdata[1];
+                    end
                     ADDR_MCOUNTEREN: r_mcounteren<= sw_csr_wdata;
                     ADDR_MCYCLE:     r_mcycle[31:0]  <= sw_csr_wdata;
                     ADDR_MCYCLEH:    r_mcycle[63:32] <= sw_csr_wdata;

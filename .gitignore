@@ -66,3 +66,7 @@ kernel
 kernel/
 build/
 log/
+
+*.hex
+*.coe
+*.log

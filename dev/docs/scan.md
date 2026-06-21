@@ -1,9 +1,24 @@
 # RTL Code Audit Scan Report
 
-**Date**: 2026-06-21
+**Date**: 2026-06-21 (updated 2026-06-21: conflict resolution with Linux boot check report)
 **Goal**: Full RTL audit to find root cause of Linux kernel hang on FPGA
 **Symptom**: Kernel prints 4 console-handoff lines (ttyS0 enabled + uart8250 disabled x2) at 23s timestamp, then hangs. QEMU reaches same point at 0.476s.
 **Rule**: READ-ONLY scan. No code changes.
+
+---
+
+## Conflict Resolution with `RV32-CPU启动Linux检查报告.md`
+
+Cross-checked against `dev/docs/RV32-CPU启动Linux检查报告.md` by reading actual RTL. Resolved 6 conflicts:
+
+| # | Issue | scan.md (original) | Boot Report | RTL Evidence | **Resolved Verdict** |
+|---|-------|--------------------|-------------|--------------|---------------------|
+| 1 | A/D bit handling | PASS | CRITICAL: TLB hit bypasses D check | `MMU.sv:271-277` d_tlb_perm_fault checks R/W/X/U/SUM/MXR but **no A/D check**. PTW sets A/D on walk (`ptw.sv:337-343`), but TLB cached with D=0 after load → later store hits TLB, D never updated | **Boot report CORRECT — scan.md was WRONG.** Real CRITICAL bug. |
+| 2 | PLIC context mapping | CRITICAL: DTS mismatch | PASS: 2 context hardware OK | `system_top.sv:854-855`: ctx0→MEIP, ctx1→SEIP. `simplecpu.dts:126`: `interrupts-extended = <&cpu0_intc 9>` (1 entry). RTL hardware correct, **but DTS only declares 1 context** → Linux uses ctx0=S-mode, RTL ctx0=M-mode | **scan.md CORRECT — boot report missed DTS mapping.** Real CRITICAL bug. |
+| 3 | mstatus SPIE write | BUG: mstatus_wmask forces SPIE=0 | PASS: sstatus write includes SPIE | `cpu_csr.sv:406-409`: mstatus_wmask bits[6:4]=`3'b000` → SPIE(bit5) forced 0 on `csrw mstatus`. `cpu_csr.sv:569`: sstatus write `r_mstatus[5] <= sw_csr_wdata[5]` → SPIE writable via sstatus. **Two different paths, both observations correct.** | **No conflict.** mstatus write path has the bug; sstatus write path is fine. scan.md bug stands. |
+| 4 | Page fault handling | PASS: causes 12/13/15 correct | BUG: PTW access fault cause 1/5/7 dropped/misencoded | `ptw.sv:113-115`: FAULT_ACCESS → cause 1/5/7. `MMU.sv:356,393`: passes ptw cause through. `core_top.sv:1297-1299`: data side filters `(cause==13)` / `(cause==15)` → cause 5/7 **silently dropped**. `cpu_trap_manager.sv:228`: inst side hardcodes `32'd12` → cause 1 **misencoded as 12** | **Boot report CORRECT — scan.md was WRONG.** Two real bugs. |
+| 5 | sstatus MPRV (bit 17) | BUG: M-mode state leak | PASS: MPRV correctly exposed | RISC-V spec v1.12: sstatus = mstatus & 0x000DE122, bit 17 (MPRV) **IS in sstatus mask**. `cpu_csr.sv:219,575`: MPRV exposed/writable via sstatus — **spec-compliant** | **scan.md was WRONG (false positive).** Boot report correct. BUG-CSR-1 and BUG-CSR-2 retracted. |
+| 6 | mtimecmp reset value | Not checked | MEDIUM: reset to 0 | `axi4lite_clint.sv:247-248`: `r_mtimecmp_lo <= 32'd0; r_mtimecmp_hi <= 32'd0;` — reset to 0, MTIP immediately asserts. MIE=0 at boot prevents interrupt, but OpenSBI must set mtimecmp before enabling MIE | **Boot report found new issue scan.md missed.** Low active risk, medium correctness concern. |
 
 ---
 
@@ -46,9 +61,9 @@
 
 ---
 
-### 1. Timer/CLINT/rdtime Audit — NO CRITICAL BUGS
+### 1. Timer/CLINT/rdtime Audit — 1 CONCERN
 
-**Verdict: PASS (all items)**
+**Verdict: PASS with 1 concern (mtimecmp reset value)**
 
 | Item | Verdict | Key Evidence |
 |------|---------|-------------|
@@ -60,8 +75,9 @@
 | F. CDC | **PASS** | Gray-code 2-stage sync (`system_top.sv:379-426`) |
 | G. Timer interrupt delivery | **PASS** | Correct causes, priority, delegation (`cpu_clint.sv:79-152`) |
 | H. 23s anomaly | **CONCERN** | 23s is expected (50MHz FPGA vs multi-GHz QEMU); hang cause is elsewhere |
+| I. mtimecmp reset | **CONCERN** | `axi4lite_clint.sv:247-248`: reset to 0 (should be 0xFFFFFFFF_FFFFFFFF). MTIP asserts immediately but MIE=0 at boot prevents interrupt. OpenSBI must write mtimecmp before enabling MIE. |
 
-**Conclusion**: Timer subsystem is architecturally sound. STIP fix is correctly implemented. 23s timestamp is expected slowdown, not a bug. The hang is caused by something else.
+**Conclusion**: Timer subsystem is architecturally sound. STIP fix is correctly implemented. 23s timestamp is expected slowdown, not a bug. mtimecmp reset value is a correctness concern but not actively harmful during boot. The hang is caused by something else.
 
 ---
 
@@ -134,13 +150,13 @@
 
 ---
 
-### 4. CSR S-mode Views Audit — 6 BUGS
+### 4. CSR S-mode Views Audit — 4 BUGS (2 retracted)
 
-**Verdict: 6 bugs found (4 high, 1 medium, 1 concern)**
+**Verdict: 4 bugs found (2 high, 1 medium, 1 concern) — 2 MPRV bugs RETRACTED as false positives**
 
 | Item | Verdict | Key Evidence |
 |------|---------|-------------|
-| A. sstatus | **BUG** | MPRV leaks in read/write |
+| A. sstatus | **PASS** | ~~MPRV leaks~~ — MPRV (bit 17) IS in sstatus per RISC-V spec v1.12 (mask 0x000DE122). Correctly exposed. |
 | B. sie | **CONCERN** | Independent register, not view of mie |
 | C. sip | **BUG** | SEIP read missing ext_seip |
 | D. satp | **CONCERN** | No auto TLB flush on write (convention-dependent) |
@@ -152,15 +168,17 @@
 | J. CSR address decoding | **PASS** | All S-mode CSRs present |
 | K. WARL behavior | **PASS** | Read-only CSRs silently ignore writes |
 
-#### BUG-CSR-1 (High): sstatus write modifies MPRV (bit 17)
-- **File**: `dev/rtl/core/cpu_csr.sv:573`
+#### ~~BUG-CSR-1 (High): sstatus write modifies MPRV (bit 17)~~ — RETRACTED (False Positive)
+- **File**: `dev/rtl/core/cpu_csr.sv:575`
 - **Issue**: `r_mstatus[17] <= sw_csr_wdata[17]` — S-mode can write MPRV via sstatus.
-- **Impact**: Privilege escalation. S-mode can set MPRV=1, causing M-mode load/store address translation to use S-mode effective privilege.
+- **Resolution**: Per RISC-V Privileged ISA v1.12, sstatus = mstatus & 0x000DE122. Bit 17 (MPRV) **IS** in the sstatus mask. S-mode is allowed to read/write MPRV via sstatus. MPRV only affects M-mode load/store translation (uses S-mode effective privilege when MPRV=1 and MPP=S), so S-mode setting MPRV=1 has no effect in S-mode. **Not a privilege escalation.** This is spec-compliant behavior.
+- **Status**: ~~BUG~~ → **FALSE POSITIVE** (verified against RTL and spec)
 
-#### BUG-CSR-2 (High): sstatus read exposes MPRV (bit 17)
-- **File**: `dev/rtl/core/cpu_csr.sv:220` (w_sstatus construction)
-- **Issue**: `r_mstatus[17]` exposed in sstatus read view. MPRV is M-mode only.
-- **Impact**: M-mode state leak to S-mode.
+#### ~~BUG-CSR-2 (High): sstatus read exposes MPRV (bit 17)~~ — RETRACTED (False Positive)
+- **File**: `dev/rtl/core/cpu_csr.sv:219` (w_sstatus construction)
+- **Issue**: `r_mstatus[17]` exposed in sstatus read view.
+- **Resolution**: Same as BUG-CSR-1. MPRV is part of sstatus per spec. Exposing it is correct.
+- **Status**: ~~BUG~~ → **FALSE POSITIVE** (verified against RTL and spec)
 
 #### BUG-CSR-3 (High): sip.SEIP read missing ext_seip
 - **File**: `dev/rtl/core/cpu_csr.sv:645`
@@ -184,21 +202,21 @@
 
 ---
 
-### 5. MMU Sv32 PTW/Cache Audit — NO CRITICAL BUGS
+### 5. MMU Sv32 PTW/Cache Audit — 3 CRITICAL/HIGH BUGS
 
-**Verdict: PASS (all items, 5 minor concerns)**
+**Verdict: 3 bugs found (1 critical, 2 high) + 5 minor concerns — A/D bit and PTW access fault bugs confirmed by RTL reading**
 
 | Item | Verdict | Key Evidence |
 |------|---------|-------------|
 | A. Sv32 PTW | **PASS** | `ptw.sv:72-73,162-163,87,186-187` |
 | B. PTE permissions | **PASS** | `ptw.sv:170-185`, `MMU.sv:264-277` |
-| C. A/D bit handling | **PASS** | Auto-set with dcache invalidation (`ptw.sv:337-357`, `core_top.sv:759-762`) |
+| C. A/D bit handling | **BUG (CRITICAL)** | PTW auto-sets A/D (`ptw.sv:337-343,368-370`) BUT **TLB hit bypasses D check** (`MMU.sv:271-277`). Load walks page → TLB filled with A=1,D=0 → later store hits TLB → perm check only verifies W, not D → store succeeds without setting D=1. Linux dirty page tracking broken. |
 | D. TLB operation | **PASS** | 4-way × 4-set, ASID+Global lookup (`tlb.sv:274-277`) |
 | E. sfence.vma | **PASS** | Flushes TLB+dcache+icache (`core_top.sv:727-730`) |
 | F. MMIO judgment | **PASS** | `~addr[31] | addr[30]` — all 5 MMIO regions correct |
 | G. Cache coherence | **PASS** | VIPT safe (set bits within page offset), PTW A/D coherency handled |
 | H. satp CSR | **PASS** | Mode 0/1 supported, TVM enforced in decode |
-| I. Page fault handling | **PASS** | Correct causes (12/13/15), stval=VA, delegation via medeleg |
+| I. Page fault handling | **BUG (HIGH)** | TLB perm fault causes 12/13/15 correct (`MMU.sv:349-351,386-388`). BUT PTW access fault (cause 1/5/7 from `ptw.sv:113-115`) is **silently dropped on data side** (`core_top.sv:1297-1299` filters cause==13/15 only) and **misencoded on inst side** (`cpu_trap_manager.sv:228` hardcodes 32'd12, ignoring MMU cause). |
 | J. PTW memory access | **PASS** | Separate port, uncached, 256-cycle timeout |
 
 **Concerns (all low/performance)**:
@@ -207,6 +225,33 @@
 - Hardware A/D auto-set without Svadu advertisement (spec-legal, Linux compatible)
 - PTW bus priority 3 (below MMIO — could starve under heavy MMIO, mitigated by timeout)
 - Single shared PTW (i-side and d-side serialize — performance only)
+
+#### BUG-MMU-1 (Critical): TLB hit bypasses D bit check
+- **File**: `dev/rtl/core/MMU.sv:271-277` (d_tlb_perm_fault), `299` (d_translation_ok)
+- **Issue**: TLB hit permission check (`d_tlb_perm_fault`) verifies U/S mode, SUM, MXR, R/W/X — but **does NOT check A or D bits**. When a load first walks a page, PTW sets A=1, D=0, and fills TLB with A=1, D=0. Later, a store to the same page hits the TLB: `d_translation_ok = d_latched_sv32 && d_tlb_valid && d_tlb_hit && !d_tlb_perm_fault` — since only W is checked (not D), the store succeeds. The PTE's D bit is **never set to 1**.
+- **Impact**: Linux depends on D bit for dirty page tracking. If D is never set, Linux may incorrectly treat dirty pages as clean, causing data loss during page reclaim. This is a **hard blocker for stable Linux boot** — kernel may print early logs but crash when paging subsystem activates.
+- **Fix**: In `d_tlb_perm_fault`, add D bit check for stores: `(d_latched_access_type == ACCESS_STORE && !d_tlb_d)`. When this triggers, either (A) invalidate the TLB entry and re-walk (PTW will set D=1), or (B) raise a page fault (cause 15) for software to handle.
+
+#### BUG-MMU-2 (High): PTW access fault silently dropped on data side
+- **File**: `dev/rtl/core/core_top.sv:1297-1299`
+- **Issue**: Data side page fault signals are filtered by cause:
+  ```
+  .load_page_fault(mmu_data_page_fault && (mmu_data_pf_cause == 4'd13))
+  .store_page_fault(mmu_data_page_fault && (mmu_data_pf_cause == 4'd15))
+  ```
+  PTW reports access faults with cause 5 (load access fault) or 7 (store access fault) (`ptw.sv:114-115`). These don't match 13 or 15, so `load_page_fault` and `store_page_fault` are both **false** → fault silently dropped.
+- **Impact**: If page table is in a bus-error region (e.g., unmapped memory), CPU hangs. Unlikely during normal Linux boot but is a correctness defect.
+- **Fix**: Add access fault routing: `load_access_fault = mmu_data_page_fault && (mmu_data_pf_cause == 4'd5)`, `store_access_fault = mmu_data_page_fault && (mmu_data_pf_cause == 4'd7)`, connect to trap manager's access fault inputs.
+
+#### BUG-MMU-3 (High): PTW access fault cause misencoded on instruction side
+- **File**: `dev/rtl/core/cpu_trap_manager.sv:228`
+- **Issue**: Trap manager hardcodes instruction page fault cause:
+  ```
+  assign pf_cause = inst_page_fault_r ? 32'd12 : ...
+  ```
+  When PTW reports an instruction access fault (cause 1), MMU passes it through (`MMU.sv:356`: `i_pf_cause_r <= ptw_fault_cause_out`), but `core_top.sv:1292` routes all MMU i-side faults to `inst_page_fault` input, and trap manager ignores the actual cause and hardcodes 32'd12.
+- **Impact**: Kernel fault handler receives cause 12 (page fault) instead of cause 1 (access fault) → enters wrong handler → potential crash or infinite loop.
+- **Fix**: Use MMU-provided cause: `pf_cause = inst_page_fault_r ? {1'b1, mmu_inst_pf_cause} : ...` (or route access faults through the `inst_access_fault` path instead).
 
 ---
 
@@ -241,45 +286,58 @@
 | # | Bug | File | Impact |
 |---|-----|------|--------|
 | 1 | **DTS PLIC context mismatch** | `boot/dts/simplecpu.dts:126` | UART interrupts go to MEIP instead of SEIP → kernel hangs after enabling interrupts |
+| 2 | **TLB hit bypasses D bit check** | `dev/rtl/core/MMU.sv:271-277` | Store to D=0 TLB entry passes without setting D → Linux dirty page tracking broken → data corruption |
 
 ### HIGH
 
 | # | Bug | File | Impact |
 |---|-----|------|--------|
-| 2 | sip.SEIP read missing ext_seip | `cpu_csr.sv:645` | Linux can't see PLIC SEIP via sip |
-| 3 | csr_sip output missing ext_seip | `cpu_csr.sv:721` | Trap manager may miss external SEIP |
-| 4 | mstatus_wmask forces SPIE=0 | `cpu_csr.sv:408` | OpenSBI can't set SPIE via mstatus write |
-| 5 | sstatus write modifies MPRV | `cpu_csr.sv:573` | S-mode privilege escalation |
-| 6 | sstatus read exposes MPRV | `cpu_csr.sv:220` | M-mode state leak to S-mode |
+| 3 | sip.SEIP read missing ext_seip | `cpu_csr.sv:645` | Linux can't see PLIC SEIP via sip |
+| 4 | csr_sip output missing ext_seip | `cpu_csr.sv:721` | Trap Manager may miss external SEIP (mitigated: cpu_clint uses csr_mip[9]) |
+| 5 | mstatus_wmask forces SPIE=0 | `cpu_csr.sv:408` | OpenSBI can't set SPIE via mstatus write (sstatus write path OK) |
+| 6 | PTW access fault dropped (data side) | `core_top.sv:1297-1299` | Cause 5/7 from PTW silently dropped → CPU hangs if page table in bus-error region |
+| 7 | PTW access fault cause wrong (inst side) | `cpu_trap_manager.sv:228` | Cause 1 hardcoded as 12 → wrong fault handler |
 
 ### MEDIUM
 
 | # | Bug | File | Impact |
 |---|-----|------|--------|
-| 7 | MSIP in S-mode SSI pending | `cpu_clint.sv:86,100` | Wrong interrupt cause for MSIP |
-| 8 | scounteren S-mode writable | `cpu_csr.sv:587` | S-mode can grant counter access |
-| 9 | sstatus read hides TSR/TW/TVM | `cpu_csr.sv:214-232` | S-mode can't read trap config |
+| 8 | MSIP in S-mode SSI pending | `cpu_clint.sv:86,100` | Wrong interrupt cause for MSIP |
+| 9 | scounteren S-mode writable | `cpu_csr.sv:587` | S-mode can grant counter access |
+| 10 | sstatus read hides TSR/TW/TVM | `cpu_csr.sv:214-232` | S-mode can't read trap config |
+| 11 | mtimecmp reset value = 0 | `axi4lite_clint.sv:247-248` | MTIP asserts at boot (mitigated by MIE=0) |
+| 12 | DTS isa vs misa F mismatch | `simplecpu.dts` vs `cpu_csr.sv:649` | DTS says no F, misa=0x40141121 includes F |
 
 ### LOW / CONCERN
 
 | # | Bug/Concern | File | Impact |
 |---|-------------|------|--------|
-| 10 | sstatus write missing TSR/TW/TVM | `cpu_csr.sv:567-578` | S-mode can't write trap config |
-| 11 | sie is independent register | `cpu_csr.sv:579,636` | Not a view of mie (spec non-compliance) |
-| 12 | satp write no auto TLB flush | `cpu_csr.sv:586` | Linux uses sfence.vma (OK) |
-| 13 | stvec vectored mode unsupported | `cpu_csr.sv:438` | Design choice (Linux uses Direct) |
-| 14 | S-mode int delegation not checked | `cpu_clint.sv:130` | Latent (OpenSBI sets mideleg) |
-| 15 | sfence.vma ignores rs1/rs2 | `cpu_decode.sv:270-273` | Performance only |
-| 16 | APB address aliasing | `apb_decoder.sv` | Design choice |
-| 17 | awvalid hold after handshake | `cpu_bus_bridge.sv:547` | Mitigated by slave behavior |
+| 13 | sstatus write missing TSR/TW/TVM | `cpu_csr.sv:567-578` | S-mode can't write trap config |
+| 14 | sie is independent register | `cpu_csr.sv:579,636` | Not a view of mie (spec non-compliance) |
+| 15 | satp write no auto TLB flush | `cpu_csr.sv:586` | Linux uses sfence.vma (OK) |
+| 16 | stvec vectored mode unsupported | `cpu_csr.sv:438` | Design choice (Linux uses Direct) |
+| 17 | S-mode int delegation not checked | `cpu_clint.sv:130` | Latent (OpenSBI sets mideleg) |
+| 18 | sfence.vma ignores rs1/rs2 | `cpu_decode.sv:270-273` | Performance only |
+| 19 | APB address aliasing | `apb_decoder.sv` | Design choice |
+| 20 | awvalid hold after handshake | `cpu_bus_bridge.sv:547` | Mitigated by slave behavior |
+
+### RETRACTED (False Positives)
+
+| # | Original Bug | Reason |
+|---|-------------|--------|
+| - | ~~sstatus write modifies MPRV (bit 17)~~ | MPRV IS in sstatus per RISC-V spec v1.12 (mask 0x000DE122). S-mode writing MPRV is spec-compliant. No privilege escalation (MPRV only affects M-mode loads/stores). |
+| - | ~~sstatus read exposes MPRV (bit 17)~~ | Same as above. MPRV exposure in sstatus is correct per spec. |
 
 ---
 
 ## Root Cause Analysis
 
-**The primary root cause of the Linux kernel hang is BUG-PLIC-1 (DTS PLIC context mismatch).**
+**There are TWO critical root causes of the Linux kernel hang:**
 
-### Failure Sequence:
+1. **BUG-PLIC-1 (DTS PLIC context mismatch)** — prevents UART interrupts from reaching S-mode
+2. **BUG-MMU-1 (TLB hit bypasses D bit check)** — breaks Linux dirty page tracking, causes data corruption when paging activates
+
+### Failure Sequence (BUG-PLIC-1 — primary hang before paging):
 1. OpenSBI boots in M-mode, delegates SEI/STI/SSI to S-mode via `mideleg = 0x222`.
 2. OpenSBI jumps to Linux kernel in S-mode.
 3. Linux PLIC driver parses DTS `interrupts-extended = <&cpu0_intc 9>` → S-mode context = **index 0**.
@@ -291,6 +349,14 @@
 9. `mideleg[11]` = 0 (hardwired) → MEI traps to **M-mode (OpenSBI)**.
 10. OpenSBI receives MEI (mcause=0x8000000B) but has no PLIC M-mode context handler.
 11. OpenSBI either ignores or spins → MEIP stays asserted → **immediate re-trap → infinite loop → HANG**.
+
+### Failure Sequence (BUG-MMU-1 — secondary crash after paging):
+1. Kernel boots, OpenSBI sets up initial page tables.
+2. Kernel loads a page → PTW walks, sets A=1, D=0 → TLB filled with A=1, D=0.
+3. Kernel later writes to the same page → TLB hit → `d_tlb_perm_fault` only checks W (not D) → store succeeds.
+4. PTE D bit remains 0 → Linux thinks page is clean.
+5. During page reclaim, Linux skips writeback for "clean" page → **data loss**.
+6. Or: kernel's COW (copy-on-write) breaks because D=0 → fork() page corruption.
 
 ### Why QEMU works:
 QEMU's PLIC model correctly maps contexts based on the DTS, or QEMU's OpenSBI handles MEI differently. The QEMU PLIC might auto-forward MEI to SEI, or QEMU's DTS has both contexts.
@@ -304,8 +370,26 @@ interrupts-extended = <&cpu0_intc 11>, <&cpu0_intc 9>;
 ```
 This declares context 0 = M-mode (MEI, local interrupt 11) and context 1 = S-mode (SEI, local interrupt 9), matching the RTL. Linux will then use PLIC context 1 for S-mode, and UART interrupts will assert SEIP → reach the kernel.
 
+### Required Fix for BUG-MMU-1:
+```systemverilog
+// In MMU.sv, d_tlb_perm_fault, add D bit check for stores:
+assign d_tlb_perm_fault = (d_latched_priv_mode == 2'b00 && !d_tlb_u) ? 1'b1 :
+                          (d_latched_priv_mode == 2'b01 && d_tlb_u &&
+                           (d_latched_access_type == ACCESS_FETCH || !d_latched_mstatus_sum)) ? 1'b1 :
+                          (d_latched_access_type == ACCESS_FETCH && !d_tlb_x) ? 1'b1 :
+                          (d_latched_access_type == ACCESS_LOAD && !d_tlb_r && !(d_tlb_x && d_latched_mstatus_mxr)) ? 1'b1 :
+                          (d_latched_access_type == ACCESS_STORE && !d_tlb_w) ? 1'b1 :
+                          // NEW: store to D=0 page → treat as TLB miss, trigger re-walk
+                          (d_latched_access_type == ACCESS_STORE && !d_tlb_d) ? 1'b1 : 1'b0;
+// When d_tlb_d=0 and access is store, d_translation_ok=0 → d_tlb_miss path triggers PTW re-walk
+// PTW will set D=1 and re-fill TLB
+```
+
 ### Secondary Concerns (may need fixing after primary):
-- **BUG-CSR-5 (SPIE cleared on mstatus write)**: If OpenSBI writes mstatus after trap setup, SPIE could be lost, breaking S-mode interrupt restoration. Verify OpenSBI's mstatus write patterns.
-- **BUG-CSR-3 (sip.SEIP missing ext_seip)**: If Linux reads sip to check pending interrupts, it won't see PLIC SEIP. Verify Linux's interrupt checking path.
+- **BUG-CSR-5 (SPIE cleared on mstatus write)**: If OpenSBI writes mstatus after trap setup, SPIE could be lost, breaking S-mode interrupt restoration. Verify OpenSBI's mstatus write patterns. Note: sstatus write path is unaffected.
+- **BUG-CSR-3 (sip.SEIP missing ext_seip)**: If Linux reads sip to check pending interrupts, it won't see PLIC SEIP. However, cpu_clint uses `csr_mip[9]` (which includes ext_seip) for interrupt detection, so this is not actively harmful for interrupt delivery.
+- **BUG-MMU-2/3 (PTW access fault dropped/misencoded)**: Unlikely during normal boot but correctness defect. Fix after primary bugs.
 - **BUG-TRAP-3 (MSIP in SSI)**: If MSIP is used during boot, wrong interrupt cause. Verify MSIP usage.
+- **mtimecmp reset=0**: OpenSBI should write mtimecmp before enabling MIE. Verify OpenSBI does this.
+- **DTS isa vs misa F mismatch**: If FPU is validated, add `_f` to DTS. If not, clear F bit in misa.
 

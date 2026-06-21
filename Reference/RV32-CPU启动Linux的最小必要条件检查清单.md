@@ -67,6 +67,7 @@
 | `wfi`        | 至少实现为 NOP                                                                                                 | Linux idle 和 OpenSBI 可能执行 `wfi`，不能触发非法指令          |
 | 非对齐访问        | 要么硬件支持，要么产生精确异常                                                                                           | Linux 可以处理部分 misaligned trap，但异常原因和地址必须准确         |
 | `misa`       | 正确声明已实现 ISA，例如 `RV32IMA_Zicsr_Zifencei`，并正确反映 S/U 特权能力                                                    | `misa` 与真实硬件不一致会误导 OpenSBI/Linux                  |
+| 可选扩展探测   | 除 C/F/D/V 外，还需确认 Zicbom/Zicboz/Zba/Zbb/Zbs/Zicond/Zihintpause/Zawrs/Zacas 等未被 kernel 生成代码使用或 DTB 宣称 | 之前 `wrs.nto` 就是此类问题。不能假设"不实现就没事"，未实现扩展的指令必须产生 illegal instruction |
 
 最低建议 ISA 字符串：
 
@@ -109,6 +110,12 @@ F / D / C / V
 | `mcause/scause`     | trap cause 编码正确                       | Linux 根据 cause 分发异常处理                               |
 | `mtval/stval`       | page fault、非法指令、访问异常时提供有效辅助信息         | Linux page fault 处理和调试依赖                            |
 | `mscratch/sscratch` | CSR 可读写，trap entry 可使用                | OpenSBI/Linux trap handler 常用                       |
+| `xRET` 语义    | `mret/sret` 必须精确更新 `xIE/xPIE/xPP`：`xIE←xPIE`, `xPIE←1`, `priv←xPP` | 不是只改 PC。错误会导致返回后中断永远不开、特权级错误、递归 trap |
+| `sepc/mepc` 保存 | 同步异常保存当前指令 PC；中断保存被打断指令 PC；`ecall` 不自动 +4 | Linux trap handler 自己决定是否递增 `sepc`。硬件提前 +4 会破坏 syscall/异常返回 |
+| `mstatus.TVM` | TVM=1 时 S-mode `sfence.vma` 或写 `satp` 产生 illegal instruction | 控制 S-mode MMU 操作权限，Linux 期望 TVM=0 |
+| `mstatus.TSR` | TSR=1 时 S-mode `sret` 产生 illegal instruction | Linux 期望 TSR=0，否则无法从 trap 返回 |
+| `mstatus.TW`  | TW=1 时 S-mode `wfi` 产生 illegal instruction | Linux idle 用 `wfi`，期望 TW=0 |
+| CSR 探测行为   | 未实现 CSR 的访问要么产生 illegal instruction 被 OpenSBI/Linux fixup 捕获，要么不要让代码访问到 | OpenSBI probe PMP/可选 CSR；Linux 也可能 probe。不能假设"不实现就没事" |
 
 最低要求：
 
@@ -205,8 +212,10 @@ Linux 开启虚拟内存后，用户程序通常使用低虚拟地址。低虚�
 | pending 位    | `mip/sip` 能反映 pending 中断                                                         | Linux 判断中断来源依赖                       |
 | 中断委托         | `mideleg` 能把 S-mode 需要的中断委托到 S-mode                                              | Linux 通常不直接处理 M-mode 中断              |
 | 异常委托         | `medeleg` 能把 page fault、ecall from U、breakpoint 等委托给 S-mode                      | Linux 必须处理这些异常                       |
+| ecall 委托规则    | U-mode ecall (cause 8) 委托给 S-mode；S-mode ecall (cause 9) **不得**委托，必须进 M-mode/OpenSBI | Linux 发 SBI call 是 S-mode `ecall`，若 `medeleg[9]` 错误置位，SBI call 会进 Linux 自己的 trap，极易卡死 |
 | 嵌套/屏蔽        | trap 进入时正确更新 IE/PIE 字段                                                           | 异常返回正确性依赖                            |
 | precise trap | 异常 PC 指向正确指令                                                                     | page fault、syscall、非法指令处理依赖          |
+| `sie/sip` 视图 | `sie/sip` 不能是独立假寄存器，必须是 S-mode 对 `mie/mip` 对应位的视图 | Linux 写 `sie.STIE/SEIE` 后，硬件中断判定必须真的生效 |
 
 必须重点测试的 cause：
 
@@ -242,11 +251,14 @@ Machine external interrupt
 | timer 频率               | 固定、可知，并在 Device Tree 中正确描述                      | `timebase-frequency` 必须准确                           |
 | MTIP                   | `mtime >= mtimecmp` 时产生 Machine timer interrupt | OpenSBI 通常先接收 MTIP                                  |
 | STIP                   | Linux 能收到 Supervisor timer interrupt            | OpenSBI 需要能把 timer event 转化为 S-mode timer interrupt |
-| `time/timeh` CSR       | `rdtime/rdtimeh` 可读，反映 `mtime`                  | Linux clocksource 常用                                |
+| STIP 注入              | M-mode 必须能写 `mip.STIP`，S-mode 必须能通过 `sip.STIP` 看到 pending | OpenSBI 传统 timer 路径依赖 M-mode 注入 S-mode timer interrupt。只检查 `mideleg[5]` 不够 |
+| STIP 清除              | STIP 必须能被 OpenSBI 或硬件正确清除                      | 否则会 timer interrupt storm。表现：`scause=0x80000005` 快速增长，`sepc` 基本不动 |
+| `time/timeh` CSR       | `rdtime/rdtimeh` 可读，反映 `mtime`                  | Linux clocksource 常直接读 time CSR，只实现 MMIO `mtime` 不够 |
 | `cycle/cycleh` CSR     | 可读，单调递增                                         | 非绝对硬性，但建议实现                                         |
 | `instret/instreth` CSR | 可读或至少有合理行为                                      | 非绝对硬性，但建议实现                                         |
-| `mcounteren`           | M-mode 可允许 S-mode 读取 time/cycle/instret         | Linux S-mode 读 counter 需要                           |
+| `mcounteren`           | M-mode 可允许 S-mode 读取 time/cycle/instret，`mcounteren.TM` 必须置位 | Linux S-mode 读 `rdtime` 需要 `mcounteren.TM=1`，否则产生 illegal instruction |
 | `scounteren`           | S-mode 可允许 U-mode 读取 counter                    | 用户态性能计数/时间读取需要                                      |
+| 64-bit `mtimecmp` 写入  | RV32 下 `mtimecmp` 的两个 32-bit 写入顺序不能产生永久 MTIP 或永久不触发 | OpenSBI 写 64-bit `mtimecmp` 时通常拆成高低 32 位。实现不严谨会导致 timer storm 或 timer 永远不来 |
 | SBI set_timer          | OpenSBI 调用平台 timer 驱动后，下一次 timer interrupt 正常触发 | Linux 不直接写 `mtimecmp`，通常通过 SBI                      |
 
 最小测试建议：
@@ -275,6 +287,9 @@ Machine external interrupt
 | enable         | 每个中断源可 enable/disable                  | Linux PLIC driver 依赖   |
 | threshold      | threshold 机制可工作或简化但兼容                  | PLIC 标准驱动会访问           |
 | claim/complete | claim 返回中断号，complete 正确清除/结束中断         | Linux PLIC driver 必须依赖 |
+| source 0      | claim 无中断时必须返回 0，source ID 0 保留              | Linux PLIC driver 依赖此语义 |
+| context 布局   | M/S context 布局、enable/threshold/claim/complete 偏移必须与 DTB 一致 | context 错一个，Linux 可能 enable 了错误 context |
+| level IRQ 语义 | UART 这类 level interrupt 需要设备条件清除后 pending 才消失 | complete 本身不应无条件清 pending。否则可能丢中断或中断风暴 |
 | Device Tree 描述 | PLIC 地址、中断源数量、interrupt-parent 正确      | Linux 需要通过 DTB 识别 PLIC |
 
 第一阶段可以暂时不启用复杂外设中断，但如果要使用标准 Linux PLIC driver，就必须兼容 PLIC 寄存器模型。
@@ -290,9 +305,19 @@ Machine external interrupt
 | 波特率           | 与终端一致，例如 115200                             | Device Tree 和 bootargs 需要一致      |
 | MMIO 地址       | UART 寄存器物理地址固定                              | Device Tree 需要描述                 |
 | Linux 驱动兼容性   | 最好兼容 `ns16550a` / `uart8250`                | 这样不需要自己写 Linux driver            |
+| 8250 寄存器精确兼容 | IER/IIR/FCR/LCR/LSR/DLL/DLM/MCR/MSR 语义必须正确，THRE/TEMT/DR 位精确 | earlycon 只需 TX，正式 8250 driver 会访问全部寄存器。console handoff 后高度相关 |
 | early console | 支持 `earlycon=sbi` 或 `earlycon=uart8250,...` | 没有 early console 时 debug 难度很高    |
 | SBI console   | OpenSBI 能通过 UART 输出字符                       | 可以先让 Linux 使用 SBI console 打印早期日志 |
-| 中断模式          | 可选                                          | 第一阶段 UART 可以用 polling，不强制中断      |
+| MMIO 访问宽度    | 必须支持 Linux 实际发出的 8/16/32-bit MMIO 访问 | `reg-io-width=<4>`、`reg-shift=<2>` 时 8250 按 32-bit stride 访问 |
+| 中断模式          | 见下方详细说明                                      | 不能简单写"可选"                          |
+
+UART interrupt 详细要求：
+
+```text
+- 若 DTS 中 UART node 没有 interrupts，且 Linux 使用 polling console，则 UART IRQ 可暂时不实现。
+- 若 DTS 中 UART node 写了 interrupts，标准 8250 driver 可能启用 UART IRQ。
+- 此时必须保证 UART IRQ、PLIC source ID、PLIC enable、claim/complete、IIR/IER/LSR 清中断语义全部正确。
+```
 
 最低建议：
 
@@ -316,6 +341,7 @@ Machine external interrupt
 | 访问宽度          | byte/halfword/word load/store 都正确        | Linux 编译代码会使用各种访问宽度        |
 | AMO 到 DDR     | AMO/LR/SC 对 DDR 正确工作                     | 内核锁和原子变量依赖                 |
 | MMIO 与 DDR 区分 | DDR 和外设地址空间不能重叠                          | 需要统一 SoC memory map        |
+| 非法 MMIO 响应   | 非法/未实现 MMIO 地址不能让总线挂死，必须返回 access fault 或安全响应 | Linux driver 可能 probe 寄存器，总线 hang 会表现为 kernel 无任何后续输出 |
 
 建议初始内存布局：
 
@@ -350,8 +376,9 @@ Machine external interrupt
 | UART node            | 描述 UART compatible、reg、clock、interrupts             | 使用标准驱动时必须                   |
 | CLINT/timer node     | 描述 timer/ipi 相关中断                                   | OpenSBI 或 Linux 识别 timer 需要 |
 | PLIC node            | 描述 PLIC 地址、interrupt-controller、interrupts-extended | Linux 外部中断需要                |
-| reserved-memory      | 保留 OpenSBI、特殊内存、不可用区域                               | 避免 Linux 覆盖固件               |
-| initrd 信息            | 如果使用 initramfs/initrd，需要在 chosen 中提供地址              | 也可以把 initramfs 编进 kernel    |
+| CPU intc 子节点       | 每个 CPU 节点下必须有 `interrupt-controller` 子节点（`riscv,cpu-intc`） | PLIC 和 timer 的 `interrupts-extended` 要引用它，只写 CPU 本身不够 |
+| reserved-memory      | 保留 OpenSBI、特殊内存、不可用区域，建议加 `no-map`，并确认 Linux memblock 没有分配这段区域 | 只保留地址范围但未被 Linux 识别，仍可能被覆盖 |
+| initrd 信息            | 如果使用 initramfs/initrd，需要在 chosen 中提供 `linux,initrd-start/end`，或直接编进 kernel | 只写 rootfs 内容不够，kernel 必须能知道 initramfs 在哪里 |
 
 最小 DTS 必须至少描述：
 
@@ -405,9 +432,18 @@ initramfs / BusyBox, U-mode
 | interrupt delegation | OpenSBI 能配置 `medeleg/mideleg`             | Linux S-mode trap 依赖         |
 | hart start           | 单核只需 boot hart                            | SMP 可后续再做                    |
 | IPI                  | 单核不需要                                     | 多核 Linux 才需要                 |
-| PMP                  | 可以不实现完整 PMP，但 OpenSBI 不能因为访问 PMP CSR 崩溃   | 要么实现最小 PMP，要么修改 OpenSBI 平台代码 |
+| PMP                  | 见下方详细说明                                      | PMP 配置错误会导致 S/U 访问 DDR/MMIO 直接 fault |
 | final jump           | OpenSBI 能正确跳到 Linux，设置 `a0/a1`，关闭 MMU     | boot protocol 核心             |
 | platform config      | OpenSBI 平台代码中的 UART、timer、PLIC 地址与 SoC 一致 | 地址错误会导致无输出或无 timer           |
+
+PMP 详细要求：
+
+```text
+- 如果完全不实现 PMP entry，则确认 S/U mode 对 DDR/MMIO 没有被 PMP 阻断。
+- 如果实现任意 PMP entry，则必须由 OpenSBI 配置出允许 S-mode 访问的 DDR/MMIO 区域。
+- Linux 所需区域至少包括 DDR、UART、CLINT/ACLINT、PLIC。
+- PMP probe illegal 可以被 OpenSBI 处理，但 probe 能处理不代表权限配置正确。
+```
 
 最低验证顺序：
 
@@ -539,15 +575,21 @@ exec /bin/sh
 | ISA       | Zicsr            | CSR 指令正确                  |      |       |
 | ISA       | Zifencei         | `fence.i` 有效              |      |       |
 | ISA       | `wfi`            | 至少作为 NOP                  |      |       |
+| ISA       | 可选扩展探测           | 未实现扩展指令产生 illegal instr   |      |       |
 | CSR       | `misa`           | 与真实硬件能力一致                 |      |       |
 | 特权级       | M-mode           | 复位进入 M-mode               |      |       |
 | 特权级       | S-mode           | Linux 可运行在 S-mode         |      |       |
 | 特权级       | U-mode           | 用户程序可运行在 U-mode           |      |       |
-| 特权级       | `mret/sret`      | 返回语义正确                    |      |       |
+| 特权级       | `mret/sret`      | 精确更新 xIE/xPIE/xPP，返回语义正确  |      |       |
+| 特权级       | `sepc/mepc`      | 同步异常保存当前PC，中断保存被打断PC，ecall不+4 |      |       |
+| 特权级       | `mstatus.TVM/TSR/TW` | S-mode 下 sfence.vma/sret/wfi 受控 | |       |
+| 特权级       | CSR 探测行为         | 未实现 CSR 访问产生 illegal instr |      |       |
 | 异常        | `ecall`          | U/S/M ecall cause 正确      |      |       |
 | 异常        | page fault       | cause/stval 正确            |      |       |
 | 委托        | `medeleg`        | S-mode 异常委托正常             |      |       |
 | 委托        | `mideleg`        | S-mode 中断委托正常             |      |       |
+| 委托        | S-mode ecall 不委托 | `medeleg[9]=0`，SBI call 进 M-mode |  |       |
+| 委托        | `sie/sip` 视图    | sie/sip 是 mie/mip 的 S-mode 视图 |   |       |
 | MMU       | `satp`           | Sv32 MODE/ASID/PPN 正确     |      |       |
 | MMU       | PTW              | 两级页表遍历正确                  |      |       |
 | MMU       | 权限检查             | R/W/X/U/SUM/MXR 正确        |      |       |
@@ -558,20 +600,35 @@ exec /bin/sh
 | Cache     | PTW 一致性          | PTW 能看到最新 PTE             |      |       |
 | Timer     | `mtime`          | 64-bit 单调递增               |      |       |
 | Timer     | `mtimecmp`       | 能触发 timer interrupt       |      |       |
+| Timer     | 64-bit mtimecmp 写入 | RV32 高低32位写入顺序不产生永久MTIP |   |       |
 | Timer     | STIP             | Linux 能收到 S-mode timer    |      |       |
+| Timer     | STIP 注入          | M-mode 可写 mip.STIP，S-mode 可见 sip.STIP | |   |
+| Timer     | STIP 清除          | STIP 能正确清除，不会 storm       |      |       |
 | Counter   | `time/timeh`     | S-mode 可读或通过 counteren 开放 |      |       |
+| Counter   | `mcounteren.TM`  | 置位，允许 S-mode 读 rdtime     |      |       |
 | Interrupt | PLIC             | claim/complete/enable 可用  |      |       |
+| Interrupt | PLIC source 0    | claim 无中断返回 0，source 0 保留  |      |       |
+| Interrupt | PLIC context     | M/S context 布局与 DTB 一致     |      |       |
+| Interrupt | level IRQ 语义    | level interrupt 设备条件清除后 pending 消失 | |    |
 | UART      | TX/RX            | 能稳定输出和输入                  |      |       |
 | UART      | Linux compatible | ns16550a 或 SBI console 可用 |      |       |
+| UART      | 8250 寄存器兼容       | IER/IIR/FCR/LCR/LSR/DLL/DLM 语义正确 | |       |
+| UART      | MMIO 访问宽度        | 支持 8/16/32-bit MMIO stride |      |       |
+| UART      | 中断模式             | 有 interrupts 则 IRQ 必须完整实现  |      |       |
 | DDR       | 基础读写             | CPU-DDR 通信稳定              |      |       |
 | DDR       | 地址空间             | memory map 与 DTB 一致       |      |       |
+| DDR       | 非法 MMIO 响应       | 未实现地址返回 access fault 不挂死  |      |       |
+| PMP       | PMP 配置           | 若实现 PMP，S-mode 可访问 DDR/MMIO |   |       |
 | Boot      | OpenSBI          | 能打印 banner 并跳转            |      |       |
 | Boot      | kernel 地址        | RV32 kernel 4MB 对齐        |      |       |
 | Boot      | `a0/a1`          | hartid 和 DTB 地址正确         |      |       |
 | Boot      | `satp=0`         | 进入 kernel 前 MMU 关闭        |      |       |
 | DTB       | `/cpus`          | ISA/MMU/timebase 正确       |      |       |
+| DTB       | CPU intc 子节点     | riscv,cpu-intc 存在且被引用      |      |       |
 | DTB       | `/memory`        | DDR 地址和大小正确               |      |       |
 | DTB       | `/chosen`        | console/bootargs 正确       |      |       |
+| DTB       | initrd 地址        | linux,initrd-start/end 正确  |      |       |
+| DTB       | reserved-memory  | no-map 且 Linux memblock 不分配 |    |       |
 | Rootfs    | initramfs        | kernel 能找到 rootfs         |      |       |
 | Rootfs    | `/init`          | 能执行并进入 shell              |      |       |
 
@@ -591,3 +648,20 @@ exec /bin/sh
 ```
 
 如果这 6 项中任意一项不达标，Linux 即使能打印早期日志，也很可能无法稳定进入用户态 shell。
+
+## 当前卡死最相关的 8 项补充检查
+
+在 OpenSBI 已通过、kernel 一进入就卡死的情况下，以下 8 项最可能导致问题：
+
+```text
+1. S-mode ecall 不得委托，必须进入 OpenSBI。
+2. M-mode 可写 mip.STIP，S-mode 可见 sip.STIP。
+3. STIP 必须能正确清除，不能 storm。
+4. sie/sip 必须是 mie/mip 的正确 S-mode 视图。
+5. PLIC claim/complete/context/source ID 必须严格匹配 DTB。
+6. UART 8250 IER/IIR/FCR/LCR/LSR/DLAB/THRE/TEMT/DR 语义必须正确。
+7. 若 UART interrupts 存在，UART IRQ 不能再当作可选。
+8. 若实现 PMP，必须确认 S-mode 访问 DDR/MMIO 没被 PMP 拦截。
+```
+
+**关键认识**：对课程 CPU 来说，Linux 启动失败往往不是因为漏了大类，而是某个 CSR bit、IRQ pending 清除、PLIC context、8250 寄存器语义不精确。

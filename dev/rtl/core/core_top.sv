@@ -145,6 +145,7 @@ module core_top(
     output [2:0]  dbg_last_mmio_hsize,
     output [31:0] dbg_last_mmio_wdata,
     output [31:0] dbg_last_mmio_rdata,
+    output [31:0] dbg_last_mmio_caller_pc,
     output [31:0] dbg_last_mmio_count,
 
     // ---------- AXI4 Master — AW Channel ----------
@@ -1003,6 +1004,7 @@ module core_top(
     reg [2:0]  dbg_last_mmio_hsize_r;
     reg [31:0] dbg_last_mmio_wdata_r;
     reg [31:0] dbg_last_mmio_rdata_r;
+    reg [31:0] dbg_last_mmio_caller_pc_r;
     reg [31:0] dbg_last_mmio_count_r;
 
     always_ff @(posedge clk or negedge resetn) begin
@@ -1045,6 +1047,7 @@ module core_top(
             dbg_last_mmio_hsize_r      <= 3'b0;
             dbg_last_mmio_wdata_r      <= 32'b0;
             dbg_last_mmio_rdata_r      <= 32'b0;
+            dbg_last_mmio_caller_pc_r  <= 32'b0;
             dbg_last_mmio_count_r      <= 32'b0;
         end else begin
             if (dbg_focus_store_hit) begin
@@ -1095,6 +1098,7 @@ module core_top(
                 dbg_last_mmio_hsize_r <= dcache_mmio_hsize;
                 dbg_last_mmio_wdata_r <= dcache_mmio_wdata;
                 dbg_last_mmio_rdata_r <= ahb_data_rdata;
+                dbg_last_mmio_caller_pc_r <= gpr_ra;
                 dbg_last_mmio_count_r <= dbg_last_mmio_count_r + 32'd1;
             end
         end
@@ -1550,6 +1554,7 @@ module core_top(
     assign dbg_last_mmio_hsize      = dbg_last_mmio_hsize_r;
     assign dbg_last_mmio_wdata      = dbg_last_mmio_wdata_r;
     assign dbg_last_mmio_rdata      = dbg_last_mmio_rdata_r;
+    assign dbg_last_mmio_caller_pc  = dbg_last_mmio_caller_pc_r;
     assign dbg_last_mmio_count      = dbg_last_mmio_count_r;
 
     assign id_pc   = id_pc_wire;

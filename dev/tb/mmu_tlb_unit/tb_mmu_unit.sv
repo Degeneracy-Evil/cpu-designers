@@ -1,5 +1,4 @@
 `timescale 1ns / 1ps
-`include "cache_def.svh"
 
 // =========================================================================
 // MMU Unit Testbench

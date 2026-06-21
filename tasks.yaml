@@ -462,6 +462,18 @@ tasks:
     blhex: boot/bootloader_phase1.hex
     runtime: 5000ns
 
+  # ── MMU/TLB 单元仿真 (dev/tb/mmu_tlb_unit/) ──
+
+  mmu_unit:
+    tb: tb_mmu_unit
+    blhex: boot/bootloader_phase1.hex
+    runtime: 500us
+
+  tlb_unit:
+    tb: tb_tlb_unit
+    blhex: boot/bootloader_phase1.hex
+    runtime: 500us
+
   divider:
     tb: tb_non_restoring_divider
     blhex: boot/bootloader_phase1.hex

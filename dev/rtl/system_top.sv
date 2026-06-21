@@ -362,6 +362,7 @@ module system_top(
     wire [2:0]  dbg_last_mmio_hsize;
     wire [31:0] dbg_last_mmio_wdata;
     wire [31:0] dbg_last_mmio_rdata;
+    wire [31:0] dbg_last_mmio_caller_pc;
     wire [31:0] dbg_last_mmio_count;
 
     // IRQ wires
@@ -803,6 +804,7 @@ module system_top(
         .dbg_last_mmio_hsize      (dbg_last_mmio_hsize),
         .dbg_last_mmio_wdata      (dbg_last_mmio_wdata),
         .dbg_last_mmio_rdata      (dbg_last_mmio_rdata),
+        .dbg_last_mmio_caller_pc  (dbg_last_mmio_caller_pc),
         .dbg_last_mmio_count      (dbg_last_mmio_count),
         // AXI4 AW Channel
         .awid         (cpu_awid),
@@ -2155,10 +2157,11 @@ module system_top(
                         6'd22: disp_resp_bus_cpu <= {1'b1, "LM_SZ", {29'b0, dbg_last_mmio_hsize}};
                         6'd23: disp_resp_bus_cpu <= {1'b1, "LM_WD", dbg_last_mmio_wdata};
                         6'd24: disp_resp_bus_cpu <= {1'b1, "LM_RD", dbg_last_mmio_rdata};
-                        6'd25: disp_resp_bus_cpu <= {1'b1, "LM_CT", dbg_last_mmio_count};
-                        6'd26: disp_resp_bus_cpu <= {1'b1, "S_EPC", dbg_s_epc_r};
-                        6'd27: disp_resp_bus_cpu <= {1'b1, "S_CAU", dbg_s_cause_r};
-                        6'd28: disp_resp_bus_cpu <= {1'b1, "S_TVL", dbg_s_tval_r};
+                        6'd25: disp_resp_bus_cpu <= {1'b1, "LM_CA", dbg_last_mmio_caller_pc};
+                        6'd26: disp_resp_bus_cpu <= {1'b1, "LM_CT", dbg_last_mmio_count};
+                        6'd27: disp_resp_bus_cpu <= {1'b1, "S_EPC", dbg_s_epc_r};
+                        6'd28: disp_resp_bus_cpu <= {1'b1, "S_CAU", dbg_s_cause_r};
+                        6'd29: disp_resp_bus_cpu <= {1'b1, "S_TVL", dbg_s_tval_r};
                         6'd31: disp_resp_bus_cpu <= {1'b1, "MUACT", {31'b0, dbg_mu_active}};
                         6'd32: disp_resp_bus_cpu <= {1'b1, "MUREQ", {31'b0, dbg_mu_req_valid}};
                         6'd33: disp_resp_bus_cpu <= {1'b1, "MURDY", {31'b0, dbg_mu_ready}};

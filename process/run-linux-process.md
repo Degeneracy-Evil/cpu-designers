@@ -1020,3 +1020,44 @@ SIM RAM write-error model 修改：注入的 BRESP fault 不仅返回 AXI 错误
 | `dev/program_source/test/regression/reg_bug16_tlb_valid_pulse.s` | 移除 M-mode store（不再 self-mask 嵌套 trap） |
 | `dev/program_source/test/regression/reg_dcache_wb_error.s` | Preload backing RAM，暴露 reload 值 |
 | `dev/program_source/test/regression/reg_dcache_refill_error.s` | Preload backing RAM，暴露 reload 值 |
+
+---
+
+## 16. 删除 TLB 非 BRAM 死代码路径（2026-06-21）
+
+### 16.1 背景
+
+`USE_TLB_BRAM` 宏控制 TLB 实现路径：
+- **BRAM 路径**（`ifdef USE_TLB_BRAM`）：4-way × 4-set 组相联 BRAM TLB，双端口，1 周期读延迟
+- **非 BRAM 路径**（`else`）：全相联寄存器阵列 TLB，组合查找，独立 FSM + 独立 PTW 实例
+
+### 16.2 评估结论
+
+| 检查项 | 结果 |
+|--------|------|
+| `USE_TLB_BRAM` 定义 | `cache_def.svh:114` 无条件 `` `define USE_TLB_BRAM 1 `` |
+| `cache_header_gen.py` | 第 302 行硬编码输出，无配置开关可关闭 |
+| `undef`/`ifndef USE_TLB_BRAM` | 全项目无匹配 |
+| 非 BRAM 路径编译可行性 | **已损坏**：`MMU.sv:1098` 引用 `walk_state`，该寄存器仅在 BRAM 路径声明（第 109 行），非 BRAM 路径无法独立编译 |
+| `core_top.sv` debug 端口 | 两路径都赋值同一组 debug 输出，删除非 BRAM 不破坏连接 |
+| testbench 引用 | 无 — `dev/tb/` 下无任何 `nb_i_*`/`nb_d_*` 引用 |
+
+**结论**：非 BRAM 路径是死代码，且已损坏（无法编译），安全删除。
+
+### 16.3 删除内容
+
+| 文件 | 删除范围 | 删除行数 | 内容 |
+|------|----------|----------|------|
+| `dev/rtl/core/tlb.sv` | 原 482-650 行（`else` 分支） | 168 行 | 全相联寄存器阵列 TLB：`entries[]` 数组、`rr_ptr` 轮转指针、i/d 侧 hit vector、组合查找逻辑、`pack_entry` 函数、fill/flush 逻辑 |
+| `dev/rtl/core/MMU.sv` | 原 696-1099 行（`else` 分支） | 403 行 | 组合 TLB + latched input FSM（`nb_i_state`/`nb_d_state`）、独立 TLB 实例、独立 PTW 实例、walk 仲裁、page fault 逻辑 |
+| **合计** | | **571 行** | |
+
+### 16.4 验证
+
+代表性回归 6/6 PASS（含 `mmu_unified_mmu`、`mmu_tlb_basic`、`mmu_tlb_replace`、`reg_bug16_tlb_valid_pulse`、`reg_dcache_wb_error`、`reg_bare_no_miss`），编译通过，功能无回归。
+
+### 16.5 修改后文件结构
+
+- `tlb.sv`：652 → 484 行，仅保留 BRAM 路径
+- `MMU.sv`：1101 → 698 行，仅保留 BRAM 路径
+- `ifdef USE_TLB_BRAM` / `endif` 保留（宏仍定义，BRAM 路径正常编译），`else` 分支已删除

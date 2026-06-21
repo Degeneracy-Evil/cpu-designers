@@ -1,6 +1,8 @@
 // Dual-port RAM (read port registered)
 // Adapted from chiplab IP/APB_DEV/URT/raminfr.v
 
+`timescale 1ns / 1ps
+
 module raminfr #(
     parameter ADDR_W = 4,
     parameter DATA_W = 8,

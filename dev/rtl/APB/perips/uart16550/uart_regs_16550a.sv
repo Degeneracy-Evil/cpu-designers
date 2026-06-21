@@ -9,6 +9,8 @@
 // 5. Removed M_cnt/M_toggle (DL3-based clock modulation)
 // 6. Simplified transmitter connection (no USART T0/T1 repeat logic)
 
+`timescale 1ns / 1ps
+
 `include "uart_defines.svh"
 
 `define UART_DL1 7:0

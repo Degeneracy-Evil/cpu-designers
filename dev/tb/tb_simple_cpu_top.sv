@@ -162,6 +162,15 @@ module tb_simple_cpu_top;
         $display("[PROBE] %0t: ddr_data_init=1, starting 600K cycle wait (5ms)...", $time);
         $fflush;
         repeat (600000) @(posedge clk);
+`elsif LINUX_BOOT
+        $display("[PROBE] %0t: Linux boot mode: waiting 200M cycles...", $time);
+        $fflush;
+        repeat (200000000) @(posedge clk);
+        $display("[PROBE] %0t: Linux boot simulation complete.", $time);
+        $display("========================================");
+        $display("Linux boot simulation finished (check trace/trap logs)");
+        $display("========================================");
+        $finish;
 `else
         // SRAM mode: wait for full bootloader + UART download + program execution
         // CPU duplicate AXI transactions slow UART download; need 16M cycle wait.

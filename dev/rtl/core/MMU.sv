@@ -57,7 +57,18 @@ module MMU #(
     output wire        dbg_i_tlb_hit,
     output wire        dbg_i_tlb_valid,
     output wire        dbg_i_tlb_perm_fault,
-    output wire [1:0]  dbg_walk_state
+    output wire [1:0]  dbg_walk_state,
+    // ── d-side debug outputs ──
+    output wire [2:0]  dbg_nb_d_state,
+    output wire        dbg_d_tlb_hit,
+    output wire        dbg_d_tlb_valid,
+    output wire        dbg_d_tlb_perm_fault,
+    output wire        dbg_d_input_changed,
+    output wire [31:0] dbg_d_latched_vaddr,
+    output wire        dbg_d_latched_sv32,
+    output wire        dbg_pending_d_walk,
+    output wire        dbg_d_pf_from_ptw,
+    output wire        dbg_d_tlb_miss
 );
 
     localparam PRIV_M = 2'b11;
@@ -692,6 +703,18 @@ module MMU #(
     assign dbg_i_tlb_valid = i_tlb_valid;
     assign dbg_i_tlb_perm_fault = i_tlb_perm_fault;
     assign dbg_walk_state = walk_state;
+
+    // ── d-side debug assignments ──
+    assign dbg_nb_d_state        = {2'b0, d_state};
+    assign dbg_d_tlb_hit         = d_tlb_hit;
+    assign dbg_d_tlb_valid       = d_tlb_valid;
+    assign dbg_d_tlb_perm_fault  = d_tlb_perm_fault;
+    assign dbg_d_input_changed   = d_input_changed;
+    assign dbg_d_latched_vaddr   = d_latched_vaddr;
+    assign dbg_d_latched_sv32    = d_latched_sv32;
+    assign dbg_pending_d_walk    = pending_d_walk;
+    assign dbg_d_pf_from_ptw     = d_pf_from_ptw_r;
+    assign dbg_d_tlb_miss        = d_tlb_miss;
 
 `endif // USE_TLB_BRAM
 

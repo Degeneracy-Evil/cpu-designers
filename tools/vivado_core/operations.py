@@ -919,10 +919,23 @@ class Operations:
         No preflight check is performed -- creating a project from
         scratch is always valid regardless of staleness state.
 
+        .. note::
+
+            The TCL backend executes ``close_project`` + ``create_project -force``,
+            which **overwrites** any existing project in the target directory.
+            Old waveform databases (``.wdb``), IP compile caches, and elaborated
+            results are all discarded.
+
+            Session-level deduplication (reusing an existing Session object
+            without creating a new directory) is handled by the CLI layer
+            (``vivado_cli.py`` ``get_or_create()``), **not** by this method.
+            This method always sends the full create-project TCL sequence.
+
         Parameters
         ----------
         session:
-            Target session (must not already have a project).
+            Target session. The session's ``project_dir`` will be overwritten
+            if it already contains a Vivado project.
         task:
             Task configuration (used for COE path).
 

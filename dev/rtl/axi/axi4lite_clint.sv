@@ -45,34 +45,56 @@ module axi4lite_clint(
     // =========================================================================
     // AXI4-Lite Write FSM
     // =========================================================================
-    // WR_IDLE:  ready to accept AW (awready=1)
-    // WR_DATA:  AW latched, ready to accept W (wready=1)
-    // WR_RESP:  W consumed, driving B response (bvalid=1)
-    localparam WR_IDLE = 2'd0;
-    localparam WR_DATA = 2'd1;
-    localparam WR_RESP = 2'd2;
+    // Single-outstanding AXI4-Lite slave:
+    // AW and W are accepted independently, then the write side effect fires
+    // exactly once when both channels for the transaction have arrived.
+    localparam WR_IDLE = 1'd0;
+    localparam WR_RESP = 1'd1;
 
-    reg [1:0]  wr_state;
+    reg        wr_state;
     reg [31:0] wr_addr;
+    reg [31:0] wr_wdata;
+    reg [3:0]  wr_wstrb;
+    reg        aw_latched;
+    reg        w_latched;
 
-    assign s_axi_awready = (wr_state == WR_IDLE);
-    assign s_axi_wready  = (wr_state == WR_DATA);
+    wire aw_fire = (wr_state == WR_IDLE) && !aw_latched && s_axi_awvalid;
+    wire w_fire  = (wr_state == WR_IDLE) && !w_latched  && s_axi_wvalid;
+    wire wr_fire = (wr_state == WR_IDLE) && ((aw_latched || aw_fire) && (w_latched || w_fire));
+
+    wire [31:0] wr_addr_eff  = aw_latched ? wr_addr  : s_axi_awaddr;
+    wire [31:0] wr_wdata_eff = w_latched  ? wr_wdata : s_axi_wdata;
+    wire [3:0]  wr_wstrb_eff = w_latched  ? wr_wstrb : s_axi_wstrb;
+
+    assign s_axi_awready = (wr_state == WR_IDLE) && !aw_latched;
+    assign s_axi_wready  = (wr_state == WR_IDLE) && !w_latched;
 
     always_ff @(posedge s_axi_aclk or negedge s_axi_aresetn) begin
         if (!s_axi_aresetn) begin
-            wr_state <= WR_IDLE;
-            wr_addr  <= 32'd0;
+            wr_state   <= WR_IDLE;
+            wr_addr    <= 32'd0;
+            wr_wdata   <= 32'd0;
+            wr_wstrb   <= 4'd0;
+            aw_latched <= 1'b0;
+            w_latched  <= 1'b0;
         end else begin
             case (wr_state)
                 WR_IDLE: begin
-                    if (s_axi_awvalid) begin
-                        wr_addr  <= s_axi_awaddr;
-                        wr_state <= WR_DATA;
+                    if (aw_fire)
+                        wr_addr <= s_axi_awaddr;
+                    if (w_fire) begin
+                        wr_wdata <= s_axi_wdata;
+                        wr_wstrb <= s_axi_wstrb;
                     end
-                end
-                WR_DATA: begin
-                    if (s_axi_wvalid) begin
+                    if (wr_fire) begin
                         wr_state <= WR_RESP;
+                        aw_latched <= 1'b0;
+                        w_latched  <= 1'b0;
+                    end else begin
+                        if (aw_fire)
+                            aw_latched <= 1'b1;
+                        if (w_fire)
+                            w_latched <= 1'b1;
                     end
                 end
                 WR_RESP: begin
@@ -84,9 +106,6 @@ module axi4lite_clint(
             endcase
         end
     end
-
-    // Write fires when W channel handshake completes
-    wire wr_fire = (wr_state == WR_DATA) && s_axi_wvalid;
 
     // B channel
     assign s_axi_bvalid = (wr_state == WR_RESP);
@@ -154,11 +173,11 @@ module axi4lite_clint(
     localparam ADDR_MTIME_HI    = 16'hBFFC;
 
     // Write path address decode
-    wire wr_addr_msip   = (wr_addr[15:0] == ADDR_MSIP);
-    wire wr_addr_cmplo  = (wr_addr[15:0] == ADDR_MTIMECMP_LO);
-    wire wr_addr_cmphi  = (wr_addr[15:0] == ADDR_MTIMECMP_HI);
-    wire wr_addr_timelo = (wr_addr[15:0] == ADDR_MTIME_LO);
-    wire wr_addr_timehi = (wr_addr[15:0] == ADDR_MTIME_HI);
+    wire wr_addr_msip   = (wr_addr_eff[15:0] == ADDR_MSIP);
+    wire wr_addr_cmplo  = (wr_addr_eff[15:0] == ADDR_MTIMECMP_LO);
+    wire wr_addr_cmphi  = (wr_addr_eff[15:0] == ADDR_MTIMECMP_HI);
+    wire wr_addr_timelo = (wr_addr_eff[15:0] == ADDR_MTIME_LO);
+    wire wr_addr_timehi = (wr_addr_eff[15:0] == ADDR_MTIME_HI);
 
     // Read path address decode
     wire rd_addr_msip   = (rd_addr[15:0] == ADDR_MSIP);
@@ -186,7 +205,13 @@ module axi4lite_clint(
     assign o_mtime = r_mtime;
     assign o_mtimecmp = mtimecmp_64;
 
-    // BUG-FIX: 当软件写入 mtime 时，暂停自增一周期，避免写入值被自增覆盖
+    // Software-visible contract: mtime and mtimecmp are exposed as split 32-bit
+    // registers. Software must use the standard hi/lo retry sequence for reads
+    // and the safe compare-update sequence when programming mtimecmp.
+    //
+    // Hardware guarantee preserved here: a write to either half of mtime pauses
+    // the free-running increment for one cycle so the software-written value is
+    // not immediately clobbered by the timer increment path.
     wire mtime_we = wr_fire && (wr_addr_timelo || wr_addr_timehi);
 
     // =========================================================================
@@ -194,25 +219,25 @@ module axi4lite_clint(
     // For AXI4-Lite, WSTRB indicates which byte lanes of WDATA are valid.
     // Bytes with WSTRB[i]=0 retain their current register value.
     // =========================================================================
-    wire [31:0] wdata_cmplo_masked = {(s_axi_wstrb[3] ? s_axi_wdata[31:24] : r_mtimecmp_lo[31:24]),
-                                       (s_axi_wstrb[2] ? s_axi_wdata[23:16] : r_mtimecmp_lo[23:16]),
-                                       (s_axi_wstrb[1] ? s_axi_wdata[15:8]  : r_mtimecmp_lo[15:8]),
-                                       (s_axi_wstrb[0] ? s_axi_wdata[7:0]   : r_mtimecmp_lo[7:0])};
+    wire [31:0] wdata_cmplo_masked = {(wr_wstrb_eff[3] ? wr_wdata_eff[31:24] : r_mtimecmp_lo[31:24]),
+                                       (wr_wstrb_eff[2] ? wr_wdata_eff[23:16] : r_mtimecmp_lo[23:16]),
+                                       (wr_wstrb_eff[1] ? wr_wdata_eff[15:8]  : r_mtimecmp_lo[15:8]),
+                                       (wr_wstrb_eff[0] ? wr_wdata_eff[7:0]   : r_mtimecmp_lo[7:0])};
 
-    wire [31:0] wdata_cmphi_masked = {(s_axi_wstrb[3] ? s_axi_wdata[31:24] : r_mtimecmp_hi[31:24]),
-                                       (s_axi_wstrb[2] ? s_axi_wdata[23:16] : r_mtimecmp_hi[23:16]),
-                                       (s_axi_wstrb[1] ? s_axi_wdata[15:8]  : r_mtimecmp_hi[15:8]),
-                                       (s_axi_wstrb[0] ? s_axi_wdata[7:0]   : r_mtimecmp_hi[7:0])};
+    wire [31:0] wdata_cmphi_masked = {(wr_wstrb_eff[3] ? wr_wdata_eff[31:24] : r_mtimecmp_hi[31:24]),
+                                       (wr_wstrb_eff[2] ? wr_wdata_eff[23:16] : r_mtimecmp_hi[23:16]),
+                                       (wr_wstrb_eff[1] ? wr_wdata_eff[15:8]  : r_mtimecmp_hi[15:8]),
+                                       (wr_wstrb_eff[0] ? wr_wdata_eff[7:0]   : r_mtimecmp_hi[7:0])};
 
-    wire [31:0] wdata_timelo_masked = {(s_axi_wstrb[3] ? s_axi_wdata[31:24] : r_mtime[31:24]),
-                                        (s_axi_wstrb[2] ? s_axi_wdata[23:16] : r_mtime[23:16]),
-                                        (s_axi_wstrb[1] ? s_axi_wdata[15:8]  : r_mtime[15:8]),
-                                        (s_axi_wstrb[0] ? s_axi_wdata[7:0]   : r_mtime[7:0])};
+    wire [31:0] wdata_timelo_masked = {(wr_wstrb_eff[3] ? wr_wdata_eff[31:24] : r_mtime[31:24]),
+                                        (wr_wstrb_eff[2] ? wr_wdata_eff[23:16] : r_mtime[23:16]),
+                                        (wr_wstrb_eff[1] ? wr_wdata_eff[15:8]  : r_mtime[15:8]),
+                                        (wr_wstrb_eff[0] ? wr_wdata_eff[7:0]   : r_mtime[7:0])};
 
-    wire [31:0] wdata_timehi_masked = {(s_axi_wstrb[3] ? s_axi_wdata[31:24] : r_mtime[63:56]),
-                                        (s_axi_wstrb[2] ? s_axi_wdata[23:16] : r_mtime[55:48]),
-                                        (s_axi_wstrb[1] ? s_axi_wdata[15:8]  : r_mtime[47:40]),
-                                        (s_axi_wstrb[0] ? s_axi_wdata[7:0]   : r_mtime[39:32])};
+    wire [31:0] wdata_timehi_masked = {(wr_wstrb_eff[3] ? wr_wdata_eff[31:24] : r_mtime[63:56]),
+                                        (wr_wstrb_eff[2] ? wr_wdata_eff[23:16] : r_mtime[55:48]),
+                                        (wr_wstrb_eff[1] ? wr_wdata_eff[15:8]  : r_mtime[47:40]),
+                                        (wr_wstrb_eff[0] ? wr_wdata_eff[7:0]   : r_mtime[39:32])};
 
     // =========================================================================
     // Register update logic (adapted from AHB version, WSTRB-aware)
@@ -236,7 +261,7 @@ module axi4lite_clint(
             if (wr_fire && wr_addr_timehi)
                 r_mtime[63:32] <= wdata_timehi_masked;
             if (wr_fire && wr_addr_msip)
-                r_msip <= s_axi_wstrb[0] ? s_axi_wdata[0] : r_msip;
+                r_msip <= wr_wstrb_eff[0] ? wr_wdata_eff[0] : r_msip;
         end
     end
 

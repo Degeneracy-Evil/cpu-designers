@@ -333,6 +333,36 @@ module system_top(
     wire        dbg_mmu_i_tlb_valid;
     wire        dbg_mmu_i_tlb_perm_fault;
     wire [1:0]  dbg_mmu_walk_state;
+    wire [2:0]  dbg_mmu_d_state;
+    wire        dbg_mmu_d_tlb_hit;
+    wire        dbg_mmu_d_tlb_valid;
+    wire        dbg_mmu_d_tlb_perm_fault;
+    wire        dbg_mmu_d_input_changed;
+    wire [31:0] dbg_mmu_d_latched_vaddr;
+    wire        dbg_mmu_d_latched_sv32;
+    wire        dbg_mmu_d_pf_from_ptw;
+    wire        dbg_mmu_d_tlb_miss;
+    wire        dbg_mu_active;
+    wire        dbg_mu_req_valid;
+    wire        dbg_mu_ready;
+    wire        dbg_mu_busy;
+    wire        dbg_mu_result_valid;
+    wire [2:0]  dbg_mu_funct3;
+    wire        dbg_exe_is_mu;
+    wire        dbg_dmmio_req;
+    wire        dbg_dmmio_we;
+    wire [31:0] dbg_dmmio_addr;
+    wire [2:0]  dbg_dmmio_hsize;
+    wire        dbg_dmmio_valid;
+    wire [31:0] dbg_dmmio_rdata;
+    wire        dbg_last_mmio_valid;
+    wire [31:0] dbg_last_mmio_pc;
+    wire        dbg_last_mmio_we;
+    wire [31:0] dbg_last_mmio_addr;
+    wire [2:0]  dbg_last_mmio_hsize;
+    wire [31:0] dbg_last_mmio_wdata;
+    wire [31:0] dbg_last_mmio_rdata;
+    wire [31:0] dbg_last_mmio_count;
 
     // IRQ wires
     wire        timer_irq;
@@ -345,10 +375,18 @@ module system_top(
     logic       plic_seip_cpuclk_ff1, plic_seip_cpuclk_ff2;
     logic       clint_mtip_cpuclk_ff1, clint_mtip_cpuclk_ff2;
     logic       clint_msip_cpuclk_ff1, clint_msip_cpuclk_ff2;
-    logic [63:0] clint_mtime_cpuclk_ff1, clint_mtime_cpuclk_ff2;
+    // 64-bit mtime CDC: Gray-code synchronizer (sys_clk → cpu_clk)
+    // Multi-bit shift-register sync would tear; Gray code guarantees
+    // only 1 bit flips per increment, so 2-stage per-bit sync is safe.
+    wire [63:0] clint_mtime_gray;       // Gray-coded mtime (sys_clk domain)
+    logic [63:0] clint_mtime_gray_sync1, clint_mtime_gray_sync2;  // 2-stage sync (cpu_clk domain)
+    wire [63:0] clint_mtime_cpuclk;     // Decoded binary mtime (cpu_clk domain)
     wire        gpio_irq;
     wire        uart_irq;
     wire        spi_irq;
+
+    // Gray encoder: binary → Gray code (combinational, sys_clk domain)
+    assign clint_mtime_gray = clint_mtime ^ (clint_mtime >> 1);
 
     always_ff @(posedge cpu_clk or negedge cpu_resetn) begin
         if (!cpu_resetn) begin
@@ -360,8 +398,8 @@ module system_top(
             clint_mtip_cpuclk_ff2 <= 1'b0;
             clint_msip_cpuclk_ff1 <= 1'b0;
             clint_msip_cpuclk_ff2 <= 1'b0;
-            clint_mtime_cpuclk_ff1 <= 64'b0;
-            clint_mtime_cpuclk_ff2 <= 64'b0;
+            clint_mtime_gray_sync1 <= 64'b0;
+            clint_mtime_gray_sync2 <= 64'b0;
         end else begin
             plic_eip_cpuclk_ff1   <= plic_eip[0];
             plic_eip_cpuclk_ff2   <= plic_eip_cpuclk_ff1;
@@ -371,16 +409,26 @@ module system_top(
             clint_mtip_cpuclk_ff2 <= clint_mtip_cpuclk_ff1;
             clint_msip_cpuclk_ff1 <= clint_msip;
             clint_msip_cpuclk_ff2 <= clint_msip_cpuclk_ff1;
-            clint_mtime_cpuclk_ff1 <= clint_mtime;
-            clint_mtime_cpuclk_ff2 <= clint_mtime_cpuclk_ff1;
+            clint_mtime_gray_sync1 <= clint_mtime_gray;
+            clint_mtime_gray_sync2 <= clint_mtime_gray_sync1;
         end
     end
+
+    // Gray decoder: Gray code → binary (combinational, cpu_clk domain)
+    // Prefix-XOR chain: bin[63]=gray[63], bin[i]=gray[i]^bin[i+1]
+    assign clint_mtime_cpuclk[63] = clint_mtime_gray_sync2[63];
+    genvar ggi;
+    generate
+        for (ggi = 0; ggi < 63; ggi = ggi + 1) begin : gen_gray_dec
+            assign clint_mtime_cpuclk[ggi] = clint_mtime_gray_sync2[ggi] ^ clint_mtime_cpuclk[ggi+1];
+        end
+    endgenerate
 
     // ========================================================================
     // Trap State Latch — captures PC + CSR when if_pc enters 0xC... and trap fires
     // ========================================================================
     // All source signals are in cpu_clk domain. Latch in cpu_clk.
-    // Display logic reads from sys_clk domain (stable latched values, safe async read).
+    // Display logic returns these values through the display snapshot CDC path.
     wire trap_c_region = (if_pc[31:28] == 4'hC);
     wire trap_latch_trigger = trap_c_region & trap_enter_valid;
 
@@ -726,6 +774,36 @@ module system_top(
         .dbg_mmu_i_tlb_valid     (dbg_mmu_i_tlb_valid),
         .dbg_mmu_i_tlb_perm_fault(dbg_mmu_i_tlb_perm_fault),
         .dbg_mmu_walk_state      (dbg_mmu_walk_state),
+        .dbg_mmu_d_state          (dbg_mmu_d_state),
+        .dbg_mmu_d_tlb_hit        (dbg_mmu_d_tlb_hit),
+        .dbg_mmu_d_tlb_valid      (dbg_mmu_d_tlb_valid),
+        .dbg_mmu_d_tlb_perm_fault (dbg_mmu_d_tlb_perm_fault),
+        .dbg_mmu_d_input_changed  (dbg_mmu_d_input_changed),
+        .dbg_mmu_d_latched_vaddr  (dbg_mmu_d_latched_vaddr),
+        .dbg_mmu_d_latched_sv32   (dbg_mmu_d_latched_sv32),
+        .dbg_mmu_d_pf_from_ptw    (dbg_mmu_d_pf_from_ptw),
+        .dbg_mmu_d_tlb_miss       (dbg_mmu_d_tlb_miss),
+        .dbg_mu_active            (dbg_mu_active),
+        .dbg_mu_req_valid         (dbg_mu_req_valid),
+        .dbg_mu_ready             (dbg_mu_ready),
+        .dbg_mu_busy              (dbg_mu_busy),
+        .dbg_mu_result_valid      (dbg_mu_result_valid),
+        .dbg_mu_funct3            (dbg_mu_funct3),
+        .dbg_exe_is_mu            (dbg_exe_is_mu),
+        .dbg_dmmio_req            (dbg_dmmio_req),
+        .dbg_dmmio_we             (dbg_dmmio_we),
+        .dbg_dmmio_addr           (dbg_dmmio_addr),
+        .dbg_dmmio_hsize          (dbg_dmmio_hsize),
+        .dbg_dmmio_valid          (dbg_dmmio_valid),
+        .dbg_dmmio_rdata          (dbg_dmmio_rdata),
+        .dbg_last_mmio_valid      (dbg_last_mmio_valid),
+        .dbg_last_mmio_pc         (dbg_last_mmio_pc),
+        .dbg_last_mmio_we         (dbg_last_mmio_we),
+        .dbg_last_mmio_addr       (dbg_last_mmio_addr),
+        .dbg_last_mmio_hsize      (dbg_last_mmio_hsize),
+        .dbg_last_mmio_wdata      (dbg_last_mmio_wdata),
+        .dbg_last_mmio_rdata      (dbg_last_mmio_rdata),
+        .dbg_last_mmio_count      (dbg_last_mmio_count),
         // AXI4 AW Channel
         .awid         (cpu_awid),
         .awaddr       (cpu_awaddr),
@@ -774,7 +852,7 @@ module system_top(
         .ext_meip_in  (plic_eip_cpuclk_ff2),
         .ext_seip_in  (plic_seip_cpuclk_ff2),
         .ext_msip_in  (clint_msip_cpuclk_ff2),
-        .ext_mtime    (clint_mtime_cpuclk_ff2)
+        .ext_mtime    (clint_mtime_cpuclk)
     );
 
     // ========================================================================
@@ -939,30 +1017,40 @@ module system_top(
                                (cdc_araddr[31:24] == 8'h04) ? 3'd5 :
                                3'd6;
 
-    // Latch slave select on AW handshake (for W/B channel routing)
-    // Latch slave select on cdc_awvalid (not handshake) so aw_slave_sel is
-    // updated BEFORE the first W beat arrives.  The Axi_CDC may introduce
-    // different pipeline latencies for AW and W channels; if the W channel
-    // has less latency, the first W beat can reach the decoder before
-    // aw_slave_sel is latched on the AW handshake, routing it to the
-    // default slave (6) and losing the beat.  Latching on cdc_awvalid
-    // ensures aw_slave_sel is correct one cycle after awvalid is asserted,
-    // which is always before any W beats can arrive.
+    // Handshake-owned routing state.
+    // This interconnect supports one outstanding write and one outstanding
+    // read at a time. Route selection is captured on the accepted address
+    // handshake and held until the corresponding response completes.
     reg [2:0] aw_slave_sel;
+    reg       write_busy_r;
     always_ff @(posedge sys_clk or negedge sys_resetn) begin
-        if (!sys_resetn)
+        if (!sys_resetn) begin
             aw_slave_sel <= 3'd6;
-        else if (cdc_awvalid)
-            aw_slave_sel <= aw_slave_sel_comb;
+            write_busy_r <= 1'b0;
+        end else begin
+            if (!write_busy_r && cdc_awvalid && cdc_awready) begin
+                aw_slave_sel <= aw_slave_sel_comb;
+                write_busy_r <= 1'b1;
+            end else if (write_busy_r && cdc_bvalid && cdc_bready) begin
+                write_busy_r <= 1'b0;
+            end
+        end
     end
 
-    // Latch slave select on cdc_arvalid (same reasoning as AW above)
     reg [2:0] ar_slave_sel;
+    reg       read_busy_r;
     always_ff @(posedge sys_clk or negedge sys_resetn) begin
-        if (!sys_resetn)
+        if (!sys_resetn) begin
             ar_slave_sel <= 3'd6;
-        else if (cdc_arvalid)
-            ar_slave_sel <= ar_slave_sel_comb;
+            read_busy_r  <= 1'b0;
+        end else begin
+            if (!read_busy_r && cdc_arvalid && cdc_arready) begin
+                ar_slave_sel <= ar_slave_sel_comb;
+                read_busy_r  <= 1'b1;
+            end else if (read_busy_r && cdc_rvalid && cdc_rready && cdc_rlast) begin
+                read_busy_r <= 1'b0;
+            end
+        end
     end
 
     // ========================================================================
@@ -1113,7 +1201,7 @@ module system_top(
 
     // --- AW channel routing ---
     // DDR3/RAM (slave 0) — full AXI4
-    assign ddr_awvalid  = cdc_awvalid && (aw_slave_sel_comb == 3'd0);
+    assign ddr_awvalid  = !write_busy_r && cdc_awvalid && (aw_slave_sel_comb == 3'd0);
     assign ddr_awaddr   = cdc_awaddr;
     assign ddr_awid     = cdc_awid;
     assign ddr_awlen    = cdc_awlen;
@@ -1126,83 +1214,86 @@ module system_top(
     assign ddr_awprot   = cdc_awprot;
 
     // Boot ROM (slave 1) — AXI4-Lite
-    assign bootrom_awvalid = cdc_awvalid && (aw_slave_sel_comb == 3'd1);
+    assign bootrom_awvalid = !write_busy_r && cdc_awvalid && (aw_slave_sel_comb == 3'd1);
     assign bootrom_awaddr  = cdc_awaddr;
     assign bootrom_awprot  = cdc_awprot;
 
     // PLIC (slave 2) — AXI4-Lite
-    assign plic_awvalid = cdc_awvalid && (aw_slave_sel_comb == 3'd2);
+    assign plic_awvalid = !write_busy_r && cdc_awvalid && (aw_slave_sel_comb == 3'd2);
     assign plic_awaddr  = cdc_awaddr;
     assign plic_awprot  = cdc_awprot;
 
     // CLINT (slave 3) — AXI4-Lite
-    assign clint_awvalid = cdc_awvalid && (aw_slave_sel_comb == 3'd3);
+    assign clint_awvalid = !write_busy_r && cdc_awvalid && (aw_slave_sel_comb == 3'd3);
     assign clint_awaddr  = cdc_awaddr;
     assign clint_awprot  = cdc_awprot;
 
     // APB Bridge (slave 4) — AXI4-Lite
-    assign apb_awvalid = cdc_awvalid && (aw_slave_sel_comb == 3'd4);
+    assign apb_awvalid = !write_busy_r && cdc_awvalid && (aw_slave_sel_comb == 3'd4);
     assign apb_awaddr  = cdc_awaddr;
     assign apb_awprot  = cdc_awprot;
 
     // Sys Status (slave 5) — AXI4-Lite
-    assign syssts_awvalid = cdc_awvalid && (aw_slave_sel_comb == 3'd5);
+    assign syssts_awvalid = !write_busy_r && cdc_awvalid && (aw_slave_sel_comb == 3'd5);
     assign syssts_awaddr  = cdc_awaddr;
     assign syssts_awprot  = cdc_awprot;
 
     // Default (slave 6) — AXI4-Lite
-    assign default_awvalid = cdc_awvalid && (aw_slave_sel_comb == 3'd6);
+    assign default_awvalid = !write_busy_r && cdc_awvalid && (aw_slave_sel_comb == 3'd6);
     assign default_awaddr  = cdc_awaddr;
     assign default_awprot  = cdc_awprot;
 
     // AW ready mux back to CDC master
-    assign cdc_awready = (aw_slave_sel_comb == 3'd0) ? ddr_awready    :
-                         (aw_slave_sel_comb == 3'd1) ? bootrom_awready :
-                         (aw_slave_sel_comb == 3'd2) ? plic_awready    :
-                         (aw_slave_sel_comb == 3'd3) ? clint_awready   :
-                         (aw_slave_sel_comb == 3'd4) ? apb_awready     :
-                         (aw_slave_sel_comb == 3'd5) ? syssts_awready  :
-                         default_awready;
+    wire aw_ready_mux = (aw_slave_sel_comb == 3'd0) ? ddr_awready    :
+                        (aw_slave_sel_comb == 3'd1) ? bootrom_awready :
+                        (aw_slave_sel_comb == 3'd2) ? plic_awready    :
+                        (aw_slave_sel_comb == 3'd3) ? clint_awready   :
+                        (aw_slave_sel_comb == 3'd4) ? apb_awready     :
+                        (aw_slave_sel_comb == 3'd5) ? syssts_awready  :
+                                                     default_awready;
+    assign cdc_awready = !write_busy_r && aw_ready_mux;
 
-    // --- W channel routing (follows latched AW slave select) ---
-    // When cdc_awvalid is asserted, the AW address is still on the bus and
-    // aw_slave_sel_comb is correct.  Use it for W routing to handle the
-    // case where the first W beat arrives in the same cycle as the AW
-    // handshake (before aw_slave_sel has been latched).
-    // After cdc_awvalid drops, fall back to the registered aw_slave_sel.
-    wire [2:0] w_slave_sel = cdc_awvalid ? aw_slave_sel_comb : aw_slave_sel;
+    // --- W channel routing (follows the active write transaction) ---
+    // W may legally be presented before or alongside AW. This interconnect
+    // stalls W until the AW handshake captures the target slave.
+    wire w_handshake_starts = !write_busy_r && cdc_awvalid && cdc_awready;
+    wire w_route_valid = write_busy_r || w_handshake_starts;
+    wire [2:0] w_slave_sel = write_busy_r ? aw_slave_sel :
+                             w_handshake_starts ? aw_slave_sel_comb :
+                             3'd6;
 
-    assign ddr_wvalid    = cdc_wvalid && (w_slave_sel == 3'd0);
+    assign ddr_wvalid    = w_route_valid && cdc_wvalid && (w_slave_sel == 3'd0);
     assign ddr_wdata     = cdc_wdata;
     assign ddr_wstrb     = cdc_wstrb;
     assign ddr_wlast     = cdc_wlast;
 
-    assign bootrom_wvalid = cdc_wvalid && (w_slave_sel == 3'd1);
+    assign bootrom_wvalid = w_route_valid && cdc_wvalid && (w_slave_sel == 3'd1);
     assign bootrom_wdata  = cdc_wdata;
     assign bootrom_wstrb  = cdc_wstrb;
 
-    assign plic_wvalid = cdc_wvalid && (w_slave_sel == 3'd2);
+    assign plic_wvalid = w_route_valid && cdc_wvalid && (w_slave_sel == 3'd2);
     assign plic_wdata  = cdc_wdata;
     assign plic_wstrb  = cdc_wstrb;
 
-    assign clint_wvalid = cdc_wvalid && (w_slave_sel == 3'd3);
+    assign clint_wvalid = w_route_valid && cdc_wvalid && (w_slave_sel == 3'd3);
     assign clint_wdata  = cdc_wdata;
     assign clint_wstrb  = cdc_wstrb;
 
-    assign apb_wvalid = cdc_wvalid && (w_slave_sel == 3'd4);
+    assign apb_wvalid = w_route_valid && cdc_wvalid && (w_slave_sel == 3'd4);
     assign apb_wdata  = cdc_wdata;
     assign apb_wstrb  = cdc_wstrb;
 
-    assign syssts_wvalid = cdc_wvalid && (w_slave_sel == 3'd5);
+    assign syssts_wvalid = w_route_valid && cdc_wvalid && (w_slave_sel == 3'd5);
     assign syssts_wdata  = cdc_wdata;
     assign syssts_wstrb  = cdc_wstrb;
 
-    assign default_wvalid = cdc_wvalid && (w_slave_sel == 3'd6);
+    assign default_wvalid = w_route_valid && cdc_wvalid && (w_slave_sel == 3'd6);
     assign default_wdata  = cdc_wdata;
     assign default_wstrb  = cdc_wstrb;
 
     // W ready mux back to CDC master
-    assign cdc_wready = (w_slave_sel == 3'd0) ? ddr_wready    :
+    assign cdc_wready = !w_route_valid ? 1'b0 :
+                        (w_slave_sel == 3'd0) ? ddr_wready    :
                         (w_slave_sel == 3'd1) ? bootrom_wready :
                         (w_slave_sel == 3'd2) ? plic_wready    :
                         (w_slave_sel == 3'd3) ? clint_wready   :
@@ -1211,16 +1302,17 @@ module system_top(
                         default_wready;
 
     // --- B channel routing (follows aw_slave_sel, per AXI spec BID=AWID) ---
-    assign ddr_bready    = cdc_bready && (aw_slave_sel == 3'd0);
-    assign bootrom_bready = cdc_bready && (aw_slave_sel == 3'd1);
-    assign plic_bready    = cdc_bready && (aw_slave_sel == 3'd2);
-    assign clint_bready   = cdc_bready && (aw_slave_sel == 3'd3);
-    assign apb_bready     = cdc_bready && (aw_slave_sel == 3'd4);
-    assign syssts_bready  = cdc_bready && (aw_slave_sel == 3'd5);
-    assign default_bready = cdc_bready && (aw_slave_sel == 3'd6);
+    assign ddr_bready    = write_busy_r && cdc_bready && (aw_slave_sel == 3'd0);
+    assign bootrom_bready = write_busy_r && cdc_bready && (aw_slave_sel == 3'd1);
+    assign plic_bready    = write_busy_r && cdc_bready && (aw_slave_sel == 3'd2);
+    assign clint_bready   = write_busy_r && cdc_bready && (aw_slave_sel == 3'd3);
+    assign apb_bready     = write_busy_r && cdc_bready && (aw_slave_sel == 3'd4);
+    assign syssts_bready  = write_busy_r && cdc_bready && (aw_slave_sel == 3'd5);
+    assign default_bready = write_busy_r && cdc_bready && (aw_slave_sel == 3'd6);
 
     // B response mux back to CDC master
-    assign cdc_bvalid = (aw_slave_sel == 3'd0) ? ddr_bvalid    :
+    assign cdc_bvalid = !write_busy_r ? 1'b0 :
+                        (aw_slave_sel == 3'd0) ? ddr_bvalid    :
                         (aw_slave_sel == 3'd1) ? bootrom_bvalid :
                         (aw_slave_sel == 3'd2) ? plic_bvalid    :
                         (aw_slave_sel == 3'd3) ? clint_bvalid   :
@@ -1228,7 +1320,8 @@ module system_top(
                         (aw_slave_sel == 3'd5) ? syssts_bvalid  :
                         default_bvalid;
 
-    assign cdc_bresp = (aw_slave_sel == 3'd0) ? ddr_bresp    :
+    assign cdc_bresp = !write_busy_r ? 2'b00 :
+                       (aw_slave_sel == 3'd0) ? ddr_bresp    :
                        (aw_slave_sel == 3'd1) ? bootrom_bresp :
                        (aw_slave_sel == 3'd2) ? plic_bresp    :
                        (aw_slave_sel == 3'd3) ? clint_bresp   :
@@ -1236,10 +1329,10 @@ module system_top(
                        (aw_slave_sel == 3'd5) ? syssts_bresp  :
                        default_bresp;
 
-    assign cdc_bid = (aw_slave_sel == 3'd0) ? ddr_bid : 4'b0;
+    assign cdc_bid = (write_busy_r && (aw_slave_sel == 3'd0)) ? ddr_bid : 4'b0;
 
     // --- AR channel routing ---
-    assign ddr_arvalid  = cdc_arvalid && (ar_slave_sel_comb == 3'd0);
+    assign ddr_arvalid  = !read_busy_r && cdc_arvalid && (ar_slave_sel_comb == 3'd0);
     assign ddr_araddr   = cdc_araddr;
     assign ddr_arid     = cdc_arid;
     assign ddr_arlen    = cdc_arlen;
@@ -1249,50 +1342,52 @@ module system_top(
     assign ddr_arcache  = cdc_arcache;
     assign ddr_arprot   = cdc_arprot;
 
-    assign bootrom_arvalid = cdc_arvalid && (ar_slave_sel_comb == 3'd1);
+    assign bootrom_arvalid = !read_busy_r && cdc_arvalid && (ar_slave_sel_comb == 3'd1);
     assign bootrom_araddr  = cdc_araddr;
     assign bootrom_arprot  = cdc_arprot;
 
-    assign plic_arvalid = cdc_arvalid && (ar_slave_sel_comb == 3'd2);
+    assign plic_arvalid = !read_busy_r && cdc_arvalid && (ar_slave_sel_comb == 3'd2);
     assign plic_araddr  = cdc_araddr;
     assign plic_arprot  = cdc_arprot;
 
-    assign clint_arvalid = cdc_arvalid && (ar_slave_sel_comb == 3'd3);
+    assign clint_arvalid = !read_busy_r && cdc_arvalid && (ar_slave_sel_comb == 3'd3);
     assign clint_araddr  = cdc_araddr;
     assign clint_arprot  = cdc_arprot;
 
-    assign apb_arvalid = cdc_arvalid && (ar_slave_sel_comb == 3'd4);
+    assign apb_arvalid = !read_busy_r && cdc_arvalid && (ar_slave_sel_comb == 3'd4);
     assign apb_araddr  = cdc_araddr;
     assign apb_arprot  = cdc_arprot;
 
-    assign syssts_arvalid = cdc_arvalid && (ar_slave_sel_comb == 3'd5);
+    assign syssts_arvalid = !read_busy_r && cdc_arvalid && (ar_slave_sel_comb == 3'd5);
     assign syssts_araddr  = cdc_araddr;
     assign syssts_arprot  = cdc_arprot;
 
-    assign default_arvalid = cdc_arvalid && (ar_slave_sel_comb == 3'd6);
+    assign default_arvalid = !read_busy_r && cdc_arvalid && (ar_slave_sel_comb == 3'd6);
     assign default_araddr  = cdc_araddr;
     assign default_arprot  = cdc_arprot;
 
     // AR ready mux back to CDC master
-    assign cdc_arready = (ar_slave_sel_comb == 3'd0) ? ddr_arready    :
-                         (ar_slave_sel_comb == 3'd1) ? bootrom_arready :
-                         (ar_slave_sel_comb == 3'd2) ? plic_arready    :
-                         (ar_slave_sel_comb == 3'd3) ? clint_arready   :
-                         (ar_slave_sel_comb == 3'd4) ? apb_arready     :
-                         (ar_slave_sel_comb == 3'd5) ? syssts_arready  :
-                         default_arready;
+    wire ar_ready_mux = (ar_slave_sel_comb == 3'd0) ? ddr_arready    :
+                        (ar_slave_sel_comb == 3'd1) ? bootrom_arready :
+                        (ar_slave_sel_comb == 3'd2) ? plic_arready    :
+                        (ar_slave_sel_comb == 3'd3) ? clint_arready   :
+                        (ar_slave_sel_comb == 3'd4) ? apb_arready     :
+                        (ar_slave_sel_comb == 3'd5) ? syssts_arready  :
+                                                     default_arready;
+    assign cdc_arready = !read_busy_r && ar_ready_mux;
 
     // --- R channel routing (follows latched AR slave select) ---
-    assign ddr_rready    = cdc_rready && (ar_slave_sel == 3'd0);
-    assign bootrom_rready = cdc_rready && (ar_slave_sel == 3'd1);
-    assign plic_rready    = cdc_rready && (ar_slave_sel == 3'd2);
-    assign clint_rready   = cdc_rready && (ar_slave_sel == 3'd3);
-    assign apb_rready     = cdc_rready && (ar_slave_sel == 3'd4);
-    assign syssts_rready  = cdc_rready && (ar_slave_sel == 3'd5);
-    assign default_rready = cdc_rready && (ar_slave_sel == 3'd6);
+    assign ddr_rready    = read_busy_r && cdc_rready && (ar_slave_sel == 3'd0);
+    assign bootrom_rready = read_busy_r && cdc_rready && (ar_slave_sel == 3'd1);
+    assign plic_rready    = read_busy_r && cdc_rready && (ar_slave_sel == 3'd2);
+    assign clint_rready   = read_busy_r && cdc_rready && (ar_slave_sel == 3'd3);
+    assign apb_rready     = read_busy_r && cdc_rready && (ar_slave_sel == 3'd4);
+    assign syssts_rready  = read_busy_r && cdc_rready && (ar_slave_sel == 3'd5);
+    assign default_rready = read_busy_r && cdc_rready && (ar_slave_sel == 3'd6);
 
     // R response mux back to CDC master
-    assign cdc_rvalid = (ar_slave_sel == 3'd0) ? ddr_rvalid    :
+    assign cdc_rvalid = !read_busy_r ? 1'b0 :
+                        (ar_slave_sel == 3'd0) ? ddr_rvalid    :
                         (ar_slave_sel == 3'd1) ? bootrom_rvalid :
                         (ar_slave_sel == 3'd2) ? plic_rvalid    :
                         (ar_slave_sel == 3'd3) ? clint_rvalid   :
@@ -1300,7 +1395,8 @@ module system_top(
                         (ar_slave_sel == 3'd5) ? syssts_rvalid  :
                         default_rvalid;
 
-    assign cdc_rdata = (ar_slave_sel == 3'd0) ? ddr_rdata    :
+    assign cdc_rdata = !read_busy_r ? 32'b0 :
+                       (ar_slave_sel == 3'd0) ? ddr_rdata    :
                        (ar_slave_sel == 3'd1) ? bootrom_rdata :
                        (ar_slave_sel == 3'd2) ? plic_rdata    :
                        (ar_slave_sel == 3'd3) ? clint_rdata   :
@@ -1308,7 +1404,8 @@ module system_top(
                        (ar_slave_sel == 3'd5) ? syssts_rdata  :
                        default_rdata;
 
-    assign cdc_rresp = (ar_slave_sel == 3'd0) ? ddr_rresp    :
+    assign cdc_rresp = !read_busy_r ? 2'b00 :
+                       (ar_slave_sel == 3'd0) ? ddr_rresp    :
                        (ar_slave_sel == 3'd1) ? bootrom_rresp :
                        (ar_slave_sel == 3'd2) ? plic_rresp    :
                        (ar_slave_sel == 3'd3) ? clint_rresp   :
@@ -1316,10 +1413,11 @@ module system_top(
                        (ar_slave_sel == 3'd5) ? syssts_rresp  :
                        default_rresp;
 
-    assign cdc_rlast = (ar_slave_sel == 3'd0) ? ddr_rlast : 1'b1;
+    assign cdc_rlast = !read_busy_r ? 1'b0 :
+                       (ar_slave_sel == 3'd0) ? ddr_rlast : 1'b1;
     // AXI4-Lite slaves always return rlast=1 (single beat)
 
-    assign cdc_rid = (ar_slave_sel == 3'd0) ? ddr_rid : 4'b0;
+    assign cdc_rid = (read_busy_r && (ar_slave_sel == 3'd0)) ? ddr_rid : 4'b0;
 
     // ========================================================================
     // DDR3/SRAM Conditional Generate
@@ -1874,6 +1972,38 @@ module system_top(
     wire [5 :0] display_number;
     wire        input_valid;
     wire [31:0] input_value;
+    localparam int DISP_REQ_W = 8;
+    localparam int DISP_RSP_W = 73;
+    logic [DISP_REQ_W-1:0] disp_req_ctrl_sys;
+    logic                  disp_req_toggle_sys;
+    logic                  disp_req_busy_sys;
+    logic                  disp_resp_toggle_cpu;
+    logic                  disp_resp_toggle_sys_ff1, disp_resp_toggle_sys_ff2, disp_resp_toggle_sys_ff2_d;
+    logic [DISP_RSP_W-1:0] disp_resp_bus_cpu;
+    logic [DISP_RSP_W-1:0] disp_resp_bus_sys_ff1, disp_resp_bus_sys_ff2;
+    logic                  disp_cpu_valid_sys;
+    logic [39:0]           disp_cpu_name_sys;
+    logic [31:0]           disp_cpu_value_sys;
+    logic                  disp_req_toggle_cpu_ff1, disp_req_toggle_cpu_ff2, disp_req_toggle_cpu_ff2_d;
+    logic [DISP_REQ_W-1:0] disp_req_ctrl_cpu_ff1, disp_req_ctrl_cpu_ff2;
+    wire  [1:0]            disp_page_cpu = disp_req_ctrl_cpu_ff2[7:6];
+    wire  [5:0]            disp_num_cpu  = disp_req_ctrl_cpu_ff2[5:0];
+    wire                   disp_page2_sys = sw[7] && !sw[6];
+    wire                   disp_page3_sys = !sw[7] && sw[6];
+    wire                   disp_page4_sys = sw[7] && sw[6];
+    wire                   disp_cpu_owned_sys =
+        disp_page2_sys ||
+        disp_page3_sys ||
+        (disp_page4_sys && (display_number != 6'd29) && (display_number != 6'd30)) ||
+        ((!sw[7] && !sw[6]) && (
+            ((display_number > 6'd10) && (display_number < 6'd43)) ||
+            (display_number == 6'd1) ||
+            (display_number == 6'd2) ||
+            (display_number == 6'd9) ||
+            (display_number == 6'd10) ||
+            (display_number == 6'd43) ||
+            (display_number == 6'd46)
+        ));
 
     lcd_module lcd_module(
         .clk            (sys_clk),
@@ -1897,7 +2027,169 @@ module system_top(
         .ct_rstn        (ct_rstn)
     );
 
-    assign rf_addr = display_number - 6'd11;
+    assign rf_addr = disp_num_cpu[4:0] - 5'd11;
+
+    // Request/response snapshot path for CPU-domain debug display data.
+    // sys_clk sends {page, number}; cpu_clk computes the selected value and
+    // returns a stable snapshot bundle for the LCD controller.
+    always_ff @(posedge sys_clk or negedge sys_resetn) begin
+        if (!sys_resetn) begin
+            disp_req_ctrl_sys         <= '0;
+            disp_req_toggle_sys       <= 1'b0;
+            disp_req_busy_sys         <= 1'b0;
+            disp_resp_toggle_sys_ff1  <= 1'b0;
+            disp_resp_toggle_sys_ff2  <= 1'b0;
+            disp_resp_toggle_sys_ff2_d<= 1'b0;
+            disp_resp_bus_sys_ff1     <= '0;
+            disp_resp_bus_sys_ff2     <= '0;
+            disp_cpu_valid_sys        <= 1'b0;
+            disp_cpu_name_sys         <= 40'b0;
+            disp_cpu_value_sys        <= 32'b0;
+        end else begin
+            disp_resp_toggle_sys_ff1   <= disp_resp_toggle_cpu;
+            disp_resp_toggle_sys_ff2   <= disp_resp_toggle_sys_ff1;
+            disp_resp_toggle_sys_ff2_d <= disp_resp_toggle_sys_ff2;
+            disp_resp_bus_sys_ff1      <= disp_resp_bus_cpu;
+            disp_resp_bus_sys_ff2      <= disp_resp_bus_sys_ff1;
+
+            if (disp_resp_toggle_sys_ff2 ^ disp_resp_toggle_sys_ff2_d) begin
+                {disp_cpu_valid_sys, disp_cpu_name_sys, disp_cpu_value_sys} <= disp_resp_bus_sys_ff2;
+                disp_req_busy_sys <= 1'b0;
+            end
+
+            if (!disp_req_busy_sys) begin
+                disp_req_ctrl_sys   <= {sw[7:6], display_number};
+                disp_req_toggle_sys <= ~disp_req_toggle_sys;
+                disp_req_busy_sys   <= 1'b1;
+            end
+        end
+    end
+
+    always_ff @(posedge cpu_clk or negedge cpu_resetn) begin
+        if (!cpu_resetn) begin
+            disp_req_toggle_cpu_ff1   <= 1'b0;
+            disp_req_toggle_cpu_ff2   <= 1'b0;
+            disp_req_toggle_cpu_ff2_d <= 1'b0;
+            disp_req_ctrl_cpu_ff1     <= '0;
+            disp_req_ctrl_cpu_ff2     <= '0;
+            disp_resp_toggle_cpu      <= 1'b0;
+            disp_resp_bus_cpu         <= '0;
+        end else begin
+            disp_req_toggle_cpu_ff1   <= disp_req_toggle_sys;
+            disp_req_toggle_cpu_ff2   <= disp_req_toggle_cpu_ff1;
+            disp_req_toggle_cpu_ff2_d <= disp_req_toggle_cpu_ff2;
+            disp_req_ctrl_cpu_ff1     <= disp_req_ctrl_sys;
+            disp_req_ctrl_cpu_ff2     <= disp_req_ctrl_cpu_ff1;
+
+            if (disp_req_toggle_cpu_ff2 ^ disp_req_toggle_cpu_ff2_d) begin
+                disp_resp_bus_cpu <= {1'b1, 40'h20_20_20_20_20, 32'b0};
+
+                if (disp_page_cpu == 2'b10) begin
+                    case (disp_num_cpu)
+                        6'd1:  disp_resp_bus_cpu <= {1'b1, "T_PC ", trap_latch_pc_r};
+                        6'd2:  disp_resp_bus_cpu <= {1'b1, "MCAUS", trap_latch_mcause_r};
+                        6'd3:  disp_resp_bus_cpu <= {1'b1, "MTVEC", trap_latch_mtvec_r};
+                        6'd4:  disp_resp_bus_cpu <= {1'b1, "MEPC ", trap_latch_mepc_r};
+                        6'd5:  disp_resp_bus_cpu <= {1'b1, "STVEC", trap_latch_stvec_r};
+                        6'd6:  disp_resp_bus_cpu <= {1'b1, "SEPC ", trap_latch_sepc_r};
+                        6'd7:  disp_resp_bus_cpu <= {1'b1, "SCAUS", trap_latch_scause_r};
+                        6'd8:  disp_resp_bus_cpu <= {1'b1, "PRIV ", {30'b0, trap_latch_priv_r}};
+                        6'd9:  disp_resp_bus_cpu <= {1'b1, "TPRIV", {30'b0, trap_latch_target_priv_r}};
+                        6'd10: disp_resp_bus_cpu <= {1'b1, "TPC  ", trap_latch_trap_pc_r};
+                        6'd11: disp_resp_bus_cpu <= {1'b1, "TRAP?", {31'b0, trap_latched_r}};
+                        6'd12: disp_resp_bus_cpu <= {1'b1, "CNT  ", {16'b0, trap_latch_count_r}};
+                        6'd13: disp_resp_bus_cpu <= {1'b1, "C_PC ", if_pc};
+                        6'd14: disp_resp_bus_cpu <= {1'b1, "C_MCU", csr_mcause};
+                        6'd15: disp_resp_bus_cpu <= {1'b1, "C_MTV", csr_mtvec};
+                        6'd16: disp_resp_bus_cpu <= {1'b1, "C_TRP", {31'b0, trap_enter_valid}};
+                        6'd17: disp_resp_bus_cpu <= {1'b1, "C_PRV", {30'b0, priv_mode}};
+                        default: ;
+                    endcase
+                end else if (disp_page_cpu == 2'b01) begin
+                    case (disp_num_cpu)
+                        6'd1:  disp_resp_bus_cpu <= {1'b1, "S_VLD", {31'b0, dbg_s_valid_r}};
+                        6'd2:  disp_resp_bus_cpu <= {1'b1, "S_EPC", dbg_s_epc_r};
+                        6'd3:  disp_resp_bus_cpu <= {1'b1, "S_CAU", dbg_s_cause_r};
+                        6'd4:  disp_resp_bus_cpu <= {1'b1, "S_TVL", dbg_s_tval_r};
+                        6'd5:  disp_resp_bus_cpu <= {1'b1, "S_PVM", {28'b0, dbg_s_from_to_r}};
+                        6'd6:  disp_resp_bus_cpu <= {1'b1, "S_STT", dbg_s_status_r};
+                        6'd7:  disp_resp_bus_cpu <= {1'b1, "S_TVC", dbg_s_tvec_r};
+                        6'd8:  disp_resp_bus_cpu <= {1'b1, "S_SCR", dbg_s_scratch_r};
+                        6'd9:  disp_resp_bus_cpu <= {1'b1, "S_SAT", dbg_s_satp_r};
+                        6'd10: disp_resp_bus_cpu <= {1'b1, "S_CNT", {16'b0, dbg_s_count_r}};
+                        6'd11: disp_resp_bus_cpu <= {1'b1, "R_VLD", {31'b0, dbg_recursive_valid_r}};
+                        6'd12: disp_resp_bus_cpu <= {1'b1, "R_EPC", dbg_recursive_epc_r};
+                        6'd13: disp_resp_bus_cpu <= {1'b1, "R_CAU", dbg_recursive_cause_r};
+                        6'd14: disp_resp_bus_cpu <= {1'b1, "R_TVL", dbg_recursive_tval_r};
+                        6'd15: disp_resp_bus_cpu <= {1'b1, "R_CNT", {16'b0, dbg_recursive_count_r}};
+                        6'd16: disp_resp_bus_cpu <= {1'b1, "F_S1 ", dbg_s_gpr_s1_r};
+                        6'd17: disp_resp_bus_cpu <= {1'b1, "F_S2 ", dbg_s_gpr_s2_r};
+                        6'd18: disp_resp_bus_cpu <= {1'b1, "F_S3 ", dbg_s_gpr_s3_r};
+                        6'd19: disp_resp_bus_cpu <= {1'b1, "F_A4 ", dbg_s_gpr_a4_r};
+                        6'd20: disp_resp_bus_cpu <= {1'b1, "F_A5 ", dbg_s_gpr_a5_r};
+                        default: ;
+                    endcase
+                end else if (disp_page_cpu == 2'b11) begin
+                    case (disp_num_cpu)
+                        6'd1:  disp_resp_bus_cpu <= {1'b1, "IF_PC", if_pc};
+                        6'd2:  disp_resp_bus_cpu <= {1'b1, "IF_IN", if_inst};
+                        6'd3:  disp_resp_bus_cpu <= {1'b1, "STATE", display_state};
+                        6'd4:  disp_resp_bus_cpu <= {1'b1, "EX_PC", exe_pc};
+                        6'd5:  disp_resp_bus_cpu <= {1'b1, "EX_IN", exe_inst};
+                        6'd6:  disp_resp_bus_cpu <= {1'b1, "RA   ", gpr_ra};
+                        6'd7:  disp_resp_bus_cpu <= {1'b1, "A0   ", gpr_a0};
+                        6'd8:  disp_resp_bus_cpu <= {1'b1, "A1   ", gpr_a1};
+                        6'd9:  disp_resp_bus_cpu <= {1'b1, "A2   ", gpr_a2};
+                        6'd10: disp_resp_bus_cpu <= {1'b1, "A3   ", gpr_a3};
+                        6'd11: disp_resp_bus_cpu <= {1'b1, "A7   ", gpr_a7};
+                        6'd12: disp_resp_bus_cpu <= {1'b1, "MREQ ", {31'b0, dbg_dmmio_req}};
+                        6'd13: disp_resp_bus_cpu <= {1'b1, "MWE  ", {31'b0, dbg_dmmio_we}};
+                        6'd14: disp_resp_bus_cpu <= {1'b1, "MADDR", dbg_dmmio_addr};
+                        6'd15: disp_resp_bus_cpu <= {1'b1, "MSIZE", {29'b0, dbg_dmmio_hsize}};
+                        6'd16: disp_resp_bus_cpu <= {1'b1, "MVAL ", {31'b0, dbg_dmmio_valid}};
+                        6'd17: disp_resp_bus_cpu <= {1'b1, "MRDAT", dbg_dmmio_rdata};
+                        6'd18: disp_resp_bus_cpu <= {1'b1, "LM_V ", {31'b0, dbg_last_mmio_valid}};
+                        6'd19: disp_resp_bus_cpu <= {1'b1, "LM_PC", dbg_last_mmio_pc};
+                        6'd20: disp_resp_bus_cpu <= {1'b1, "LM_WE", {31'b0, dbg_last_mmio_we}};
+                        6'd21: disp_resp_bus_cpu <= {1'b1, "LM_AD", dbg_last_mmio_addr};
+                        6'd22: disp_resp_bus_cpu <= {1'b1, "LM_SZ", {29'b0, dbg_last_mmio_hsize}};
+                        6'd23: disp_resp_bus_cpu <= {1'b1, "LM_WD", dbg_last_mmio_wdata};
+                        6'd24: disp_resp_bus_cpu <= {1'b1, "LM_RD", dbg_last_mmio_rdata};
+                        6'd25: disp_resp_bus_cpu <= {1'b1, "LM_CT", dbg_last_mmio_count};
+                        6'd26: disp_resp_bus_cpu <= {1'b1, "S_EPC", dbg_s_epc_r};
+                        6'd27: disp_resp_bus_cpu <= {1'b1, "S_CAU", dbg_s_cause_r};
+                        6'd28: disp_resp_bus_cpu <= {1'b1, "S_TVL", dbg_s_tval_r};
+                        6'd31: disp_resp_bus_cpu <= {1'b1, "MUACT", {31'b0, dbg_mu_active}};
+                        6'd32: disp_resp_bus_cpu <= {1'b1, "MUREQ", {31'b0, dbg_mu_req_valid}};
+                        6'd33: disp_resp_bus_cpu <= {1'b1, "MURDY", {31'b0, dbg_mu_ready}};
+                        6'd34: disp_resp_bus_cpu <= {1'b1, "MUBSY", {31'b0, dbg_mu_busy}};
+                        6'd35: disp_resp_bus_cpu <= {1'b1, "MURVL", {31'b0, dbg_mu_result_valid}};
+                        6'd36: disp_resp_bus_cpu <= {1'b1, "MUF3 ", {29'b0, dbg_mu_funct3}};
+                        6'd37: disp_resp_bus_cpu <= {1'b1, "EX_MU", {31'b0, dbg_exe_is_mu}};
+                        6'd38: disp_resp_bus_cpu <= {1'b1, "MD_ST", {29'b0, dbg_mmu_d_state}};
+                        6'd39: disp_resp_bus_cpu <= {1'b1, "MD_VA", dbg_mmu_d_latched_vaddr};
+                        default: ;
+                    endcase
+                end else if ((disp_page_cpu == 2'b00) && (disp_num_cpu > 6'd10) && (disp_num_cpu < 6'd43)) begin
+                    disp_resp_bus_cpu <= {1'b1,
+                                          {"REG", {4'b0011, 3'b000, rf_addr[4]}, {4'b0011, rf_addr[3:0]}},
+                                          rf_data};
+                end else begin
+                    case (disp_num_cpu)
+                        6'd1:  disp_resp_bus_cpu <= {1'b1, "IF_PC", if_pc};
+                        6'd2:  disp_resp_bus_cpu <= {1'b1, "IF_IN", if_inst};
+                        6'd9:  disp_resp_bus_cpu <= {1'b1, "DADDR", cpu_HADDR};
+                        6'd10: disp_resp_bus_cpu <= {1'b1, "DDATA", cpu_HRDATA};
+                        6'd43: disp_resp_bus_cpu <= {1'b1, "STATE", display_state};
+                        6'd46: disp_resp_bus_cpu <= {1'b1, "TC_LO", clint_mtime_cpuclk[31:0]};
+                        default: ;
+                    endcase
+                end
+
+                disp_resp_toggle_cpu <= ~disp_resp_toggle_cpu;
+            end
+        end
+    end
 
     // BUG-FIX: 使用同步化后的 sys_resetn 而非原始板级 resetn，避免复位释放时恢复时间违例
     // sw[7:6]=00: Page 1 (original display)
@@ -1909,387 +2201,12 @@ module system_top(
             display_valid  <= 1'b0;
             display_name   <= 40'b0;
             display_value  <= 32'b0;
-        end else if (sw[7] && !sw[6]) begin
-            // ── Page 2: Trap latch display ──────────────────────
-            case(display_number)
-                6'd1: begin  // Latched PC at trap time
-                    display_valid <= 1'b1;
-                    display_name  <= "T_PC ";
-                    display_value <= trap_latch_pc_r;
-                end
-                6'd2: begin  // Latched mcause
-                    display_valid <= 1'b1;
-                    display_name  <= "MCAUS";
-                    display_value <= trap_latch_mcause_r;
-                end
-                6'd3: begin  // Latched mtvec
-                    display_valid <= 1'b1;
-                    display_name  <= "MTVEC";
-                    display_value <= trap_latch_mtvec_r;
-                end
-                6'd4: begin  // Latched mepc
-                    display_valid <= 1'b1;
-                    display_name  <= "MEPC ";
-                    display_value <= trap_latch_mepc_r;
-                end
-                6'd5: begin  // Latched stvec
-                    display_valid <= 1'b1;
-                    display_name  <= "STVEC";
-                    display_value <= trap_latch_stvec_r;
-                end
-                6'd6: begin  // Latched sepc
-                    display_valid <= 1'b1;
-                    display_name  <= "SEPC ";
-                    display_value <= trap_latch_sepc_r;
-                end
-                6'd7: begin  // Latched scause
-                    display_valid <= 1'b1;
-                    display_name  <= "SCAUS";
-                    display_value <= trap_latch_scause_r;
-                end
-                6'd8: begin  // Latched privilege mode
-                    display_valid <= 1'b1;
-                    display_name  <= "PRIV ";
-                    display_value <= {30'b0, trap_latch_priv_r};
-                end
-                6'd9: begin  // Latched target privilege
-                    display_valid <= 1'b1;
-                    display_name  <= "TPRIV";
-                    display_value <= {30'b0, trap_latch_target_priv_r};
-                end
-                6'd10: begin  // Latched trap target PC
-                    display_valid <= 1'b1;
-                    display_name  <= "TPC  ";
-                    display_value <= trap_latch_trap_pc_r;
-                end
-                6'd11: begin  // Latch flag (1=data valid)
-                    display_valid <= 1'b1;
-                    display_name  <= "TRAP?";
-                    display_value <= {31'b0, trap_latched_r};
-                end
-                6'd12: begin  // Trap latch count
-                    display_valid <= 1'b1;
-                    display_name  <= "CNT  ";
-                    display_value <= {16'b0, trap_latch_count_r};
-                end
-                6'd13: begin  // Real-time if_pc
-                    display_valid <= 1'b1;
-                    display_name  <= "C_PC ";
-                    display_value <= if_pc;
-                end
-                6'd14: begin  // Real-time mcause
-                    display_valid <= 1'b1;
-                    display_name  <= "C_MCU";
-                    display_value <= csr_mcause;
-                end
-                6'd15: begin  // Real-time mtvec
-                    display_valid <= 1'b1;
-                    display_name  <= "C_MTV";
-                    display_value <= csr_mtvec;
-                end
-                6'd16: begin  // Real-time trap_enter_valid
-                    display_valid <= 1'b1;
-                    display_name  <= "C_TRP";
-                    display_value <= {31'b0, trap_enter_valid};
-                end
-                6'd17: begin  // Real-time priv_mode
-                    display_valid <= 1'b1;
-                    display_name  <= "C_PRV";
-                    display_value <= {30'b0, priv_mode};
-                end
-                default: begin
-                    display_valid <= 1'b1;
-                    display_name  <= 40'h20_20_20_20_20;
-                    display_value <= 32'b0;
-                end
-            endcase
-        end else if (!sw[7] && sw[6]) begin
-            // ── Page 3: S-origin trap + recursive trap detector ───
-            case(display_number)
-                6'd1: begin  // Last S-origin trap valid
-                    display_valid <= 1'b1;
-                    display_name  <= "S_VLD";
-                    display_value <= {31'b0, dbg_s_valid_r};
-                end
-                6'd2: begin  // Last S-origin trap EPC (faulting PC)
-                    display_valid <= 1'b1;
-                    display_name  <= "S_EPC";
-                    display_value <= dbg_s_epc_r;
-                end
-                6'd3: begin  // Last S-origin trap cause
-                    display_valid <= 1'b1;
-                    display_name  <= "S_CAU";
-                    display_value <= dbg_s_cause_r;
-                end
-                6'd4: begin  // Last S-origin trap tval
-                    display_valid <= 1'b1;
-                    display_name  <= "S_TVL";
-                    display_value <= dbg_s_tval_r;
-                end
-                6'd5: begin  // Last S-origin from→to privilege
-                    display_valid <= 1'b1;
-                    display_name  <= "S_PVM";
-                    display_value <= {28'b0, dbg_s_from_to_r};
-                end
-                6'd6: begin  // Last S-origin sstatus
-                    display_valid <= 1'b1;
-                    display_name  <= "S_STT";
-                    display_value <= dbg_s_status_r;
-                end
-                6'd7: begin  // Last S-origin stvec
-                    display_valid <= 1'b1;
-                    display_name  <= "S_TVC";
-                    display_value <= dbg_s_tvec_r;
-                end
-                6'd8: begin  // Last S-origin sscratch
-                    display_valid <= 1'b1;
-                    display_name  <= "S_SCR";
-                    display_value <= dbg_s_scratch_r;
-                end
-                6'd9: begin  // Last S-origin satp
-                    display_valid <= 1'b1;
-                    display_name  <= "S_SAT";
-                    display_value <= dbg_s_satp_r;
-                end
-                6'd10: begin  // S-origin trap count
-                    display_valid <= 1'b1;
-                    display_name  <= "S_CNT";
-                    display_value <= {16'b0, dbg_s_count_r};
-                end
-                6'd11: begin  // Recursive trap valid
-                    display_valid <= 1'b1;
-                    display_name  <= "R_VLD";
-                    display_value <= {31'b0, dbg_recursive_valid_r};
-                end
-                6'd12: begin  // Recursive trap EPC
-                    display_valid <= 1'b1;
-                    display_name  <= "R_EPC";
-                    display_value <= dbg_recursive_epc_r;
-                end
-                6'd13: begin  // Recursive trap cause
-                    display_valid <= 1'b1;
-                    display_name  <= "R_CAU";
-                    display_value <= dbg_recursive_cause_r;
-                end
-                6'd14: begin  // Recursive trap tval
-                    display_valid <= 1'b1;
-                    display_name  <= "R_TVL";
-                    display_value <= dbg_recursive_tval_r;
-                end
-                6'd15: begin  // Recursive trap count
-                    display_valid <= 1'b1;
-                    display_name  <= "R_CNT";
-                    display_value <= {16'b0, dbg_recursive_count_r};
-                end
-                6'd16: begin  // Fault-time s1 (x9)
-                    display_valid <= 1'b1;
-                    display_name  <= "F_S1 ";
-                    display_value <= dbg_s_gpr_s1_r;
-                end
-                6'd17: begin  // Fault-time s2 (x18)
-                    display_valid <= 1'b1;
-                    display_name  <= "F_S2 ";
-                    display_value <= dbg_s_gpr_s2_r;
-                end
-                6'd18: begin  // Fault-time s3 (x19)
-                    display_valid <= 1'b1;
-                    display_name  <= "F_S3 ";
-                    display_value <= dbg_s_gpr_s3_r;
-                end
-                6'd19: begin  // Fault-time a4 (x14)
-                    display_valid <= 1'b1;
-                    display_name  <= "F_A4 ";
-                    display_value <= dbg_s_gpr_a4_r;
-                end
-                6'd20: begin  // Fault-time a5 (x15)
-                    display_valid <= 1'b1;
-                    display_name  <= "F_A5 ";
-                    display_value <= dbg_s_gpr_a5_r;
-                end
-                default: begin
-                    display_valid <= 1'b1;
-                    display_name  <= 40'h20_20_20_20_20;
-                    display_value <= 32'b0;
-                end
-            endcase
-        end else if (sw[7] && sw[6]) begin
-            // ── Page 4: Live fetch-path debug page ──────────────────
-            case(display_number)
-                6'd1: begin
-                    display_valid <= 1'b1;
-                    display_name  <= "IF_PC";
-                    display_value <= if_pc;
-                end
-                6'd2: begin
-                    display_valid <= 1'b1;
-                    display_name  <= "IF_IN";
-                    display_value <= if_inst;
-                end
-                6'd3: begin
-                    display_valid <= 1'b1;
-                    display_name  <= "STATE";
-                    display_value <= display_state;
-                end
-                6'd4: begin
-                    display_valid <= 1'b1;
-                    display_name  <= "IFDON";
-                    display_value <= {31'b0, dbg_if_done};
-                end
-                6'd5: begin
-                    display_valid <= 1'b1;
-                    display_name  <= "INVAL";
-                    display_value <= {31'b0, dbg_inst_valid};
-                end
-                6'd6: begin
-                    display_valid <= 1'b1;
-                    display_name  <= "I_RDY";
-                    display_value <= {31'b0, dbg_mmu_i_ready};
-                end
-                6'd7: begin
-                    display_valid <= 1'b1;
-                    display_name  <= "I_MIS";
-                    display_value <= {31'b0, dbg_mmu_i_miss};
-                end
-                6'd8: begin
-                    display_valid <= 1'b1;
-                    display_name  <= "I_PF ";
-                    display_value <= {31'b0, dbg_i_page_fault};
-                end
-                6'd9: begin
-                    display_valid <= 1'b1;
-                    display_name  <= "IC_ST";
-                    display_value <= {29'b0, dbg_icache_state};
-                end
-                6'd10: begin
-                    display_valid <= 1'b1;
-                    display_name  <= "IC_RF";
-                    display_value <= {31'b0, dbg_icache_refill_req};
-                end
-                6'd11: begin
-                    display_valid <= 1'b1;
-                    display_name  <= "RF_V ";
-                    display_value <= {31'b0, dbg_icache_refill_valid};
-                end
-                6'd12: begin
-                    display_valid <= 1'b1;
-                    display_name  <= "PTWAC";
-                    display_value <= {31'b0, dbg_ptw_walk_active};
-                end
-                6'd13: begin
-                    display_valid <= 1'b1;
-                    display_name  <= "PIWLK";
-                    display_value <= {31'b0, dbg_pending_i_walk};
-                end
-                6'd14: begin
-                    display_valid <= 1'b1;
-                    display_name  <= "MI_ST";
-                    display_value <= {29'b0, dbg_mmu_i_state};
-                end
-                6'd15: begin
-                    display_valid <= 1'b1;
-                    display_name  <= "MI_CH";
-                    display_value <= {31'b0, dbg_mmu_i_input_changed};
-                end
-                6'd16: begin
-                    display_valid <= 1'b1;
-                    display_name  <= "MI_VA";
-                    display_value <= dbg_mmu_i_latched_vaddr;
-                end
-                6'd17: begin
-                    display_valid <= 1'b1;
-                    display_name  <= "MI_SV";
-                    display_value <= {31'b0, dbg_mmu_i_sv32};
-                end
-                6'd18: begin
-                    display_valid <= 1'b1;
-                    display_name  <= "MI_HI";
-                    display_value <= {31'b0, dbg_mmu_i_tlb_hit};
-                end
-                6'd19: begin
-                    display_valid <= 1'b1;
-                    display_name  <= "MI_VL";
-                    display_value <= {31'b0, dbg_mmu_i_tlb_valid};
-                end
-                6'd20: begin
-                    display_valid <= 1'b1;
-                    display_name  <= "MI_PM";
-                    display_value <= {31'b0, dbg_mmu_i_tlb_perm_fault};
-                end
-                6'd21: begin
-                    display_valid <= 1'b1;
-                    display_name  <= "MW_ST";
-                    display_value <= {30'b0, dbg_mmu_walk_state};
-                end
-                6'd22: begin
-                    display_valid <= 1'b1;
-                    display_name  <= "S_EPC";
-                    display_value <= dbg_s_epc_r;
-                end
-                6'd23: begin
-                    display_valid <= 1'b1;
-                    display_name  <= "S_CAU";
-                    display_value <= dbg_s_cause_r;
-                end
-                6'd24: begin
-                    display_valid <= 1'b1;
-                    display_name  <= "S_TVL";
-                    display_value <= dbg_s_tval_r;
-                end
-                6'd25: begin
-                    display_valid <= 1'b1;
-                    display_name  <= "STVEC";
-                    display_value <= dbg_s_tvec_r;
-                end
-                6'd26: begin
-                    display_valid <= 1'b1;
-                    display_name  <= "SEPC ";
-                    display_value <= csr_sepc;
-                end
-                6'd27: begin
-                    display_valid <= 1'b1;
-                    display_name  <= "S_CNT";
-                    display_value <= {16'b0, dbg_s_count_r};
-                end
-                6'd28: begin
-                    display_valid <= 1'b1;
-                    display_name  <= "T_IRQ";
-                    display_value <= {31'b0, clint_mtip_cpuclk_ff2};
-                end
-                6'd29: begin
-                    display_valid <= 1'b1;
-                    display_name  <= "CMPLO";
-                    display_value <= clint_mtimecmp[31:0];
-                end
-                6'd30: begin
-                    display_valid <= 1'b1;
-                    display_name  <= "CMPHI";
-                    display_value <= clint_mtimecmp[63:32];
-                end
-                default: begin
-                    display_valid <= 1'b1;
-                    display_name  <= 40'h20_20_20_20_20;
-                    display_value <= 32'b0;
-                end
-            endcase
-        end else if (display_number > 6'd10 && display_number < 6'd43) begin
-            display_valid       <= 1'b1;
-            display_name[39:16] <= "REG";
-            display_name[15:8]  <= {4'b0011, 3'b000, rf_addr[4]};
-            display_name[7:0]   <= {4'b0011, rf_addr[3:0]};
-            display_value       <= rf_data;
+        end else if (disp_cpu_owned_sys) begin
+            display_valid <= disp_cpu_valid_sys;
+            display_name  <= disp_cpu_name_sys;
+            display_value <= disp_cpu_value_sys;
         end else begin
             case(display_number)
-                // ── CPU pipeline: one PC + one INST ──────────────────
-                6'd1: begin
-                    display_valid <= 1'b1;
-                    display_name  <= "IF_PC";
-                    display_value <= if_pc;
-                end
-                6'd2: begin
-                    display_valid <= 1'b1;
-                    display_name  <= "IF_IN";
-                    display_value <= if_inst;
-                end
                 // ── Reset & initialization signals ───────────────────
                 // Init chain: resetn → clk_wiz_locked → ddr_aresetn
                 //           → sys_resetn → cpu_resetn → CPU boots
@@ -2323,22 +2240,6 @@ module system_top(
                     display_name  <= "GPIO ";
                     display_value <= {16'b0, gpio_data_out};
                 end
-                // ── AXI debug ────────────────────────────────────────
-                6'd9: begin
-                    display_valid <= 1'b1;
-                    display_name  <= "DADDR";
-                    display_value <= cpu_HADDR;
-                end
-                6'd10: begin
-                    display_valid <= 1'b1;
-                    display_name  <= "DDATA";
-                    display_value <= cpu_HRDATA;
-                end
-                6'd43: begin
-                    display_valid <= 1'b1;
-                    display_name  <= "STATE";
-                    display_value <= display_state;
-                end
                 6'd44: begin
                     display_valid <= 1'b1;
                     display_name  <= "SW   ";
@@ -2349,10 +2250,15 @@ module system_top(
                     display_name  <= "T_LO ";
                     display_value <= clint_mtime[31:0];
                 end
-                6'd46: begin
+                6'd29: begin
                     display_valid <= 1'b1;
-                    display_name  <= "TC_LO";
-                    display_value <= clint_mtime_cpuclk_ff2[31:0];
+                    display_name  <= "CMPLO";
+                    display_value <= clint_mtimecmp[31:0];
+                end
+                6'd30: begin
+                    display_valid <= 1'b1;
+                    display_name  <= "CMPHI";
+                    display_value <= clint_mtimecmp[63:32];
                 end
                 default: begin
                     display_valid <= 1'b1;

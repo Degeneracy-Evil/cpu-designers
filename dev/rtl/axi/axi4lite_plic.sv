@@ -46,31 +46,53 @@ module axi4lite_plic #(
     // =========================================================================
     // AXI4-Lite Write FSM
     // =========================================================================
-    localparam WR_IDLE = 2'd0;
-    localparam WR_DATA = 2'd1;
-    localparam WR_RESP = 2'd2;
+    localparam WR_IDLE = 1'd0;
+    localparam WR_RESP = 1'd1;
 
-    reg [1:0]  wr_state;
+    reg        wr_state;
     reg [31:0] wr_addr;
+    reg [31:0] wr_wdata;
+    reg [3:0]  wr_wstrb;
+    reg        aw_latched;
+    reg        w_latched;
 
-    assign s_axi_awready = (wr_state == WR_IDLE);
-    assign s_axi_wready  = (wr_state == WR_DATA);
+    wire aw_fire = (wr_state == WR_IDLE) && !aw_latched && s_axi_awvalid;
+    wire w_fire  = (wr_state == WR_IDLE) && !w_latched  && s_axi_wvalid;
+    wire wr_fire = (wr_state == WR_IDLE) && ((aw_latched || aw_fire) && (w_latched || w_fire));
+
+    wire [31:0] wr_addr_eff  = aw_latched ? wr_addr  : s_axi_awaddr;
+    wire [31:0] wr_wdata_eff = w_latched  ? wr_wdata : s_axi_wdata;
+    wire [3:0]  wr_wstrb_eff = w_latched  ? wr_wstrb : s_axi_wstrb;
+
+    assign s_axi_awready = (wr_state == WR_IDLE) && !aw_latched;
+    assign s_axi_wready  = (wr_state == WR_IDLE) && !w_latched;
 
     always_ff @(posedge s_axi_aclk or negedge s_axi_aresetn) begin
         if (!s_axi_aresetn) begin
-            wr_state <= WR_IDLE;
-            wr_addr  <= 32'd0;
+            wr_state    <= WR_IDLE;
+            wr_addr     <= 32'd0;
+            wr_wdata    <= 32'd0;
+            wr_wstrb    <= 4'd0;
+            aw_latched  <= 1'b0;
+            w_latched   <= 1'b0;
         end else begin
             case (wr_state)
                 WR_IDLE: begin
-                    if (s_axi_awvalid) begin
-                        wr_addr  <= s_axi_awaddr;
-                        wr_state <= WR_DATA;
+                    if (aw_fire)
+                        wr_addr <= s_axi_awaddr;
+                    if (w_fire) begin
+                        wr_wdata <= s_axi_wdata;
+                        wr_wstrb <= s_axi_wstrb;
                     end
-                end
-                WR_DATA: begin
-                    if (s_axi_wvalid) begin
-                        wr_state <= WR_RESP;
+                    if (wr_fire) begin
+                        wr_state   <= WR_RESP;
+                        aw_latched <= 1'b0;
+                        w_latched  <= 1'b0;
+                    end else begin
+                        if (aw_fire)
+                            aw_latched <= 1'b1;
+                        if (w_fire)
+                            w_latched <= 1'b1;
                     end
                 end
                 WR_RESP: begin
@@ -83,45 +105,22 @@ module axi4lite_plic #(
         end
     end
 
-    wire wr_fire = (wr_state == WR_DATA) && s_axi_wvalid;
-
     assign s_axi_bvalid = (wr_state == WR_RESP);
     assign s_axi_bresp  = `AXI_RESP_OKAY;
 
     // =========================================================================
     // AXI4-Lite Read FSM
     // =========================================================================
-    localparam RD_IDLE = 1'd0;
-    localparam RD_RESP = 1'd1;
+    localparam RD_IDLE = 2'd0;
+    localparam RD_WAIT = 2'd1;
+    localparam RD_RESP = 2'd2;
 
-    reg        rd_state;
+    reg [1:0]  rd_state;
     reg [31:0] rd_addr;
+    reg [31:0] r_rd_data;
+    reg [7:0]  rd_claim_id;
 
     assign s_axi_arready = (rd_state == RD_IDLE);
-
-    always_ff @(posedge s_axi_aclk or negedge s_axi_aresetn) begin
-        if (!s_axi_aresetn) begin
-            rd_state <= RD_IDLE;
-            rd_addr  <= 32'd0;
-        end else begin
-            case (rd_state)
-                RD_IDLE: begin
-                    if (s_axi_arvalid) begin
-                        rd_addr  <= s_axi_araddr;
-                        rd_state <= RD_RESP;
-                    end
-                end
-                RD_RESP: begin
-                    if (s_axi_rready) begin
-                        rd_state <= RD_IDLE;
-                    end
-                end
-                default: rd_state <= RD_IDLE;
-            endcase
-        end
-    end
-
-    wire rd_fire = (rd_state == RD_IDLE) && s_axi_arvalid;
 
     assign s_axi_rvalid = (rd_state == RD_RESP);
     assign s_axi_rresp  = `AXI_RESP_OKAY;
@@ -136,15 +135,15 @@ module axi4lite_plic #(
     // Claim[ctx]:     offset 0x200000 + N*0x1000 + 4 → addr[23:20]==4'h2, ctx=addr[15:12], sub=addr[3:2]==1
 
     // --- Write path (latched wr_addr) ---
-    wire wr_addr_is_prio   = (wr_addr[23:12] == 12'h000);
-    wire wr_addr_is_pend   = (wr_addr[23:12] == 12'h001);
-    wire wr_addr_is_enable = (wr_addr[23:12] == 12'h002);
-    wire wr_addr_is_ctx    = (wr_addr[23:20] == 4'h2);   // threshold or claim
-    wire wr_addr_is_thresh = wr_addr_is_ctx && (wr_addr[3:2] == 2'd0);
-    wire wr_addr_is_claim  = wr_addr_is_ctx && (wr_addr[3:2] == 2'd1);
+    wire wr_addr_is_prio   = (wr_addr_eff[23:12] == 12'h000);
+    wire wr_addr_is_pend   = (wr_addr_eff[23:12] == 12'h001);
+    wire wr_addr_is_enable = (wr_addr_eff[23:12] == 12'h002);
+    wire wr_addr_is_ctx    = (wr_addr_eff[23:20] == 4'h2);   // threshold or claim
+    wire wr_addr_is_thresh = wr_addr_is_ctx && (wr_addr_eff[3:2] == 2'd0);
+    wire wr_addr_is_claim  = wr_addr_is_ctx && (wr_addr_eff[3:2] == 2'd1);
 
-    wire [3:0] wr_ctx = wr_addr[15:12];   // context index from address
-    wire [4:0] wr_en_ctx = wr_addr[11:7]; // enable context index from address
+    wire [3:0] wr_ctx = wr_addr_eff[15:12];   // context index from address
+    wire [4:0] wr_en_ctx = wr_addr_eff[11:7]; // enable context index from address
 
     // --- Read path (latched rd_addr) ---
     wire rd_addr_is_prio   = (rd_addr[23:12] == 12'h000);
@@ -168,8 +167,6 @@ module axi4lite_plic #(
     // Per-context
     reg  [31:0] r_enable   [0:NUM_CTX-1];
     reg  [31:0] r_threshold[0:NUM_CTX-1];
-    reg  [7:0]  r_claim_id [0:NUM_CTX-1];
-
     integer ii;
     integer ci;
 
@@ -191,7 +188,7 @@ module axi4lite_plic #(
                 if (pend[j] && enbl[j])
                     pmat[j] = prio_arr[j];
             end
-            for (j = NUM_SRC-1; j >= 1; j = j - 1) begin
+            for (j = 1; j < NUM_SRC; j = j + 1) begin
                 if (pmat[j] > thresh && pmat[j] > best) begin
                     best = pmat[j];
                     id   = j;
@@ -217,21 +214,21 @@ module axi4lite_plic #(
     // =========================================================================
     // WSTRB-aware write data helpers
     // =========================================================================
-    wire [31:0] wdata_prio_masked = (wr_addr[7:2] < NUM_SRC) ?
-        {(s_axi_wstrb[3] ? s_axi_wdata[31:24] : r_prio[wr_addr[7:2]][31:24]),
-         (s_axi_wstrb[2] ? s_axi_wdata[23:16] : r_prio[wr_addr[7:2]][23:16]),
-         (s_axi_wstrb[1] ? s_axi_wdata[15:8]  : r_prio[wr_addr[7:2]][15:8]),
-         (s_axi_wstrb[0] ? s_axi_wdata[7:0]   : r_prio[wr_addr[7:2]][7:0])} : 32'd0;
+    wire [31:0] wdata_prio_masked = (wr_addr_eff[7:2] < NUM_SRC) ?
+        {(wr_wstrb_eff[3] ? wr_wdata_eff[31:24] : r_prio[wr_addr_eff[7:2]][31:24]),
+         (wr_wstrb_eff[2] ? wr_wdata_eff[23:16] : r_prio[wr_addr_eff[7:2]][23:16]),
+         (wr_wstrb_eff[1] ? wr_wdata_eff[15:8]  : r_prio[wr_addr_eff[7:2]][15:8]),
+         (wr_wstrb_eff[0] ? wr_wdata_eff[7:0]   : r_prio[wr_addr_eff[7:2]][7:0])} : 32'd0;
 
     // Per-context enable WSTRB masking — computed for the addressed context
     wire [31:0] wdata_enable_masked [0:NUM_CTX-1];
     generate
         for (gi = 0; gi < NUM_CTX; gi = gi + 1) begin : gen_en_mask
             assign wdata_enable_masked[gi] =
-                {(s_axi_wstrb[3] ? s_axi_wdata[31:24] : r_enable[gi][31:24]),
-                 (s_axi_wstrb[2] ? s_axi_wdata[23:16] : r_enable[gi][23:16]),
-                 (s_axi_wstrb[1] ? s_axi_wdata[15:8]  : r_enable[gi][15:8]),
-                 (s_axi_wstrb[0] ? s_axi_wdata[7:0]   : r_enable[gi][7:0])};
+                {(wr_wstrb_eff[3] ? wr_wdata_eff[31:24] : r_enable[gi][31:24]),
+                 (wr_wstrb_eff[2] ? wr_wdata_eff[23:16] : r_enable[gi][23:16]),
+                 (wr_wstrb_eff[1] ? wr_wdata_eff[15:8]  : r_enable[gi][15:8]),
+                 (wr_wstrb_eff[0] ? wr_wdata_eff[7:0]   : r_enable[gi][7:0])};
         end
     endgenerate
 
@@ -240,10 +237,10 @@ module axi4lite_plic #(
     generate
         for (gi = 0; gi < NUM_CTX; gi = gi + 1) begin : gen_th_mask
             assign wdata_thresh_masked[gi] =
-                {(s_axi_wstrb[3] ? s_axi_wdata[31:24] : r_threshold[gi][31:24]),
-                 (s_axi_wstrb[2] ? s_axi_wdata[23:16] : r_threshold[gi][23:16]),
-                 (s_axi_wstrb[1] ? s_axi_wdata[15:8]  : r_threshold[gi][15:8]),
-                 (s_axi_wstrb[0] ? s_axi_wdata[7:0]   : r_threshold[gi][7:0])};
+                {(wr_wstrb_eff[3] ? wr_wdata_eff[31:24] : r_threshold[gi][31:24]),
+                 (wr_wstrb_eff[2] ? wr_wdata_eff[23:16] : r_threshold[gi][23:16]),
+                 (wr_wstrb_eff[1] ? wr_wdata_eff[15:8]  : r_threshold[gi][15:8]),
+                 (wr_wstrb_eff[0] ? wr_wdata_eff[7:0]   : r_threshold[gi][7:0])};
         end
     endgenerate
 
@@ -252,6 +249,10 @@ module axi4lite_plic #(
     // =========================================================================
     always_ff @(posedge s_axi_aclk or negedge s_axi_aresetn) begin
         if (!s_axi_aresetn) begin
+            rd_state <= RD_IDLE;
+            rd_addr  <= 32'd0;
+            r_rd_data <= 32'd0;
+            rd_claim_id <= 8'd0;
             r_pending <= 32'd0;
             r_gw_en   <= {(NUM_SRC){1'b1}};
             for (ii = 0; ii < NUM_SRC; ii = ii + 1)
@@ -259,7 +260,6 @@ module axi4lite_plic #(
             for (ci = 0; ci < NUM_CTX; ci = ci + 1) begin
                 r_enable[ci]    <= 32'd0;
                 r_threshold[ci] <= 32'd0;
-                r_claim_id[ci]  <= 8'd0;
             end
         end else begin
             // 1. Pending and gateway enable logic (shared, level-triggered)
@@ -276,8 +276,8 @@ module axi4lite_plic #(
             // 2. AXI4-Lite write operations (WSTRB-aware)
 
             // Priority write (shared)
-            if (wr_fire && wr_addr_is_prio && (wr_addr[7:2] < NUM_SRC))
-                r_prio[wr_addr[7:2]] <= wdata_prio_masked;
+            if (wr_fire && wr_addr_is_prio && (wr_addr_eff[7:2] < NUM_SRC))
+                r_prio[wr_addr_eff[7:2]] <= wdata_prio_masked;
 
             // Enable write (per-context)
             if (wr_fire && wr_addr_is_enable) begin
@@ -297,23 +297,65 @@ module axi4lite_plic #(
 
             // Claim/Complete write (per-context): Complete re-enables gateway
             if (wr_fire && wr_addr_is_claim) begin
-                if (s_axi_wstrb[0] && (s_axi_wdata[7:0] >= 1) && (s_axi_wdata[7:0] < NUM_SRC))
-                    r_gw_en[s_axi_wdata[7:0]] <= 1'b1;
+                if (wr_wstrb_eff[0] && (wr_wdata_eff[7:0] >= 1) && (wr_wdata_eff[7:0] < NUM_SRC))
+                    r_gw_en[wr_wdata_eff[7:0]] <= 1'b1;
             end
 
-            // 3. AXI4-Lite read Claim: atomic return highest_id and clear pending
-            //    Claim on ANY context clears the shared r_pending bit and r_gw_en
-            if (rd_fire && rd_addr_is_claim) begin
-                for (ci = 0; ci < NUM_CTX; ci = ci + 1) begin
-                    if (rd_ctx == ci) begin
-                        r_claim_id[ci] <= highest_id[ci];
-                        if (any_pending[ci]) begin
-                            r_pending[highest_id[ci]] <= 1'b0;
-                            r_gw_en[highest_id[ci]]   <= 1'b0;
+            // 3. Read request handling, including atomic claim.
+            case (rd_state)
+                RD_IDLE: begin
+                    if (s_axi_arvalid) begin
+                        rd_addr  <= s_axi_araddr;
+                        rd_state <= RD_WAIT;
+                        rd_claim_id <= 8'd0;
+                        if ((s_axi_araddr[23:20] == 4'h2) && (s_axi_araddr[3:2] == 2'd1)) begin
+                            if (s_axi_araddr[15:12] == 4'd0) begin
+                                rd_claim_id <= highest_id[0];
+                                if (any_pending[0]) begin
+                                    r_pending[highest_id[0]] <= 1'b0;
+                                    r_gw_en[highest_id[0]]   <= 1'b0;
+                                end
+                            end else if ((NUM_CTX > 1) && (s_axi_araddr[15:12] == 4'd1)) begin
+                                rd_claim_id <= highest_id[1];
+                                if (any_pending[1]) begin
+                                    r_pending[highest_id[1]] <= 1'b0;
+                                    r_gw_en[highest_id[1]]   <= 1'b0;
+                                end
+                            end
                         end
                     end
                 end
-            end
+                RD_WAIT: begin
+                    if (rd_addr_is_prio) begin
+                        r_rd_data <= (rd_addr[7:2] < NUM_SRC) ? r_prio[rd_addr[7:2]] : 32'd0;
+                    end else if (rd_addr_is_pend) begin
+                        r_rd_data <= r_pending;
+                    end else if (rd_addr_is_enable) begin
+                        r_rd_data <= 32'd0;
+                        if (rd_en_ctx == 0)
+                            r_rd_data <= r_enable[0];
+                        else if ((NUM_CTX > 1) && (rd_en_ctx == 1))
+                            r_rd_data <= r_enable[1];
+                    end else if (rd_addr_is_thresh) begin
+                        r_rd_data <= 32'd0;
+                        if (rd_ctx == 0)
+                            r_rd_data <= r_threshold[0];
+                        else if ((NUM_CTX > 1) && (rd_ctx == 1))
+                            r_rd_data <= r_threshold[1];
+                    end else if (rd_addr_is_claim) begin
+                        r_rd_data <= {24'd0, rd_claim_id};
+                    end else begin
+                        r_rd_data <= 32'd0;
+                    end
+                    rd_state <= RD_RESP;
+                end
+                RD_RESP: begin
+                    if (s_axi_rready)
+                        rd_state <= RD_IDLE;
+                end
+                default: rd_state <= RD_IDLE;
+            endcase
+
         end
     end
 
@@ -321,28 +363,7 @@ module axi4lite_plic #(
     // Read data mux
     // =========================================================================
     always_comb begin
-        s_axi_rdata = 32'd0;
-        if (rd_addr_is_prio) begin
-            s_axi_rdata = (rd_addr[7:2] < NUM_SRC) ? r_prio[rd_addr[7:2]] : 32'd0;
-        end else if (rd_addr_is_pend) begin
-            s_axi_rdata = r_pending;
-        end else if (rd_addr_is_enable) begin
-            // Return enable for the addressed context
-            for (ci = 0; ci < NUM_CTX; ci = ci + 1) begin
-                if (rd_en_ctx == ci)
-                    s_axi_rdata = r_enable[ci];
-            end
-        end else if (rd_addr_is_thresh) begin
-            for (ci = 0; ci < NUM_CTX; ci = ci + 1) begin
-                if (rd_ctx == ci)
-                    s_axi_rdata = r_threshold[ci];
-            end
-        end else if (rd_addr_is_claim) begin
-            for (ci = 0; ci < NUM_CTX; ci = ci + 1) begin
-                if (rd_ctx == ci)
-                    s_axi_rdata = {24'd0, r_claim_id[ci]};
-            end
-        end
+        s_axi_rdata = r_rd_data;
     end
 
 endmodule

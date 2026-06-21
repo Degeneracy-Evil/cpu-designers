@@ -2,6 +2,8 @@
 // Adapted from chiplab IP/APB_DEV/URT/uart_receiver.v
 // Changes: none (receiver had no USART-specific logic)
 
+`timescale 1ns / 1ps
+
 `include "uart_defines.svh"
 
 module uart_receiver (

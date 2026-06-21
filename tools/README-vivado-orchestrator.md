@@ -77,6 +77,11 @@ python -m tools.vivado_cli --status
 # 创建会话并仿真
 python -m tools.vivado_cli -task cpu_full -create -sim
 
+> **⚠ `-create` 行为详述**：
+> - **会话层**（`SessionManager.get_or_create()`）：未指定 `-session` 时永远新建（`<task>_<timestamp>` 不重复）；指定 `-session` 且同名 session 已存在时复用
+> - **工程层**（TCL `create_project -force`）：强制覆盖目标目录已有工程，旧的波形数据、IP 缓存、elaborate 结果会被删除
+> - **推荐做法**：首次用 `-create`，改 RTL 后 `-refresh -sim` 复用已有工程，工程损坏时再重复 `-create`
+
 # 仅仿真（复用已有会话）
 python -m tools.vivado_cli -task cpu_full -sim
 
@@ -236,7 +241,7 @@ python tools/vivado_tui.py
 |------|------|
 | `-task NAME` | 指定任务（来自 tasks.yaml） |
 | `-session NAME` | 覆盖会话名（默认=任务名） |
-| `-create` | 创建/打开工程 |
+| `-create` | 创建/打开工程（同名 session 复用，工程 `-force` 覆盖） |
 | `-sim` | 启动仿真 |
 | `-runtime TIME` | 覆盖仿真时间 |
 | `-refresh` | 刷新会话 |

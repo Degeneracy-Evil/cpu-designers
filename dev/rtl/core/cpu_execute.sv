@@ -29,7 +29,14 @@ module cpu_execute(
     output             exe_csr_wen,
     output     [11:0]  exe_csr_waddr,
     output     [31:0]  exe_csr_wdata,
-    output     [31:0]  exe_csr_old_val
+    output     [31:0]  exe_csr_old_val,
+    output             dbg_mu_active,
+    output             dbg_mu_req_valid,
+    output             dbg_mu_ready,
+    output             dbg_mu_busy,
+    output             dbg_mu_result_valid,
+    output     [2:0]   dbg_mu_funct3,
+    output             dbg_exe_is_mu
 );
 
     wire valid_inst;
@@ -338,6 +345,13 @@ module cpu_execute(
     assign exe_done = done_reg;
     assign exe_branch_taken = branch_taken_reg;
     assign exe_branch_target = branch_target_reg;
+    assign dbg_mu_active = mu_active;
+    assign dbg_mu_req_valid = mu_req_valid;
+    assign dbg_mu_ready = mu_ready;
+    assign dbg_mu_busy = mu_busy;
+    assign dbg_mu_result_valid = mu_result_valid;
+    assign dbg_mu_funct3 = mu_funct3;
+    assign dbg_exe_is_mu = is_mu;
     assign exe_is_ctrl_flow = is_branch | is_jal_like;
     assign exe_is_branch = is_branch;
     assign exe_need_mem  = is_load | is_store | is_flw | is_fsw | is_amo;

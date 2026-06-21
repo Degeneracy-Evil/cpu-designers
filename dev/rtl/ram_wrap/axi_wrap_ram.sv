@@ -88,12 +88,11 @@ module axi_wrap_ram(
 // ===========================================================================
 // BRAM memory array
 // ===========================================================================
-// MEM_DEPTH = 262144 => 1MB / 4bytes = 256K words
-// Address bits [19:2] index into BRAM (18-bit index for 256K entries)
-localparam MEM_DEPTH = 262144;
-// WARNING: MEM_DEPTH=256K words = 1MB. With 128MB DDR3 address space (0x8000_0000-0x87FF_FFFF),
-// only the first 1MB is accessible via BRAM. Addresses beyond 1MB wrap around.
-// For full DDR3 coverage, use axi_wrap_ddr (MIG) instead.
+// MEM_DEPTH = 4194304 => 16MB / 4bytes = 4M words
+// Address bits [23:2] index into BRAM (22-bit index for 4M entries)
+localparam MEM_DEPTH = 4194304;
+// 16MB SRAM model for simulation. Covers firmware (9MB) + page tables + kernel data.
+// For FPGA, DDR3 MIG is used instead (axi_wrap_ddr).
 
 reg [31:0] BRAM [0:MEM_DEPTH-1];
 
@@ -151,7 +150,7 @@ reg [7:0]  r_len;        // total burst length (arlen)
 reg [2:0]  r_size;       // burst size
 reg [1:0]  r_burst;      // burst type
 reg [3:0]  r_id;         // transaction ID
-reg [17:0] r_word_addr;  // word-aligned address for BRAM indexing
+reg [21:0] r_word_addr;  // word-aligned address for BRAM indexing
 reg [1 :0] r_resp;
 
 // Computed next address for INCR burst
@@ -170,7 +169,7 @@ always @(posedge aclk or negedge aresetn) begin
         r_size      <= 3'd0;
         r_burst     <= 2'd0;
         r_id        <= 4'd0;
-        r_word_addr <= 18'd0;
+        r_word_addr <= 22'd0;
         r_resp      <= 2'b00;
 
     end else begin
@@ -185,7 +184,7 @@ always @(posedge aclk or negedge aresetn) begin
                     r_size  <= axi_arsize;
                     r_burst <= axi_arburst;
                     r_id    <= axi_arid;
-                    r_word_addr <= remapped_araddr[19:2];  // word index
+                    r_word_addr <= remapped_araddr[23:2];  // word index
 `ifdef SIMULATION
                     if (sim_inject_rresp_pending && (remapped_araddr == sim_inject_rresp_addr)) begin
                         r_resp <= sim_inject_rresp_code;
@@ -213,7 +212,7 @@ always @(posedge aclk or negedge aresetn) begin
                         r_count <= r_count - 8'd1;
                         if (r_burst == 2'b01) begin  // INCR
                             r_addr      <= r_next_addr;
-                            r_word_addr <= r_next_addr[19:2];
+                            r_word_addr <= r_next_addr[23:2];
                         end
                         // FIXED burst: address stays the same
                         // WRAP burst: not supported in this model, treat as INCR
@@ -320,18 +319,30 @@ always @(posedge aclk or negedge aresetn) begin
                 if (axi_wvalid) begin
                     if (!w_drop_write) begin
                         // Injected write errors model a failed memory commit in simulation.
-                        if (axi_wstrb[3]) BRAM[w_addr[19:2]][31:24] <= axi_wdata[31:24];
-                        if (axi_wstrb[2]) BRAM[w_addr[19:2]][23:16] <= axi_wdata[23:16];
-                        if (axi_wstrb[1]) BRAM[w_addr[19:2]][15:8]  <= axi_wdata[15:8];
-                        if (axi_wstrb[0]) BRAM[w_addr[19:2]][7:0]   <= axi_wdata[7:0];
+                        if (axi_wstrb[3]) BRAM[w_addr[23:2]][31:24] <= axi_wdata[31:24];
+                        if (axi_wstrb[2]) BRAM[w_addr[23:2]][23:16] <= axi_wdata[23:16];
+                        if (axi_wstrb[1]) BRAM[w_addr[23:2]][15:8]  <= axi_wdata[15:8];
+                        if (axi_wstrb[0]) BRAM[w_addr[23:2]][7:0]   <= axi_wdata[7:0];
                     end
 
-
-                    if (axi_wlast) begin
-                        // Last beat — move to response phase
+                    if (w_count == 8'd0) begin
+                        if (!axi_wlast) begin
+`ifdef SIMULATION
+                            $error("axi_wrap_ram: missing WLAST on final beat, awaddr=%h", w_base_addr);
+`endif
+                            w_resp <= 2'b10;
+                        end
+                        // Final expected beat — move to response phase
+                        w_state <= W_RESP;
+                    end else if (axi_wlast) begin
+`ifdef SIMULATION
+                        $error("axi_wrap_ram: early WLAST before final beat, awaddr=%h remaining_beats=%0d", w_base_addr, w_count);
+`endif
+                        w_resp <= 2'b10;
                         w_state <= W_RESP;
                     end else begin
                         // Advance address for next beat
+                        w_count <= w_count - 8'd1;
                         if (w_burst == 2'b01) begin  // INCR
                             w_addr <= w_next_addr;
                         end

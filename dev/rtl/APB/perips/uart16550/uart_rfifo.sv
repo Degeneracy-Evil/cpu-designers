@@ -2,6 +2,8 @@
 // Adapted from chiplab IP/APB_DEV/URT/uart_rfifo.v
 // Fix: parameterized error_bit computation (generate loop instead of hardcoded 16 entries)
 
+`timescale 1ns / 1ps
+
 `include "uart_defines.svh"
 
 module uart_rfifo #(

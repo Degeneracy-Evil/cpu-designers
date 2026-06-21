@@ -18,6 +18,16 @@
 #   FPGA上板   — bitstream generation + JTAG programming (top module, no tb)
 
 tasks:
+  # ── Linux 启动仿真 ──
+
+  linux_boot:
+    tb: tb_simple_cpu_top
+    blhex: boot/bootloader_phase1.hex
+    phex: firmware/fw_payload.hex
+    runtime: 60s
+    verilog_defines:
+      LINUX_BOOT: "TRUE"
+
   # ── 集成仿真 ──
 
   cpu_full:
@@ -430,7 +440,17 @@ tasks:
   apb_perips:
     tb: tb_apb_perips
     blhex: boot/bootloader_phase1.hex
-    runtime: 2000ns
+    runtime: 200us
+
+  axi4lite_plic_unit:
+    tb: tb_axi4lite_plic_unit
+    blhex: boot/bootloader_phase1.hex
+    runtime: 20us
+
+  axi4lite_clint_unit:
+    tb: tb_axi4lite_clint_unit
+    blhex: boot/bootloader_phase1.hex
+    runtime: 20us
 
   alu_integration:
     tb: tb_alu_cpu_integration

@@ -15,6 +15,8 @@
 //
 // Interface: same ports as existing uart_top.sv for drop-in replacement
 
+`timescale 1ns / 1ps
+
 `include "apb_def.svh"
 `include "uart_defines.svh"
 
@@ -47,15 +49,17 @@ module uart_16550a #(
     assign PSLVERR = 1'b0;    // Never errors
 
     wire prst = ~PRESETn;     // Active-high reset
-    wire we   = PSEL & PENABLE & PWRITE;
+    // This wrapper only accepts writes on byte lane 0. Upper-byte strobes are
+    // treated as no-ops; software must present the 16550 register byte in
+    // PWDATA[7:0] with PSTRB[0] asserted.
+    wire we   = PSEL & PENABLE & PWRITE & PSTRB[0];
     wire re   = PSEL & PENABLE & ~PWRITE;
 
     // Address translation: word offset → byte offset
     // PADDR[4:2] gives the register index (0-7) in word-aligned addressing
     wire [2:0] reg_addr = PADDR[4:2];
 
-    // Write data: take lower 8 bits (PSTRB not used for 8-bit register writes;
-    // software must write full 32-bit words with the byte in [7:0])
+    // Write data always comes from byte lane 0; no lane steering is supported.
     wire [7:0] wr_data = PWDATA[7:0];
 
     // Read data from register module (8-bit)

@@ -47,6 +47,8 @@ module gpio #(
     reg [GPIO_NUM-1:0] gpio_irq_stat;
 
     // Pin change detection
+    reg  [GPIO_NUM-1:0] gpio_pin_sync1;
+    reg  [GPIO_NUM-1:0] gpio_pin_sync2;
     reg  [GPIO_NUM-1:0] gpio_pin_prev;
     wire [GPIO_NUM-1:0] gpio_pin_changed;
 
@@ -61,7 +63,7 @@ module gpio #(
         for (i = 0; i < GPIO_NUM; i = i + 1) begin : gen_io_pin
             assign io_gpioPin[i] = gpio_ctrl[i] ? gpio_data_lo[i] : 1'bz;
             // Detect pin value change
-            assign gpio_pin_changed[i] = (io_gpioPin[i] !== gpio_pin_prev[i]) &&
+            assign gpio_pin_changed[i] = (gpio_pin_sync2[i] != gpio_pin_prev[i]) &&
                                          !gpio_ctrl[i]; // only input pins
         end
     endgenerate
@@ -79,9 +81,13 @@ module gpio #(
         for (i = 0; i < GPIO_NUM; i = i + 1) begin : gen_pin_prev
             always_ff @(posedge PCLK or negedge PRESETn) begin
                 if (!PRESETn) begin
+                    gpio_pin_sync1[i] <= 1'b0;
+                    gpio_pin_sync2[i] <= 1'b0;
                     gpio_pin_prev[i] <= 1'b0;
                 end else begin
-                    gpio_pin_prev[i] <= io_gpioPin[i];
+                    gpio_pin_sync1[i] <= io_gpioPin[i];
+                    gpio_pin_sync2[i] <= gpio_pin_sync1[i];
+                    gpio_pin_prev[i]  <= gpio_pin_sync2[i];
                 end
             end
         end
@@ -160,7 +166,7 @@ module gpio #(
                     if (write_access && (PADDR[3:0] == GPIO_DATA) && gpio_ctrl[i] && PSTRB[i/8]) begin
                         gpio_data_lo[i] <= PWDATA[i];
                     end else if (!gpio_ctrl[i]) begin
-                        gpio_data_lo[i] <= io_gpioPin[i];
+                        gpio_data_lo[i] <= gpio_pin_sync2[i];
                     end
                 end
             end

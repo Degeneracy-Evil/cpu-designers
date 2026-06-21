@@ -250,7 +250,8 @@ module cpu_bus_bridge(
     //   Byte store:   4'b0001 << lane  (single byte strobe)
     //   Halfword:     4'b0011 << lane  (lane must be 0 or 2)
     //   Word:         4'b1111          (all bytes, lane must be 0)
-    //   wdata is shifted left by 8*lane bits to align with the strobe.
+    //   Byte stores arrive unshifted and need lane placement here.
+    //   Halfword/word stores are already lane-positioned by cpu_mem.
     // =====================================================================
     wire [1:0]  mmio_byte_lane = addr_r[1:0];
     wire [3:0]  mmio_shifted_wstrb;
@@ -260,10 +261,12 @@ module cpu_bus_bridge(
                                 (size_r == `AXI_SIZE_2B) ? (4'b0011 << mmio_byte_lane) :
                                 4'b1111;
 
-    assign mmio_shifted_wdata = (mmio_byte_lane == 2'b00) ? latch_wdata_r :
-                                (mmio_byte_lane == 2'b01) ? {latch_wdata_r[23:0], 8'b0} :
-                                (mmio_byte_lane == 2'b10) ? {latch_wdata_r[15:0], 16'b0} :
-                                                             {latch_wdata_r[7:0], 24'b0};
+    assign mmio_shifted_wdata = (size_r == `AXI_SIZE_1B) ?
+                                ((mmio_byte_lane == 2'b00) ? latch_wdata_r :
+                                 (mmio_byte_lane == 2'b01) ? {latch_wdata_r[23:0], 8'b0} :
+                                 (mmio_byte_lane == 2'b10) ? {latch_wdata_r[15:0], 16'b0} :
+                                                              {latch_wdata_r[7:0], 24'b0}) :
+                                latch_wdata_r;
 
     // =====================================================================
     // FSM

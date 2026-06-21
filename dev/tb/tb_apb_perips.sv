@@ -82,43 +82,89 @@ module tb_apb_perips;
     integer pass_count;
     integer fail_count;
 
+    localparam integer UART_DIVISOR = 16;
+    localparam integer UART_BIT_CYCLES = UART_DIVISOR * 16;
+
     // ----------------------------------------------------------------
     // AXI4-Lite Master BFM: Write task
     // Forces CPU-side AXI4 master signals.
     // This interface is in u_soc.cpu_clk domain, not the top-level clk domain.
     // ----------------------------------------------------------------
-    task axi4_write;
+    task axi4_write_ex;
         input [31:0] addr;
         input [31:0] data;
+        input [3:0]  strb;
+        input integer order_mode;
+        reg aw_seen;
+        reg w_seen;
+        reg aw_started;
+        reg w_started;
         begin
-            // AW channel: drive address
-            force u_soc.cpu_awaddr  = addr;
-            force u_soc.cpu_awlen   = 8'h00;      // single beat
-            force u_soc.cpu_awsize  = 3'b010;     // 4 bytes
-            force u_soc.cpu_awburst = 2'b01;      // INCR
-            force u_soc.cpu_awvalid = 1'b1;
-
-            // Wait for AW handshake
-            wait (u_soc.cpu_awready == 1'b1);
-            @(posedge axi_mst_clk);
-            force u_soc.cpu_awvalid = 1'b0;
-
-            // W channel: drive data after AW accepted
             force u_soc.cpu_wdata   = data;
-            force u_soc.cpu_wstrb   = 4'hF;       // all bytes
+            force u_soc.cpu_wstrb   = strb;
             force u_soc.cpu_wlast   = 1'b1;
-            force u_soc.cpu_wvalid  = 1'b1;
+            force u_soc.cpu_awaddr  = addr;
+            force u_soc.cpu_awlen   = 8'h00;
+            force u_soc.cpu_awsize  = 3'b010;
+            force u_soc.cpu_awburst = 2'b01;
 
-            // Wait for W handshake
-            wait (u_soc.cpu_wready == 1'b1);
-            @(posedge axi_mst_clk);
-            force u_soc.cpu_wvalid = 1'b0;
+            aw_seen = 1'b0;
+            w_seen = 1'b0;
+            aw_started = 1'b0;
+            w_started = 1'b0;
+
+            case (order_mode)
+                0: begin
+                    force u_soc.cpu_awvalid = 1'b1;
+                    force u_soc.cpu_wvalid  = 1'b0;
+                    aw_started = 1'b1;
+                end
+                1: begin
+                    force u_soc.cpu_awvalid = 1'b0;
+                    force u_soc.cpu_wvalid  = 1'b1;
+                    w_started = 1'b1;
+                end
+                default: begin
+                    force u_soc.cpu_awvalid = 1'b1;
+                    force u_soc.cpu_wvalid  = 1'b1;
+                    aw_started = 1'b1;
+                    w_started = 1'b1;
+                end
+            endcase
+
+            while (!aw_seen || !w_seen) begin
+                @(posedge axi_mst_clk);
+                if (!aw_seen && u_soc.cpu_awvalid && u_soc.cpu_awready) begin
+                    aw_seen = 1'b1;
+                    force u_soc.cpu_awvalid = 1'b0;
+                end
+                if (!w_seen && u_soc.cpu_wvalid && u_soc.cpu_wready) begin
+                    w_seen = 1'b1;
+                    force u_soc.cpu_wvalid = 1'b0;
+                end
+                if ((order_mode == 0) && aw_seen && !w_started) begin
+                    force u_soc.cpu_wvalid = 1'b1;
+                    w_started = 1'b1;
+                end
+                if ((order_mode == 1) && w_seen && !aw_started) begin
+                    force u_soc.cpu_awvalid = 1'b1;
+                    aw_started = 1'b1;
+                end
+            end
 
             // B channel: wait for write response
             force u_soc.cpu_bready = 1'b1;
             wait (u_soc.cpu_bvalid == 1'b1);
             @(posedge axi_mst_clk);
             force u_soc.cpu_bready = 1'b0;
+        end
+    endtask
+
+    task axi4_write;
+        input [31:0] addr;
+        input [31:0] data;
+        begin
+            axi4_write_ex(addr, data, 4'hF, 0);
         end
     endtask
 
@@ -169,6 +215,39 @@ module tb_apb_perips;
                 fail_count = fail_count + 1;
                 $display("FAIL %0s expected=0x%08h got=0x%08h", name, expected, actual);
             end
+        end
+    endtask
+
+    task uart_send_byte;
+        input [7:0] data;
+        integer bit_idx;
+        begin
+            uart_rx = 1'b1;
+            repeat (UART_BIT_CYCLES) @(posedge clk);
+            uart_rx = 1'b0;
+            repeat (UART_BIT_CYCLES) @(posedge clk);
+            for (bit_idx = 0; bit_idx < 8; bit_idx = bit_idx + 1) begin
+                uart_rx = data[bit_idx];
+                repeat (UART_BIT_CYCLES) @(posedge clk);
+            end
+            uart_rx = 1'b1;
+            repeat (UART_BIT_CYCLES) @(posedge clk);
+        end
+    endtask
+
+    task uart_expect_tx_byte;
+        input [7:0] expected;
+        reg [7:0] observed;
+        integer bit_idx;
+        begin
+            observed = 8'h00;
+            wait (uart_tx == 1'b0);
+            repeat (UART_BIT_CYCLES + (UART_BIT_CYCLES / 2)) @(posedge clk);
+            for (bit_idx = 0; bit_idx < 8; bit_idx = bit_idx + 1) begin
+                observed[bit_idx] = uart_tx;
+                repeat (UART_BIT_CYCLES) @(posedge clk);
+            end
+            check("UART TX byte", observed, expected);
         end
     endtask
 
@@ -240,21 +319,32 @@ module tb_apb_perips;
 
         // UART test
         begin : uart_test
-            axi4_write(32'h10008000, 32'h00000003);
-            axi4_read(32'h10008000, rd_val);
-            check("UART_CTRL write/read", rd_val, 32'h00000003);
+            axi4_write_ex(32'h1000800C, 32'h00000080, 4'h1, 2); // LCR.DLAB = 1
+            axi4_write_ex(32'h10008000, UART_DIVISOR, 4'h1, 1); // DLL
+            axi4_write_ex(32'h10008004, 32'h00000000, 4'h1, 0); // DLM
+            axi4_write_ex(32'h1000800C, 32'h00000003, 4'h1, 0); // 8N1, DLAB = 0
 
-            axi4_read(32'h10008004, rd_val);
-            check("UART_STATUS read", rd_val[5:2], 4'b0110); // TX empty, RX empty
+            axi4_write_ex(32'h1000801C, 32'h0000005A, 4'h1, 0); // SCR low byte valid
+            axi4_read(32'h1000801C, rd_val);
+            check("UART SCR lane0 write/read", rd_val, 32'h0000005A);
 
-            // UART BAUD register
-            axi4_write(32'h10008010, 32'd868);
-            axi4_read(32'h10008010, rd_val);
-            check("UART_BAUD write/read", rd_val, 32'd868);
+            axi4_write_ex(32'h1000801C, 32'hAA000000, 4'h8, 1); // upper-byte write is ignored
+            axi4_read(32'h1000801C, rd_val);
+            check("UART upper-byte write is no-op", rd_val, 32'h0000005A);
 
-            // UART IRQ_STAT register
+            axi4_read(32'h10008014, rd_val); // LSR
+            check("UART LSR TX empty bits", rd_val[6:5], 2'b11);
+
+            axi4_write_ex(32'h10008004, 32'h00000001, 4'h1, 2); // IER: RX available interrupt enable
+            uart_send_byte(8'h33);
+            wait (u_soc.u_apb_perips.o_uart_irq == 1'b1);
             axi4_read(32'h10008014, rd_val);
-            check("UART_IRQ_STAT initial", rd_val, 32'h00000000);
+            check("UART LSR data-ready after RX", rd_val[0], 1'b1);
+            axi4_read(32'h10008000, rd_val);
+            check("UART RX byte", rd_val, 32'h00000033);
+
+            axi4_write_ex(32'h10008000, 32'h00000041, 4'h1, 0); // THR = 'A'
+            uart_expect_tx_byte(8'h41);
         end
 
         // SPI test

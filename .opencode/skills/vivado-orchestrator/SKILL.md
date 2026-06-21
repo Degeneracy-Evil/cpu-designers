@@ -58,6 +58,44 @@ python -m tools.vivado_cli --cleanup-all
 python -m tools.vivado_cli --gen-config
 ```
 
+### `-create` 标志行为（⚠ 注意）
+
+`-create` 在会话层和工程层的行为不同：
+
+**会话层**（`SessionManager.get_or_create()`）：
+- 仅当同时指定 `-session NAME` 且同名 session 已存在 → 返回已有 Session 对象（不新建目录）
+- 未给 `-session` 时（默认行为），永远创建新 session，名字为 `<task>_<timestamp>`，不可能覆盖
+
+**工程层**（`Operations.create()` → `_tcl_create_project()` TCL）：
+- Vivado TCL 执行 `close_project`（关闭当前 Vivado 进程中的工程）+ `create_project -force`（强制覆盖目标目录已有工程）
+- **覆盖会导致**：旧的 `.wdb` 波形数据、IP 编译缓存、elaborate 结果被删除，从头重建
+- 同名 session 重复 `-create` 的代价是工程被完全覆盖重来（秒级→分钟级耗时增加）
+
+**Mermaid 流程图**：
+
+```mermaid
+flowchart TD
+    A["-create"]
+    A --> B{"指定了 -session NAME?"}
+    B -->|是| C["get_or_create(name)"]
+    C --> D{"同名 session 存在?"}
+    D -->|是| E["复用 Session 对象<br/>(不新建目录)"]
+    D -->|否| F["create_session()<br/>(新建目录)"]
+    B -->|否（默认）| F
+    F --> G["目录名 = &lt;task&gt;_&lt;timestamp&gt;<br/>绝不会重复"]
+    E --> H["ops.create() → Vivado TCL"]
+    G --> H
+    H --> I["close_project<br/>(关闭当前 Vivado 进程中的工程)"]
+    I --> J["create_project -force<br/>(覆盖目标目录已有的 .xpr)"]
+    J --> K["旧 .wdb / IP 缓存 / elaborate 结果<br/>全部被删除，从头重建"]
+```
+
+**推荐做法**：
+- 首次运行：`-create -sim`（新建 session + 新建工程 + 仿真）
+- 改 RTL 后：`-refresh -sim`（更新已有工程 + 仿真，不改 project 目录）
+- 只有在工程已损坏时才重复 `-create`（工程重建）
+- 需要保留波形时用 `-session` 指定不同名字
+
 ### 仿真
 
 ```bash

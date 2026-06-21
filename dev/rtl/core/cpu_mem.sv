@@ -279,7 +279,15 @@ module cpu_mem(
                         else if (is_load || is_flw) begin
                             dataAddr_32_reg <= alu_result;
                             hwrite_reg <= 1'b0;
-                            hsize_reg <= `AXI_SIZE_WORD;
+                            if (is_flw) begin
+                                hsize_reg <= `AXI_SIZE_WORD;
+                            end else begin
+                                case (mem_size)
+                                    3'b000: hsize_reg <= `AXI_SIZE_BYTE;
+                                    3'b001: hsize_reg <= `AXI_SIZE_HWORD;
+                                    default: hsize_reg <= `AXI_SIZE_WORD;
+                                endcase
+                            end
                             writeData_32_reg <= 32'b0;
                             mem_en_reg <= 1'b1;
                             mem_state <= MEM_READ;

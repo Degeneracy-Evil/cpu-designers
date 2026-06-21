@@ -116,6 +116,36 @@ module core_top(
     output        dbg_mmu_i_tlb_valid,
     output        dbg_mmu_i_tlb_perm_fault,
     output [1:0]  dbg_mmu_walk_state,
+    output [2:0]  dbg_mmu_d_state,
+    output        dbg_mmu_d_tlb_hit,
+    output        dbg_mmu_d_tlb_valid,
+    output        dbg_mmu_d_tlb_perm_fault,
+    output        dbg_mmu_d_input_changed,
+    output [31:0] dbg_mmu_d_latched_vaddr,
+    output        dbg_mmu_d_latched_sv32,
+    output        dbg_mmu_d_pf_from_ptw,
+    output        dbg_mmu_d_tlb_miss,
+    output        dbg_mu_active,
+    output        dbg_mu_req_valid,
+    output        dbg_mu_ready,
+    output        dbg_mu_busy,
+    output        dbg_mu_result_valid,
+    output [2:0]  dbg_mu_funct3,
+    output        dbg_exe_is_mu,
+    output        dbg_dmmio_req,
+    output        dbg_dmmio_we,
+    output [31:0] dbg_dmmio_addr,
+    output [2:0]  dbg_dmmio_hsize,
+    output        dbg_dmmio_valid,
+    output [31:0] dbg_dmmio_rdata,
+    output        dbg_last_mmio_valid,
+    output [31:0] dbg_last_mmio_pc,
+    output        dbg_last_mmio_we,
+    output [31:0] dbg_last_mmio_addr,
+    output [2:0]  dbg_last_mmio_hsize,
+    output [31:0] dbg_last_mmio_wdata,
+    output [31:0] dbg_last_mmio_rdata,
+    output [31:0] dbg_last_mmio_count,
 
     // ---------- AXI4 Master — AW Channel ----------
     output [3:0]  awid,
@@ -264,6 +294,16 @@ module core_top(
     wire        mmu_dbg_i_tlb_valid;
     wire        mmu_dbg_i_tlb_perm_fault;
     wire [1:0]  mmu_dbg_walk_state;
+    wire [2:0]  mmu_dbg_d_state;
+    wire        mmu_dbg_d_tlb_hit;
+    wire        mmu_dbg_d_tlb_valid;
+    wire        mmu_dbg_d_tlb_perm_fault;
+    wire        mmu_dbg_d_input_changed;
+    wire [31:0] mmu_dbg_d_latched_vaddr;
+    wire        mmu_dbg_d_latched_sv32;
+    wire        mmu_dbg_pending_d_walk;
+    wire        mmu_dbg_d_pf_from_ptw;
+    wire        mmu_dbg_d_tlb_miss;
 
     // Single PTW bus (unified MMU)
     wire        ptw_bus_req;
@@ -806,6 +846,15 @@ module core_top(
     assign frs1_addr = rs1_addr;
     assign frs2_addr = rs2_addr;
 
+    // dbg_mu wires must be declared before cpu_execute instantiation
+    wire        dbg_mu_active_w;
+    wire        dbg_mu_req_valid_w;
+    wire        dbg_mu_ready_w;
+    wire        dbg_mu_busy_w;
+    wire        dbg_mu_result_valid_w;
+    wire [2:0]  dbg_mu_funct3_w;
+    wire        dbg_exe_is_mu_w;
+
     cpu_execute u_execute(
         .clk(clk),
         .resetn(resetn),
@@ -831,7 +880,14 @@ module core_top(
         .exe_csr_wen(),
         .exe_csr_waddr(),
         .exe_csr_wdata(),
-        .exe_csr_old_val()
+        .exe_csr_old_val(),
+        .dbg_mu_active(dbg_mu_active_w),
+        .dbg_mu_req_valid(dbg_mu_req_valid_w),
+        .dbg_mu_ready(dbg_mu_ready_w),
+        .dbg_mu_busy(dbg_mu_busy_w),
+        .dbg_mu_result_valid(dbg_mu_result_valid_w),
+        .dbg_mu_funct3(dbg_mu_funct3_w),
+        .dbg_exe_is_mu(dbg_exe_is_mu_w)
     );
 
     wire        mem_hwrite;
@@ -851,7 +907,6 @@ module core_top(
 
     wire [31:0] ahb_data_rdata;
     wire        ahb_data_valid;
-
     wire        dcache_refill_req;
     wire [31:0] dcache_refill_addr;
     wire [255:0] dcache_refill_data;
@@ -940,6 +995,15 @@ module core_top(
         dbg_load_mem_size_w,
         dbg_load_addr_w[1:0]
     };
+    wire dbg_last_mmio_fire = dcache_mmio_req && dcache_mmio_accept;
+    reg        dbg_last_mmio_valid_r;
+    reg [31:0] dbg_last_mmio_pc_r;
+    reg        dbg_last_mmio_we_r;
+    reg [31:0] dbg_last_mmio_addr_r;
+    reg [2:0]  dbg_last_mmio_hsize_r;
+    reg [31:0] dbg_last_mmio_wdata_r;
+    reg [31:0] dbg_last_mmio_rdata_r;
+    reg [31:0] dbg_last_mmio_count_r;
 
     always_ff @(posedge clk or negedge resetn) begin
         if (!resetn) begin
@@ -974,6 +1038,14 @@ module core_top(
             dbg_focus_load_wb_status_r <= 32'b0;
             dbg_focus_load_wb_rfdata_r <= 32'b0;
             dbg_focus_load_wb_s2_r     <= 32'b0;
+            dbg_last_mmio_valid_r      <= 1'b0;
+            dbg_last_mmio_pc_r         <= 32'b0;
+            dbg_last_mmio_we_r         <= 1'b0;
+            dbg_last_mmio_addr_r       <= 32'b0;
+            dbg_last_mmio_hsize_r      <= 3'b0;
+            dbg_last_mmio_wdata_r      <= 32'b0;
+            dbg_last_mmio_rdata_r      <= 32'b0;
+            dbg_last_mmio_count_r      <= 32'b0;
         end else begin
             if (dbg_focus_store_hit) begin
                 dbg_focus_store_valid_r  <= 1'b1;
@@ -1014,6 +1086,16 @@ module core_top(
                 dbg_watch_load_wbdata_r <= dbg_load_value_w;
                 dbg_watch_load_count_r  <= dbg_watch_load_count_r + 32'd1;
                 dbg_watch_load_status_r <= dbg_watch_load_status_w;
+            end
+            if (dbg_last_mmio_fire) begin
+                dbg_last_mmio_valid_r <= 1'b1;
+                dbg_last_mmio_pc_r    <= mem_pc;
+                dbg_last_mmio_we_r    <= dcache_mmio_hwrite;
+                dbg_last_mmio_addr_r  <= dcache_mmio_addr;
+                dbg_last_mmio_hsize_r <= dcache_mmio_hsize;
+                dbg_last_mmio_wdata_r <= dcache_mmio_wdata;
+                dbg_last_mmio_rdata_r <= ahb_data_rdata;
+                dbg_last_mmio_count_r <= dbg_last_mmio_count_r + 32'd1;
             end
         end
     end
@@ -1325,7 +1407,17 @@ module core_top(
         .dbg_i_tlb_hit(mmu_dbg_i_tlb_hit),
         .dbg_i_tlb_valid(mmu_dbg_i_tlb_valid),
         .dbg_i_tlb_perm_fault(mmu_dbg_i_tlb_perm_fault),
-        .dbg_walk_state(mmu_dbg_walk_state)
+        .dbg_walk_state(mmu_dbg_walk_state),
+        .dbg_nb_d_state(mmu_dbg_d_state),
+        .dbg_d_tlb_hit(mmu_dbg_d_tlb_hit),
+        .dbg_d_tlb_valid(mmu_dbg_d_tlb_valid),
+        .dbg_d_tlb_perm_fault(mmu_dbg_d_tlb_perm_fault),
+        .dbg_d_input_changed(mmu_dbg_d_input_changed),
+        .dbg_d_latched_vaddr(mmu_dbg_d_latched_vaddr),
+        .dbg_d_latched_sv32(mmu_dbg_d_latched_sv32),
+        .dbg_pending_d_walk(mmu_dbg_pending_d_walk),
+        .dbg_d_pf_from_ptw(mmu_dbg_d_pf_from_ptw),
+        .dbg_d_tlb_miss(mmu_dbg_d_tlb_miss)
     );
 
     cpu_bus_bridge u_bus_bridge(
@@ -1429,6 +1521,36 @@ module core_top(
     assign dbg_mmu_i_tlb_valid = mmu_dbg_i_tlb_valid;
     assign dbg_mmu_i_tlb_perm_fault = mmu_dbg_i_tlb_perm_fault;
     assign dbg_mmu_walk_state = mmu_dbg_walk_state;
+    assign dbg_mmu_d_state          = mmu_dbg_d_state;
+    assign dbg_mmu_d_tlb_hit        = mmu_dbg_d_tlb_hit;
+    assign dbg_mmu_d_tlb_valid      = mmu_dbg_d_tlb_valid;
+    assign dbg_mmu_d_tlb_perm_fault = mmu_dbg_d_tlb_perm_fault;
+    assign dbg_mmu_d_input_changed  = mmu_dbg_d_input_changed;
+    assign dbg_mmu_d_latched_vaddr  = mmu_dbg_d_latched_vaddr;
+    assign dbg_mmu_d_latched_sv32   = mmu_dbg_d_latched_sv32;
+    assign dbg_mmu_d_pf_from_ptw    = mmu_dbg_d_pf_from_ptw;
+    assign dbg_mmu_d_tlb_miss       = mmu_dbg_d_tlb_miss;
+    assign dbg_mu_active            = dbg_mu_active_w;
+    assign dbg_mu_req_valid         = dbg_mu_req_valid_w;
+    assign dbg_mu_ready             = dbg_mu_ready_w;
+    assign dbg_mu_busy              = dbg_mu_busy_w;
+    assign dbg_mu_result_valid      = dbg_mu_result_valid_w;
+    assign dbg_mu_funct3            = dbg_mu_funct3_w;
+    assign dbg_exe_is_mu            = dbg_exe_is_mu_w;
+    assign dbg_dmmio_req            = dcache_mmio_req;
+    assign dbg_dmmio_we             = dcache_mmio_hwrite;
+    assign dbg_dmmio_addr           = dcache_mmio_addr;
+    assign dbg_dmmio_hsize          = dcache_mmio_hsize;
+    assign dbg_dmmio_valid          = ahb_data_valid;
+    assign dbg_dmmio_rdata          = ahb_data_rdata;
+    assign dbg_last_mmio_valid      = dbg_last_mmio_valid_r;
+    assign dbg_last_mmio_pc         = dbg_last_mmio_pc_r;
+    assign dbg_last_mmio_we         = dbg_last_mmio_we_r;
+    assign dbg_last_mmio_addr       = dbg_last_mmio_addr_r;
+    assign dbg_last_mmio_hsize      = dbg_last_mmio_hsize_r;
+    assign dbg_last_mmio_wdata      = dbg_last_mmio_wdata_r;
+    assign dbg_last_mmio_rdata      = dbg_last_mmio_rdata_r;
+    assign dbg_last_mmio_count      = dbg_last_mmio_count_r;
 
     assign id_pc   = id_pc_wire;
     assign id_inst = id_inst_wire;

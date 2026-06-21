@@ -1,6 +1,8 @@
 // 2-stage synchronizer for async inputs
 // Adapted from chiplab IP/APB_DEV/URT/uart_sync_flops.v
 
+`timescale 1ns / 1ps
+
 module uart_sync_flops #(
     parameter WIDTH      = 1,
     parameter INIT_VALUE = 1'b0

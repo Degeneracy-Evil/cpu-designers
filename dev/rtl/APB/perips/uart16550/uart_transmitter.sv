@@ -2,6 +2,8 @@
 // Adapted from chiplab IP/APB_DEV/URT/uart_transmitter.v
 // Changes: removed USART T0/T1/IrDA extensions (repeat, error detection, guard time, tx2rx_en)
 
+`timescale 1ns / 1ps
+
 `include "uart_defines.svh"
 
 module uart_transmitter (

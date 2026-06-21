@@ -2,6 +2,8 @@
 // Adapted from chiplab IP/APB_DEV/URT/uart_tfifo.v
 // Fix: overrun condition changed to push & ~pop & (count==fifo_depth)
 
+`timescale 1ns / 1ps
+
 `include "uart_defines.svh"
 
 module uart_tfifo #(

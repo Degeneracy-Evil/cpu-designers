@@ -1,7 +1,7 @@
 `timescale 1ns / 1ps
 module tb_regression_reg_mmio_ready;
     localparam integer EXPECTED_TOTAL = 4;
-    localparam integer SIM_CYCLES    = 15000000;
+    localparam integer SIM_CYCLES    = 200000;
 
     // Shared boilerplate: system_top, clock, reset, debug signals, check_reg, check_mem_word
     `include "tb_soc_includes.svh"

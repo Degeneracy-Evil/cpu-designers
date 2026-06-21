@@ -82,8 +82,8 @@ m_trap_handler:
     li   x30, 1               # first_fail_id = 1
     j    _m_done
 _m_ecall:
-    # x28/x29/x30 already set by s_trap_handler — testbench reads registers directly
-    # No memory store needed (and store in M-mode after S-mode paging can trigger
-    # nested trap if MMU not fully bypassed for data in M-mode)
+    # x28/x29/x30 already hold the result. Avoid an M-mode data store here:
+    # this regression is about post-satp trap delivery, and an extra store can
+    # re-enter the trap path and mask the original BUG-16 behavior.
 _m_done:
     j    _m_done

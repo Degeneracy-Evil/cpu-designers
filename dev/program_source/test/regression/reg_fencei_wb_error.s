@@ -44,6 +44,7 @@ test_fencei_wb_error_traps_and_drops_dirty_line:
     bne x23, x16, _fail
 
     lw  x15, 0(x14)
+    mv  x24, x15
     li  x16, 0x0BADF00D
     bne x15, x16, _fail
 
@@ -55,6 +56,3 @@ _fail:
     ret
 
 .section .text
-.balign 4096
-test_data:
-    .word 0x0BADF00D

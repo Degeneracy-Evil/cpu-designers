@@ -176,6 +176,7 @@ module cpu_bus_bridge(
     reg        dcache_refill_error_r;
     reg        dcache_wb_done_r;
     reg        dcache_wb_error_r;
+    reg        dcache_wb_wait_drop_r;
 
     reg        icache_error_r;
     reg        dcache_error_r;
@@ -292,6 +293,7 @@ module cpu_bus_bridge(
             dcache_refill_error_r  <= 1'b0;
             dcache_wb_done_r       <= 1'b0;
             dcache_wb_error_r      <= 1'b0;
+            dcache_wb_wait_drop_r  <= 1'b0;
             icache_error_r         <= 1'b0;
             dcache_error_r         <= 1'b0;
             dcache_error_is_store_r <= 1'b0;
@@ -335,6 +337,8 @@ module cpu_bus_bridge(
             dcache_refill_error_r  <= 1'b0;
             dcache_wb_done_r       <= 1'b0;
             dcache_wb_error_r      <= 1'b0;
+            if (!dcache_wb_req)
+                dcache_wb_wait_drop_r <= 1'b0;
             icache_error_r         <= 1'b0;
             dcache_error_r         <= 1'b0;
             dcache_error_is_store_r <= 1'b0;
@@ -371,7 +375,7 @@ module cpu_bus_bridge(
                     wvalid  <= 1'b0;
                     arvalid <= 1'b0;
 
-                    if (dcache_wb_req && wb_boost_r && !dcache_wb_valid_r) begin
+                    if (dcache_wb_req && wb_boost_r && !dcache_wb_valid_r && !dcache_wb_wait_drop_r) begin
                         state           <= S_WB_AW;
                         addr_r          <= dcache_wb_addr;
                         write_r         <= 1'b1;
@@ -434,7 +438,7 @@ module cpu_bus_bridge(
                             is_inst_r   <= 1'b0;
                         end
                     end
-                    else if (dcache_wb_req && !dcache_wb_valid_r) begin
+                    else if (dcache_wb_req && !dcache_wb_valid_r && !dcache_wb_wait_drop_r) begin
                         // Writeback burst → AW+W simultaneous (beat 0), then W beats 1-7, then B
                         state           <= S_WB_AW;
                         addr_r          <= dcache_wb_addr;
@@ -765,11 +769,13 @@ module cpu_bus_bridge(
                             bus_error_addr_r <= burst_base_addr;
                             dcache_wb_done_r  <= 1'b1;
                             dcache_wb_error_r <= 1'b1;
+                            dcache_wb_wait_drop_r <= 1'b1;
                         end else begin
                             state            <= S_IDLE;
                             dcache_wb_valid_r <= 1'b1;
                             dcache_wb_done_r  <= 1'b1;
                             dcache_wb_error_r <= 1'b0;
+                            dcache_wb_wait_drop_r <= 1'b1;
                         end
                     end
                 end

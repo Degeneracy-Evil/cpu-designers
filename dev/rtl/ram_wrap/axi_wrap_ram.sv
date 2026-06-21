@@ -255,6 +255,7 @@ reg [1:0]  w_burst;      // burst type
 reg [3:0]  w_id;         // transaction ID
 reg [31:0] w_base_addr;  // burst base address for response injection matching
 reg [1 :0] w_resp;
+reg        w_drop_write;
 
 // Computed next address for INCR burst
 wire [31:0] w_next_addr;
@@ -282,6 +283,7 @@ always @(posedge aclk or negedge aresetn) begin
         w_id    <= 4'd0;
         w_base_addr <= 32'd0;
         w_resp  <= 2'b00;
+        w_drop_write <= 1'b0;
     end else begin
         case (w_state)
             W_IDLE: begin
@@ -297,12 +299,15 @@ always @(posedge aclk or negedge aresetn) begin
 `ifdef SIMULATION
                     if (sim_inject_bresp_pending && (remapped_awaddr == sim_inject_bresp_addr)) begin
                         w_resp <= sim_inject_bresp_code;
+                        w_drop_write <= 1'b1;
                         sim_inject_bresp_pending <= 1'b0;
                     end else begin
                         w_resp <= 2'b00;
+                        w_drop_write <= 1'b0;
                     end
 `else
                     w_resp <= 2'b00;
+                    w_drop_write <= 1'b0;
 `endif
                     // WRAP burst assertion — this model does not implement WRAP
                     `ifdef SIMULATION
@@ -313,11 +318,13 @@ always @(posedge aclk or negedge aresetn) begin
             end
             W_DATA: begin
                 if (axi_wvalid) begin
-                    // Write data to BRAM
-                    if (axi_wstrb[3]) BRAM[w_addr[19:2]][31:24] <= axi_wdata[31:24];
-                    if (axi_wstrb[2]) BRAM[w_addr[19:2]][23:16] <= axi_wdata[23:16];
-                    if (axi_wstrb[1]) BRAM[w_addr[19:2]][15:8]  <= axi_wdata[15:8];
-                    if (axi_wstrb[0]) BRAM[w_addr[19:2]][7:0]   <= axi_wdata[7:0];
+                    if (!w_drop_write) begin
+                        // Injected write errors model a failed memory commit in simulation.
+                        if (axi_wstrb[3]) BRAM[w_addr[19:2]][31:24] <= axi_wdata[31:24];
+                        if (axi_wstrb[2]) BRAM[w_addr[19:2]][23:16] <= axi_wdata[23:16];
+                        if (axi_wstrb[1]) BRAM[w_addr[19:2]][15:8]  <= axi_wdata[15:8];
+                        if (axi_wstrb[0]) BRAM[w_addr[19:2]][7:0]   <= axi_wdata[7:0];
+                    end
 
 
                     if (axi_wlast) begin
@@ -337,6 +344,7 @@ always @(posedge aclk or negedge aresetn) begin
                 if (axi_bready) begin
                     // B channel handshake complete
                     w_state <= W_IDLE;
+                    w_drop_write <= 1'b0;
                 end
             end
             default: begin

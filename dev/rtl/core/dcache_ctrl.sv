@@ -95,6 +95,7 @@ module dcache_ctrl(
     localparam S_FLUSH_INVALIDATE = 4'd10;
     localparam S_INV_LINE         = 4'd11;
     localparam S_INV_LINE_WRITE   = 4'd12;
+    localparam S_FLUSH_WB_WAIT    = 4'd13;
 
     // Address map (same as icache):
     //   0x00000000-0x7FFFFFFF: MMIO (peripherals)     — bit[31]=0
@@ -245,6 +246,7 @@ module dcache_ctrl(
     reg [WAY_W-1:0]      flush_way;
     reg        flush_done_r;
     reg        flush_error_seen_r;
+    reg        flush_resume_invalidate_r;
     reg [SET_IDX_W-1:0]  invalidate_set;     // multi-cycle invalidate counter
 
     // Single-line invalidation
@@ -475,6 +477,7 @@ module dcache_ctrl(
             flush_way        <= {WAY_W{1'b0}};
             flush_done_r     <= 1'b0;
             flush_error_seen_r <= 1'b0;
+            flush_resume_invalidate_r <= 1'b0;
             invalidate_set   <= {SET_IDX_W{1'b0}};
             inv_line_done_r  <= 1'b0;
             inv_latched_tag  <= {TAG_WIDTH{1'b0}};
@@ -513,8 +516,11 @@ module dcache_ctrl(
                 S_IDLE: begin
                     refill_req_r <= 1'b0;
                     wb_req_r     <= 1'b0;
-                    if (flush_req) begin
+                    if (!flush_req) begin
                         flush_error_seen_r <= 1'b0;
+                    end
+                    if (flush_req && !flush_error_seen_r) begin
+                        flush_resume_invalidate_r <= 1'b0;
                         state     <= S_FLUSH_SCAN;
                         flush_set <= {SET_IDX_W{1'b0}};
                         flush_way <= {WAY_W{1'b0}};
@@ -724,29 +730,46 @@ module dcache_ctrl(
                         wb_req_r <= 1'b0;
                         if (wb_error) begin
                             flush_error_seen_r <= 1'b1;
+                            // A maintenance write-back fault must not leave the stale
+                            // cache line resident. Reuse the dedicated single-line
+                            // invalidation flow so the faulting way is dropped with the
+                            // same tag-preserving semantics used by PTW coherency.
+                            inv_latched_set <= latched_set;
+                            inv_latched_tag <= latched_victim_tag;
+                            state <= S_INV_LINE;
                         end else begin
                             // Clear dirty bit in tag BRAM
                             tag_bram_enb_r   <= 1'b1;
                             tag_bram_web_r   <= ((1 << TAG_BRAM_BPW) - 1) << (latched_victim_way * TAG_BRAM_BPW);
                             tag_bram_addrb_r <= latched_set;
                             tag_bram_dinb_r  <= wb_clear_tag_din;
-                        end
-                        // Advance to next way/set
-                        if (latched_victim_way == NUM_WAYS - 1) begin
-                            if (latched_set == NUM_SETS - 1) begin
-                                // All done → invalidate all
-                                state <= S_FLUSH_INVALIDATE;
-                                invalidate_set <= {SET_IDX_W{1'b0}};
+                            // Defer the next scan step by one cycle so the Port B tag
+                            // write commits without colliding with a same-set Port A read.
+                            if (latched_victim_way == NUM_WAYS - 1) begin
+                                if (latched_set == NUM_SETS - 1) begin
+                                    // All done → invalidate all
+                                    flush_resume_invalidate_r <= 1'b1;
+                                    invalidate_set <= {SET_IDX_W{1'b0}};
+                                end else begin
+                                    flush_set <= latched_set + 1'b1;
+                                    flush_way <= {WAY_W{1'b0}};
+                                    flush_resume_invalidate_r <= 1'b0;
+                                end
                             end else begin
-                                flush_set <= latched_set + 1'b1;
-                                flush_way <= {WAY_W{1'b0}};
-                                state <= S_FLUSH_SCAN;
+                                flush_set <= latched_set;
+                                flush_way <= latched_victim_way + 1'b1;
+                                flush_resume_invalidate_r <= 1'b0;
                             end
-                        end else begin
-                            flush_set <= latched_set;
-                            flush_way <= latched_victim_way + 1'b1;
-                            state <= S_FLUSH_SCAN;
+                            state <= S_FLUSH_WB_WAIT;
                         end
+                    end
+                end
+
+                S_FLUSH_WB_WAIT: begin
+                    if (flush_resume_invalidate_r) begin
+                        state <= S_FLUSH_INVALIDATE;
+                    end else begin
+                        state <= S_FLUSH_SCAN;
                     end
                 end
 
@@ -816,6 +839,9 @@ module dcache_ctrl(
                     end
 
                     inv_line_done_r <= 1'b1;
+                    if (flush_error_seen_r) begin
+                        flush_done_r <= 1'b1;
+                    end
                     state <= S_IDLE;
                 end
 

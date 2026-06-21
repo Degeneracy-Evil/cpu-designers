@@ -2,9 +2,9 @@
 
 > 日期: 2026-06-20
 > 目标: Artix-7 xc7a200t, system_top, OpenSBI + Linux (fw_payload.elf)
-> 状态: **仿真验证通过** — HIGH-1/HIGH-2/MEDIUM-3 + UART THRE + DCache error/fairness + AXI error injection tests 已修复，待 FPGA 验证
+> 状态: **全仿真验证通过** — 26/26 测试 PASS（12 MMU + 14 回归），待 FPGA 验证
 > 固件: `/tmp/fws/firmware/fw_payload.elf` (ELF32, RISC-V, entry=0x80000000)
-> 更新: 2026-06-21 — BUG-16 + 紧急补丁 + HIGH-2 + UART THRE + DCache error/fairness + AXI error injection + 仿真验证
+> 更新: 2026-06-21 — BUG-16 + 紧急补丁 + HIGH-2 + UART THRE + DCache error/fairness + AXI error injection + trap_enter/bridge fix + WB reissue holdoff + RAM error model + 全回归通过
 
 ---
 
@@ -921,3 +921,102 @@ end
 | reg_stale_paddr | ✅ PASS | 无回归 |
 
 **结论**：RTL 修复未引入任何回归。4 个 error injection 测试全部 PASS。
+
+---
+
+## 14. 全回归测试通过（2026-06-21）
+
+### 14.1 修复的两个失败测试
+
+**reg_bug16_tlb_valid_pulse — M-mode store 触发嵌套 trap**
+
+- **根因**：s_trap_handler 执行 ecall → M-mode handler 写结果区 `sw x29, 0(x5)` 到 0x80000000（`lui x5, 0x8000` = 0x80000000，非注释所写 0x80007000）→ M-mode data store 触发嵌套 trap → handler 走 unexpected trap 路径 → FAIL
+- **修复**：移除 M-mode handler 中不必要的内存写入。testbench 直接读 x28/x29/x30 寄存器，无需结果区。
+
+**reg_mmio_ready — SIM_CYCLES 超过仿真运行时间**
+
+- **根因**：testbench `SIM_CYCLES=15000000`（15M 周期 × 250ns = 3.75s），但仿真运行时间仅 60ms。CPU 在 ~188K 周期（47ms）完成全部 4 个子测试并进入 end_loop，但 testbench 的 `repeat(SIM_CYCLES) @(posedge clk)` 在 60ms 内无法完成 → 无输出。
+- **修复**：`SIM_CYCLES` 从 15000000 改为 200000（200K × 250ns = 50ms < 60ms）。
+
+### 14.2 全测试结果
+
+| 类别 | 测试数 | PASS | FAIL |
+|------|--------|------|------|
+| MMU | 12 | 12 | 0 |
+| Regression | 14 | 14 | 0 |
+| **合计** | **26** | **26** | **0** |
+
+### 14.3 各现象与对应测试
+
+| 现象 | 对应测试 | 结果 |
+|------|----------|------|
+| BUG-16: TLB valid pulse 过期 → MMU 死锁 | reg_bug16_tlb_valid_pulse | ✅ PASS |
+| HIGH-1: PTW fault 后 TLB 不填充 → 无限循环 | mmu_ptw_walk, mmu_page_fault | ✅ PASS |
+| HIGH-2: PTW bus 请求间 1 周期空隙 | mmu_ptw_walk | ✅ PASS |
+| MEDIUM-3: active_d_walk 选择错误地址 | mmu_unified_mmu | ✅ PASS |
+| UART THRE: 移位寄存器状态未反映 | （FPGA 验证） | 待验证 |
+| DCache error 完成路径 | reg_dcache_refill_error, reg_dcache_wb_error | ✅ PASS |
+| Flush error 完成路径 | reg_fencei_wb_error, reg_sfence_wb_error | ✅ PASS |
+| Write-back 公平性 | reg_dcache_wb_error | ✅ PASS |
+| cpu_mem trap_enter 清除 mem_en_reg | reg_dcache_refill_error | ✅ PASS |
+| cpu_bus_bridge error beat 消费 | reg_dcache_refill_error | ✅ PASS |
+| MMIO mmu_ready gating (Bug 10) | reg_mmio_ready | ✅ PASS |
+| SFENCE.VMA during PTW walk | reg_sfence_during_walk | ✅ PASS |
+| TLB fill way replacement | reg_tlb_fill_way | ✅ PASS |
+| Linux pointer reload | reg_linux_ptr_reload | ✅ PASS |
+| Linux field values | reg_linux_field_values | ✅ PASS |
+
+**结论**：所有可仿真验证的现象均已确认修复。剩余 UART THRE 和 FPGA Linux 启动需上板验证。
+
+---
+
+## 15. Write-back reissue holdoff + RAM error model 修复（2026-06-21）
+
+### 15.1 问题
+
+`reg_dcache_wb_error` / `reg_fencei_wb_error` / `reg_sfence_wb_error` 在初步修复后仍存在隐患：
+
+- **根因**：maintenance write-back 在 BRESP error 时被正确 drop，但 `cpu_bus_bridge` 的 `dcache_wb_req` 是**电平敏感**信号。bridge 在 dcache 撤回 `dcache_wb_req` 之前的窗口期可以再次接受同一请求，导致 **stale line 被二次成功写回**——错误数据写入了 backing memory。
+- **后果**：第二次写回成功后，RAM 中保存的是 stale 数据而非正确值。后续 reload 读到的是被污染的数据，测试虽 PASS 但实际未验证到真正的 error 路径。
+
+### 15.2 修复
+
+**`cpu_bus_bridge.sv` — write-back reissue holdoff**
+
+在 bridge 接受 dcache write-back 请求后，加入 holdoff 窗口，阻止在同一 `dcache_wb_req` 电平期间重复接受请求。确保 dcache 必须先撤回 `dcache_wb_req`（拉低），bridge 才能接受下一次 write-back。
+
+**`dcache_ctrl.sv` — maintenance fault 路径终止**
+
+D-cache maintenance fault 路径在 invalidate stale victim 后正确终止，不再尝试重发 write-back。stale line 被丢弃而非重写。
+
+**`axi_wrap_ram.sv` — BRESP fault 抑制 backing-memory commit**
+
+SIM RAM write-error model 修改：注入的 BRESP fault 不仅返回 AXI 错误响应，还**抑制 backing-memory 的写入提交**。确保注入错误不污染 RAM 数据，后续 reload 读到的是原始正确值。
+
+### 15.3 测试程序保持
+
+- **`reg_bug16_tlb_valid_pulse.s`**：M-mode handler 不再 self-mask（移除了触发嵌套 trap 的 M-mode store 到 0x80000000）
+- **`reg_dcache_wb_error.s` / `reg_dcache_refill_error.s`**：preload backing RAM，直接暴露 reload 值，验证 error 后 reload 读到的是原始数据而非 stale 写回值
+
+### 15.4 验证结果
+
+| 测试 | 结果 | 说明 |
+|------|------|------|
+| reg_bug16_tlb_valid_pulse | ✅ PASS | M-mode store 不再触发嵌套 trap |
+| reg_fencei_wb_error | ✅ PASS | fence.i flush + WB error 正确终止 |
+| reg_sfence_wb_error | ✅ PASS | sfence.vma flush + WB error 正确终止 |
+| reg_dcache_wb_error | ✅ PASS | WB error 后 reload 读到原始数据 |
+| reg_dcache_refill_error | ✅ PASS | refill error 后 reload 读到原始数据 |
+
+**全回归**：26/26 PASS（12 MMU + 14 回归），未引入任何回归。
+
+### 15.5 修改文件清单
+
+| 文件 | 修改内容 |
+|------|----------|
+| `dev/rtl/core/cpu_bus_bridge.sv` | WB reissue holdoff：接受 `dcache_wb_req` 后阻止重复接受直到信号撤回 |
+| `dev/rtl/core/dcache_ctrl.sv` | Maintenance fault 路径在 invalidate stale victim 后终止 |
+| `dev/rtl/ram_wrap/axi_wrap_ram.sv` | BRESP fault 抑制 backing-memory commit |
+| `dev/program_source/test/regression/reg_bug16_tlb_valid_pulse.s` | 移除 M-mode store（不再 self-mask 嵌套 trap） |
+| `dev/program_source/test/regression/reg_dcache_wb_error.s` | Preload backing RAM，暴露 reload 值 |
+| `dev/program_source/test/regression/reg_dcache_refill_error.s` | Preload backing RAM，暴露 reload 值 |

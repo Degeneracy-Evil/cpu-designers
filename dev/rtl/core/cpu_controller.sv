@@ -146,10 +146,20 @@ module cpu_controller(
                     next_state = STATE_FETCH;
                 end
                 STATE_FENCEI: begin
-                    next_state = fencei_done ? STATE_FETCH : STATE_FENCEI;
+                    if (fencei_done) begin
+                        next_state = (data_access_fault_pending || data_page_fault_pending || trap_pending) ?
+                                     STATE_TRAP_ENTER : STATE_FETCH;
+                    end else begin
+                        next_state = STATE_FENCEI;
+                    end
                 end
                 STATE_SFENCE_VMA: begin
-                    next_state = sfence_vma_done ? STATE_FETCH : STATE_SFENCE_VMA;
+                    if (sfence_vma_done) begin
+                        next_state = (data_access_fault_pending || data_page_fault_pending || trap_pending) ?
+                                     STATE_TRAP_ENTER : STATE_FETCH;
+                    end else begin
+                        next_state = STATE_SFENCE_VMA;
+                    end
                 end
                 default: begin
                     next_state = STATE_IDLE;

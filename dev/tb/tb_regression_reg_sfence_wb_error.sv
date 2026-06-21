@@ -8,9 +8,17 @@ module tb_regression_reg_sfence_wb_error;
     initial begin
         wait (resetn === 1'b1);
         repeat (20) @(posedge clk);
+        u_soc.sim_ram.u_axi_ram.BRAM[(32'h8000_3000 & 32'hFFFFF) >> 2] = 32'h1357_9BDF;
         u_soc.sim_ram.u_axi_ram.sim_inject_bresp_addr    = 32'h8000_3000;
         u_soc.sim_ram.u_axi_ram.sim_inject_bresp_code    = 2'b10;
         u_soc.sim_ram.u_axi_ram.sim_inject_bresp_pending = 1'b1;
+    end
+
+    always @(posedge clk) begin
+        if (u_soc.cpu.trap_enter_valid) begin
+            $display("[sfence_wb_error] trap_enter pc=0x%08h mcause=0x%08h mtval=0x%08h",
+                     u_soc.cpu.pc, u_soc.cpu.csr_mcause, u_soc.cpu.csr_stval);
+        end
     end
 
     reg [31:0] _val;
@@ -20,6 +28,14 @@ module tb_regression_reg_sfence_wb_error;
         read_reg(5'd28, _val); $display("  x28 (pass_count)    = %0d", _val);
         read_reg(5'd29, _val); $display("  x29 (total_count)   = %0d", _val);
         read_reg(5'd30, _val); $display("  x30 (first_fail_id) = %0d", _val);
+        read_reg(5'd22, _val); $display("  x22 (mcause)        = 0x%08h", _val);
+        read_reg(5'd23, _val); $display("  x23 (mtval)         = 0x%08h", _val);
+        read_reg(5'd24, _val); $display("  x24 (reload_data)   = 0x%08h", _val);
+        $display("  dcache state        = %0d", u_soc.cpu.u_dcache_wrap.state);
+        $display("  dcache way0 tag     = 0x%08h", u_soc.cpu.u_dcache_wrap.tag_r0);
+        $display("  dcache way1 tag     = 0x%08h", u_soc.cpu.u_dcache_wrap.tag_r1);
+        $display("  dcache way2 tag     = 0x%08h", u_soc.cpu.u_dcache_wrap.tag_r2);
+        $display("  dcache way3 tag     = 0x%08h", u_soc.cpu.u_dcache_wrap.tag_r3);
         $display("");
         read_reg(5'd28, _val);
         if (_val === EXPECTED_TOTAL) begin pass_count = pass_count + 1; $display("  PASS pass_count = %0d", EXPECTED_TOTAL); end

@@ -284,14 +284,17 @@ module MMU #(
                               (i_latched_access_type == ACCESS_LOAD && !i_tlb_r && !(i_tlb_x && i_latched_mstatus_mxr)) ? 1'b1 :
                               (i_latched_access_type == ACCESS_STORE && !i_tlb_w) ? 1'b1 : 1'b0;
 
+    wire d_tlb_need_ad_update;
+    assign d_tlb_need_ad_update = d_latched_sv32 && d_tlb_valid && d_tlb_hit &&
+                                  (d_latched_access_type == ACCESS_STORE) && !d_tlb_d;
+
     wire d_tlb_perm_fault;
     assign d_tlb_perm_fault = (d_latched_priv_mode == 2'b00 && !d_tlb_u) ? 1'b1 :
                               (d_latched_priv_mode == 2'b01 && d_tlb_u &&
                                (d_latched_access_type == ACCESS_FETCH || !d_latched_mstatus_sum)) ? 1'b1 :
                               (d_latched_access_type == ACCESS_FETCH && !d_tlb_x) ? 1'b1 :
                               (d_latched_access_type == ACCESS_LOAD && !d_tlb_r && !(d_tlb_x && d_latched_mstatus_mxr)) ? 1'b1 :
-                              (d_latched_access_type == ACCESS_STORE && !d_tlb_w) ? 1'b1 :
-                              (d_latched_access_type == ACCESS_STORE && !d_tlb_d) ? 1'b1 : 1'b0;
+                              (d_latched_access_type == ACCESS_STORE && !d_tlb_w) ? 1'b1 : 1'b0;
 
     // =========================================================================
     // Translation outputs
@@ -313,9 +316,11 @@ module MMU #(
         {d_tlb_ppn[21:10], d_latched_vaddr[21:0]} :
         {d_tlb_ppn, d_latched_vaddr[11:0]};
 
-    wire d_translation_ok = d_latched_sv32 && d_tlb_valid && d_tlb_hit && !d_tlb_perm_fault;
-    wire d_tlb_miss       = d_latched_sv32 && d_tlb_valid && !d_tlb_hit;
-    wire d_tlb_pf         = d_latched_sv32 && d_tlb_valid && d_tlb_hit && d_tlb_perm_fault;
+    wire d_translation_ok = d_latched_sv32 && d_tlb_valid && d_tlb_hit &&
+                            !d_tlb_perm_fault && !d_tlb_need_ad_update;
+    wire d_tlb_miss       = d_latched_sv32 && d_tlb_valid && (!d_tlb_hit || d_tlb_need_ad_update);
+    wire d_tlb_pf         = d_latched_sv32 && d_tlb_valid && d_tlb_hit &&
+                            d_tlb_perm_fault && !d_tlb_need_ad_update;
 
     assign d_paddr = !d_latched_sv32 ? d_latched_vaddr :
                      d_translation_ok ? d_translated_paddr[31:0] : d_latched_vaddr;

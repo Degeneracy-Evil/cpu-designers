@@ -211,6 +211,7 @@ module cpu_csr(
     assign sd_bit = (r_mstatus[14:13] != 2'b00) || (r_mstatus[16:15] != 2'b00);
 
     wire [31:0] w_sstatus;
+    wire [31:0] w_sip;
     assign w_sstatus = {sd_bit,
                         8'b0,
                         3'b000,
@@ -230,6 +231,7 @@ module cpu_csr(
                         1'b0,
                         r_mstatus[1],
                         1'b0};
+    assign w_sip = {22'd0, (ext_seip | r_sip[9]), 3'b0, r_sip[5], 3'b0, r_sip[1], 1'b0};
 
     function is_s_csr;
         input [11:0] addr;
@@ -406,7 +408,9 @@ module cpu_csr(
                             2'b00,
                             sw_csr_wdata[8],
                             sw_csr_wdata[7],
-                            {1'b0, sw_csr_wdata[5], 1'b0},
+                            1'b0,
+                            sw_csr_wdata[5],
+                            1'b0,
                             sw_csr_wdata[3],
                             1'b0,
                             sw_csr_wdata[1],
@@ -584,7 +588,7 @@ module cpu_csr(
                     ADDR_STVAL:      r_stval     <= sw_csr_wdata;
                     ADDR_SIP:        r_sip       <= sip_wmask;
                     ADDR_SATP:       r_satp      <= sw_csr_wdata;
-                    ADDR_SCOUNTEREN: r_scounteren<= sw_csr_wdata;
+                    ADDR_SCOUNTEREN: if (priv_mode == PRIV_M) r_scounteren <= sw_csr_wdata;
                     ADDR_FFLAGS: ;  // fflags handled by merged logic below
                     ADDR_FRM:        r_frm       <= sw_csr_wdata[2:0];
                     ADDR_FCSR:       r_frm       <= sw_csr_wdata[7:5];  // fflags handled by merged logic below
@@ -645,7 +649,7 @@ module cpu_csr(
             // BUG-CSR-3 FIX: sip[9] (SEIP) must include hardware ext_seip from PLIC,
             // not just software r_sip[9]. Without this, S-mode reads sip and sees
             // SEIP=0 even when PLIC has a pending interrupt for S-mode context.
-            ADDR_SIP:         sw_csr_rdata_r = {22'd0, (ext_seip | r_sip[9]), 3'b0, r_sip[5], 3'b0, r_sip[1], 1'b0};
+            ADDR_SIP:         sw_csr_rdata_r = w_sip;
             ADDR_SATP:        sw_csr_rdata_r = r_satp;
 
             ADDR_MSTATUS:     sw_csr_rdata_r = {sd_bit, r_mstatus[30:0]};
@@ -721,7 +725,7 @@ module cpu_csr(
     assign csr_sepc      = r_sepc;
     assign csr_scause    = r_scause;
     assign csr_stval     = r_stval;
-    assign csr_sip       = r_sip;
+    assign csr_sip       = w_sip;
     assign csr_satp      = r_satp;
     assign csr_mcounteren= r_mcounteren;
     assign csr_scounteren= r_scounteren;

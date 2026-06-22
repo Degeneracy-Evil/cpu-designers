@@ -244,8 +244,8 @@ module axi4lite_clint(
     // =========================================================================
     always_ff @(posedge s_axi_aclk or negedge s_axi_aresetn) begin
         if (!s_axi_aresetn) begin
-            r_mtimecmp_lo <= 32'd0;
-            r_mtimecmp_hi <= 32'd0;
+            r_mtimecmp_lo <= 32'hFFFF_FFFF;
+            r_mtimecmp_hi <= 32'hFFFF_FFFF;
             r_mtime       <= 64'd0;
             r_msip        <= 1'b0;
         end else begin

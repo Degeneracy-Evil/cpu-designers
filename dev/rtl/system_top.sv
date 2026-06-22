@@ -1924,6 +1924,10 @@ module system_top(
         .o_spi_irq      (spi_irq)
     );
 
+    logic        display_valid;
+    logic [39:0] display_name;
+    logic [31:0] display_value;
+
     // ── Debug UART TX: sw[5]=1 takes over UART TX pin ──
     debug_uart_tx u_debug_uart_tx(
         .clk            (sys_clk),
@@ -1986,9 +1990,6 @@ module system_top(
     assign cpu_HADDR  = cpu_awaddr;
     assign cpu_HRDATA = cpu_rdata;
 
-    reg         display_valid;
-    reg  [39:0] display_name;
-    reg  [31:0] display_value;
     wire [5 :0] display_number;
     wire        input_valid;
     wire [31:0] input_value;

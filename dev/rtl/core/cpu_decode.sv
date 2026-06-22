@@ -561,7 +561,7 @@ wire inst_amomaxu  = (opcode == OPCODE_AMO) && (funct3 == 3'b010) && (funct5 == 
   always_comb begin
       case (priv_mode)
           PRIV_U: dec_csr_access_ok_r = is_u_csr(csr_addr);  // U-mode: counter aliases only (mcounteren checked at execution)
-          PRIV_S: dec_csr_access_ok_r = is_s_csr(csr_addr) || is_u_csr(csr_addr);  // S-mode: own CSRs + counter aliases (scounteren checked at execution)
+          PRIV_S: dec_csr_access_ok_r = ((is_s_csr(csr_addr) && (csr_addr != 12'h106 || !csr_is_write)) || is_u_csr(csr_addr));  // S-mode cannot write scounteren
           PRIV_M: dec_csr_access_ok_r = 1'b1;
           default: dec_csr_access_ok_r = 1'b0;
       endcase

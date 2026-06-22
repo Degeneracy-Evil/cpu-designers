@@ -10,7 +10,7 @@
 #   5. mip/sip SSIP software write path (bit 1)
 #   6. BUG-CSR-3: sip read after mip write (r_sip path)
 #   7. mstatus MPIE write/read (bit 7)
-#   8. BUG-CSR-6: scounteren S-mode writable
+#   8. scounteren S-mode write traps
 # ============================================================
 
 .equ PLIC_BASE,    0x0C000000
@@ -149,10 +149,7 @@ test_07_mstatus_mpie_write:
     li   x10, 0
 1:  ret
 
-# ── Sub-test 8: scounteren S-mode writable (BUG-CSR-6) ──
-# scounteren (0x106) IS a S-mode read/write CSR per RISC-V Privileged ISA v1.12.
-# It controls U-mode access to counters. S-mode CAN read/write it.
-# Original audit incorrectly flagged this as a bug — it is correct behavior.
+# ── Sub-test 8: scounteren S-mode write traps ──
 test_08_scounteren_smode_write:
     la   x5, audit_saved_ra; sw  x1, 0(x5)
     la   x5, post_scounteren; la x6, audit_return_pc; sw x5, 0(x6)
@@ -163,15 +160,15 @@ test_08_scounteren_smode_write:
 
 s_scounteren_test:
     li   x10, 0x7
-    csrw scounteren, x10         # S-mode write — should succeed (no trap)
-    li   x10, 0                  # if we reach here → no trap → correct
+    csrw scounteren, x10         # S-mode write — should trap
+    li   x10, 0                  # if we reach here → no trap → FAIL
     ecall
 
 post_scounteren:
     la   x5, audit_got_fault; lw  x5, 0(x5)
-    beqz x5, 2f                  # no fault → PASS (S-mode can write scounteren)
+    beqz x5, 1f                  # no fault → FAIL
     la   x5, audit_fault_cause; lw x5, 0(x5)
-    li   x6, 2; beq  x5, x6, 1f  # illegal instruction → FAIL (incorrect restriction)
+    li   x6, 2; beq  x5, x6, 2f  # illegal instruction → PASS
 1:  li   x10, 0; j 3f
 2:  li   x10, 1
 3:  la   x5, audit_saved_ra; lw  x1, 0(x5); ret

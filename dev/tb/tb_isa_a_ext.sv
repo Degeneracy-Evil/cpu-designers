@@ -5,16 +5,16 @@
 // ============================================================
 //
 // Tests: LR.W/SC.W/AMOSWAP/AMOADD/AMOAND/AMOOR/AMOXOR/AMOMIN/AMOMAX/AMOMINU/AMOMAXU
-// Sub-tests: 16
+// Sub-tests: 52 (comprehensive: basic + edge/boundary + LR/SC-AMO interaction + rd=x0)
 //
 // ============================================================
 
 module tb_isa_a_ext;
 
     // ── Parameters ──
-    localparam integer EXPECTED_TOTAL = 16;
+    localparam integer EXPECTED_TOTAL = 52;
     // Cycles to wait AFTER program starts executing (PC reaches 0x80000000)
-    localparam integer SIM_CYCLES    = 500000;
+    localparam integer SIM_CYCLES    = 1000000;
 
 
     // Shared boilerplate: system_top, clock, reset, debug signals, check_reg, check_mem_word

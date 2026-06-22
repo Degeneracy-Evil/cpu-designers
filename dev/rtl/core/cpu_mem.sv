@@ -39,6 +39,7 @@ module cpu_mem(
     localparam MEM_WRITE     = 3'd2;
     localparam MEM_AMO_READ  = 3'd3;   // A extension: AMO/LR/SC read phase
     localparam MEM_AMO_WRITE = 3'd4;   // A extension: AMO/SC write phase
+    localparam MEM_AMO_FENCE = 3'd5;   // Ordered AMO/LR/SC completion bubble
 
     wire valid_inst;
     wire is_jal_like;
@@ -123,6 +124,7 @@ module cpu_mem(
     reg        is_lr_reg;            // latched LR flag
     reg        is_sc_reg;            // latched SC flag
     reg        is_amo_op_reg;        // latched AMO operation flag (non-LR/SC AMO)
+    reg        amo_ordered_reg;      // aq/rl form uses an explicit serialized completion step
 
     wire [1:0] byte_offset;
     assign byte_offset = addr_reg[1:0];
@@ -206,6 +208,7 @@ module cpu_mem(
             is_lr_reg <= 1'b0;
             is_sc_reg <= 1'b0;
             is_amo_op_reg <= 1'b0;
+            amo_ordered_reg <= 1'b0;
         end
         else begin
             done_reg <= 1'b0;
@@ -253,6 +256,7 @@ module cpu_mem(
                                 is_lr_reg <= is_lr;
                                 is_sc_reg <= is_sc;
                                 is_amo_op_reg <= is_amo & ~is_lr & ~is_sc;
+                                amo_ordered_reg <= amo_aq || amo_rl;
                                 // Issue read request
                                 dataAddr_32_reg <= alu_result;
                                 hwrite_reg <= 1'b0;
@@ -362,9 +366,13 @@ module cpu_mem(
                             lr_reservation_valid <= 1'b1;
                             wb_data_reg <= readData_32;
                             wb_we_reg <= 1'b1;
-                            done_reg <= 1'b1;
                             mem_en_reg <= 1'b0;
-                            mem_state <= MEM_IDLE;
+                            if (amo_ordered_reg) begin
+                                mem_state <= MEM_AMO_FENCE;
+                            end else begin
+                                done_reg <= 1'b1;
+                                mem_state <= MEM_IDLE;
+                            end
                         end
                         else if (is_sc_reg) begin
                             // SC.W: check reservation
@@ -382,9 +390,13 @@ module cpu_mem(
                                 // Reservation mismatch: SC fails, rd=1, no write
                                 wb_data_reg <= 32'd1;
                                 wb_we_reg <= 1'b1;
-                                done_reg <= 1'b1;
                                 mem_en_reg <= 1'b0;
-                                mem_state <= MEM_IDLE;
+                                if (amo_ordered_reg) begin
+                                    mem_state <= MEM_AMO_FENCE;
+                                end else begin
+                                    done_reg <= 1'b1;
+                                    mem_state <= MEM_IDLE;
+                                end
                             end
                         end
                         else begin
@@ -412,12 +424,22 @@ module cpu_mem(
                             wb_data_reg <= amo_loaded_value;
                         end
                         wb_we_reg <= 1'b1;
-                        done_reg <= 1'b1;
                         hwrite_reg <= 1'b0;
                         hsize_reg <= `AXI_SIZE_WORD;
                         mem_en_reg <= 1'b0;
-                        mem_state <= MEM_IDLE;
+                        lr_reservation_valid <= 1'b0;
+                        if (amo_ordered_reg) begin
+                            mem_state <= MEM_AMO_FENCE;
+                        end else begin
+                            done_reg <= 1'b1;
+                            mem_state <= MEM_IDLE;
+                        end
                     end
+                end
+
+                MEM_AMO_FENCE: begin
+                    done_reg <= 1'b1;
+                    mem_state <= MEM_IDLE;
                 end
 
                 default: begin

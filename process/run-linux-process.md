@@ -1737,3 +1737,155 @@ axi4lite_clint_unit:    Vivado task completed successfully
 | CLINT | split 寄存器契约 | ✅ 文档 + 硬件保证 |
 | UART | PSTRB[0] 门控 | ✅ 上半字节写忽略 |
 | UART | timescale | ✅ 已添加 |
+
+---
+
+## 22. A 扩展测试扩展与 AMO 预留集失效 Bug 发现（2026-06-22）
+
+### 22.1 背景
+
+原有 `dev/program_source/test/isa/a_ext.s` 仅 16 个子测试，覆盖不足：LR/SC 交互、AMO 对预留集的影响、rd=x0 特殊情况均未测试。需扩展到全面覆盖 RISC-V A 扩展指令。
+
+### 22.2 测试扩展
+
+**文件**：`dev/program_source/test/isa/a_ext.s`、`dev/tb/tb_isa_a_ext.sv`
+
+从 16→52 个子测试，覆盖 13 组：
+
+| # | 测试组 | 子测试数 | 覆盖内容 |
+|---|--------|----------|----------|
+| 1 | LR.W | 4 | 基本读取、对齐、多次 LR、值验证 |
+| 2 | SC.W | 7 | 成功（预留有效）、失败（无预留）、对齐、连续 SC、LR-SC 对、SC 后预留清除、**SC 失败后 AMO 仍应清除预留** |
+| 3 | AMOSWAP | 4 | 基本操作、rd=x0、对齐、多次操作 |
+| 4 | AMOADD | 5 | 基本操作、溢出回绕、rd=x0、对齐、累加 |
+| 5 | AMOAND | 4 | 基本操作、全1清零、rd=x0、对齐 |
+| 6 | AMOOR | 4 | 基本操作、全0置位、rd=x0、对齐 |
+| 7 | AMOXOR | 4 | 基本操作、自异或清零、rd=x0、对齐 |
+| 8 | AMOMIN | 4 | 有符号最小值、负数比较、rd=x0、对齐 |
+| 9 | AMOMAX | 4 | 有符号最大值、正数比较、rd=x0、对齐 |
+| 10 | AMOMINU | 4 | 无符号最小值、大值比较、rd=x0、对齐 |
+| 11 | AMOMAXU | 4 | 无符号最大值、小值比较、rd=x0、对齐 |
+| 12 | LR/SC 交互 | 2 | **SC 失败后 AMO 应使预留失效**、**AMO 后 SC 应失败** |
+| 13 | AMO rd=x0 | 2 | AMOSWAP.W x0, 0(x10) 不写回但执行交换、AMOADD.W x0, 0(x10) 不写回但执行加法 |
+
+**测试数据区**：TEST_BASE=0x80001000, TEST_BASE2=0x80002000（安全，低于框架结果区 0x80007000）
+
+**Testbench 更新**：`tb_isa_a_ext.sv` EXPECTED_TOTAL=52, SIM_CYCLES=1000000
+
+### 22.3 首次仿真结果
+
+```
+pass=50, fail=2, first_fail_id=8
+```
+
+**失败测试**：
+
+| 测试 ID | 名称 | 预期 | 实际 | 原因 |
+|---------|------|------|------|------|
+| 8 | `sc_w_fail_after_amo` | SC 失败（AMO 已清除预留） | SC 成功 | AMO 未使预留集失效 |
+| 50 | `lr_sc_amo_invalidate` | SC 失败（AMO 后预留应失效） | SC 成功 | 同上 |
+
+### 22.4 Bug 分析：AMO 操作未使 LR/SC 预留集失效
+
+**RISC-V 规范 §8.3**：
+
+> "A successful SC implies that no other hart executed an AMO, LR, or SC to the same reservation set between the LR and the successful SC."
+
+即：AMO 操作必须使预留集失效，后续 SC 必须失败。
+
+**RTL Bug 位置**：`dev/rtl/core/cpu_mem.sv` MEM_AMO_WRITE 状态
+
+**根因**：AMO 执行 store 部分时，未清除 `lr_reservation_valid`。仅 SC 操作在 MEM_SC_WRITE 状态清除了预留标志。AMO 的 store 路径缺少 `lr_reservation_valid <= 1'b0`。
+
+**修复**：在 `cpu_mem.sv` MEM_AMO_WRITE 状态添加无条件预留失效：
+
+```verilog
+MEM_AMO_WRITE: begin
+    ...
+    lr_reservation_valid <= 1'b0;  // AMO must invalidate reservation set (RISC-V §8.3)
+    ...
+end
+```
+
+选择无条件清除（不检查 `is_sc_reg`），因为 AMO 无论是否为 SC 都执行 store，都应使预留失效。
+
+### 22.5 修复后验证
+
+```
+isa_a_ext: pass=52, fail=0 ✅
+```
+
+---
+
+## 23. RTL 修复批量验证（2026-06-22）
+
+### 23.1 修复清单
+
+| # | 文件 | 修复内容 | 类别 |
+|---|------|----------|------|
+| 1 | `MMU.sv:287-289` | D-bit 缺失 store → 触发 re-walk 更新 D 位 | MMU |
+| 2 | `MMU.sv:319-323` | Access fault → cause 1/5/7（非 page fault） | MMU |
+| 3 | `core_top.sv:1289-1306` | Access fault cause 路由（i-side=1, d-side load=5, d-side store=7） | MMU |
+| 4 | `cpu_csr.sv:234,728` | csr_sip canonical read: SEIP = ext_seip \| r_sip[9] | CSR |
+| 5 | `cpu_decode.sv:564` | S-mode scounteren 写阻塞 | CSR |
+| 6 | `cpu_csr.sv:591` | scountoren S-mode 写守卫（双重防御） | CSR |
+| 7 | `cpu_mem.sv:430` | AMO 预留集失效（§22 发现的 bug） | A-ext |
+| 8 | `cpu_mem.sv:259,370,394,431,440` | aq/rl 有序完成：MEM_AMO_FENCE 单周期序列化 bubble | A-ext |
+| 9 | `axi4lite_clint.sv:247-248` | mtimecmp 复位为全1（避免上电伪中断） | CLINT |
+| 10 | `system_top.sv:1927-1929` | 声明顺序编译修复（dbg_mu wires） | 编译 |
+| 11 | `tb_audit_mmu_bugs.sv:15` | 误判修复（false failure fix） | 测试 |
+| 12 | `csr_bugs.s:152-174` | scountoren trap 期望更新 | 测试 |
+
+**备注**：
+- #4 的 SPIE 部分仅格式变更，无功能影响（`sw_csr_wdata[5]` 仍直通，SPIE 保持软件可写）
+- #10 与 §20 描述的修复相同
+
+### 23.2 验证结果
+
+| 测试 | 修复前 | 修复后 | 状态 |
+|------|--------|--------|------|
+| `isa_a_ext` | 50/52 (fail: #8, #50) | 52/52 | ✅ PASS |
+| `audit_csr_bugs` | — | PASS | ✅ PASS |
+| `audit_mmu_bugs` | — | PASS | ✅ PASS |
+
+### 23.3 修复关键细节
+
+#### 23.3.1 MMU D-bit Re-walk（#1）
+
+Store 到 D=0 的页时，PTW 执行 A/D 更新写回（PTE |= 0x80），但 D 位仍为 0。后续同页 store 再次触发 page fault（cause 15），形成死循环。
+
+修复：D-bit 缺失的 store 触发 re-walk，PTW 写回 PTE |= 0xC0（A=1, D=1），填充 TLB 后重试 store。
+
+#### 23.3.2 Access Fault Cause（#2, #3）
+
+原实现将 access fault（PMP/物理地址不对齐）报告为 page fault（cause 12/13/15），违反 RISC-V 规范。
+
+修复：
+- i-side access fault → cause 1（instruction access fault）
+- d-side load access fault → cause 5（load access fault）
+- d-side store access fault → cause 7（store/AMO access fault）
+
+#### 23.3.3 CSR sip Canonical Read（#4）
+
+RISC-V 规范要求 sip.SEIP 的读取视图 = 外部 SEIP √ 软件写 SEIP（`sip[9]`）。原实现仅返回 `r_sip[9]`，丢失外部中断源。
+
+修复：`csr_sip` 读取时 SEIP 位 = `ext_seip | r_sip[9]`。
+
+#### 23.3.4 scounteren S-mode 写阻塞（#5, #6）
+
+S-mode 写 `scounteren` 应触发 illegal instruction trap。双重防御：decode 阶段识别 + CSR 写阶段守卫。
+
+#### 23.3.5 aq/rl 有序完成（#8）
+
+AMO 指令的 aq/rl 位要求有序完成。实现为 MEM_AMO_FENCE 单周期序列化 bubble：AMO 完成后插入一个空闲周期，确保全局观察顺序。
+
+#### 23.3.6 mtimecmp 复位（#9）
+
+`mtimecmp` 复位为全1（0xFFFFFFFF_FFFFFFFF），避免 mtime < mtimecmp 在上电时触发伪 MTIP 中断。
+
+### 23.4 已知遗留
+
+| 问题 | 状态 | 说明 |
+|------|------|------|
+| `axi4lite_clint_unit` xsim elaboration 失败 | Blocked | 独立 unit testbench 不在 Vivado orchestrator 的 SoC 级项目流程中，需单独处理 |
+| SPIE 格式变更 | 无功能影响 | `cpu_csr.sv` diff 仅格式，`sw_csr_wdata[5]` 仍直通 |

@@ -1286,14 +1286,16 @@ module core_top(
         // to S-mode (kernel handles them). Original fix routed them as access faults
         // to M-mode, but MEDELEG doesn't delegate bits 1/5/7, so OpenSBI received
         // them and couldn't handle them → MMU translation errors → kernel jump to BSS.
-        .inst_access_fault(bridge_icache_error),
-        .inst_access_fault_addr(bridge_bus_error_addr),
-        .load_access_fault(bridge_dcache_error && !bridge_dcache_error_is_store),
-        .load_access_fault_addr(bridge_bus_error_addr),
-        .store_access_fault(bridge_dcache_error && bridge_dcache_error_is_store),
-        .store_access_fault_addr(bridge_bus_error_addr),
+        .inst_access_fault(bridge_icache_error || (mmu_inst_page_fault && (mmu_inst_pf_cause == 4'd1))),
+        .inst_access_fault_addr(bridge_icache_error ? bridge_bus_error_addr : mmu_inst_pf_vaddr),
+        .load_access_fault((bridge_dcache_error && !bridge_dcache_error_is_store) ||
+                           (mmu_data_page_fault && (mmu_data_pf_cause == 4'd5))),
+        .load_access_fault_addr(bridge_dcache_error ? bridge_bus_error_addr : mmu_data_pf_vaddr),
+        .store_access_fault((bridge_dcache_error && bridge_dcache_error_is_store) ||
+                            (mmu_data_page_fault && (mmu_data_pf_cause == 4'd7))),
+        .store_access_fault_addr(bridge_dcache_error ? bridge_bus_error_addr : mmu_data_pf_vaddr),
         .mem_access_fault_pc(exe_pc),
-        .inst_page_fault(mmu_inst_page_fault),
+        .inst_page_fault(mmu_inst_page_fault && (mmu_inst_pf_cause == 4'd12)),
         .inst_page_fault_vaddr(mmu_inst_pf_vaddr),
         // BUG-10 fix: 移除 mem_en 门控 — mem_en=0 时 MMU d-side 不翻译 (d_translate_en=mem_en),
         // d_page_fault 不会产生，因此 mem_en 门控是冗余的。保留 mem_en 会在 PTW 完成

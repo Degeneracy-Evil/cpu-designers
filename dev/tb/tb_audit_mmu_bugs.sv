@@ -12,6 +12,7 @@ module tb_audit_mmu_bugs;
 
     reg [31:0] _val;
     initial begin
+        integer result_idx;
         pass_count = 0; fail_count = 0; repeat (SIM_CYCLES) @(posedge clk);
 
         $display(""); $display("--- Audit mmu_bugs Results ---");
@@ -19,7 +20,8 @@ module tb_audit_mmu_bugs;
         read_reg(5'd29, _val); $display("  x29 (total_count)   = %0d", _val);
         read_reg(5'd30, _val); $display("  x30 (first_fail_id) = %0d", _val);
         for (integer i = 0; i < EXPECTED_TOTAL; i = i + 1) begin
-            check_mem_word(32'h80007000 + 16 + 4*i, _val);
+            result_idx = (32'h80007000 >> 2) + 4 + i;
+            _val = u_soc.sim_ram.u_axi_ram.BRAM[result_idx];
             if (_val === 32'd1) $display("  test_%0d: PASS", i+1);
             else if (_val === 32'd0) $display("  test_%0d: FAIL", i+1);
             else $display("  test_%0d: UNRUN (val=0x%08h)", i+1, _val);

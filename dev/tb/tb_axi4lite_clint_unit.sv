@@ -197,6 +197,10 @@ module tb_axi4lite_clint_unit;
         resetn = 1'b1;
         repeat (2) @(posedge clk);
 
+        check("CLINT mtimecmp reset lo", o_mtimecmp[31:0], 64'hFFFF_FFFF);
+        check("CLINT mtimecmp reset hi", o_mtimecmp[63:32], 64'hFFFF_FFFF);
+        check("CLINT MTIP low after reset", {63'd0, o_mtip}, 64'd0);
+
         axi_write(32'h0000_0000, 32'h0000_0001, 4'h1, WR_AW_FIRST);
         axi_read(32'h0000_0000, rd_val);
         check("CLINT msip AW-before-W", rd_val, 64'h1);

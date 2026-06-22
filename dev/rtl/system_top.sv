@@ -386,6 +386,10 @@ module system_top(
     wire        uart_irq;
     wire        spi_irq;
 
+    // Debug UART TX (sw[5] controlled)
+    wire        cpu_uart_tx;       // CPU UART TX output
+    wire        debug_uart_tx_out; // Debug UART TX output
+
     // Gray encoder: binary → Gray code (combinational, sys_clk domain)
     assign clint_mtime_gray = clint_mtime ^ (clint_mtime >> 1);
 
@@ -1911,7 +1915,7 @@ module system_top(
         .o_timer_irq    (timer_irq),
         .o_gpio_irq     (gpio_irq),
         .i_uart_rx      (uart_rx),
-        .o_uart_tx      (uart_tx),
+        .o_uart_tx      (cpu_uart_tx),
         .o_uart_irq     (uart_irq),
         .o_spiMosi      (spi_mosi),
         .i_spiMiso      (spi_miso),
@@ -1919,6 +1923,20 @@ module system_top(
         .o_spiClk       (spi_clk),
         .o_spi_irq      (spi_irq)
     );
+
+    // ── Debug UART TX: sw[5]=1 takes over UART TX pin ──
+    debug_uart_tx u_debug_uart_tx(
+        .clk            (sys_clk),
+        .resetn         (sys_resetn),
+        .enable         (sw[5]),
+        .display_name   (display_name),
+        .display_value  (display_value),
+        .display_valid  (display_valid),
+        .uart_tx        (debug_uart_tx_out)
+    );
+
+    // UART TX mux: sw[5] selects debug UART vs CPU UART
+    assign uart_tx = sw[5] ? debug_uart_tx_out : cpu_uart_tx;
 
     // APB response mux (PREADY and PSLVERR)
     always_comb begin

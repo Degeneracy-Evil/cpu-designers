@@ -125,6 +125,11 @@ if { [file exists "${sys_rtl_dir}/clk_wiz_0_passthrough.sv"] } {
         puts "WARNING: 添加 clk_wiz_0_passthrough.sv 失败: $err"
     }
 }
+if { [file exists "${sys_rtl_dir}/debug_uart_tx.sv"] } {
+    if { [catch {add_files -norecurse "${sys_rtl_dir}/debug_uart_tx.sv"} err] } {
+        puts "WARNING: 添加 debug_uart_tx.sv 失败: $err"
+    }
+}
 
 update_compile_order -fileset sources_1
 

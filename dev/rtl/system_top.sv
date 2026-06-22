@@ -633,6 +633,69 @@ module system_top(
     end
 
     // ========================================================================
+    // Debug Block 2b: Initcall Loop Trace
+    // Captures the initcall function pointer and loop variable each time
+    // the initcall loop body executes.  Detects s1 going out of bounds.
+    //
+    // Key addresses:
+    //   0xC038110C: lw a0, 0(s1)  — Loop 1 body (early initcalls)
+    //   0xC0381260: lw a0, 0(s1)  — Loop 2 body (level-based initcalls)
+    //   0xC0380DA4: jalr s1        — do_one_initcall calling the function
+    //   0xC03BB4F0: __initcall0_start
+    //   0xC03BB9CC: __initcall_end  (OOB threshold)
+    // ========================================================================
+    localparam [31:0] INITCALL_LOOP1_PC  = 32'hC038110C;
+    localparam [31:0] INITCALL_LOOP2_PC  = 32'hC0381260;
+    localparam [31:0] INITCALL_JALR_PC   = 32'hC0380DA4;
+    localparam [31:0] INITCALL_END_ADDR  = 32'hC03BB9CC;
+
+    wire dbg_initcall_loop_hit = (exe_pc == INITCALL_LOOP1_PC) || (exe_pc == INITCALL_LOOP2_PC);
+    wire dbg_initcall_jalr_hit = (exe_pc == INITCALL_JALR_PC);
+    wire dbg_initcall_oob      = dbg_initcall_loop_hit && (gpr_s1 > INITCALL_END_ADDR);
+
+    reg [31:0] dbg_initcall_last_fn_r;    // Last initcall function called (s1 at jalr)
+    reg [31:0] dbg_initcall_prev_fn_r;    // Previous initcall function called
+    reg [31:0] dbg_initcall_loop_s1_r;    // Loop pointer (s1 at loop body)
+    reg [31:0] dbg_initcall_loop_a0_r;    // Function pointer loaded (a0 at loop body)
+    reg [31:0] dbg_initcall_oob_s1_r;     // s1 value when OOB detected
+    reg [31:0] dbg_initcall_oob_a0_r;     // a0 value when OOB detected
+    reg        dbg_initcall_oob_r;        // OOB detected flag
+    reg [15:0] dbg_initcall_count_r;      // Total initcall iterations
+
+    always_ff @(posedge cpu_clk or negedge cpu_resetn) begin
+        if (!cpu_resetn) begin
+            dbg_initcall_last_fn_r  <= 32'b0;
+            dbg_initcall_prev_fn_r  <= 32'b0;
+            dbg_initcall_loop_s1_r  <= 32'b0;
+            dbg_initcall_loop_a0_r  <= 32'b0;
+            dbg_initcall_oob_s1_r   <= 32'b0;
+            dbg_initcall_oob_a0_r   <= 32'b0;
+            dbg_initcall_oob_r      <= 1'b0;
+            dbg_initcall_count_r    <= 16'b0;
+        end else begin
+            // Capture initcall function pointer at jalr s1
+            if (dbg_initcall_jalr_hit) begin
+                dbg_initcall_prev_fn_r <= dbg_initcall_last_fn_r;
+                dbg_initcall_last_fn_r <= gpr_s1;
+            end
+
+            // Capture loop state at loop body
+            if (dbg_initcall_loop_hit) begin
+                dbg_initcall_loop_s1_r <= gpr_s1;
+                dbg_initcall_loop_a0_r <= gpr_a0;
+                dbg_initcall_count_r   <= dbg_initcall_count_r + 16'd1;
+
+                // Latch OOB event (only first occurrence)
+                if (dbg_initcall_oob && !dbg_initcall_oob_r) begin
+                    dbg_initcall_oob_r    <= 1'b1;
+                    dbg_initcall_oob_s1_r <= gpr_s1;
+                    dbg_initcall_oob_a0_r <= gpr_a0;
+                end
+            end
+        end
+    end
+
+    // ========================================================================
     // Debug Block 3: RECUR_* latches
     // Counts traps whose faulting PC is inside the S-mode trap entry itself.
     // These correspond to:
@@ -2148,6 +2211,14 @@ module system_top(
                         6'd18: disp_resp_bus_cpu <= {1'b1, "F_S3 ", dbg_s_gpr_s3_r};
                         6'd19: disp_resp_bus_cpu <= {1'b1, "F_A4 ", dbg_s_gpr_a4_r};
                         6'd20: disp_resp_bus_cpu <= {1'b1, "F_A5 ", dbg_s_gpr_a5_r};
+                        6'd21: disp_resp_bus_cpu <= {1'b1, "ICNT ", {16'b0, dbg_initcall_count_r}};
+                        6'd22: disp_resp_bus_cpu <= {1'b1, "IFN  ", dbg_initcall_last_fn_r};
+                        6'd23: disp_resp_bus_cpu <= {1'b1, "IPFN ", dbg_initcall_prev_fn_r};
+                        6'd24: disp_resp_bus_cpu <= {1'b1, "IL_S1", dbg_initcall_loop_s1_r};
+                        6'd25: disp_resp_bus_cpu <= {1'b1, "IL_A0", dbg_initcall_loop_a0_r};
+                        6'd26: disp_resp_bus_cpu <= {1'b1, "IOOB ", {31'b0, dbg_initcall_oob_r}};
+                        6'd27: disp_resp_bus_cpu <= {1'b1, "IO_S1", dbg_initcall_oob_s1_r};
+                        6'd28: disp_resp_bus_cpu <= {1'b1, "IO_A0", dbg_initcall_oob_a0_r};
                         default: ;
                     endcase
                 end else if (disp_page_cpu == 2'b11) begin

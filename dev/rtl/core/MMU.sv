@@ -91,6 +91,22 @@ module MMU #(
     wire [8:0]  d_asid = satp[30:22];
     wire        d_sv32 = satp[31] && (priv_mode != PRIV_M) && d_translate_en;
 
+    // =========================================================================
+    // TLB flush on satp write (RISC-V spec requirement)
+    // =========================================================================
+    // Per spec: writing satp must invalidate TLB entries for current ASID.
+    // Detect satp change and combine with sfence_vma for TLB flush.
+    reg [31:0] satp_prev;
+    wire satp_changed = (satp != satp_prev) && (priv_mode != PRIV_M);
+    wire mmu_flush_req = sfence_vma || satp_changed;
+
+    always_ff @(posedge clk or negedge resetn) begin
+        if (!resetn)
+            satp_prev <= 32'b0;
+        else
+            satp_prev <= satp;
+    end
+
 `ifdef USE_TLB_BRAM
 
     // =========================================================================
@@ -184,8 +200,8 @@ module MMU #(
     // valid pulse expires and the MMU deadlocks (valid=0, hit=1, ready=0, miss=0).
     wire i_req_active = (i_state == I_LOOKUP) && !i_input_changed;
     wire d_req_active = (d_state == D_LOOKUP) && !d_input_changed;
-    wire i_tlb_lookup_req = i_req_active && !sfence_vma;
-    wire d_tlb_lookup_req = d_req_active && !sfence_vma && !d_lookup_stalled;
+    wire i_tlb_lookup_req = i_req_active && !mmu_flush_req;
+    wire d_tlb_lookup_req = d_req_active && !mmu_flush_req && !d_lookup_stalled;
 
     // PTW fill signals (declared early — used by TLB instance below)
     wire [21:0] ptw_fill_ppn;
@@ -253,7 +269,7 @@ module MMU #(
         .fill_g(ptw_fill_g),
         .fill_is_megapage(ptw_fill_is_megapage),
         // Flush
-        .flush_all(sfence_vma),
+        .flush_all(mmu_flush_req),
         .flush_done(tlb_flush_done)
     );
 
@@ -417,7 +433,7 @@ module MMU #(
         end else begin
             case (i_state)
                 I_IDLE: begin
-                    if (sfence_vma) begin
+                    if (mmu_flush_req) begin
                         i_state <= I_FLUSH;
                     end else begin
                         i_latched_vaddr       <= i_vaddr;
@@ -432,7 +448,7 @@ module MMU #(
                 end
 
                 I_LOOKUP: begin
-                    if (sfence_vma) begin
+                    if (mmu_flush_req) begin
                         i_state <= I_FLUSH;
                     end else if (i_input_changed) begin
                         i_state <= I_IDLE;
@@ -443,7 +459,7 @@ module MMU #(
                 end
 
                 I_WALK_PENDING: begin
-                    if (sfence_vma) begin
+                    if (mmu_flush_req) begin
                         i_state <= I_FLUSH;
                     end else if (ptw_done_for_i) begin
                         // PTW completed for i-side, fill TLB, wait 1 cycle
@@ -486,7 +502,7 @@ module MMU #(
         end else begin
             case (d_state)
                 D_IDLE: begin
-                    if (sfence_vma) begin
+                    if (mmu_flush_req) begin
                         d_state <= D_FLUSH;
                     end else if (d_translate_en) begin    // BUG-13 fix: gate with d_translate_en
                         // Only latch and transition when mem_en=1.
@@ -505,7 +521,7 @@ module MMU #(
                 end
 
                 D_LOOKUP: begin
-                    if (sfence_vma) begin
+                    if (mmu_flush_req) begin
                         d_state <= D_FLUSH;
                     end else if (d_lookup_stalled) begin
                         // Port B is filling (PTW done for other side).
@@ -520,7 +536,7 @@ module MMU #(
                 end
 
                 D_WALK_PENDING: begin
-                    if (sfence_vma) begin
+                    if (mmu_flush_req) begin
                         d_state <= D_FLUSH;
                     end else if (ptw_done_for_d) begin
                         d_state <= D_FILL_WAIT;
@@ -579,7 +595,7 @@ module MMU #(
         end else begin
             case (walk_state)
                 W_IDLE: begin
-                    if (sfence_vma) begin
+                    if (mmu_flush_req) begin
                         pending_i_walk <= 1'b0;
                         pending_d_walk <= 1'b0;
                     end else if (pending_i_walk) begin
@@ -600,7 +616,7 @@ module MMU #(
                 end
 
                 W_D_WALK: begin
-                    if (sfence_vma) begin
+                    if (mmu_flush_req) begin
                         walk_state     <= W_IDLE;
                         pending_i_walk <= 1'b0;
                         pending_d_walk <= 1'b0;
@@ -616,7 +632,7 @@ module MMU #(
                 end
 
                 W_I_WALK: begin
-                    if (sfence_vma) begin
+                    if (mmu_flush_req) begin
                         walk_state     <= W_IDLE;
                         pending_i_walk <= 1'b0;
                         pending_d_walk <= 1'b0;
@@ -670,7 +686,7 @@ module MMU #(
         .access_type(walk_access),
         .walk_vaddr(walk_vaddr),
         .walk_req(ptw_walk_req_pulse),
-        .walk_abort(sfence_vma),           // BUG-7: abort PTW on sfence_vma
+        .walk_abort(mmu_flush_req),           // BUG-7: abort PTW on sfence_vma or satp change
         .walk_done(ptw_walk_done),
         .walk_fault(ptw_walk_fault),
         .walk_fault_cause(ptw_fault_cause_out),

@@ -34,7 +34,10 @@ module debug_uart_tx(
     reg [9:0]  baud_cnt;
     reg [3:0]  bit_idx;        // 0=start, 1-8=data, 9=stop, 10=done
     reg [7:0]  shift_reg;
-    reg [19:0] delay_cnt;
+    reg [23:0] delay_cnt;      // 24-bit for longer delay
+
+    // Skip entries whose label is all spaces (undefined LCD slots)
+    wire label_is_blank = (display_name == 40'h2020202020);
 
     // Line buffer (registered)
     reg [7:0] line_buf [0:15];
@@ -55,7 +58,7 @@ module debug_uart_tx(
             bit_idx   <= 4'd0;
             shift_reg <= 8'd0;
             uart_tx   <= 1'b1;   // UART idle = high
-            delay_cnt <= 20'd0;
+            delay_cnt <= 24'd0;
         end else if (!enable) begin
             uart_tx   <= 1'b1;   // idle high when disabled
             state     <= S_IDLE;
@@ -66,7 +69,7 @@ module debug_uart_tx(
             case (state)
                 // ── Wait for valid data, then format line ──
                 S_IDLE: begin
-                    if (display_valid) begin
+                    if (display_valid && !label_is_blank) begin
                         // Format: "NAME=HHHHHHHH\r\n"
                         line_buf[0]  <= display_name[39:32];
                         line_buf[1]  <= display_name[31:24];
@@ -119,7 +122,7 @@ module debug_uart_tx(
                             bit_idx <= 4'd0;
                             if (char_idx == 5'd15) begin
                                 state     <= S_DELAY;
-                                delay_cnt <= 20'd0;
+                                delay_cnt <= 24'd0;
                             end else begin
                                 char_idx <= char_idx + 1;
                             end
@@ -129,9 +132,9 @@ module debug_uart_tx(
                     end
                 end
 
-                // ── Inter-line delay (~5ms at 100MHz) ──
+                // ── Inter-line delay (~16ms at 100MHz) ──
                 S_DELAY: begin
-                    if (delay_cnt == 20'h7FFFF) begin
+                    if (delay_cnt == 24'hFFFFFF) begin
                         state <= S_IDLE;
                     end else begin
                         delay_cnt <= delay_cnt + 1;

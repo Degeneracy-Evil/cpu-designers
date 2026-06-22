@@ -107,12 +107,11 @@
          * 当前报告中 PLIC 为 8 source，单 hart / 单 context。
          *
          * 注意：
-         * 这里先只把 S-mode external interrupt context 暴露给 Linux。
-         * 9 = Supervisor external interrupt
-         *
-         * 如果你们的 PLIC context 设计实际是 M-mode context，
-         * 或者 OpenSBI/Linux 侧需要不同 context 编号，
-         * 这一项后面需要和 PLIC RTL / OpenSBI platform 一起核对。
+         * PLIC 有 2 个 interrupt context:
+         *   context 0 → M-mode (MEIP, interrupt 11)
+         *   context 1 → S-mode (SEIP, interrupt 9)
+         * RTL 确认: plic_eip[0]→ext_meip_in, plic_eip[1]→ext_seip_in
+         * (system_top.sv lines 405-408, 854-855, 1673)
          */
         plic: interrupt-controller@c000000 {
             compatible = "sifive,plic-1.0.0";
@@ -123,7 +122,7 @@
             interrupt-controller;
 
             riscv,ndev = <8>;
-            interrupts-extended = <&cpu0_intc 9>;
+            interrupts-extended = <&cpu0_intc 11>, <&cpu0_intc 9>;
         };
 
         /*

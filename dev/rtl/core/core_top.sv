@@ -1282,6 +1282,10 @@ module core_top(
         .exe_misalign_valid(exe_misalign_valid),
         .exe_misalign_target(exe_misalign_target),
         .exe_pc           (exe_pc),
+        // BUG-MMU-3 REVERTED: PTW access faults (cause 1/5/7) routed as page faults
+        // to S-mode (kernel handles them). Original fix routed them as access faults
+        // to M-mode, but MEDELEG doesn't delegate bits 1/5/7, so OpenSBI received
+        // them and couldn't handle them → MMU translation errors → kernel jump to BSS.
         .inst_access_fault(bridge_icache_error),
         .inst_access_fault_addr(bridge_bus_error_addr),
         .load_access_fault(bridge_dcache_error && !bridge_dcache_error_is_store),

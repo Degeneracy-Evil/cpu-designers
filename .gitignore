@@ -70,3 +70,5 @@ log/
 *.hex
 *.coe
 *.log
+*.bin
+*.elf

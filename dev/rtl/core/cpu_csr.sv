@@ -406,7 +406,7 @@ module cpu_csr(
                             2'b00,
                             sw_csr_wdata[8],
                             sw_csr_wdata[7],
-                            3'b000,
+                            {1'b0, sw_csr_wdata[5], 1'b0},
                             sw_csr_wdata[3],
                             1'b0,
                             sw_csr_wdata[1],
@@ -642,7 +642,10 @@ module cpu_csr(
             ADDR_STVAL:       sw_csr_rdata_r = r_stval;
             // BUG-FIX: Expose sip[5] (STIP) in addition to sip[1] (SSIP).
             // Per RISC-V spec, sip read should show both SSIP and STIP bits.
-            ADDR_SIP:         sw_csr_rdata_r = {22'd0, r_sip[9], 3'b0, r_sip[5], 3'b0, r_sip[1], 1'b0};
+            // BUG-CSR-3 FIX: sip[9] (SEIP) must include hardware ext_seip from PLIC,
+            // not just software r_sip[9]. Without this, S-mode reads sip and sees
+            // SEIP=0 even when PLIC has a pending interrupt for S-mode context.
+            ADDR_SIP:         sw_csr_rdata_r = {22'd0, (ext_seip | r_sip[9]), 3'b0, r_sip[5], 3'b0, r_sip[1], 1'b0};
             ADDR_SATP:        sw_csr_rdata_r = r_satp;
 
             ADDR_MSTATUS:     sw_csr_rdata_r = {sd_bit, r_mstatus[30:0]};

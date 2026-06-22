@@ -274,7 +274,8 @@ module MMU #(
                                (d_latched_access_type == ACCESS_FETCH || !d_latched_mstatus_sum)) ? 1'b1 :
                               (d_latched_access_type == ACCESS_FETCH && !d_tlb_x) ? 1'b1 :
                               (d_latched_access_type == ACCESS_LOAD && !d_tlb_r && !(d_tlb_x && d_latched_mstatus_mxr)) ? 1'b1 :
-                              (d_latched_access_type == ACCESS_STORE && !d_tlb_w) ? 1'b1 : 1'b0;
+                              (d_latched_access_type == ACCESS_STORE && !d_tlb_w) ? 1'b1 :
+                              (d_latched_access_type == ACCESS_STORE && !d_tlb_d) ? 1'b1 : 1'b0;
 
     // =========================================================================
     // Translation outputs

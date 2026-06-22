@@ -3,6 +3,10 @@
 # 该脚本必须在项目根目录下运行！
 # 最终产物位置在：./build/opensbi/fw_payload.bin
 
+# 更改文件为：./init/main.c 和 ./drivers/tty/serial/8250/8250_of.c
+# 标志为 BOOTDBG
+# 现已回退，但保留bak文件
+
 set -euo pipefail
 
 # 准备环境变量

@@ -304,6 +304,32 @@ tasks:
     phex: test/mmio/plic.hex
     runtime: 150ms
 
+  # ── 审计仿真 (bug verification + discovery) ──
+
+  audit_csr_bugs:
+    tb: tb_audit_csr_bugs
+    blhex: boot/bootloader_phase1.hex
+    phex: test/audit/csr_bugs.hex
+    runtime: 20ms
+
+  audit_mmu_bugs:
+    tb: tb_audit_mmu_bugs
+    blhex: boot/bootloader_phase1.hex
+    phex: test/audit/mmu_bugs.hex
+    runtime: 30ms
+
+  audit_plic_bugs:
+    tb: tb_audit_plic_bugs
+    blhex: boot/bootloader_phase1.hex
+    phex: test/audit/plic_bugs.hex
+    runtime: 20ms
+
+  audit_plic_seip:
+    tb: tb_audit_plic_seip
+    blhex: boot/bootloader_phase1.hex
+    phex: test/audit/plic_seip.hex
+    runtime: 20ms
+
   # ── 回归仿真 ──
 
   reg_tlb_fill_way:

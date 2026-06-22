@@ -111,6 +111,14 @@ categories:
       - mmio/clint
       - mmio/plic
 
+  audit:
+    framework: mmu
+    tests:
+      - audit/csr_bugs
+      - audit/mmu_bugs
+      - audit/plic_bugs
+      - audit/plic_seip
+
   regression:
     framework: mmu
     tests:

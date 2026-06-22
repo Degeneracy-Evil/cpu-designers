@@ -1075,10 +1075,11 @@ class Operations:
                         "if { [llength $existing] > 0 } { remove_files -fileset sim_1 -quiet $existing }"
                     )
                 elif step == "add_tb":
+                    # Must use import_files (via _tcl_add_tb), not add_files.
+                    # xsim's prj generator only discovers files imported into sim_1.
                     if task.tb:
-                        tb_path = _find_tb_path(tb_dir, task.tb)
                         tcl_parts.append(
-                            f'add_files -fileset sim_1 "{tb_path}"'
+                            _tcl_add_tb(dev, proj_dir, proj_name, task.tb, blcoe_file, self.session_mgr.config.rtl_path)
                         )
                 elif step == "set_property_top":
                     if task.tb:

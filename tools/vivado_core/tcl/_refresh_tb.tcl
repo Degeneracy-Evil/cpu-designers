@@ -12,6 +12,10 @@
 # 说明:
 #   移除当前仿真文件, 添加新 testbench, 更新 COE 配置。
 #   不重建工程, 仅刷新仿真文件集。
+#
+#   ⚠️  注意: 此脚本仅刷新 testbench，不重新导入 RTL。
+#       Python 编排器 (operations.py) 的增量路径通过 _tcl_add_tb()
+#       正确处理了 RTL 重新导入。此独立脚本仅在手动 source 时使用。
 # =============================================================================
 
 # ---------------------------------------------------------------------------
@@ -37,7 +41,7 @@ if { [llength $existing_sim_files] > 0 } {
 }
 
 # Step 2: 添加新 testbench
-if { [catch {add_files -fileset sim_1 "${tb_dir}/${tb_name}.sv"} err] } {
+if { [catch {import_files -fileset sim_1 "${tb_dir}/${tb_name}.sv"} err] } {
     puts "ERROR: 添加 testbench 失败: $err"
     return
 }
@@ -45,7 +49,7 @@ puts "已添加 testbench: ${tb_dir}/${tb_name}.sv"
 
 # Step 3: 添加 lcd_module_stub (如果存在)
 if { [file exists "${tb_dir}/lcd_module_stub.sv"] } {
-    add_files -fileset sim_1 "${tb_dir}/lcd_module_stub.sv"
+    import_files -fileset sim_1 "${tb_dir}/lcd_module_stub.sv"
     puts "已添加 lcd_module_stub.sv"
 }
 

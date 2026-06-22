@@ -29,14 +29,14 @@ if { [llength $existing_sim_files] > 0 } {
 }
 
 # 添加 testbench
-if { [catch {add_files -fileset sim_1 "${tb_dir}/${tb_name}.sv"} err] } {
+if { [catch {import_files -fileset sim_1 "${tb_dir}/${tb_name}.sv"} err] } {
     puts "ERROR: 添加 testbench 失败: $err"
     return
 }
 
 # 添加 lcd_module_stub (如果存在)
 if { [file exists "${tb_dir}/lcd_module_stub.sv"] } {
-    add_files -fileset sim_1 "${tb_dir}/lcd_module_stub.sv"
+    import_files -fileset sim_1 "${tb_dir}/lcd_module_stub.sv"
 }
 
 set_property top $tb_name [get_filesets sim_1]

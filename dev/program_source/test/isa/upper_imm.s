@@ -2,7 +2,7 @@
 # isa/upper_imm.s — Upper immediate instruction tests
 # Category: ISA
 # Description: Test LUI and AUIPC instructions
-# Sub-tests: 8
+# Sub-tests: 9
 # Depends: framework/test_framework.s, framework/trap_handlers.s
 # ============================================================
 
@@ -32,6 +32,8 @@ _start:
     la x11, test_lui_address
     jal x1, test_run
     la x11, test_lui_addi_neg
+    jal x1, test_run
+    la x11, test_addi_neg_ones
     jal x1, test_run
 
     jal x1, test_report
@@ -114,12 +116,31 @@ test_lui_address:
 1:
     ret
 
-# ── LUI + ADDI with negative offset: build 0xFFFFF000 + 0xFFF = 0xFFFFFFFF ──
+# ── LUI + ADDI with negative offset: build 0xFFFFF000 + 0xFFF = 0xFFFFEFFF ──
+# NOTE: ADDI -1 sign-extends 0xFFF to 0xFFFFFFFF.
+#   0xFFFFF000 + 0xFFFFFFFF = 0x1FFFFEFFF → 32-bit: 0xFFFFEFFF
+# This is the classic "LUI+ADDI sign extension trap": naive programmers expect
+# 0xFFFFFFFF but get 0xFFFFEFFF instead, because the addi immediate's bit 11=1
+# causes sign extension to subtract 1 from the upper word.
 test_lui_addi_neg:
     li x10, 0
     lui x14, 0xFFFFF      # x14 = 0xFFFFF000
-    addi x14, x14, -1     # x14 = 0xFFFFEFFF
+    addi x14, x14, -1     # x14 = 0xFFFFEFFF (NOT 0xFFFFFFFF!)
     li x17, 0xFFFFEFFF
+    bne x14, x17, 1f
+    li x10, 1
+1:
+    ret
+
+# ── ADDI from x0 to get all-ones: addi x14, x0, -1 = 0xFFFFFFFF ──
+# The correct way to load 0xFFFFFFFF is to use ADDI from x0 (no LUI needed).
+# LUI+ADDI can never produce 0xFFFFFFFF because when the 12-bit immediate needs
+# bit 11=1, the sign extension adds 0xFFFFFFFF which inverts bit 11 of the upper
+# word. Using x0 + ADDI -1 avoids this entirely.
+test_addi_neg_ones:
+    li x10, 0
+    addi x14, x0, -1      # x14 = 0xFFFFFFFF (no sign-extension wrap-around)
+    li x17, 0xFFFFFFFF
     bne x14, x17, 1f
     li x10, 1
 1:

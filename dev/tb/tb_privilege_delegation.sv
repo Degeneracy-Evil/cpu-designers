@@ -6,8 +6,8 @@
 
 module tb_privilege_delegation;
 
-    localparam integer EXPECTED_TOTAL = 6;
-    localparam integer SIM_CYCLES    = 200000;
+    localparam integer EXPECTED_TOTAL = 8;
+    localparam integer SIM_CYCLES    = 500000;
 
 
     // Shared boilerplate: system_top, clock, reset, debug signals, check_reg, check_mem_word

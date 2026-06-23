@@ -426,7 +426,10 @@ module cpu_csr(
     assign mepc_wmask = {sw_csr_wdata[31:2], 2'b00};
 
     wire [31:0] medeleg_wmask;
-    assign medeleg_wmask = sw_csr_wdata & 32'h0000_B3FF;
+    // S-mode ecall (cause 9) must not be delegatable. Linux issues SBI calls
+    // via ecall from S-mode, which must trap to M-mode/OpenSBI rather than
+    // looping back into the S-mode trap handler.
+    assign medeleg_wmask = sw_csr_wdata & 32'h0000_B1FF;
 
     // BUG-FIX (sub-issue ⑤): Per RISC-V Privileged Spec, M-mode interrupts
     // (MSI=3, MTI=7, MEI=11) are NOT delegatable and must be hardwired to 0.
@@ -588,7 +591,7 @@ module cpu_csr(
                     ADDR_STVAL:      r_stval     <= sw_csr_wdata;
                     ADDR_SIP:        r_sip       <= sip_wmask;
                     ADDR_SATP:       r_satp      <= sw_csr_wdata;
-                    ADDR_SCOUNTEREN: if (priv_mode == PRIV_M) r_scounteren <= sw_csr_wdata;
+                    ADDR_SCOUNTEREN: if (priv_mode != PRIV_U) r_scounteren <= sw_csr_wdata;
                     ADDR_FFLAGS: ;  // fflags handled by merged logic below
                     ADDR_FRM:        r_frm       <= sw_csr_wdata[2:0];
                     ADDR_FCSR:       r_frm       <= sw_csr_wdata[7:5];  // fflags handled by merged logic below

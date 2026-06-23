@@ -16,31 +16,12 @@ module tb_privilege_priv_transition;
 
     reg [31:0] _val;
     integer cycle_cnt;
-    integer trap_count;
-
     initial begin
         cycle_cnt = 0;
-        trap_count = 0;
         @(posedge resetn);
         forever begin
             @(posedge clk);
             cycle_cnt = cycle_cnt + 1;
-
-            // Detect trap entry (print first 8)
-            if (u_soc.cpu.trap_enter_valid && cycle_cnt > 100) begin
-                trap_count = trap_count + 1;
-                if (trap_count <= 8) begin
-                    $display("[t=%0d] >>> TRAP #%0d: exe_pc=0x%08h mstatus=0x%08h priv=%0d",
-                        cycle_cnt, trap_count, exe_pc, u_soc.cpu.csr_mstatus, u_soc.cpu.priv_mode);
-                end
-            end
-
-            // Detect mret/sret execution
-            if ((u_soc.cpu.dec_is_mret || u_soc.cpu.dec_is_sret) && cycle_cnt > 100 && cycle_cnt <= 10000) begin
-                $display("[t=%0d] >>> %s: exe_pc=0x%08h mstatus=0x%08h priv=%0d",
-                    cycle_cnt, u_soc.cpu.dec_is_mret ? "MRET" : "SRET",
-                    exe_pc, u_soc.cpu.csr_mstatus, u_soc.cpu.priv_mode);
-            end
         end
     end
 
@@ -103,4 +84,3 @@ module tb_privilege_priv_transition;
 
 
 endmodule
-

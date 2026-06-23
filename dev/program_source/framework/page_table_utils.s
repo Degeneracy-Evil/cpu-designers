@@ -115,8 +115,10 @@ setup_identity_map:
 #
 .globl setup_user_map
 setup_user_map:
-    # 先做恒等映射
+    # 先做恒等映射 (保存 ra，因为 jal 会覆盖 x1)
+    mv   x6, x1
     jal  x1, setup_identity_map
+    mv   x1, x6
 
     # 修改 L0[7] 为 User 页: URWXAD
     la   x16, l0_page_table
@@ -125,6 +127,84 @@ setup_user_map:
     li   x5, PTE_V|PTE_R|PTE_W|PTE_X|PTE_U|PTE_A|PTE_D
     or   x17, x17, x5
     sw   x17, 28(x16)           # L0[7] → User 页 (0x80007000)
+
+    ret
+
+
+# ── setup_dual_map: 恒等映射 (Supervisor) + User 别名映射 ──
+#
+# 创建两份代码页映射，使 S-mode 和 U-mode 都能执行同一物理代码:
+#
+#   L0[0-7]:  Supervisor 页 (U=0, RWXAD) → PA 0x80000000-0x80007000
+#             S-mode 和 M-mode 通过 VA 0x80000000-0x80007FFF 访问
+#
+#   L0[8-15]: User 页 (U=1, RWXAD) → 同一 PA 0x80000000-0x80007000
+#             U-mode 通过 VA 0x80008000-0x8000FFFF 访问
+#
+#   L0[7]:    Supervisor 页 (结果区 0x80007000, 供测试框架/ S-mode 使用)
+#   L0[15]:   User 页 (结果区 User 别名 VA 0x8000F000)
+#
+# User VA = Supervisor VA + 0x8000 (8 页 × 4KB = 32KB 偏移)
+#
+# 用法:
+#   S-mode 入口: la x5, s_entry; csrw mepc, x5; ...; mret
+#   U-mode 入口: la x5, u_entry; li x6, 0x8000; add x5, x5, x6; csrw sepc, x5; ...; sret
+#
+# 输入: 无
+# 输出: 无
+# 副作用: 写入页表内存, 使用 caller-saved x5-x17
+#
+.globl setup_dual_map
+setup_dual_map:
+    # 先做恒等映射 (L0[0-7] Supervisor)，保存 ra 因为 jal 会覆盖 x1
+    mv   x6, x1
+    jal  x1, setup_identity_map
+    mv   x1, x6
+
+    la   x16, l0_page_table
+
+    # L0[8-15]: User 别名页，指向 PA 0x80000000-0x80007000
+    li   x5, PTE_V|PTE_R|PTE_W|PTE_X|PTE_U|PTE_A|PTE_D
+
+    li   x17, 0x80000           # PPN = 0x80000 (PA 0x80000000)
+    slli x17, x17, 10
+    or   x17, x17, x5
+    sw   x17, 32(x16)           # L0[8]  → User 页 PA 0x80000000
+
+    li   x17, 0x80001
+    slli x17, x17, 10
+    or   x17, x17, x5
+    sw   x17, 36(x16)           # L0[9]  → User 页 PA 0x80001000
+
+    li   x17, 0x80002
+    slli x17, x17, 10
+    or   x17, x17, x5
+    sw   x17, 40(x16)           # L0[10] → User 页 PA 0x80002000
+
+    li   x17, 0x80003
+    slli x17, x17, 10
+    or   x17, x17, x5
+    sw   x17, 44(x16)           # L0[11] → User 页 PA 0x80003000
+
+    li   x17, 0x80004
+    slli x17, x17, 10
+    or   x17, x17, x5
+    sw   x17, 48(x16)           # L0[12] → User 页 PA 0x80004000
+
+    li   x17, 0x80005
+    slli x17, x17, 10
+    or   x17, x17, x5
+    sw   x17, 52(x16)           # L0[13] → User 页 PA 0x80005000
+
+    li   x17, 0x80006
+    slli x17, x17, 10
+    or   x17, x17, x5
+    sw   x17, 56(x16)           # L0[14] → User 页 PA 0x80006000
+
+    li   x17, 0x80007
+    slli x17, x17, 10
+    or   x17, x17, x5
+    sw   x17, 60(x16)           # L0[15] → User 页 PA 0x80007000
 
     ret
 

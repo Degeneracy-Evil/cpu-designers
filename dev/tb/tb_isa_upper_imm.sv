@@ -2,7 +2,7 @@
 
 module tb_isa_upper_imm;
 
-    localparam integer EXPECTED_TOTAL = 8;
+    localparam integer EXPECTED_TOTAL = 9;
 
 
     // Shared boilerplate: system_top, clock, reset, debug signals, check_reg, check_mem_word

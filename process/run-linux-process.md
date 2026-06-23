@@ -1889,3 +1889,219 @@ AMO 指令的 aq/rl 位要求有序完成。实现为 MEM_AMO_FENCE 单周期序
 |------|------|------|
 | `axi4lite_clint_unit` xsim elaboration 失败 | Blocked | 独立 unit testbench 不在 Vivado orchestrator 的 SoC 级项目流程中，需单独处理 |
 | SPIE 格式变更 | 无功能影响 | `cpu_csr.sv` diff 仅格式，`sw_csr_wdata[5]` 仍直通 |
+
+---
+
+## 24. U-mode 支持修复：ra save/restore、ecall trap 记录、CSR 权限隔离、dual mapping（2026-06-22）
+
+### 24.1 背景
+
+需要在现有 S-mode 系统上增加 U-mode 用户程序支持。U-mode 代码运行在 User VA 空间（0x80008xxx），通过 ecall 陷入 S-mode 进行处理，sret 返回后继续执行。
+
+### 24.2 本轮修复清单
+
+| # | 修复 | 文件 | 说明 |
+|---|------|------|------|
+| 1 | ra (x1) save/restore — jal 覆盖 x1 问题 | `page_table_utils.s` — setup_dual_map + setup_user_map | jal 指令覆盖 x1（返回地址），导致双重映射中 page table walker 读取错误的页表条目后硬错误（bus error）。修复为：所有 jal 改用 `jalr x1, addr` 保留 x0 不覆盖，或在 jal 前 save/restore x1。 |
+| 2 | `m_hdl_ecall_s` 缺失 trap 记录 | `delegation.s` | M-mode ecall handler `m_hdl_ecall_s` 在 ecall→S-mode 后直接 mret，未执行 wfi 陷停保存 trap PC/MCAUSE。S-mode handler 中 sac.use 检查到 MIE=0（M-mode handler 屏蔽了中断）后走错误的跳转路径。修复：`ecall` → `csrw mepc, ra` + `csrw mcause, zero` + `wfi` 陷停。 |
+| 3 | RTL bug: `csr_priv_violation` 未接入 `illegal_inst` | `cpu_decode.sv` L571+L600 | `dec_csr_access_ok` 已正确计算 S/U-mode CSR 权限，但从未接入 `illegal_inst` 信号。`illegal_inst` 只检查 `csr_addr_invalid`（未知 CSR 地址），遗漏了权限违规。S-mode 写 M-CSR 静默成功 → 违反 RISC-V 特权规范。修复：新增 `wire csr_priv_violation = is_csr && !dec_csr_access_ok;` 并加入 `illegal_inst`。 |
+| 4 | U-mode 改用 dual mapping + User VA | `priv_transition.s` 重写 | 原有测试仅做 bare-metal 虚拟地址映射（U-mode 直接访问物理地址）。重构为建立 dual mapping：kernel VA 空间（0xC0xxxxxx→物理）和 User VA 空间（0x80008xxx→物理）。U-mode 在 0x80008xxx 执行，ecall 后 S-mode 在 0xC0xxxxxx 执行。 |
+| 5 | RTL bug: 流水线冲刷缺失 | `core_top.sv` | trap/redirect 时 IF/ID 和 ID/EXE 流水线寄存器未清零，导致旧指令在 trap entry/return 或 taken branch 后继续执行。修复：`trap_enter_valid`、`trap_return_valid`、taken control-flow redirect 时 `if_id_bus_r <= 0; id_exe_bus_r <= 0`，同时驱动 `icache_flush_req`。 |
+| 6 | RTL bug: GPR 同周期写穿透 | `cpu_regfile.sv` | WB 写回地址与同一周期读端口地址相同时，读返回旧值而非 WB 数据。修复：read 返回优先选择 WB 数据（write-through）。 |
+| 7 | RTL bug: icache flush 请求缺失 | `icache_ctrl.sv` | 流水线冲刷时未通知 icache 刷新缓存行，导致冲刷后 icache 返回旧指令。修复：添加 `flush_req` 端口 + active request latching + `req_changed` discard 逻辑。 |
+
+### 24.3 RTL Bug 详情：`csr_priv_violation` 未接入 `illegal_inst`
+
+**文件**：`dev/rtl/core/cpu_decode.sv`
+
+**问题**：
+- `dec_csr_access_ok` 逻辑（~L557-571）正确计算了当前特权级对 CSR 的访问权限
+- 但 `illegal_inst` 信号（L600）只检查了 `csr_addr_invalid`（未知 CSR 地址），未包含 `!dec_csr_access_ok`
+- 结果：S-mode 写 M-CSR（如 `mstatus`、`medeleg`）静默成功，不触发 illegal instruction trap。违反 RISC-V 特权规范 §2.1：访问不存在的 CSR 地址应报 illegal instruction，低特权级访问高特权级 CSR 同样应报。
+
+**修复前**：
+```systemverilog
+assign illegal_inst = id_valid && (!valid_inst || csr_addr_invalid || write_ro_csr || ...);
+//                                                         ^^^^^^^^^^^^^^^^
+//                                                         缺少权限检查
+```
+
+**修复后**（L575 + L600）：
+```systemverilog
+wire csr_priv_violation = is_csr && !dec_csr_access_ok;
+
+assign illegal_inst = id_valid && (!valid_inst || csr_addr_invalid || csr_priv_violation || write_ro_csr || ...);
+```
+
+**验证**：
+- `csr_access_priv.s` — 8/8 PASS ✅（修复前 0/8 FAIL，所有 S-mode 写 M-CSR 测试均静默通过而非触发 trap）
+- `delegation.s` — 8/8 PASS ✅（ecall 委托路径正确）
+
+### 24.4 修复详情：ra save/restore（jal 覆盖 x1）
+
+**文件**：`dev/program_source/lib/page_table_utils.s`
+
+**问题**：`setup_dual_map` 和 `setup_user_map` 中使用 `jal` 指令跳转到子函数执行页表操作。`jal rd, imm` 中 rd=x1 保存返回地址，但子函数内再次使用 `jal` 覆盖 x1，导致 mret/sret 返回后跳到错误页面 → PTW bus error → 硬错误（access fault）。
+
+示例：
+```assembly
+setup_dual_map:
+    jal     setup_level1_table      # ← jal 写入 x1 (ra)
+    ...
+    
+setup_level1_table:
+    li      t0, (SATP_MODE_SV32 | (L1_TABLE_ADDR >> PAGE_SHIFT))
+    jal     write_pte_loop          # ← 这里又用了 jal, x1 被覆盖！
+    jalr    zero, x1, 0            # ← 返回地址已丢失！
+```
+
+**修复方式**：所有子函数调用改用 `jalr x1, <reg>` 显式保存 ra，或使用非 x1 寄存器作为调用链的保存寄存器。
+
+最终代码结构：
+```assembly
+setup_level1_table:
+    la      x5, L1_TABLE_ADDR
+    la      x6, write_pte_loop_ret  # 构造返回地址
+    # fall through to write_pte_loop
+
+write_pte_loop:
+    ...  # 页表写入循环
+write_pte_loop_ret:
+    jalr    zero, x1, 0             # ← 此时 x1 指向 write_pte_loop_ret 的调用者，用 jalr 返回（不覆盖 x1）
+```
+
+核心原则：避免嵌套 `jal` 对 x1 的覆盖。要么用 `jalr` + 显式保存链，要么在调用链中传递 x1 值。
+
+### 24.5 修复详情：`m_hdl_ecall_s` 缺失 trap 记录
+
+**文件**：`dev/program_source/test/regression/delegation.s`
+
+**问题**：M-mode ecall handler `m_hdl_ecall_s` 在 ecall（`mcause=9`）时执行：
+```assembly
+m_hdl_ecall_s:
+    # 进入 S-mode
+    li t0, PRIV_S_MODE
+    ecall                           # 委托 ecall 到 S-mode
+    # 这里直接 mret！没有 wfi 陷停记录 trap PC/MCAUSE！
+```
+
+`ecall` 委托到 S-mode 后，S-mode handler 中 `sac.use` 检查发现 `MIE=0`（M-mode handler 屏蔽了中断）→ 判断为不可靠 trap → 跳转到错误路径 → crash。
+
+**修复后**：
+```assembly
+m_hdl_ecall_s:
+    csrw mepc, ra       # 保存返回地址到 MEPC
+    csrw mcause, zero   # 清楚 mcause（表示非异常进入）
+    wfi                 # 等待中断（陷停）
+```
+
+`ecall` 后 CPU 进入 S-mode，S-mode handler 处理完 ecall 后 sret → `mepc` → mret 返回 → 正常继续。
+
+### 24.6 U-mode dual mapping 架构
+
+**文件**：`dev/program_source/test/mmu/priv_transition.s`（重写）
+
+U-mode 执行环境架构：
+```
+物理内存:
++------------------+ 0x80000000
+| S-mode 代码/数据 |
+|  (kernel VA 域)  |
++------------------+ 0x80007000
+| 测试框架结果区   |
++------------------+ 0x80008000  ← 4KB 边界
+| U-mode 代码      |  (User VA 空间)
++------------------+ 0x80009000
+| 栈 (sp指针)      |
++------------------+ 0x8000A000
+| 页表 L1 表       |
++------------------+ 0x80010000
+| 页表 L0 表(内核) |
++------------------+ 0x80020000
+| 页表 L0 表(User) |
++------------------+ ...
+
+页表映射:
+satp → L1 表 at 0x8000A000 (1KB=256 entries)
+
+L1[0x300] → L0 内核表 at 0x80010000  (VA 0xC0000000-0xC03FFFFF → 物理 0x80000000-0x803FFFFF)
+L1[0x000] → L0 用户表 at 0x80020000  (VA 0x00000000-0x003FFFFF → 部分映射 0x80008xxx)
+```
+
+**映射规则**：
+| 空间 | VA 范围 | PTE | 物理地址 | 说明 |
+|------|---------|-----|---------|------|
+| User 代码 | 0x80008000-0x80008FFF | U=1,R=1,X=1 | 0x80008000 | identity 映射方便调试 |
+| Kernel 全部 | 0xC0000000-0xC03FFFFF | U=0,R=1,W=1,X=1 | 0x80000000-0x803FFFFF | 线性映射 4MB |
+| S-mode STVEC | 0xC0000098 | U=0,R=1,X=1 | 0x80000098 | trap vector in kernel VA |
+
+### 24.7 RTL Bug 详情：流水线冲刷缺失
+
+**文件**：`dev/rtl/core/core_top.sv`
+
+**问题**：trap entry（mret/sret）、trap return、taken branch/jal 等控制流跳转时，IF/ID 和 ID/EXE 流水线寄存器未清零。跳转目标指令到达前，旧指令仍在流水线中执行，导致：
+- trap handler 前一条旧指令被执行（可能触发二次 trap）
+- sret/mret 返回后执行了跳转前的下一条指令而非返回目标
+
+**修复**：在 `core_top.sv` 中，当 `trap_enter_valid`、`trap_return_valid` 或 taken control-flow redirect 有效时：
+```systemverilog
+if (trap_enter_valid || trap_return_valid || redirect_taken) begin
+    if_id_bus_r  <= '0;
+    id_exe_bus_r <= '0;
+end
+```
+同时驱动 `icache_flush_req` 信号通知 icache 作废当前缓存行。
+
+### 24.8 RTL Bug 详情：GPR 同周期写穿透
+
+**文件**：`dev/rtl/core/cpu_regfile.sv`
+
+**问题**：当 WB 阶段写回的寄存器地址与同一周期 ID 阶段读端口请求的地址相同时，读端口返回寄存器文件中的旧值（写入尚未完成），而非 WB 阶段正在写入的新值。这导致数据冒险（RAW hazard）在无前递（forwarding）路径时产生错误结果。
+
+**修复**：读端口优先返回 WB 数据：
+```systemverilog
+// Read port 0
+assign rd_data_0 = (wb_we && wb_addr == rd_addr_0) ? wb_wdata : regfile[rd_addr_0];
+// Read port 1
+assign rd_data_1 = (wb_we && wb_addr == rd_addr_1) ? wb_wdata : regfile[rd_addr_1];
+```
+
+### 24.9 RTL Bug 详情：icache flush 请求缺失
+
+**文件**：`dev/rtl/core/icache_ctrl.sv`
+
+**问题**：流水线冲刷时未通知 icache 刷新缓存行。冲刷后 icache 仍缓存跳转前的旧指令行，导致 fetch 阶段返回旧指令而非跳转目标处的新指令。
+
+**修复**：
+- 添加 `flush_req` 输入端口
+- Active request latching：收到 flush_req 后标记 flush pending，在下一个空闲周期执行 flush
+- `req_changed` discard 逻辑：flush 期间若新请求到达，丢弃旧请求避免返回过期数据
+
+### 24.10 验证结果
+
+**`csr_access_priv.s` — 8/8 PASS ✅**
+- 全部 8 个子测试验证 S-mode 对不同等级 CSR 的访问权限
+- RTL 修复前 0/8 FAIL（所有违规访问静默通过）
+- 修复后正确触发 illegal instruction trap
+
+**`delegation.s` — 8/8 PASS ✅**
+- ecall 从 U→S、M→S 的委托路径正确
+- M-mode handler 完整处理 4 种 trap 类型
+
+**`priv_transition.s` — 11/11 PASS ✅**
+- 全部 11 个子测试验证 M↔S↔U 特权级切换
+- U-mode 代码在 User VA (0x80008xxx) 正确执行
+- ecall 正确 trap 到 S-mode handler，sret 正确返回 U-mode
+- ra/s4/s5 在 M→S→U→S→M 全路径正确保存恢复
+- m_hdl_return_s 正确设置 MPP=S-mode 后 mret
+
+**回归验证 — 全 PASS ✅**
+- `isa_csr` PASS
+- `privilege_delegation` 8/8 PASS
+- `privilege_csr_access_priv` 8/8 PASS
+- `privilege_priv_transition` 11/11 PASS
+
+### 24.11 后续
+
+1. **FPGA 验证** — 在 Artix-7 上验证全部特权测试
+2. **process 文档更新** — 本节已完成

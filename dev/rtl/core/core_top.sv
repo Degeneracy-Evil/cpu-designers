@@ -579,9 +579,13 @@ module core_top(
             end
 
             if (trap_enter_valid) begin
+                if_id_bus_r <= 96'b0;
+                id_exe_bus_r <= 349'b0;
                 pc <= trap_csr_pc;
                 priv_mode <= target_priv;
             end else if (trap_return_valid) begin
+                if_id_bus_r <= 96'b0;
+                id_exe_bus_r <= 349'b0;
                 pc <= trap_csr_pc;
                 if (priv_mode == PRIV_M) begin
                     priv_mode <= mpp_field;
@@ -590,6 +594,8 @@ module core_top(
                 end
             end else if (exe_valid && exe_done) begin
                 if (exe_is_ctrl_flow && exe_branch_taken) begin
+                    if_id_bus_r <= 96'b0;
+                    id_exe_bus_r <= 349'b0;
                     pc <= exe_branch_target;
                 end else begin
                     pc <= exe_pc_plus4;
@@ -669,6 +675,7 @@ module core_top(
     wire        dcache_flush_done;
     wire        icache_invalidate_req;
     wire        icache_invalidate_done;
+    wire        icache_flush_req;
 
     // ── fence.i sequencing ──
     // Sequence: dcache flush (writeback+invalidate) → icache invalidate → done
@@ -728,6 +735,9 @@ module core_top(
                                    (sfence_vma_req && !sfence_dcache_flush_sent_r);
     assign icache_invalidate_req = (fencei_req && fencei_dcache_flush_sent_r && !fencei_icache_inv_sent_r) ||
                                    (sfence_vma_req && sfence_dcache_flush_sent_r && !sfence_icache_inv_sent_r);
+    assign icache_flush_req      = trap_enter_valid ||
+                                   trap_return_valid ||
+                                   (exe_valid && exe_done && exe_is_ctrl_flow && exe_branch_taken);
 
     assign fencei_done     = fencei_dcache_flush_sent_r && fencei_icache_inv_sent_r;
     assign sfence_vma_done = sfence_dcache_flush_sent_r && sfence_icache_inv_sent_r && sfence_tlb_flush_sent_r;
@@ -777,6 +787,7 @@ module core_top(
         .cpu_req_addr(mmu_inst_paddr),
         .cpu_req_vaddr(fetch_vaddr),
         .mmu_ready(mmu_inst_ready),
+        .flush_req(icache_flush_req),
         .cpu_req_data(instData_32_mux),
         .cpu_req_ready(inst_valid_mux),
 

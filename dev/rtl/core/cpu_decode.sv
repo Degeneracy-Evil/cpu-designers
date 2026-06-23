@@ -561,7 +561,7 @@ wire inst_amomaxu  = (opcode == OPCODE_AMO) && (funct3 == 3'b010) && (funct5 == 
   always_comb begin
       case (priv_mode)
           PRIV_U: dec_csr_access_ok_r = is_u_csr(csr_addr);  // U-mode: counter aliases only (mcounteren checked at execution)
-          PRIV_S: dec_csr_access_ok_r = ((is_s_csr(csr_addr) && (csr_addr != 12'h106 || !csr_is_write)) || is_u_csr(csr_addr));  // S-mode cannot write scounteren
+          PRIV_S: dec_csr_access_ok_r = is_s_csr(csr_addr) || is_u_csr(csr_addr);
           PRIV_M: dec_csr_access_ok_r = 1'b1;
           default: dec_csr_access_ok_r = 1'b0;
       endcase
@@ -569,6 +569,10 @@ wire inst_amomaxu  = (opcode == OPCODE_AMO) && (funct3 == 3'b010) && (funct5 == 
   assign dec_csr_access_ok = dec_csr_access_ok_r;
 
   wire csr_addr_invalid = is_csr && !dec_csr_addr_valid;
+  // BUG-FIX: CSR privilege violation — S-mode accessing M-mode CSRs or U-mode
+  // accessing S/M-mode CSRs must raise illegal instruction. dec_csr_access_ok
+  // was computed but never fed into illegal_inst, causing silent permission bypass.
+  wire csr_priv_violation = is_csr && !dec_csr_access_ok;
   wire csr_read_only = (csr_addr[11:10] == 2'b11);
   wire csr_is_write   = (csr_funct3 == 3'b001) ||
                         (csr_funct3 == 3'b010 && rs1 != 5'd0) ||
@@ -593,7 +597,7 @@ wire inst_amomaxu  = (opcode == OPCODE_AMO) && (funct3 == 3'b010) && (funct5 == 
   wire sfence_tvm_violation = is_sfence_vma && tvm_bit && (priv_mode == PRIV_S);
   wire satp_tvm_violation = is_csr && (csr_addr == CSR_SATP) && csr_is_write && tvm_bit && (priv_mode == PRIV_S);
 
-  assign illegal_inst = id_valid && (!valid_inst || csr_addr_invalid || write_ro_csr ||
+  assign illegal_inst = id_valid && (!valid_inst || csr_addr_invalid || csr_priv_violation || write_ro_csr ||
                                       sret_priv_violation || mret_priv_violation ||
                                       wfi_priv_violation || sret_tsr_violation ||
                                       sfence_tvm_violation || satp_tvm_violation);

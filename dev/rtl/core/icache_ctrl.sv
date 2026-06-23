@@ -9,6 +9,7 @@ module icache_ctrl(
     input  wire [31:0] cpu_req_addr,
     input  wire [31:0] cpu_req_vaddr,
     input  wire        mmu_ready,
+    input  wire        flush_req,
     output wire [31:0] cpu_req_data,
     output wire        cpu_req_ready,
 
@@ -71,10 +72,19 @@ module icache_ctrl(
     // The is_mmio signal is only consumed after mmu_ready is asserted (paddr valid).
     wire is_mmio = ~cpu_req_addr[31] | cpu_req_addr[30];
 
+    reg [31:0] active_req_addr_r;
+    reg [31:0] active_req_vaddr_r;
+
+    wire lookup_active = (state != S_IDLE);
+    wire [31:0] req_addr_sel  = lookup_active ? active_req_addr_r  : cpu_req_addr;
+    wire [31:0] req_vaddr_sel = lookup_active ? active_req_vaddr_r : cpu_req_vaddr;
+    wire req_changed = lookup_active && cpu_req_valid &&
+                       ((cpu_req_addr != active_req_addr_r) || (cpu_req_vaddr != active_req_vaddr_r));
+
     // VIPT: use vaddr for set index (bits within page offset), paddr for tag
-    wire [TAG_WIDTH-1:0]   req_tag  = cpu_req_addr[`ICACHE_TAG_HI:`ICACHE_TAG_LO];
-    wire [SET_IDX_W-1:0]   set_idx  = cpu_req_vaddr[`ICACHE_SET_IDX_HI:`ICACHE_SET_IDX_LO];
-    wire [SET_IDX_W-1:0]   word_off = cpu_req_vaddr[`ICACHE_WORD_OFF_HI:`ICACHE_WORD_OFF_LO];
+    wire [TAG_WIDTH-1:0]   req_tag  = req_addr_sel[`ICACHE_TAG_HI:`ICACHE_TAG_LO];
+    wire [SET_IDX_W-1:0]   set_idx  = req_vaddr_sel[`ICACHE_SET_IDX_HI:`ICACHE_SET_IDX_LO];
+    wire [SET_IDX_W-1:0]   word_off = req_vaddr_sel[`ICACHE_WORD_OFF_HI:`ICACHE_WORD_OFF_LO];
 
     reg [2:0] state;
 
@@ -254,6 +264,8 @@ module icache_ctrl(
             latched_set      <= {SET_IDX_W{1'b0}};
             refill_way       <= {WAY_W{1'b0}};
             latched_addr     <= 32'b0;
+            active_req_addr_r <= 32'b0;
+            active_req_vaddr_r <= 32'b0;
             bypass_data      <= 32'b0;
             cpu_req_ready_r  <= 1'b0;
             mmio_pending_r   <= 1'b0;
@@ -274,7 +286,13 @@ module icache_ctrl(
             if (mmio_accept)
                 mmio_pending_r <= 1'b0;
 
-            case (state)
+            if (flush_req && (state != S_INVALIDATE)) begin
+                state             <= S_IDLE;
+                refill_req_r      <= 1'b0;
+                mmio_pending_r    <= 1'b0;
+                active_req_addr_r <= 32'b0;
+                active_req_vaddr_r<= 32'b0;
+            end else case (state)
                 S_IDLE: begin
                     refill_req_r <= 1'b0;
                     if (invalidate_req) begin
@@ -295,6 +313,8 @@ module icache_ctrl(
                                     cpu_req_ready_r <= 1'b1;
                                 end
                             end else begin
+                                active_req_addr_r  <= cpu_req_addr;
+                                active_req_vaddr_r <= cpu_req_vaddr;
                                 // Enable tag BRAM Port A (addra=set_idx already wired)
                                 // Output will be valid next cycle in S_TAG_READ
                                 state <= S_TAG_READ;
@@ -313,9 +333,10 @@ module icache_ctrl(
                 end
 
                 S_TAG_READ: begin
-                    // Tag BRAM Port A output is now valid
-                    // Wait for MMU ready (paddr valid) before tag comparison
-                    if (!mmu_ready) begin
+                    if (req_changed) begin
+                        refill_req_r <= 1'b0;
+                        state <= S_IDLE;
+                    end else if (!mmu_ready) begin
                         // Stay in S_TAG_READ until paddr is valid
                     end else if (cache_hit) begin
                         // Data BRAM Port A enabled this cycle (bram_ena above)
@@ -323,7 +344,7 @@ module icache_ctrl(
                         state <= S_READ;
                     end else begin
                         latched_set  <= set_idx;
-                        latched_addr <= cpu_req_addr;
+                        latched_addr <= req_addr_sel;
                         refill_way   <= victim_way;
                         refill_req_r <= 1'b1;
                         refill_addr_r <= {1'b1, {ADDR_UPPER_ZEROS{1'b0}}, req_tag, set_idx, {ADDR_LOWER_ZEROS{1'b0}}};
@@ -332,16 +353,25 @@ module icache_ctrl(
                 end
 
                 S_READ: begin
-                    // Data BRAM Port A output is now valid
-                    bypass_data     <= sel_word;
-                    cpu_req_ready_r <= 1'b1;
-                    plru_state[set_idx] <= plru_next;
-                    state <= S_IDLE;
+                    if (req_changed) begin
+                        state <= S_IDLE;
+                    end else begin
+                        // Data BRAM Port A output is now valid
+                        bypass_data     <= sel_word;
+                        cpu_req_ready_r <= 1'b1;
+                        plru_state[set_idx] <= plru_next;
+                        state <= S_IDLE;
+                    end
                 end
 
                 S_REFILL: begin
-                    refill_req_r <= 1'b1;
-                    if (refill_valid) begin
+                    if (req_changed) begin
+                        refill_req_r <= 1'b0;
+                        state <= S_IDLE;
+                    end else begin
+                        refill_req_r <= 1'b1;
+                    end
+                    if (!req_changed && refill_valid) begin
                         refill_req_r    <= 1'b0;
                         bypass_data     <= sel_word;
                         cpu_req_ready_r <= 1'b1;

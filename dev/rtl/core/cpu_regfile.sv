@@ -40,8 +40,14 @@ module cpu_regfile(
         end
     end
 
-    assign rdata1 = (raddr1 == 5'd0) ? 32'b0 : rf[raddr1];
-    assign rdata2 = (raddr2 == 5'd0) ? 32'b0 : rf[raddr2];
+    // Provide same-cycle write-through so decode sees the architecturally
+    // newest GPR value when WB and register read target the same address.
+    assign rdata1 = (raddr1 == 5'd0) ? 32'b0 :
+                    (wen && (waddr == raddr1) && (waddr != 5'd0)) ? wdata :
+                    rf[raddr1];
+    assign rdata2 = (raddr2 == 5'd0) ? 32'b0 :
+                    (wen && (waddr == raddr2) && (waddr != 5'd0)) ? wdata :
+                    rf[raddr2];
     assign dbg_rdata  = (dbg_raddr  == 5'd0) ? 32'b0 : rf[dbg_raddr];
     assign dbg_rdata2 = (dbg_raddr2 == 5'd0) ? 32'b0 : rf[dbg_raddr2];
     assign dbg_rdata3 = (dbg_raddr3 == 5'd0) ? 32'b0 : rf[dbg_raddr3];

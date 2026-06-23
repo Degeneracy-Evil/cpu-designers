@@ -2101,7 +2101,34 @@ assign rd_data_1 = (wb_we && wb_addr == rd_addr_1) ? wb_wdata : regfile[rd_addr_
 - `privilege_csr_access_priv` 8/8 PASS
 - `privilege_priv_transition` 11/11 PASS
 
-### 24.11 后续
+### 24.11 MMIO+AXI4-Lite Handshake+dcache mmio_inflight_r guard fix
 
-1. **FPGA 验证** — 在 Artix-7 上验证全部特权测试
-2. **process 文档更新** — 本节已完成
+✅ Fix 1: icache_ctrl.sv — Stale MMIO Instruction Response
+Verdict: Correct and complete. Safe for FPGA.
+The fix implements a two-layer defense:
+Layer	Location	Mechanism
+1	icache_ctrl.sv L312	mmio_valid && mmio_inflight_r — response consumed only if in-flight request exists
+2	cpu_bus_bridge.sv L509	is_inst_r && icache_mmio_addr != addr_r — stale response discarded at bridge level
+Critical flush path (L293-299): flush_req clears both mmio_pending_r and mmio_inflight_r, so any stale mmio_valid arriving after flush is silently dropped (mmio_inflight_r=0 → gate fails).
+Trace through the testbench scenario:
+1. Fetch ADDR_OLD → mmio_pending=1, mmio_addr=OLD ✅
+2. Bridge accepts → mmio_pending=0, mmio_inflight=1 ✅
+3. Flush+redirect → mmio_pending=0, mmio_inflight=0 (both cleared) ✅
+4. Stale mmio_valid=1 → mmio_inflight=0 → dropped ✅
+5. New fetch ADDR_NEW → mmio_pending=1, mmio_addr=NEW ✅
+6. Bridge accepts → mmio_inflight=1 ✅
+7. New mmio_valid=1 → mmio_inflight=1 → consumed ✅
+Testbench (tb_regression_reg_icache_mmio_stale_resp.sv): 6/6 assertions correctly cover the full scenario. Direct unit test of icache_ctrl — no SoC wrapper needed. tasks.yaml entry correct (runtime: 2us, no blhex/phex).
+No declaration-order issues for xsim — all reg/wire declarations precede their use.
+✅ Fix 2: axi4lite_clint.sv — AXI4-Lite Handshake
+Verdict: Correct and complete. All 5 channels properly gated. Safe for FPGA.
+Channel	Handshake Gate	VALID independent of READY?	VALID sticky?
+AW	aw_fire = awready && awvalid	✅ awready comb from state	N/A (slave)
+W	w_fire = wready && wvalid	✅ wready comb from state	N/A (slave)
+B	bvalid && bready	✅ bvalid comb from state	✅ held until bready
+AR	arready && arvalid	✅ arready comb from state	N/A (slave)
+R	rvalid && rready	✅ rvalid comb from state	✅ held until rready
+AW/W ordering: Correctly handled with aw_latched/w_latched — AW and W can arrive in any order (AW-first, W-first, or same-cycle). wr_fire only triggers when both have completed.
+Timer logic: mtime free-running with 1-cycle pause on write ✅, mtimecmp reset to 0xFFFF_FFFF (no spurious MTIP) ✅, WSTRB masking correct ✅.
+Minor: wire rd_fire (L150) is dead code — computed but never used. No functional impact.
+dcache_ctrl.sv Missing mmio_inflight_r Guard

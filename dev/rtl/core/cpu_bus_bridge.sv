@@ -499,16 +499,16 @@ module cpu_bus_bridge(
                 S_MMIO_R: begin
                     arvalid <= 1'b0;  // AR channel done — clear valid
                     if (rvalid) begin
-                        // BUG-86 fix: After a branch redirect, the icache
-                        // changes icache_mmio_addr to the NEW PC while the
-                        // bus bridge is still completing an AXI read for the
-                        // OLD PC (addr_r).  If we propagate the stale
-                        // response, the icache returns wrong instruction
-                        // data and the CPU crashes.  Detect this by checking
-                        // addr_r != icache_mmio_addr for instruction reads.
-                        if (is_inst_r && icache_mmio_addr != addr_r) begin
-                            // Stale response — discard and restart with
-                            // the new address if the request is still active.
+                        // BUG-FIX: After a branch/trap redirect, the icache
+                        // may have already dropped the old request before a
+                        // replacement request is re-issued. In that window,
+                        // icache_mmio_req can be low and icache_mmio_addr may
+                        // still reflect the old address. Any late response for
+                        // addr_r must therefore be discarded unless the icache
+                        // still has an active request for that exact address.
+                        if (is_inst_r && (!icache_mmio_req || (icache_mmio_addr != addr_r))) begin
+                            // Stale response — discard and restart only if a
+                            // replacement instruction MMIO request is active.
                             if (icache_mmio_req) begin
                                 addr_r  <= icache_mmio_addr;
                                 state   <= S_MMIO_AR;

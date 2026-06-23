@@ -13,7 +13,8 @@ module debug_uart_tx(
     input  [39:0] display_name,  // 5 ASCII chars
     input  [31:0] display_value, // 32-bit value
     input         display_valid,
-    output reg    uart_tx
+    output reg    uart_tx,
+    output reg    scan_advance   // pulse: tell parent to advance display_number
 );
 
     // Baud rate: 230400, Clock: 100MHz
@@ -24,12 +25,13 @@ module debug_uart_tx(
     localparam LINE_LEN = 16;
 
     // State machine
-    localparam [1:0] S_IDLE   = 2'd0;
-    localparam [1:0] S_FORMAT = 2'd1;
-    localparam [1:0] S_SEND   = 2'd2;
-    localparam [1:0] S_DELAY  = 2'd3;
+    localparam [2:0] S_IDLE   = 3'd0;
+    localparam [2:0] S_FORMAT = 3'd1;
+    localparam [2:0] S_SEND   = 3'd2;
+    localparam [2:0] S_DELAY  = 3'd3;
+    localparam [2:0] S_ADV    = 3'd4;  // advance scan counter + wait for fresh data
 
-    reg [1:0]  state;
+    reg [2:0]  state;
     reg [4:0]  char_idx;       // 0..15
     reg [9:0]  baud_cnt;
     reg [3:0]  bit_idx;        // 0=start, 1-8=data, 9=stop, 10=done
@@ -59,12 +61,14 @@ module debug_uart_tx(
             shift_reg <= 8'd0;
             uart_tx   <= 1'b1;   // UART idle = high
             delay_cnt <= 24'd0;
+            scan_advance <= 1'b0;
         end else if (!enable) begin
             uart_tx   <= 1'b1;   // idle high when disabled
             state     <= S_IDLE;
             baud_cnt  <= 10'd0;
             bit_idx   <= 4'd0;
             char_idx  <= 5'd0;
+            scan_advance <= 1'b0;
         end else begin
             case (state)
                 // ── Wait for valid data, then format line ──
@@ -135,9 +139,49 @@ module debug_uart_tx(
                 // ── Inter-line delay (~16ms at 100MHz) ──
                 S_DELAY: begin
                     if (delay_cnt == 24'hFFFFFF) begin
-                        state <= S_IDLE;
+                        state        <= S_ADV;
+                        scan_advance <= 1'b1;  // pulse: advance to next entry
+                        delay_cnt    <= 24'd0;
                     end else begin
                         delay_cnt <= delay_cnt + 1;
+                    end
+                end
+
+                // ── Advance done, wait for fresh display_valid ──
+                S_ADV: begin
+                    // Phase 1: pulse scan_advance for 1 cycle
+                    // Phase 2: wait for display_valid to drop (old data clearing)
+                    // Phase 3: wait for display_valid to rise (new data ready)
+                    if (delay_cnt < 24'd20) begin
+                        // Brief settling period after scan_advance
+                        // (~20 cycles needed for CDC round-trip)
+                        scan_advance <= (delay_cnt == 24'd0) ? 1'b1 : 1'b0;
+                        delay_cnt    <= delay_cnt + 1;
+                    end else begin
+                        // Now wait for fresh display_valid
+                        if (display_valid && !label_is_blank) begin
+                            state <= S_FORMAT;
+                            // Latch line_buf here
+                            line_buf[0]  <= display_name[39:32];
+                            line_buf[1]  <= display_name[31:24];
+                            line_buf[2]  <= display_name[23:16];
+                            line_buf[3]  <= display_name[15:8];
+                            line_buf[4]  <= display_name[7:0];
+                            line_buf[5]  <= 8'h3D;  // '='
+                            line_buf[6]  <= hex2asc(display_value[31:28]);
+                            line_buf[7]  <= hex2asc(display_value[27:24]);
+                            line_buf[8]  <= hex2asc(display_value[23:20]);
+                            line_buf[9]  <= hex2asc(display_value[19:16]);
+                            line_buf[10] <= hex2asc(display_value[15:12]);
+                            line_buf[11] <= hex2asc(display_value[11:8]);
+                            line_buf[12] <= hex2asc(display_value[7:4]);
+                            line_buf[13] <= hex2asc(display_value[3:0]);
+                            line_buf[14] <= 8'h0D;  // \r
+                            line_buf[15] <= 8'h0A;  // \n
+                            char_idx <= 5'd0;
+                            baud_cnt <= 10'd0;
+                            bit_idx  <= 4'd0;
+                        end
                     end
                 end
 

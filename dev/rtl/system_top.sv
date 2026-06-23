@@ -1992,6 +1992,7 @@ module system_top(
     logic [31:0] display_value;
 
     // ── Debug UART TX: sw[5]=1 takes over UART TX pin ──
+    wire        dbg_scan_advance;
     debug_uart_tx u_debug_uart_tx(
         .clk            (sys_clk),
         .resetn         (sys_resetn),
@@ -1999,7 +2000,8 @@ module system_top(
         .display_name   (display_name),
         .display_value  (display_value),
         .display_valid  (display_valid),
-        .uart_tx        (debug_uart_tx_out)
+        .uart_tx        (debug_uart_tx_out),
+        .scan_advance   (dbg_scan_advance)
     );
 
     // UART TX mux: sw[5] selects debug UART vs CPU UART
@@ -2113,6 +2115,23 @@ module system_top(
 
     assign rf_addr = disp_num_cpu[4:0] - 5'd11;
 
+    // Debug UART self-managed scan counter: when sw[5]=1, this counter
+    // replaces display_number so the debug UART can step through entries
+    // at its own pace (one entry per ~16ms line transmission).
+    reg [5:0] dbg_scan_num_r;
+    wire [5:0] disp_scan_num = sw[5] ? dbg_scan_num_r : display_number;
+
+    always_ff @(posedge sys_clk or negedge sys_resetn) begin
+        if (!sys_resetn) begin
+            dbg_scan_num_r <= 6'd1;
+        end else if (dbg_scan_advance) begin
+            if (dbg_scan_num_r == 6'd46)
+                dbg_scan_num_r <= 6'd1;
+            else
+                dbg_scan_num_r <= dbg_scan_num_r + 6'd1;
+        end
+    end
+
     // Request/response snapshot path for CPU-domain debug display data.
     // sys_clk sends {page, number}; cpu_clk computes the selected value and
     // returns a stable snapshot bundle for the LCD controller.
@@ -2142,7 +2161,7 @@ module system_top(
             end
 
             if (!disp_req_busy_sys) begin
-                disp_req_ctrl_sys   <= {sw[7:6], display_number};
+                disp_req_ctrl_sys   <= {sw[7:6], disp_scan_num};
                 disp_req_toggle_sys <= ~disp_req_toggle_sys;
                 disp_req_busy_sys   <= 1'b1;
             end

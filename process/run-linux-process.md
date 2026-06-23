@@ -2132,3 +2132,43 @@ AW/W ordering: Correctly handled with aw_latched/w_latched — AW and W can arri
 Timer logic: mtime free-running with 1-cycle pause on write ✅, mtimecmp reset to 0xFFFF_FFFF (no spurious MTIP) ✅, WSTRB masking correct ✅.
 Minor: wire rd_fire (L150) is dead code — computed but never used. No functional impact.
 dcache_ctrl.sv Missing mmio_inflight_r Guard
+
+### 24.12 Vivado Elaboration Failure 修复（2026-06-24）
+
+3 个问题导致 Vivado 2018.3 仿真 elab 阶段失败：
+
+#### Fix 1: `set_property include_dirs` 顺序错误
+
+**问题**：`add_files -scan_for_includes` 在 `set_property include_dirs` 之前执行。扫描器解析 `axi4lite_clint.sv` 的 ``include "axi4_def.svh"` 时，`sys_rtl_dir`（dev/rtl/）不在 include path 中，因为 include_dirs 尚未设置。结果：`axi4_def.svh` 未被扫描器发现，prj 文件不完整，xvlog 编译失败。
+
+**修复**：将 `set_property include_dirs` 移到 `add_files -scan_for_includes` 之前。
+
+**文件**：`tools/vivado_core/tcl/_create.tcl`（Step 2→3 互换）、`tools/vivado_core/operations.py` `_tcl_create_project()`
+
+#### Fix 2: sources_1/sim_1 重复编译导致 `$unit_MMU_sv` overwrite
+
+**问题**：`_tcl_add_tb()` 将 RTL import 到 sim_1，但 sources_1 中仍有相同文件。xvlog `--incr` 编译两份拷贝时，sim_1 副本 overwrite sources_1 副本的 `$unit` package（如 `$unit_MMU_sv`），触发 re-analysis，静默丢弃 .sdb 文件，导致 xelab "Cannot find design unit"。
+
+**修复**：import 到 sim_1 后，从 sources_1 移除非 IP、非 Verilog Header 的 RTL 文件。IP 文件（/ip/）和 Header 文件保留在 sources_1（IP 不在 sim_1 中，Header 可能被 prj include path 引用）。
+
+**文件**：`tools/vivado_core/operations.py` `_tcl_add_tb()`
+
+#### Fix 3: `set_property file_type` 目标 fileset 错误
+
+**问题**：`[get_files axi4_def.svh]` 不带 `-of_objects [get_filesets sim_1]`，可能返回 sources_1 副本而非 sim_1 副本，导致 file_type 设置在错误的对象上。
+
+**修复**：所有 7 处 `set_property file_type` 改为 `[get_files -of_objects [get_filesets sim_1] <filename>]`。
+
+**文件**：`tools/vivado_core/operations.py` `_tcl_add_tb()`
+
+#### 验证结果
+
+| 测试 | 修复前 | 修复后 |
+|------|--------|--------|
+| `regression_icache_mmio_stale_resp` | 12/12 PASS（有 overwrite 警告） | **12/12 PASS** ✅（无 overwrite） |
+| `axi4lite_clint_unit` | ❌ elab 失败 "Cannot find design unit" | **elab 成功 + 3 PASS** ✅ |
+| `mmu_unit` | ❌ elab 失败 | **102/102 PASS** ✅ |
+
+#### 已知遗留（非本次修复引入）
+
+全系统测试（`privilege_delegation`、`isa_csr`）CPU 停留在 reset PC（`0xfc000000`），仅执行 1 次 BOOTROM 读取。此问题在原始代码中也存在（git stash 验证），是独立问题。

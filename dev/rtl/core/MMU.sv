@@ -97,7 +97,11 @@ module MMU #(
     // Per spec: writing satp must invalidate TLB entries for current ASID.
     // Detect satp change and combine with sfence_vma for TLB flush.
     reg [31:0] satp_prev;
-    wire satp_changed = (satp != satp_prev) && (priv_mode != PRIV_M);
+    // Any satp write must invalidate cached translations, even if the write
+    // happens while executing in M-mode before returning into translated S/U
+    // code. Gating this on current privilege can preserve stale TLB entries
+    // across real OpenSBI/Linux privilege transitions.
+    wire satp_changed = (satp != satp_prev);
     wire mmu_flush_req = sfence_vma || satp_changed;
 
     always_ff @(posedge clk or negedge resetn) begin

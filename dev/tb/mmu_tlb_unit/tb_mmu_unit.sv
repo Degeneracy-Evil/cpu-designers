@@ -1082,6 +1082,55 @@ module tb_mmu_unit;
         end
     endtask
 
+    // TC_MMU_035: satp write in M-mode must flush stale TLB entries
+    task tc_mmu_035;
+        integer walk_count;
+        begin
+            $display("--- TC_MMU_035: M-mode satp write flushes TLB ---");
+            clear_mem;
+
+            // Root 1 @ 0x1000 (PPN=0x1), L0 @ 0x2000 (PPN=0x2):
+            //   VA 0x0010_0000 -> PA 0x0000_3000 (PPN=0x3)
+            ptw_mem[18'h400] = mk_pte(22'h2, 1'b0,1'b0,1'b0,1'b0,1'b0,1'b0,1'b0,1'b1);
+            ptw_mem[18'h900] = mk_pte(22'h3, 1'b1,1'b1,1'b0,1'b0,1'b1,1'b1,1'b1,1'b1);
+
+            // Root 2 @ 0x3000 (PPN=0x3), L0 @ 0x4000 (PPN=0x4):
+            //   same VA 0x0010_0000 -> PA 0x0000_9000 (PPN=0x9)
+            ptw_mem[18'hC00]  = mk_pte(22'h4, 1'b0,1'b0,1'b0,1'b0,1'b0,1'b0,1'b0,1'b1);
+            ptw_mem[18'h1100] = mk_pte(22'h9, 1'b1,1'b1,1'b0,1'b0,1'b1,1'b1,1'b1,1'b1);
+
+            @(posedge clk); #1;
+            satp = 32'h80000001; priv_mode = 2'b01; mstatus_sum = 0; mstatus_mxr = 0;
+            i_vaddr = 32'h00100000; i_translate_en = 1; d_translate_en = 0;
+            wait_i_ready_or_fault(200);
+            check(i_ready === 1'b1, "TC_MMU_035: first translation succeeded");
+            check(i_paddr === 32'h00003000, "TC_MMU_035: first translation uses root1");
+
+            // Rewrite satp while still in M-mode, then return to S-mode. The
+            // next translation must not hit the old TLB entry from root1.
+            @(posedge clk); #1;
+            priv_mode = 2'b11;
+            satp = 32'h80000003;
+            @(posedge clk); #1;
+            priv_mode = 2'b01;
+
+            walk_count = 0;
+            begin : satp_m_walk_count
+                integer i;
+                for (i = 0; i < 40; i = i + 1) begin
+                    @(posedge clk); #1;
+                    if (ptw_bus_req) walk_count = walk_count + 1;
+                    if (i_ready || i_page_fault) i = 40;
+                end
+            end
+            $display("  [DBG] walk_count=%0d i_ready=%b i_paddr=0x%08h i_pf=%b",
+                     walk_count, i_ready, i_paddr, i_page_fault);
+            check(i_ready === 1'b1, "TC_MMU_035: translation succeeds after M-mode satp write");
+            check(i_paddr === 32'h00009000, "TC_MMU_035: second translation uses root2");
+            check(walk_count > 0, "TC_MMU_035: stale TLB entry was flushed and re-walked");
+        end
+    endtask
+
     // =====================
     // Main Test Sequence
     // =====================
@@ -1153,7 +1202,8 @@ module tb_mmu_unit;
         tc_mmu_031;    between_tests;
         tc_mmu_032;    between_tests;
         tc_mmu_033;    between_tests;
-        tc_mmu_034;
+        tc_mmu_034;    between_tests;
+        tc_mmu_035;
 
         // Report
         $display("\n========================================");

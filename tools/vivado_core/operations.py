@@ -140,10 +140,28 @@ create_project "{proj_name}" "{proj_dir}" -part "{device_part}" -force
 set_property target_language Verilog [current_project]
 set_property simulator_language Mixed [current_project]
 
+# --- set include dirs (BEFORE add_files -scan_for_includes) ---
+# Must set include_dirs before scanning so the scanner can resolve
+# cross-directory `include deps. E.g. dev/rtl/axi/axi4lite_clint.sv
+# includes "axi4_def.svh" from sys_rtl_dir (dev/rtl/).
+set_property include_dirs [list \\
+    "{alu_rtl_dir}" \\
+    "{mu_rtl_dir}" \\
+    "{fpu_rtl_dir}" \\
+    "{cpu_core_dir}" \\
+    "{common_dir}" \\
+    "{ahb_dir}" \\
+    "{ahb_ip_dir}" \\
+    "{amba_dir}" \\
+    "{ram_wrap_dir}" \\
+    "{apb_dir}" \\
+    "{apb_header_dir}" \\
+    "{apb_perips_dir}" \\
+    "{sys_rtl_dir}" \\
+    "{tb_dir}" \\
+] [current_fileset]
+
 # --- add RTL sources (scan_for_includes for auto dependency inference) ---
-# Using add_files -scan_for_includes (chiplab approach) instead of
-# per-file import_files, so Vivado auto-discovers `include deps
-# and update_compile_order can infer correct compile order.
 add_files -scan_for_includes "{alu_rtl_dir}"
 add_files -scan_for_includes "{mu_rtl_dir}"
 add_files -scan_for_includes "{fpu_rtl_dir}"
@@ -166,24 +184,6 @@ if {{ [file exists "{sys_rtl_dir}/debug_uart_tx.sv"] }} {{
     add_files -norecurse "{sys_rtl_dir}/debug_uart_tx.sv"
 }}
 update_compile_order -fileset sources_1
-
-# --- set include dirs ---
-set_property include_dirs [list \\
-    "{alu_rtl_dir}" \\
-    "{mu_rtl_dir}" \\
-    "{fpu_rtl_dir}" \\
-    "{cpu_core_dir}" \\
-    "{common_dir}" \\
-    "{ahb_dir}" \\
-    "{ahb_ip_dir}" \\
-    "{amba_dir}" \\
-    "{ram_wrap_dir}" \\
-    "{apb_dir}" \\
-    "{apb_header_dir}" \\
-    "{apb_perips_dir}" \\
-    "{sys_rtl_dir}" \\
-    "{tb_dir}" \\
-] [current_fileset]
 """
 
 
@@ -559,13 +559,13 @@ foreach f [glob -nocomplain -directory "{fpu_rtl_dir}" *.sv] {{ import_files -fi
 foreach f [glob -nocomplain -directory "{cpu_core_dir}" *.sv] {{ import_files -fileset sim_1 -norecurse $f }}
 foreach f [glob -nocomplain -directory "{cpu_core_dir}" *.svh] {{
     import_files -fileset sim_1 -norecurse $f
-    set_property file_type "Verilog Header" [get_files [file tail $f]]
+    set_property file_type "Verilog Header" [get_files -of_objects [get_filesets sim_1] [file tail $f]]
 }}
 foreach f [glob -nocomplain -directory "{common_dir}" *.sv] {{ import_files -fileset sim_1 -norecurse $f }}
 foreach f [glob -nocomplain -directory "{ahb_dir}" *.sv] {{ import_files -fileset sim_1 -norecurse $f }}
 foreach f [glob -nocomplain -directory "{ahb_dir}" *.svh] {{
     import_files -fileset sim_1 -norecurse $f
-    set_property file_type "Verilog Header" [get_files [file tail $f]]
+    set_property file_type "Verilog Header" [get_files -of_objects [get_filesets sim_1] [file tail $f]]
 }}
 foreach f [glob -nocomplain -directory "{amba_dir}" *.v] {{ import_files -fileset sim_1 -norecurse $f }}
 foreach f [glob -nocomplain -directory "{amba_dir}" *.sv] {{ import_files -fileset sim_1 -norecurse $f }}
@@ -573,29 +573,29 @@ foreach f [glob -nocomplain -directory "{ram_wrap_dir}" *.sv] {{ import_files -f
 foreach f [glob -nocomplain -directory "{apb_dir}" *.sv] {{ import_files -fileset sim_1 -norecurse $f }}
 foreach f [glob -nocomplain -directory "{apb_dir}" *.svh] {{
     import_files -fileset sim_1 -norecurse $f
-    set_property file_type "Verilog Header" [get_files [file tail $f]]
+    set_property file_type "Verilog Header" [get_files -of_objects [get_filesets sim_1] [file tail $f]]
 }}
 foreach f [glob -nocomplain -directory "{apb_perips_dir}" *.sv] {{ import_files -fileset sim_1 -norecurse $f }}
 foreach f [glob -nocomplain -directory "{apb_uart16550_dir}" *.sv] {{ import_files -fileset sim_1 -norecurse $f }}
 foreach f [glob -nocomplain -directory "{apb_uart16550_dir}" *.svh] {{
     import_files -fileset sim_1 -norecurse $f
-    set_property file_type "Verilog Header" [get_files [file tail $f]]
+    set_property file_type "Verilog Header" [get_files -of_objects [get_filesets sim_1] [file tail $f]]
 }}
 foreach f [glob -nocomplain -directory "{apb_header_dir}" *.svh] {{
     import_files -fileset sim_1 -norecurse $f
-    set_property file_type "Verilog Header" [get_files [file tail $f]]
+    set_property file_type "Verilog Header" [get_files -of_objects [get_filesets sim_1] [file tail $f]]
 }}
 if {{ [file exists "{cpu_core_dir}/cache_def.svh"] }} {{
     import_files -fileset sim_1 -norecurse "{cpu_core_dir}/cache_def.svh"
-    set_property file_type "Verilog Header" [get_files cache_def.svh]
+    set_property file_type "Verilog Header" [get_files -of_objects [get_filesets sim_1] cache_def.svh]
 }}
 if {{ [file exists "{sys_rtl_dir}/soc_config.vh"] }} {{
     import_files -fileset sim_1 -norecurse "{sys_rtl_dir}/soc_config.vh"
-    set_property file_type "Verilog Header" [get_files soc_config.vh]
+    set_property file_type "Verilog Header" [get_files -of_objects [get_filesets sim_1] soc_config.vh]
 }}
 if {{ [file exists "{sys_rtl_dir}/axi4_def.svh"] }} {{
     import_files -fileset sim_1 -norecurse "{sys_rtl_dir}/axi4_def.svh"
-    set_property file_type "Verilog Header" [get_files axi4_def.svh]
+    set_property file_type "Verilog Header" [get_files -of_objects [get_filesets sim_1] axi4_def.svh]
 }}
 import_files -fileset sim_1 -norecurse "{sys_rtl_dir}/system_top.sv"
 if {{ [file exists "{sys_rtl_dir}/clk_wiz_0_passthrough.sv"] }} {{
@@ -614,6 +614,30 @@ import_files -fileset sim_1 "{tb_path}"
 if {{ [file exists "{tb_dir}/lcd_module_stub.sv"] }} {{
     import_files -fileset sim_1 "{tb_dir}/lcd_module_stub.sv"
 }}
+
+# --- Remove sources_1 RTL duplicates (prevent $unit overwrite bug) ---
+# Vivado 2018.3: when the same RTL file exists in both sources_1 and
+# sim_1, xvlog --incr compiles both copies.  When the sim_1 copy
+# overwrites the sources_1 copy's $unit package (e.g. $unit_MMU_sv),
+# xvlog re-analyzes modules compiled between the two copies, silently
+# dropping .sdb files and causing xelab "Cannot find design unit".
+# Fix: remove sources_1 RTL files after importing into sim_1.
+# Keep IP files (/ip/) and Verilog Headers (needed by prj resolution).
+set src_all [get_files -of_objects [get_filesets sources_1] -quiet]
+set src_to_remove [list]
+foreach f $src_all {{
+    if {{ [string first "/ip/" $f] == -1 }} {{
+        set ftype [get_property file_type $f]
+        if {{ $ftype ne "Verilog Header" }} {{
+            lappend src_to_remove $f
+        }}
+    }}
+}}
+if {{ [llength $src_to_remove] > 0 }} {{
+    remove_files -fileset sources_1 -quiet $src_to_remove
+    puts "Removed [llength $src_to_remove] duplicate sources_1 RTL files (kept IP + headers)"
+}}
+update_compile_order -fileset sources_1
 
 update_compile_order -fileset sim_1
 

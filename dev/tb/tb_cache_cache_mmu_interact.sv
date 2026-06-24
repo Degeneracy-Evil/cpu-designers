@@ -3,7 +3,10 @@
 module tb_cache_cache_mmu_interact;
 
     localparam integer EXPECTED_TOTAL = 6;
-    localparam integer SIM_CYCLES    = 200000;
+    // PTW-through-dcache: PTW reads consume dcache bandwidth, can cause cache
+    // misses (refills ~20-30 cycles each), and PTW priority > CPU can stall
+    // normal loads/stores.  Doubled from 200k to 400k for headroom.
+    localparam integer SIM_CYCLES    = 400000;
 
 
     // Shared boilerplate: system_top, clock, reset, debug signals, check_reg, check_mem_word

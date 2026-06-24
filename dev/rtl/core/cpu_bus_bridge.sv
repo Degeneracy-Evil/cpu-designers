@@ -53,14 +53,6 @@ module cpu_bus_bridge(
     output        dcache_wb_done,
     output        dcache_wb_error,
 
-    input         ptw_req,
-    input  [31:0] ptw_addr,
-    input         ptw_we,
-    input  [31:0] ptw_wdata,
-    output [31:0] ptw_rdata,
-    output        ptw_done,
-    output        ptw_error,
-
     // ---------- AXI4 Master — AW Channel (Write Address) ----------
     output logic [3:0]  awid,
     output logic [31:0] awaddr,
@@ -138,12 +130,6 @@ module cpu_bus_bridge(
     localparam S_WB_AW         = 4'd9;
     localparam S_WB_W          = 4'd10;
     localparam S_WB_B          = 4'd11;
-    // PTW read
-    localparam S_PTW_AR        = 4'd12;
-    localparam S_PTW_R         = 4'd13;
-    // PTW write (single-beat)
-    localparam S_PTW_AW_W      = 4'd14;
-    localparam S_PTW_B         = 4'd15;
 
     reg [3:0] state;
 
@@ -185,10 +171,6 @@ module cpu_bus_bridge(
     reg [2:0]  wb_starve_cnt_r;
     reg        wb_boost_r;
 
-    reg [31:0] ptw_rdata_r;
-    reg        ptw_done_r;
-    reg        ptw_error_r;
-
     // ---------- Simultaneous AW+W handshake tracking ----------
     reg aw_hs_done_r;
     reg w_hs_done_r;
@@ -222,10 +204,6 @@ module cpu_bus_bridge(
     assign dcache_error        = dcache_error_r;
     assign dcache_error_is_store = dcache_error_is_store_r;
     assign bus_error_addr      = bus_error_addr_r;
-
-    assign ptw_rdata = ptw_rdata_r;
-    assign ptw_done  = ptw_done_r;
-    assign ptw_error = ptw_error_r;
 
     // =====================================================================
     // AXI4 default outputs — safe values when channels are idle
@@ -303,9 +281,6 @@ module cpu_bus_bridge(
             bus_error_addr_r       <= 32'b0;
             wb_starve_cnt_r        <= 3'd0;
             wb_boost_r             <= 1'b0;
-            ptw_rdata_r            <= 32'b0;
-            ptw_done_r             <= 1'b0;
-            ptw_error_r            <= 1'b0;
             aw_hs_done_r           <= 1'b0;
             w_hs_done_r            <= 1'b0;
             // AXI4 channel defaults
@@ -345,21 +320,19 @@ module cpu_bus_bridge(
             icache_error_r         <= 1'b0;
             dcache_error_r         <= 1'b0;
             dcache_error_is_store_r <= 1'b0;
-            ptw_done_r             <= 1'b0;
-            ptw_error_r            <= 1'b0;
             icache_mmio_accept_r   <= 1'b0;
             dcache_mmio_accept_r   <= 1'b0;
 
             if (state == S_IDLE) begin
                 if (dcache_wb_req) begin
-                    if ((icache_mmio_req || dcache_mmio_req || ptw_req) && !wb_boost_r) begin
+                    if ((icache_mmio_req || dcache_mmio_req) && !wb_boost_r) begin
                         if (wb_starve_cnt_r == 3'd3) begin
                             wb_boost_r      <= 1'b1;
                             wb_starve_cnt_r <= 3'd0;
                         end else begin
                             wb_starve_cnt_r <= wb_starve_cnt_r + 3'd1;
                         end
-                    end else if (!(icache_mmio_req || dcache_mmio_req || ptw_req)) begin
+                    end else if (!(icache_mmio_req || dcache_mmio_req)) begin
                         wb_starve_cnt_r <= 3'd0;
                     end
                 end else begin
@@ -371,7 +344,7 @@ module cpu_bus_bridge(
             case (state)
                 // =====================================================
                 // S_IDLE — Arbitrate among request sources
-                // Priority: icache_mmio > dcache_mmio > ptw > dcache_wb > icache_refill > dcache_refill
+                // Priority: icache_mmio > dcache_mmio > dcache_wb > icache_refill > dcache_refill
                 // =====================================================
                 S_IDLE: begin
                     awvalid <= 1'b0;
@@ -419,26 +392,6 @@ module cpu_bus_bridge(
                             size_r      <= dcache_mmio_hsize;
                             is_inst_r   <= 1'b0;
                             dcache_mmio_accept_r <= 1'b1;
-                        end
-                    end
-                    else if (ptw_req && !ptw_done_r) begin
-                        if (ptw_we) begin
-                            // PTW write → AW+W channels
-                            state         <= S_PTW_AW_W;
-                            addr_r        <= ptw_addr;
-                            write_r       <= 1'b1;
-                            size_r        <= `AXI_SIZE_4B;
-                            is_inst_r     <= 1'b0;
-                            latch_wdata_r <= ptw_wdata;
-                            aw_hs_done_r  <= 1'b0;
-                            w_hs_done_r   <= 1'b0;
-                        end else begin
-                            // PTW read → AR channel
-                            state       <= S_PTW_AR;
-                            addr_r      <= ptw_addr;
-                            write_r     <= 1'b0;
-                            size_r      <= `AXI_SIZE_4B;
-                            is_inst_r   <= 1'b0;
                         end
                     end
                     else if (dcache_wb_req && !dcache_wb_valid_r && !dcache_wb_wait_drop_r) begin
@@ -783,95 +736,6 @@ module cpu_bus_bridge(
                     end
                 end
 
-                // =====================================================
-                // PTW Read — AR phase
-                // =====================================================
-                S_PTW_AR: begin
-                    arvalid  <= 1'b1;
-                    araddr   <= addr_r;
-                    arlen    <= 8'h00;
-                    arsize   <= `AXI_SIZE_4B;
-                    arburst  <= `AXI_BURST_INCR;
-                    arlock   <= `AXI_LOCK_NORMAL;
-                    arcache  <= `AXI_CACHE_DEV_NONBUF;
-                    arprot   <= `AXI_PROT_DATA_PRIV_SECURE;
-
-                    if (arready) begin
-                        state   <= S_PTW_R;
-                    end
-                end
-
-                // =====================================================
-                // PTW Read — R phase
-                // =====================================================
-                S_PTW_R: begin
-                    arvalid <= 1'b0;  // AR channel done — clear valid
-                    if (rvalid) begin
-                        if (r_error) begin
-                            state       <= S_IDLE;
-                            ptw_rdata_r <= 32'b0;
-                            ptw_done_r  <= 1'b1;   // BUG-14 fix: set done on error so PTW advances
-                            ptw_error_r <= 1'b1;
-                        end else begin
-                            state       <= S_IDLE;
-                            ptw_rdata_r <= rdata;
-                            ptw_done_r  <= 1'b1;
-                            ptw_error_r <= 1'b0;
-                        end
-                    end
-                end
-
-                // =====================================================
-                // PTW Write — AW+W phase (simultaneous, single beat)
-                // =====================================================
-                S_PTW_AW_W: begin
-                    if (!aw_hs_done_r) begin
-                        awvalid  <= 1'b1;
-                        awaddr   <= addr_r;
-                        awlen    <= 8'h00;
-                        awsize   <= `AXI_SIZE_4B;
-                        awburst  <= `AXI_BURST_INCR;
-                        awlock   <= `AXI_LOCK_NORMAL;
-                        awcache  <= `AXI_CACHE_DEV_NONBUF;
-                        awprot   <= `AXI_PROT_DATA_PRIV_SECURE;
-                    end
-
-                    if (!w_hs_done_r) begin
-                        wvalid   <= 1'b1;
-                        wdata    <= latch_wdata_r;
-                        wstrb    <= 4'b1111;
-                        wlast    <= 1'b1;
-                    end
-
-                    if (awvalid && awready) aw_hs_done_r <= 1'b1;
-                    if (wvalid  && wready)  w_hs_done_r  <= 1'b1;
-
-                    if ((aw_hs_done_r || (awvalid && awready)) &&
-                        (w_hs_done_r  || (wvalid  && wready))) begin
-                        awvalid <= 1'b0;
-                        wvalid  <= 1'b0;
-                        state   <= S_PTW_B;
-                    end
-                end
-
-                // =====================================================
-                // PTW Write — B phase
-                // =====================================================
-                S_PTW_B: begin
-                    if (bvalid) begin
-                        if (b_error) begin
-                            state       <= S_IDLE;
-                            ptw_rdata_r <= 32'b0;
-                            ptw_done_r  <= 1'b1;   // BUG-14 fix: set done on error so PTW advances
-                            ptw_error_r <= 1'b1;
-                        end else begin
-                            state       <= S_IDLE;
-                            ptw_done_r  <= 1'b1;
-                            ptw_error_r <= 1'b0;
-                        end
-                    end
-                end
-
                 default: begin
                     state   <= S_IDLE;
                     awvalid <= 1'b0;
@@ -894,10 +758,8 @@ module cpu_bus_bridge(
             S_MMIO_R:     rready = 1'b1;
             S_IREFILL_R:  rready = 1'b1;
             S_DREFILL_R:  rready = 1'b1;
-            S_PTW_R:      rready = 1'b1;
             S_MMIO_B:     bready = 1'b1;
             S_WB_B:       bready = 1'b1;
-            S_PTW_B:      bready = 1'b1;
             default:      ;  // both 0
         endcase
     end

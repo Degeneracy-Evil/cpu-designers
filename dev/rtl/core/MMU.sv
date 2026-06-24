@@ -34,14 +34,16 @@ module MMU #(
     input              mstatus_sum,
     input              mstatus_mxr,
 
-    // ── single PTW bus ──
-    output             ptw_bus_req,
-    output      [31:0] ptw_bus_addr,
-    output             ptw_bus_we,
-    output      [31:0] ptw_bus_wdata,
-    input       [31:0] ptw_bus_rdata,
-    input              ptw_bus_done,
-    input              ptw_bus_error,
+    // ── single PTW cache interface ──
+    output             ptw_cache_req,
+    output      [31:0] ptw_cache_addr,
+    input              ptw_cache_ready,
+    input       [31:0] ptw_cache_rdata,
+    input              ptw_cache_fault,
+
+    // ── PMP check interface (pass-through to PTW) ──
+    input              pmp_grant,
+    input       [1:0]  pmp_fault_type,
 
     // ── flush ──
     input              sfence_vma,
@@ -706,13 +708,13 @@ module MMU #(
         .walk_d(ptw_fill_d),
         .walk_g(ptw_fill_g),
         .walk_is_megapage(ptw_fill_is_megapage),
-        .ptw_bus_req(ptw_bus_req),
-        .ptw_bus_addr(ptw_bus_addr),
-        .ptw_bus_we(ptw_bus_we),
-        .ptw_bus_wdata(ptw_bus_wdata),
-        .ptw_bus_rdata(ptw_bus_rdata),
-        .ptw_bus_done(ptw_bus_done),
-        .ptw_bus_error(ptw_bus_error)
+        .ptw_cache_req(ptw_cache_req),
+        .ptw_cache_addr(ptw_cache_addr),
+        .ptw_cache_ready(ptw_cache_ready),
+        .ptw_cache_rdata(ptw_cache_rdata),
+        .ptw_cache_fault(ptw_cache_fault),
+        .pmp_grant(pmp_grant),
+        .pmp_fault_type(pmp_fault_type)
     );
 
     assign dbg_i_walk_active  = (walk_state != W_IDLE);

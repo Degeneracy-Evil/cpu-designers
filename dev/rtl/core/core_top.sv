@@ -306,23 +306,16 @@ module core_top(
     wire        mmu_dbg_d_pf_from_ptw;
     wire        mmu_dbg_d_tlb_miss;
 
-    // Single PTW bus (unified MMU)
-    wire        ptw_bus_req;
-    wire [31:0] ptw_bus_addr;
-    wire        ptw_bus_we;
-    wire [31:0] ptw_bus_wdata;
-    wire [31:0] ptw_bus_rdata;
-    wire        ptw_bus_done;
-    wire        ptw_bus_error;
+    // PTW cache interface (unified MMU → dcache_ctrl)
+    wire        ptw_cache_req;
+    wire [31:0] ptw_cache_addr;
+    wire        ptw_cache_ready;
+    wire [31:0] ptw_cache_rdata;
+    wire        ptw_cache_fault;
 
-    // PTW A/D bit writeback → dcache line invalidation
-    // When PTW completes a write (ptw_bus_we && ptw_bus_done), the written
-    // PTE address may have a stale copy in dcache. Invalidate that line.
-    reg        ptw_ad_inv_pending_r;
-    reg [31:0] ptw_ad_inv_addr_r;
-    wire       ptw_ad_inv_req  = ptw_ad_inv_pending_r;
-    wire [31:0]ptw_ad_inv_addr = ptw_ad_inv_addr_r;
-    wire       ptw_ad_inv_done;
+    // PMP check interface for PTW (pass-through to MMU/PTW)
+    wire        ptw_pmp_grant;
+    wire [1:0]  ptw_pmp_fault_type;
 
     wire        mmu_sfence_done;
 
@@ -765,25 +758,9 @@ module core_top(
     end
     wire sfence_vma_to_mmu_pulse = sfence_vma_req && sfence_dcache_flush_sent_r && sfence_icache_inv_sent_r && !sfence_tlb_pulse_sent_r;
 
-    // PTW A/D bit writeback → dcache line invalidation
-    // When PTW completes a write to memory (setting A/D bits in a PTE),
-    // the dcache may contain a stale copy of that cache line.
-    // Latch the address and request invalidation; hold until dcache completes.
-    always_ff @(posedge clk or negedge resetn) begin
-        if (!resetn) begin
-            ptw_ad_inv_pending_r <= 1'b0;
-            ptw_ad_inv_addr_r   <= 32'b0;
-        end else begin
-            if (ptw_bus_we && ptw_bus_done && !ptw_ad_inv_pending_r) begin
-                // PTW write completed — request dcache line invalidation
-                ptw_ad_inv_pending_r <= 1'b1;
-                ptw_ad_inv_addr_r   <= ptw_bus_addr;
-            end else if (ptw_ad_inv_done) begin
-                // dcache completed the invalidation
-                ptw_ad_inv_pending_r <= 1'b0;
-            end
-        end
-    end
+    // PTW A/D bit writeback coherency removed — PTW no longer writes PTEs
+    // (A/D bits are handled by software page fault path). No dcache line
+    // invalidation is needed after PTW completes.
 
 
 
@@ -1163,10 +1140,14 @@ module core_top(
         .flush_req(dcache_flush_req),
         .flush_done(dcache_flush_done),
 
-        // Single-line invalidation for PTW A/D bit coherency
-        .inv_line_req(ptw_ad_inv_req),
-        .inv_line_addr(ptw_ad_inv_addr),
-        .inv_line_done(ptw_ad_inv_done),
+        // PTW request port (priority over CPU requests)
+        .ptw_req_valid(ptw_cache_req),
+        .ptw_req_addr(ptw_cache_addr),
+        .ptw_req_vaddr(ptw_cache_addr),  // VIPT: PTW uses physical address as vaddr (page tables in DDR3 where vaddr=paddr for set index)
+        .ptw_req_ready(ptw_cache_ready),
+        .ptw_req_rdata(ptw_cache_rdata),
+        .ptw_req_fault(ptw_cache_fault),
+
         .dbg_watch_lh_valid(dbg_dcache_lh_valid_w),
         .dbg_watch_lh_data(dbg_dcache_lh_data_w),
         .dbg_watch_lh_count(dbg_dcache_lh_count_w),
@@ -1416,14 +1397,15 @@ module core_top(
         .satp(csr_satp),
         .mstatus_sum(csr_mstatus[18]),
         .mstatus_mxr(csr_mstatus[19]),
-        // single PTW bus
-        .ptw_bus_req(ptw_bus_req),
-        .ptw_bus_addr(ptw_bus_addr),
-        .ptw_bus_we(ptw_bus_we),
-        .ptw_bus_wdata(ptw_bus_wdata),
-        .ptw_bus_rdata(ptw_bus_rdata),
-        .ptw_bus_done(ptw_bus_done),
-        .ptw_bus_error(ptw_bus_error),
+        // single PTW cache interface
+        .ptw_cache_req(ptw_cache_req),
+        .ptw_cache_addr(ptw_cache_addr),
+        .ptw_cache_ready(ptw_cache_ready),
+        .ptw_cache_rdata(ptw_cache_rdata),
+        .ptw_cache_fault(ptw_cache_fault),
+        // PMP check interface (pass-through to PTW)
+        .pmp_grant(ptw_pmp_grant),
+        .pmp_fault_type(ptw_pmp_fault_type),
         // flush
         .sfence_vma(sfence_vma_to_mmu_pulse),
         // sfence completion
@@ -1459,6 +1441,13 @@ module core_top(
     // M-mode has full access. Loads and instruction fetches are always allowed.
     assign pmp_data_violation = 1'b0; // DISABLED for testing
 
+    // PTW PMP check — placeholder: grant all accesses until PMP is fully implemented.
+    // TODO: Connect ptw_pmp_grant to actual PMP CSR check (csr_pmpcfg0-3, csr_pmpaddr0-15)
+    //       against ptw_cache_addr. PMP check should use S-mode privilege for read access.
+    //       If no PMP entries are configured (all zero), grant=1 (no PMP restriction).
+    assign ptw_pmp_grant     = 1'b1;  // Placeholder: always grant
+    assign ptw_pmp_fault_type = 2'b00; // Placeholder: no fault type
+
     cpu_bus_bridge u_bus_bridge(
         .clk              (clk),
         .resetn            (resetn),
@@ -1491,13 +1480,6 @@ module core_top(
         .dcache_wb_valid    (dcache_wb_valid),
         .dcache_wb_done     (dcache_wb_done),
         .dcache_wb_error    (dcache_wb_error),
-        .ptw_req           (ptw_bus_req),
-        .ptw_addr          (ptw_bus_addr),
-        .ptw_we            (ptw_bus_we),
-        .ptw_wdata         (ptw_bus_wdata),
-        .ptw_rdata         (ptw_bus_rdata),
-        .ptw_done          (ptw_bus_done),
-        .ptw_error         (ptw_bus_error),
         .awid              (awid),
         .awaddr            (awaddr),
         .awlen             (awlen),

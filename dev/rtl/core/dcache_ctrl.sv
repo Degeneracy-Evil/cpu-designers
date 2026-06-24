@@ -16,6 +16,14 @@ module dcache_ctrl(
     output wire [31:0] cpu_req_rdata,
     output wire        cpu_req_ready,
 
+    // PTW request port (priority over CPU requests)
+    input  wire        ptw_req_valid,
+    input  wire [31:0] ptw_req_addr,
+    input  wire [31:0] ptw_req_vaddr,
+    output wire        ptw_req_ready,
+    output wire [31:0] ptw_req_rdata,
+    output wire        ptw_req_fault,
+
     output wire        mmio_req,
     input  wire        mmio_accept,
     output wire [31:0] mmio_addr,
@@ -116,6 +124,12 @@ module dcache_ctrl(
     wire [SET_IDX_W-1:0]   set_idx  = cpu_req_vaddr[`DCACHE_SET_IDX_HI:`DCACHE_SET_IDX_LO];
     wire [SET_IDX_W-1:0]   word_off = cpu_req_vaddr[`DCACHE_WORD_OFF_HI:`DCACHE_WORD_OFF_LO];
 
+    // PTW address decomposition (VIPT: vaddr for set index, paddr for tag)
+    wire                  ptw_req_is_mmio = ~ptw_req_addr[31] | ptw_req_addr[30];
+    wire [TAG_WIDTH-1:0]  ptw_req_tag     = ptw_req_addr[`DCACHE_TAG_HI:`DCACHE_TAG_LO];
+    wire [SET_IDX_W-1:0]  ptw_set_idx     = ptw_req_vaddr[`DCACHE_SET_IDX_HI:`DCACHE_SET_IDX_LO];
+    wire [SET_IDX_W-1:0]  ptw_word_off    = ptw_req_vaddr[`DCACHE_WORD_OFF_HI:`DCACHE_WORD_OFF_LO];
+
     reg [3:0] state; // 状态机
 
     // --- PLRU state (kept as registers — too small for BRAM) ---
@@ -129,15 +143,18 @@ module dcache_ctrl(
     wire [TAG_BRAM_W-1:0] tag_bram_douta;
     wire [TAG_BRAM_W-1:0] tag_bram_doutb;
 
-    // Port A: CPU read / Flush scan read
+    // Port A: CPU read / PTW read / Flush scan read
     // BUG-FIX: Gate S_IDLE term with mmu_ready because is_mmio now depends on
     // physical address, which is only valid when mmu_ready=1.
-    wire tag_bram_ena = ((state == S_IDLE) && cpu_req_valid && !cpu_req_ready_r && mmu_ready && !is_mmio) ||
+    // PTW has priority over CPU; PTW addresses are always physical (no mmu_ready needed).
+    wire tag_bram_ena = ((state == S_IDLE) && ptw_req_valid && !ptw_req_ready_r && !ptw_req_is_mmio) ||
+                        ((state == S_IDLE) && !ptw_req_valid && cpu_req_valid && !cpu_req_ready_r && mmu_ready && !is_mmio) ||
                         (state == S_FLUSH_SCAN) ||
                         (state == S_INV_LINE) ||
                         (state == S_INV_LINE_WRITE);
     wire [SET_IDX_W-1:0] tag_bram_addra = (state == S_FLUSH_SCAN) ? flush_set :
-                                           (state == S_INV_LINE || state == S_INV_LINE_WRITE) ? inv_latched_set : set_idx;
+                                           (state == S_INV_LINE || state == S_INV_LINE_WRITE) ? inv_latched_set :
+                                           ((state == S_IDLE) && ptw_req_valid && !ptw_req_is_mmio) ? ptw_set_idx : set_idx;
 
     // Port B: Refill write / Dirty update / Invalidate write (registered)
     reg                          tag_bram_enb_r;
@@ -175,10 +192,10 @@ module dcache_ctrl(
     wire [TAG_ENTRY_W-1:0] tag_r3 = way3_raw[TAG_ENTRY_W-1:0];
 
     // Tag entry layout: [TAG_ENTRY_W-1]=V, [TAG_ENTRY_W-2]=D, [TAG_WIDTH-1:0]=tag
-    wire hit0 = tag_r0[TAG_ENTRY_W-1] && (tag_r0[TAG_WIDTH-1:0] == req_tag);
-    wire hit1 = tag_r1[TAG_ENTRY_W-1] && (tag_r1[TAG_WIDTH-1:0] == req_tag);
-    wire hit2 = tag_r2[TAG_ENTRY_W-1] && (tag_r2[TAG_WIDTH-1:0] == req_tag);
-    wire hit3 = tag_r3[TAG_ENTRY_W-1] && (tag_r3[TAG_WIDTH-1:0] == req_tag);
+    wire hit0 = tag_r0[TAG_ENTRY_W-1] && (tag_r0[TAG_WIDTH-1:0] == active_req_tag);
+    wire hit1 = tag_r1[TAG_ENTRY_W-1] && (tag_r1[TAG_WIDTH-1:0] == active_req_tag);
+    wire hit2 = tag_r2[TAG_ENTRY_W-1] && (tag_r2[TAG_WIDTH-1:0] == active_req_tag);
+    wire hit3 = tag_r3[TAG_ENTRY_W-1] && (tag_r3[TAG_WIDTH-1:0] == active_req_tag);
 
     wire cache_hit = hit0 | hit1 | hit2 | hit3;
 
@@ -200,10 +217,29 @@ module dcache_ctrl(
     wire inv_hit2 = tag_r2[TAG_ENTRY_W-1] && (tag_r2[TAG_WIDTH-1:0] == inv_latched_tag);
     wire inv_hit3 = tag_r3[TAG_ENTRY_W-1] && (tag_r3[TAG_WIDTH-1:0] == inv_latched_tag);
 
+    reg [SET_IDX_W-1:0]  latched_set;
+    reg [WAY_W-1:0]      latched_victim_way;
+    reg [31:0] latched_addr;
+    reg [31:0] latched_wdata;
+    reg        latched_hwrite;
+    reg [2:0]  latched_hsize;
+    reg [SET_IDX_W-1:0]  latched_word_off;
+    reg [TAG_WIDTH-1:0]  latched_tag;
+    reg [TAG_WIDTH-1:0]  latched_victim_tag;  // victim's tag for writeback addr
+    reg        is_ptw_req_r;             // 1 = current request is from PTW
+    reg [31:0] latched_ptw_addr;         // Latched PTW physical address
+    reg [31:0] latched_ptw_vaddr;        // Latched PTW virtual address (for VIPT set index)
+
+    // Active request signals (muxed between CPU and PTW based on is_ptw_req_r)
+    // Must be declared before tree_plru instantiation which uses active_set_idx
+    wire [TAG_WIDTH-1:0]   active_req_tag  = is_ptw_req_r ? latched_ptw_addr[`DCACHE_TAG_HI:`DCACHE_TAG_LO] : req_tag;
+    wire [SET_IDX_W-1:0]   active_set_idx  = is_ptw_req_r ? latched_ptw_vaddr[`DCACHE_SET_IDX_HI:`DCACHE_SET_IDX_LO] : set_idx;
+    wire [SET_IDX_W-1:0]   active_word_off = is_ptw_req_r ? latched_ptw_vaddr[`DCACHE_WORD_OFF_HI:`DCACHE_WORD_OFF_LO] : word_off;
+
     wire [WAY_W-1:0] plru_victim;
     wire [NUM_WAYS-2:0] plru_next;
     tree_plru u_plru(
-        .plru_state (plru_state[set_idx]),
+        .plru_state (plru_state[active_set_idx]),
         .victim_way (plru_victim),
         .access_way (hit_way),
         .next_state (plru_next)
@@ -231,16 +267,6 @@ module dcache_ctrl(
     assign tag_r_flush = flush_way == 2'd0 ? tag_r0 :
                          flush_way == 2'd1 ? tag_r1 :
                          flush_way == 2'd2 ? tag_r2 : tag_r3;
-
-    reg [SET_IDX_W-1:0]  latched_set;
-    reg [WAY_W-1:0]      latched_victim_way;
-    reg [31:0] latched_addr;
-    reg [31:0] latched_wdata;
-    reg        latched_hwrite;
-    reg [2:0]  latched_hsize;
-    reg [SET_IDX_W-1:0]  latched_word_off;
-    reg [TAG_WIDTH-1:0]  latched_tag;
-    reg [TAG_WIDTH-1:0]  latched_victim_tag;  // victim's tag for writeback addr
 
     reg [SET_IDX_W-1:0]  flush_set;
     reg [WAY_W-1:0]      flush_way;
@@ -270,7 +296,7 @@ module dcache_ctrl(
     // =========================================================================
     // Data BRAM (dcached) — 256-bit × 32 deep
     // =========================================================================
-    wire [BRAM_ADDR_W-1:0] bram_addra = {set_idx, hit_way};
+    wire [BRAM_ADDR_W-1:0] bram_addra = {active_set_idx, hit_way};
     wire [BRAM_ADDR_W-1:0] bram_addrb = (state == S_FLUSH_WB_RD || state == S_FLUSH_WB_SD) ?
                             {flush_set, flush_way} :
                             {latched_set, latched_victim_way};
@@ -299,13 +325,17 @@ module dcache_ctrl(
     wire [LINE_WIDTH-1:0] store_full_dina = ({224'b0, word_store_data}) << (word_off * 32);
 
     reg cpu_req_ready_r;
+    reg ptw_req_ready_r;
+    reg ptw_req_fault_r;
 
     // Store hit / Load hit detected in S_TAG_READ (after tag comparison)
     // MUST be gated by mmu_ready: the data BRAM Port A write is combinational,
     // so without this gate, a store_hit with stale paddr (mmu_ready=0) would
     // corrupt the data BRAM by writing to the wrong cache line.
-    wire is_store_hit = (state == S_TAG_READ) && cache_hit && cpu_req_hwrite && mmu_ready;
-    wire is_load_hit  = (state == S_TAG_READ) && cache_hit && !cpu_req_hwrite && mmu_ready;
+    // PTW is read-only: is_ptw_req_r gates off store_hit and provides load_hit
+    // without mmu_ready (PTW addresses are already physical).
+    wire is_store_hit = (state == S_TAG_READ) && cache_hit && !is_ptw_req_r && cpu_req_hwrite && mmu_ready;
+    wire is_load_hit  = (state == S_TAG_READ) && cache_hit && (is_ptw_req_r || (!cpu_req_hwrite && mmu_ready));
 
 
 
@@ -384,6 +414,14 @@ module dcache_ctrl(
     assign cpu_req_rdata = live_cpu_rdata;
 
     assign cpu_req_ready = cpu_req_ready_r;
+
+    // PTW response data (combinational — valid when ptw_req_ready is high)
+    wire [31:0] ptw_live_rdata = (state == S_READ_HIT) ? rdata_word :
+                                 (state == S_REFILL && refill_valid) ? refill_word :
+                                 32'b0;
+    assign ptw_req_ready  = ptw_req_ready_r;
+    assign ptw_req_rdata  = ptw_live_rdata;
+    assign ptw_req_fault  = ptw_req_fault_r;
 
     reg refill_req_r;
     reg [31:0] refill_addr_r;
@@ -467,6 +505,11 @@ module dcache_ctrl(
             latched_victim_tag <= {TAG_WIDTH{1'b0}};
             bypass_data      <= 32'b0;
             cpu_req_ready_r  <= 1'b0;
+            ptw_req_ready_r  <= 1'b0;
+            ptw_req_fault_r  <= 1'b0;
+            is_ptw_req_r     <= 1'b0;
+            latched_ptw_addr <= 32'b0;
+            latched_ptw_vaddr<= 32'b0;
             mmio_pending_r   <= 1'b0;
             mmio_inflight_r  <= 1'b0;
             mmio_addr_r      <= 32'b0;
@@ -504,6 +547,8 @@ module dcache_ctrl(
             end
         end else begin
             cpu_req_ready_r <= 1'b0;
+            ptw_req_ready_r <= 1'b0;
+            ptw_req_fault_r <= 1'b0;
             flush_done_r    <= 1'b0;
             inv_line_done_r <= 1'b0;
             tag_bram_enb_r  <= 1'b0;  // default: no tag BRAM write
@@ -533,7 +578,26 @@ module dcache_ctrl(
                         inv_latched_tag <= inv_line_addr[`DCACHE_TAG_HI:`DCACHE_TAG_LO];
                         state           <= S_INV_LINE;
 
+                    end else if (ptw_req_valid && !ptw_req_ready_r) begin
+                        // PTW request — priority over CPU
+                        // PTW reads PTEs through dcache instead of directly through bus.
+                        if (ptw_req_is_mmio) begin
+                            // PTW addresses should never be MMIO (page tables in DDR3).
+                            // Safety check: respond immediately with fault.
+                            ptw_req_ready_r  <= 1'b1;
+                            ptw_req_fault_r  <= 1'b1;
+                        end else begin
+                            // Cacheable PTW read — latch address, proceed to tag lookup
+                            is_ptw_req_r      <= 1'b1;
+                            latched_ptw_addr  <= ptw_req_addr;
+                            latched_ptw_vaddr <= ptw_req_vaddr;
+                            state <= S_TAG_READ;
+                        end
+
                     end else if (cpu_req_valid && !cpu_req_ready_r) begin
+                        // CPU request — PTW has priority, so we only reach here
+                        // when ptw_req_valid is deasserted.
+                        is_ptw_req_r <= 1'b0;
                         // BUG-FIX: Wait for mmu_ready before deciding MMIO vs cache,
                         // because is_mmio now depends on physical address (cpu_req_addr)
                         // which is only valid when mmu_ready=1.
@@ -569,42 +633,44 @@ module dcache_ctrl(
                 S_TAG_READ: begin
                     // Tag BRAM Port A output is now valid
                     // Wait for MMU ready (paddr valid) before tag comparison
-                    if (!mmu_ready) begin
-                        // Stay in S_TAG_READ until paddr is valid
+                    // For PTW requests, mmu_ready is not needed (address is already physical)
+                    if (!is_ptw_req_r && !mmu_ready) begin
+                        // Stay in S_TAG_READ until paddr is valid (CPU only)
                     end else if (cache_hit) begin
-                        if (cpu_req_hwrite) begin
+                        if (!is_ptw_req_r && cpu_req_hwrite) begin
                             // Store hit: write data BRAM + set dirty in tag BRAM
                             tag_bram_enb_r   <= 1'b1;
                             tag_bram_web_r   <= ((1 << TAG_BRAM_BPW) - 1) << (hit_way * TAG_BRAM_BPW);
-                            tag_bram_addrb_r <= set_idx;
+                            tag_bram_addrb_r <= active_set_idx;
                             tag_bram_dinb_r  <= store_hit_tag_din;
-                            plru_state[set_idx] <= plru_next;
+                            plru_state[active_set_idx] <= plru_next;
                             cpu_req_ready_r <= 1'b1;
                             state <= S_IDLE;  // must return to S_IDLE; tag BRAM output is stale for new request
                         end else begin
-                            // Load hit: enable data BRAM, go to S_READ_HIT
-                            hit_set_r      <= set_idx;
+                            // Load hit (CPU or PTW): enable data BRAM, go to S_READ_HIT
+                            hit_set_r      <= active_set_idx;
                             hit_way_r      <= hit_way;
-                            hit_word_off_r <= word_off;
-                            hit_watch_r    <= ({cpu_req_addr[31:5], 5'b0} == DBG_WATCH_LINE_ADDR);
+                            hit_word_off_r <= active_word_off;
+                            hit_watch_r    <= is_ptw_req_r ? ({latched_ptw_addr[31:5], 5'b0} == DBG_WATCH_LINE_ADDR) :
+                                                              ({cpu_req_addr[31:5], 5'b0} == DBG_WATCH_LINE_ADDR);
                             state <= S_READ_HIT;
                         end
                     end else begin
                         // Miss: latch victim info
-                        latched_set        <= set_idx;
+                        latched_set        <= active_set_idx;
                         latched_victim_way <= victim_way;
-                        latched_addr       <= cpu_req_addr;
+                        latched_addr       <= is_ptw_req_r ? latched_ptw_addr : cpu_req_addr;
                         latched_wdata      <= cpu_req_wdata;
-                        latched_hwrite     <= cpu_req_hwrite;
+                        latched_hwrite     <= is_ptw_req_r ? 1'b0 : cpu_req_hwrite;
                         latched_hsize      <= cpu_req_hsize;
-                        latched_word_off   <= word_off;
-                        latched_tag        <= req_tag;
+                        latched_word_off   <= active_word_off;
+                        latched_tag        <= active_req_tag;
                         latched_victim_tag <= tag_r_victim[TAG_WIDTH-1:0];
                         if (victim_dirty) begin
                             state <= S_WB_READ;
                         end else begin
                             refill_req_r  <= 1'b1;
-                            refill_addr_r <= {1'b1, {ADDR_UPPER_ZEROS{1'b0}}, req_tag, set_idx, {ADDR_LOWER_ZEROS{1'b0}}};
+                            refill_addr_r <= {1'b1, {ADDR_UPPER_ZEROS{1'b0}}, active_req_tag, active_set_idx, {ADDR_LOWER_ZEROS{1'b0}}};
                             state <= S_REFILL;
                         end
                     end
@@ -612,7 +678,12 @@ module dcache_ctrl(
 
                 S_READ_HIT: begin
                     bypass_data     <= rdata_word;
-                    cpu_req_ready_r <= 1'b1;
+                    if (is_ptw_req_r) begin
+                        ptw_req_ready_r <= 1'b1;
+                        is_ptw_req_r    <= 1'b0;
+                    end else begin
+                        cpu_req_ready_r <= 1'b1;
+                    end
                     plru_state[hit_set_r] <= plru_next_hit;
                     if (hit_watch_r) begin
                         dbg_watch_lh_valid_r <= 1'b1;
@@ -656,6 +727,11 @@ module dcache_ctrl(
                     if (refill_done) begin
                         refill_req_r <= 1'b0;
                         if (refill_error) begin
+                            if (is_ptw_req_r) begin
+                                ptw_req_ready_r <= 1'b1;
+                                ptw_req_fault_r <= 1'b1;
+                                is_ptw_req_r    <= 1'b0;
+                            end
                             state <= S_IDLE;
                         end else begin
                             if ({refill_addr_r[31:5], 5'b0} == DBG_WATCH_LINE_ADDR) begin
@@ -673,7 +749,12 @@ module dcache_ctrl(
                                 dbg_watch_rf_count_r <= dbg_watch_rf_count_r + 32'd1;
                             end
                             bypass_data     <= refill_word;
-                            cpu_req_ready_r <= 1'b1;
+                            if (is_ptw_req_r) begin
+                                ptw_req_ready_r <= 1'b1;
+                                is_ptw_req_r    <= 1'b0;
+                            end else begin
+                                cpu_req_ready_r <= 1'b1;
+                            end
                             // Write tag BRAM: set valid, dirty=latched_hwrite, tag
                             tag_bram_enb_r   <= 1'b1;
                             tag_bram_web_r   <= ((1 << TAG_BRAM_BPW) - 1) << (latched_victim_way * TAG_BRAM_BPW);

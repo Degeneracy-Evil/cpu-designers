@@ -262,6 +262,12 @@ tasks:
     phex: test/mmu/unified_mmu.hex
     runtime: 150ms
 
+  mmu_pmp_violation:
+    tb: tb_mmu_pmp_violation
+    blhex: boot/bootloader_phase1.hex
+    phex: test/mmu/pmp_violation.hex
+    runtime: 20ms
+
   # ── Cache 仿真 ──
 
   cache_icache_basic:

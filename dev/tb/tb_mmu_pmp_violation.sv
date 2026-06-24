@@ -1,9 +1,22 @@
 `timescale 1ns / 1ps
 
-module tb_mmu_ptw_walk;
+module tb_mmu_pmp_violation;
 
-    localparam integer EXPECTED_TOTAL = 4;
-    localparam integer SIM_CYCLES    = 300000;  // Increased for PTW-through-dcache latency headroom
+    // TODO: PMP is currently a PLACEHOLDER in core_top.sv.
+    // ptw_pmp_grant is hardwired to 1'b1 and ptw_pmp_fault_type
+    // is hardwired to 2'b00. This means PMP violations CANNOT
+    // actually occur in the current implementation. This test
+    // will FAIL until PMP is properly implemented.
+    //
+    // Once PMP is functional, this test verifies:
+    //   - When PMP denies read access to a PTE address during
+    //     a PTW walk, the PTW raises an ACCESS FAULT
+    //     (mcause=1/5/7), NOT a page fault (mcause=12/13/15).
+    //   - The fault cause matches the original access type:
+    //       FETCH → 1, LOAD → 5, STORE → 7
+
+    localparam integer EXPECTED_TOTAL = 3;
+    localparam integer SIM_CYCLES    = 200000;
 
 
     // Shared boilerplate: system_top, clock, reset, debug signals, check_reg, check_mem_word
@@ -18,17 +31,14 @@ module tb_mmu_ptw_walk;
         repeat (SIM_CYCLES) @(posedge clk);
 
         $display("");
-        $display("--- MMU ptw_walk Results ---");
+        $display("--- MMU pmp_violation Results ---");
 
         read_reg(5'd28, _val);
         $display("  x28 (pass_count)    = %0d", _val);
-
         read_reg(5'd29, _val);
         $display("  x29 (total_count)   = %0d", _val);
-
         read_reg(5'd30, _val);
         $display("  x30 (first_fail_id) = %0d", _val);
-
         $display("");
 
         read_reg(5'd28, _val);
@@ -51,7 +61,7 @@ module tb_mmu_ptw_walk;
 
         $display("");
         $display("========================================");
-        $display("MMU ptw_walk summary");
+        $display("MMU pmp_violation summary");
         $display("pass=%0d fail=%0d", pass_count, fail_count);
         if (fail_count == 0)
             $display("ALL TESTS PASSED");
@@ -63,4 +73,3 @@ module tb_mmu_ptw_walk;
 
 
 endmodule
-

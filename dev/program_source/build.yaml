@@ -91,6 +91,7 @@ categories:
       - mmu/permission
       - mmu/sv32_edge
       - mmu/unified_mmu
+      - mmu/pmp_violation
 
   cache:
     framework: common

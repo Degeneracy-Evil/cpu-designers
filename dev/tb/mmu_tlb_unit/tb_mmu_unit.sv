@@ -3,7 +3,7 @@
 // =========================================================================
 // MMU Unit Testbench
 // Instantiates MMU.sv (which contains TLB + PTW internally)
-// Provides a behavioral PTW bus BFM (memory array with 1-cycle response)
+// Provides a behavioral dcache BFM (memory array with 1-2 cycle response)
 // Tests P0 critical bugs: i-side walk, d-side walk, permission faults
 // =========================================================================
 module tb_mmu_unit;
@@ -43,14 +43,16 @@ module tb_mmu_unit;
     reg         mstatus_sum = 0;
     reg         mstatus_mxr = 0;
 
-    // PTW bus (BFM provides rdata/done/error)
-    wire        ptw_bus_req;
-    wire [31:0] ptw_bus_addr;
-    wire        ptw_bus_we;
-    wire [31:0] ptw_bus_wdata;
-    reg  [31:0] ptw_bus_rdata = 0;
-    reg         ptw_bus_done = 0;
-    reg         ptw_bus_error = 0;
+    // PTW cache interface (BFM provides ready/rdata/fault)
+    wire        ptw_cache_req;
+    wire [31:0] ptw_cache_addr;
+    reg         ptw_cache_ready = 0;
+    reg  [31:0] ptw_cache_rdata = 0;
+    reg         ptw_cache_fault = 0;
+
+    // PMP check (always grant in unit test)
+    wire        pmp_grant = 1'b1;
+    wire [1:0]  pmp_fault_type = 2'b00;
 
     reg         sfence_vma = 0;
 
@@ -86,10 +88,11 @@ module tb_mmu_unit;
         .priv_mode(priv_mode), .satp(satp),
         .mstatus_sum(mstatus_sum), .mstatus_mxr(mstatus_mxr),
 
-        .ptw_bus_req(ptw_bus_req), .ptw_bus_addr(ptw_bus_addr),
-        .ptw_bus_we(ptw_bus_we), .ptw_bus_wdata(ptw_bus_wdata),
-        .ptw_bus_rdata(ptw_bus_rdata), .ptw_bus_done(ptw_bus_done),
-        .ptw_bus_error(ptw_bus_error),
+        .ptw_cache_req(ptw_cache_req), .ptw_cache_addr(ptw_cache_addr),
+        .ptw_cache_ready(ptw_cache_ready), .ptw_cache_rdata(ptw_cache_rdata),
+        .ptw_cache_fault(ptw_cache_fault),
+
+        .pmp_grant(pmp_grant), .pmp_fault_type(pmp_fault_type),
 
         .sfence_vma(sfence_vma),
 
@@ -107,31 +110,38 @@ module tb_mmu_unit;
     );
 
     // =====================
-    // PTW Bus BFM
+    // PTW Cache BFM
     // =====================
     // Word-addressed memory: ptw_mem[addr[17:2]] (64K entries = 256KB)
-    // 1-cycle response latency: sees req at cycle N, done=1 at cycle N+1
+    // 1-2 cycle response latency: sees req at cycle N, ready=1 at cycle N+1 or N+2
     reg [31:0] ptw_mem [0:65535];
     integer mem_i;
 
-    // Error injection: set inject_bus_error to cause next bus response to error
+    // Error injection: set inject_bus_error to cause next cache response to fault
     reg inject_bus_error = 0;
 
+    // BFM state: tracks whether we've already responded to the current request
+    reg bfm_served = 0;
+
     always @(posedge clk) begin
-        ptw_bus_done  <= 1'b0;
-        ptw_bus_error <= 1'b0;
+        ptw_cache_ready <= 1'b0;
+        ptw_cache_fault <= 1'b0;
         if (!resetn) begin
-            ptw_bus_done  <= 1'b0;
-            ptw_bus_error <= 1'b0;
-        end else if (ptw_bus_req && !ptw_bus_done) begin
-            if (ptw_bus_we)
-                ptw_mem[ptw_bus_addr[17:2]] <= ptw_bus_wdata;
-            else
-                ptw_bus_rdata <= ptw_mem[ptw_bus_addr[17:2]];
-            ptw_bus_done <= 1'b1;
-            if (inject_bus_error)
-                ptw_bus_error <= 1'b1;
-            inject_bus_error <= 1'b0;
+            ptw_cache_ready <= 1'b0;
+            ptw_cache_fault <= 1'b0;
+            bfm_served      <= 1'b0;
+        end else if (ptw_cache_req && !bfm_served) begin
+            // New request: read from memory array and respond next cycle
+            ptw_cache_rdata <= ptw_mem[ptw_cache_addr[17:2]];
+            ptw_cache_ready <= 1'b1;
+            bfm_served      <= 1'b1;
+            if (inject_bus_error) begin
+                ptw_cache_fault <= 1'b1;
+                inject_bus_error <= 1'b0;
+            end
+        end else if (!ptw_cache_req) begin
+            // Request dropped — reset served flag for next request
+            bfm_served <= 1'b0;
         end
     end
 
@@ -498,7 +508,7 @@ module tb_mmu_unit;
             end
 
             // Immediately after sfence_done, check if TLB still has stale entry
-            // If i_ready asserts immediately (same cycle or next) without ptw_bus_req,
+            // If i_ready asserts immediately (same cycle or next) without ptw_cache_req,
             // the TLB wasn't flushed — bug confirmed
             @(posedge clk);
             #1;
@@ -510,11 +520,11 @@ module tb_mmu_unit;
                 for (i = 0; i < 10; i = i + 1) begin
                     @(posedge clk);
                     #1;
-                    if (ptw_bus_req) walk_count = walk_count + 1;
+                    if (ptw_cache_req) walk_count = walk_count + 1;
                 end
             end
 
-            $display("  [DBG] ptw_bus_req cycles after sfence_done: %0d", walk_count);
+            $display("  [DBG] ptw_cache_req cycles after sfence_done: %0d", walk_count);
             // If walk_count > 0, TLB was flushed (miss triggered walk) — correct behavior
             // If walk_count == 0 and i_ready==1, stale entry used — bug MMU-5 confirmed
             if (walk_count == 0) begin
@@ -557,7 +567,7 @@ module tb_mmu_unit;
                 @(posedge clk);
                 #1;
                 cnt = cnt + 1;
-                if (ptw_bus_req) begin
+                if (ptw_cache_req) begin
                     if (dbg_walk_state === 2'd1) d_walked = 1;  // W_D_WALK
                     if (dbg_walk_state === 2'd2) i_walked = 1;  // W_I_WALK
                 end
@@ -871,11 +881,11 @@ module tb_mmu_unit;
         end
     endtask
 
-    // TC_MMU_025: A/D bit update — leaf PTE with A=0, load should trigger A update
-    // PTW writes PTE|0x40 (sets A bit) then translation succeeds
+    // TC_MMU_025: A/D bit update — leaf PTE with A=0/D=0 now causes page fault
+    // (hardware A/D update removed; trap-to-software instead)
     task tc_mmu_025;
         begin
-            $display("--- TC_MMU_025: A/D bit update (A=0 → PTW sets A=1) ---");
+            $display("--- TC_MMU_025: A/D bit A=0/D=0 → page fault (trap to software) ---");
             setup_l1_pointer(10'h000, 22'h2);
             set_l0_leaf(22'h2, 10'h100, 22'h3, 1'b0,1'b0,1'b0,1'b0,1'b1,1'b1,1'b1); // A=0, D=0
             @(posedge clk); #1;
@@ -884,11 +894,9 @@ module tb_mmu_unit;
             d_vaddr = 32'h00100000; d_access_type = 2'b01; d_translate_en = 1;
             wait_d_ready_or_fault(300);
             $display("  [DBG] d_ready=%b d_paddr=0x%08h d_pf=%b cause=%0d", d_ready, d_paddr, d_page_fault, d_pf_cause);
-            check(d_ready === 1'b1, "TC_MMU_025: d_ready after A/D update");
-            check(d_paddr === 32'h00003000, "TC_MMU_025: d_paddr=0x3000");
-            check(d_page_fault === 1'b0, "TC_MMU_025: no fault");
-            // Verify PTE in memory now has A=1 (bit 6)
-            check(ptw_mem[(22'h2 << 10) + 10'h100][6] === 1'b1, "TC_MMU_025: A bit set in memory");
+            check(d_page_fault === 1'b1, "TC_MMU_025: d_page_fault on A=0/D=0 (trap to sw)");
+            check(d_pf_cause === 4'd13, "TC_MMU_025: cause=13 (load page fault)");
+            check(d_ready === 1'b0, "TC_MMU_025: d_ready=0 on page fault");
         end
     endtask
 
@@ -908,19 +916,19 @@ module tb_mmu_unit;
         end
     endtask
 
-    // TC_MMU_027: Bus error during walk → access fault
+    // TC_MMU_027: Cache fault during walk → access fault
     task tc_mmu_027;
         begin
-            $display("--- TC_MMU_027: Bus error during walk (access fault) ---");
+            $display("--- TC_MMU_027: Cache fault during walk (access fault) ---");
             setup_perm_page_table;
             @(posedge clk); #1;
             satp = 32'h80000001; priv_mode = 2'b01; mstatus_sum = 0; mstatus_mxr = 0;
             i_vaddr = 32'h00100000; i_translate_en = 1; d_translate_en = 0;
-            inject_bus_error = 1;  // next bus response errors
+            inject_bus_error = 1;  // next cache response faults
             wait_i_ready_or_fault(200);
             $display("  [DBG] i_ready=%b i_pf=%b cause=%0d", i_ready, i_page_fault, i_pf_cause);
-            check(i_page_fault === 1'b1, "TC_MMU_027: i_page_fault on bus error");
-            // Bus error → access fault, cause=1 (instruction access fault)
+            check(i_page_fault === 1'b1, "TC_MMU_027: i_page_fault on cache fault");
+            // Cache fault → access fault, cause=1 (instruction access fault)
             check(i_pf_cause === 4'd1, "TC_MMU_027: cause=1 (instr access fault)");
         end
     endtask
@@ -966,7 +974,7 @@ module tb_mmu_unit;
                 integer i;
                 for (i = 0; i < 20; i = i + 1) begin
                     @(posedge clk); #1;
-                    if (ptw_bus_req) walk_count = walk_count + 1;
+                    if (ptw_cache_req) walk_count = walk_count + 1;
                     if (i_ready) i = 20; // break
                 end
             end
@@ -1119,7 +1127,7 @@ module tb_mmu_unit;
                 integer i;
                 for (i = 0; i < 40; i = i + 1) begin
                     @(posedge clk); #1;
-                    if (ptw_bus_req) walk_count = walk_count + 1;
+                    if (ptw_cache_req) walk_count = walk_count + 1;
                     if (i_ready || i_page_fault) i = 40;
                 end
             end

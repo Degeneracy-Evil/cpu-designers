@@ -72,6 +72,9 @@ module icache_ctrl(
     // The is_mmio signal is only consumed after mmu_ready is asserted (paddr valid).
     wire is_mmio = ~cpu_req_addr[31] | cpu_req_addr[30];
 
+    reg [2:0] state;
+    reg cpu_req_ready_r;
+
     reg [31:0] active_req_addr_r;
     reg [31:0] active_req_vaddr_r;
 
@@ -85,8 +88,6 @@ module icache_ctrl(
     wire [TAG_WIDTH-1:0]   req_tag  = req_addr_sel[`ICACHE_TAG_HI:`ICACHE_TAG_LO];
     wire [SET_IDX_W-1:0]   set_idx  = req_vaddr_sel[`ICACHE_SET_IDX_HI:`ICACHE_SET_IDX_LO];
     wire [SET_IDX_W-1:0]   word_off = req_vaddr_sel[`ICACHE_WORD_OFF_HI:`ICACHE_WORD_OFF_LO];
-
-    reg [2:0] state;
 
     // --- PLRU state (kept as registers — too small for BRAM) ---
     reg [NUM_WAYS-2:0] plru_state [0:NUM_SETS-1];
@@ -185,7 +186,6 @@ module icache_ctrl(
     wire [LINE_WIDTH-1:0] bram_douta;
     wire [LINE_WIDTH-1:0] bram_doutb;
 
-    reg cpu_req_ready_r;
     reg  invalidate_done_r;
 
     // Data BRAM Port A: enable in S_TAG_READ on hit (hit_way now known)
@@ -211,6 +211,7 @@ module icache_ctrl(
 
     reg [31:0] bypass_data;
     reg        mmio_pending_r;
+    reg        mmio_inflight_r;
     reg [31:0] mmio_addr_r;
 
     // BUG-86 fix is in the bus bridge (cpu_bus_bridge.sv): when a stale
@@ -233,7 +234,7 @@ module icache_ctrl(
     assign refill_req  = refill_req_r;
     assign refill_addr = refill_addr_r;
 
-    assign mmio_req  = mmio_pending_r;
+    assign mmio_req  = mmio_pending_r | mmio_inflight_r;
     assign mmio_addr = mmio_addr_r;
 
     assign cpu_req_ready = cpu_req_ready_r;
@@ -269,6 +270,7 @@ module icache_ctrl(
             bypass_data      <= 32'b0;
             cpu_req_ready_r  <= 1'b0;
             mmio_pending_r   <= 1'b0;
+            mmio_inflight_r  <= 1'b0;
             mmio_addr_r      <= 32'b0;
             invalidate_done_r <= 1'b0;
             invalidate_set   <= {SET_IDX_W{1'b0}};
@@ -283,13 +285,16 @@ module icache_ctrl(
             cpu_req_ready_r  <= 1'b0;
             invalidate_done_r <= 1'b0;
             tag_bram_enb_r   <= 1'b0;  // default: no tag BRAM write
-            if (mmio_accept)
+            if (mmio_accept) begin
                 mmio_pending_r <= 1'b0;
+                mmio_inflight_r <= 1'b1;
+            end
 
             if (flush_req && (state != S_INVALIDATE)) begin
                 state             <= S_IDLE;
                 refill_req_r      <= 1'b0;
                 mmio_pending_r    <= 1'b0;
+                mmio_inflight_r   <= 1'b0;
                 active_req_addr_r <= 32'b0;
                 active_req_vaddr_r<= 32'b0;
             end else case (state)
@@ -304,13 +309,13 @@ module icache_ctrl(
                         // which is only valid when mmu_ready=1.
                         if (mmu_ready) begin
                             if (is_mmio) begin
-                                if (!mmio_pending_r) begin
-                                    mmio_pending_r <= 1'b1;
-                                    mmio_addr_r    <= cpu_req_addr;
-                                end
-                                if (mmio_valid) begin
+                                if (mmio_valid && mmio_inflight_r) begin
                                     bypass_data     <= mmio_data;
                                     cpu_req_ready_r <= 1'b1;
+                                    mmio_inflight_r <= 1'b0;
+                                end else if (!mmio_pending_r && !mmio_inflight_r) begin
+                                    mmio_pending_r <= 1'b1;
+                                    mmio_addr_r    <= cpu_req_addr;
                                 end
                             end else begin
                                 active_req_addr_r  <= cpu_req_addr;
@@ -321,13 +326,10 @@ module icache_ctrl(
                             end
                         end else begin
                             // mmu_ready not yet — wait for physical address.
-                            // Handle any already-pending MMIO response from a
-                            // previous request (shouldn't normally happen, but
-                            // defensive coding avoids deadlocking the handshake).
-                            if (mmio_valid) begin
-                                bypass_data     <= mmio_data;
-                                cpu_req_ready_r <= 1'b1;
-                            end
+                            // Ignore MMIO responses until the translated
+                            // physical address is resolved for the current
+                            // fetch. This prevents stale uncached instruction
+                            // data from being consumed under the wrong PC.
                         end
                     end
                 end

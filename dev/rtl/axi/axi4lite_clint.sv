@@ -58,8 +58,8 @@ module axi4lite_clint(
     reg        aw_latched;
     reg        w_latched;
 
-    wire aw_fire = s_axi_awready && s_axi_awvalid;
-    wire w_fire  = s_axi_wready  && s_axi_wvalid;
+    wire aw_fire = (wr_state == WR_IDLE) && !aw_latched && s_axi_awvalid;
+    wire w_fire  = (wr_state == WR_IDLE) && !w_latched  && s_axi_wvalid;
     wire wr_fire = (wr_state == WR_IDLE) && ((aw_latched || aw_fire) && (w_latched || w_fire));
 
     wire [31:0] wr_addr_eff  = aw_latched ? wr_addr  : s_axi_awaddr;
@@ -98,7 +98,7 @@ module axi4lite_clint(
                     end
                 end
                 WR_RESP: begin
-                    if (s_axi_bvalid && s_axi_bready) begin
+                    if (s_axi_bready) begin
                         wr_state <= WR_IDLE;
                     end
                 end
@@ -131,13 +131,13 @@ module axi4lite_clint(
         end else begin
             case (rd_state)
                 RD_IDLE: begin
-                    if (s_axi_arready && s_axi_arvalid) begin
+                    if (s_axi_arvalid) begin
                         rd_addr  <= s_axi_araddr;
                         rd_state <= RD_RESP;
                     end
                 end
                 RD_RESP: begin
-                    if (s_axi_rvalid && s_axi_rready) begin
+                    if (s_axi_rready) begin
                         rd_state <= RD_IDLE;
                     end
                 end
@@ -147,7 +147,7 @@ module axi4lite_clint(
     end
 
     // Read fires when AR channel handshake completes
-    wire rd_fire = s_axi_arready && s_axi_arvalid;
+    wire rd_fire = (rd_state == RD_IDLE) && s_axi_arvalid;
 
     // R channel
     assign s_axi_rvalid = (rd_state == RD_RESP);

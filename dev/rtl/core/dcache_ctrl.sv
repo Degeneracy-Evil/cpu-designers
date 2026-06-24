@@ -539,7 +539,7 @@ module dcache_ctrl(
                         // which is only valid when mmu_ready=1.
                         if (mmu_ready) begin
                             if (is_mmio) begin
-                                if (mmio_valid && mmio_inflight_r) begin
+                                if (mmio_valid) begin
                                     bypass_data     <= mmio_rdata;
                                     cpu_req_ready_r <= 1'b1;
                                     mmio_inflight_r <= 1'b0;
@@ -556,10 +556,12 @@ module dcache_ctrl(
                             end
                         end else begin
                             // mmu_ready not yet — wait for physical address.
-                            // Ignore MMIO responses until the translated
-                            // physical address is resolved for the current
-                            // access. This prevents stale MMIO data from
-                            // being consumed under the wrong request.
+                            // Handle any already-pending MMIO response defensively.
+                            if (mmio_valid) begin
+                                bypass_data     <= mmio_rdata;
+                                cpu_req_ready_r <= 1'b1;
+                                mmio_inflight_r <= 1'b0;
+                            end
                         end
                     end
                 end

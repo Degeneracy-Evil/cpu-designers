@@ -51,36 +51,7 @@ set_property simulator_language Mixed [current_project]
 puts "工程已创建: $proj_dir (拷贝策略)"
 
 # ---------------------------------------------------------------------------
-# Step 2: 设置头文件搜索路径 (BEFORE add_files -scan_for_includes)
-#
-# 必须在 add_files -scan_for_includes 之前设置 include_dirs，
-# 否则扫描器在解析 `include 依赖时找不到跨目录的头文件。
-# 例如: dev/rtl/axi/axi4lite_clint.sv 的 `include "axi4_def.svh"
-#       需要 sys_rtl_dir (dev/rtl/) 在 include path 中才能被扫描器发现。
-# ---------------------------------------------------------------------------
-puts "========== Step 2: 设置 include 目录 =========="
-
-set_property include_dirs [list \
-    $alu_rtl_dir \
-    $mu_rtl_dir \
-    $fpu_rtl_dir \
-    $cpu_core_dir \
-    $common_dir \
-    $ahb_dir \
-    $ahb_ip_dir \
-    $amba_dir \
-    $ram_wrap_dir \
-    $apb_dir \
-    $apb_header_dir \
-    $apb_perips_dir \
-    $sys_rtl_dir \
-    $tb_dir \
-] [current_fileset]
-
-puts "Include 目录已设置 (14 个目录)"
-
-# ---------------------------------------------------------------------------
-# Step 3: 添加 RTL 源文件 (add_files -scan_for_includes)
+# Step 2: 添加 RTL 源文件 (add_files -scan_for_includes)
 #
 # 使用 add_files -scan_for_includes 代替逐文件 import_files:
 #   -scan_for_includes 让 Vivado 自动扫描 `include 依赖
@@ -90,7 +61,7 @@ puts "Include 目录已设置 (14 个目录)"
 # 注意: sys_rtl_dir (dev/rtl/) 的顶层文件需单独添加，
 #       因为 add_files -scan_for_includes 会递归包含 _archived/ 等不需要的子目录
 # ---------------------------------------------------------------------------
-puts "========== Step 3: 添加 RTL 源文件 =========="
+puts "========== Step 2: 添加 RTL 源文件 =========="
 
 # ALU
 if { [catch {add_files -scan_for_includes $alu_rtl_dir} err] } {
@@ -163,3 +134,27 @@ if { [file exists "${sys_rtl_dir}/debug_uart_tx.sv"] } {
 update_compile_order -fileset sources_1
 
 puts "RTL 源文件添加完成"
+
+# ---------------------------------------------------------------------------
+# Step 3: 设置头文件搜索路径
+# ---------------------------------------------------------------------------
+puts "========== Step 3: 设置 include 目录 =========="
+
+set_property include_dirs [list \
+    $alu_rtl_dir \
+    $mu_rtl_dir \
+    $fpu_rtl_dir \
+    $cpu_core_dir \
+    $common_dir \
+    $ahb_dir \
+    $ahb_ip_dir \
+    $amba_dir \
+    $ram_wrap_dir \
+    $apb_dir \
+    $apb_header_dir \
+    $apb_perips_dir \
+    $sys_rtl_dir \
+    $tb_dir \
+] [current_fileset]
+
+puts "Include 目录已设置 (14 个目录)"

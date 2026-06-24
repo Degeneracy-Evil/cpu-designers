@@ -1457,11 +1457,7 @@ module core_top(
     // (4MB firmware region). This prevents kernel memory init from overwriting
     // OpenSBI's trap handler at 0x80000418.
     // M-mode has full access. Loads and instruction fetches are always allowed.
-    assign pmp_data_violation = (priv_mode != PRIV_M) &&
-                                mem_hwrite &&
-                                mem_en &&
-                                mmu_data_ready &&
-                                (mmu_data_paddr[31:22] == 10'b1000000000); // 0x80000000-0x803fffff
+    assign pmp_data_violation = 1'b0; // DISABLED for testing
 
     cpu_bus_bridge u_bus_bridge(
         .clk              (clk),

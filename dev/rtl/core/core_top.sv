@@ -428,6 +428,14 @@ module core_top(
     wire [31:0] csr_satp;
     wire [31:0] csr_mcounteren;
     wire [31:0] csr_scounteren;
+    // PMP CSR wires
+    wire [31:0] csr_pmpcfg0, csr_pmpcfg1, csr_pmpcfg2, csr_pmpcfg3;
+    wire [31:0] csr_pmpaddr0,  csr_pmpaddr1,  csr_pmpaddr2,  csr_pmpaddr3;
+    wire [31:0] csr_pmpaddr4,  csr_pmpaddr5,  csr_pmpaddr6,  csr_pmpaddr7;
+    wire [31:0] csr_pmpaddr8,  csr_pmpaddr9,  csr_pmpaddr10, csr_pmpaddr11;
+    wire [31:0] csr_pmpaddr12, csr_pmpaddr13, csr_pmpaddr14, csr_pmpaddr15;
+    // PMP violation flags
+    wire pmp_data_violation;
     // Debug: CSR access permission from trap_csr (used internally; not consumed at core_top)
     wire csr_access_ok;
 
@@ -1303,7 +1311,8 @@ module core_top(
                            (mmu_data_page_fault && (mmu_data_pf_cause == 4'd5))),
         .load_access_fault_addr(bridge_dcache_error ? bridge_bus_error_addr : mmu_data_pf_vaddr),
         .store_access_fault((bridge_dcache_error && bridge_dcache_error_is_store) ||
-                            (mmu_data_page_fault && (mmu_data_pf_cause == 4'd7))),
+                            (mmu_data_page_fault && (mmu_data_pf_cause == 4'd7)) ||
+                            pmp_data_violation),
         .store_access_fault_addr(bridge_dcache_error ? bridge_bus_error_addr : mmu_data_pf_vaddr),
         .mem_access_fault_pc(exe_pc),
         .inst_page_fault(mmu_inst_page_fault && (mmu_inst_pf_cause == 4'd12)),
@@ -1351,26 +1360,26 @@ module core_top(
         .csr_access_ok    (csr_access_ok),
         .csr_fflags       (),
         .csr_frm          (csr_frm),
-        .csr_pmpcfg0      (),
-        .csr_pmpcfg1      (),
-        .csr_pmpcfg2      (),
-        .csr_pmpcfg3      (),
-        .csr_pmpaddr0     (),
-        .csr_pmpaddr1     (),
-        .csr_pmpaddr2     (),
-        .csr_pmpaddr3     (),
-        .csr_pmpaddr4     (),
-        .csr_pmpaddr5     (),
-        .csr_pmpaddr6     (),
-        .csr_pmpaddr7     (),
-        .csr_pmpaddr8     (),
-        .csr_pmpaddr9     (),
-        .csr_pmpaddr10    (),
-        .csr_pmpaddr11    (),
-        .csr_pmpaddr12    (),
-        .csr_pmpaddr13    (),
-        .csr_pmpaddr14    (),
-        .csr_pmpaddr15    (),
+        .csr_pmpcfg0      (csr_pmpcfg0),
+        .csr_pmpcfg1      (csr_pmpcfg1),
+        .csr_pmpcfg2      (csr_pmpcfg2),
+        .csr_pmpcfg3      (csr_pmpcfg3),
+        .csr_pmpaddr0     (csr_pmpaddr0),
+        .csr_pmpaddr1     (csr_pmpaddr1),
+        .csr_pmpaddr2     (csr_pmpaddr2),
+        .csr_pmpaddr3     (csr_pmpaddr3),
+        .csr_pmpaddr4     (csr_pmpaddr4),
+        .csr_pmpaddr5     (csr_pmpaddr5),
+        .csr_pmpaddr6     (csr_pmpaddr6),
+        .csr_pmpaddr7     (csr_pmpaddr7),
+        .csr_pmpaddr8     (csr_pmpaddr8),
+        .csr_pmpaddr9     (csr_pmpaddr9),
+        .csr_pmpaddr10    (csr_pmpaddr10),
+        .csr_pmpaddr11    (csr_pmpaddr11),
+        .csr_pmpaddr12    (csr_pmpaddr12),
+        .csr_pmpaddr13    (csr_pmpaddr13),
+        .csr_pmpaddr14    (csr_pmpaddr14),
+        .csr_pmpaddr15    (csr_pmpaddr15),
         .fflags_wdata     (wb_fflags),
         .fflags_wen       (wb_valid && (wb_fflags != 5'b0)),
         // Extended debug outputs
@@ -1440,6 +1449,19 @@ module core_top(
         .dbg_d_pf_from_ptw(mmu_dbg_d_pf_from_ptw),
         .dbg_d_tlb_miss(mmu_dbg_d_tlb_miss)
     );
+
+    // ===================================================================
+    // Firmware Region Protection — block S/U-mode writes to OpenSBI code
+    // ===================================================================
+    // Simple hardcoded check: deny S/U-mode stores to 0x80000000-0x803fffff
+    // (4MB firmware region). This prevents kernel memory init from overwriting
+    // OpenSBI's trap handler at 0x80000418.
+    // M-mode has full access. Loads and instruction fetches are always allowed.
+    assign pmp_data_violation = (priv_mode != PRIV_M) &&
+                                mem_hwrite &&
+                                mem_en &&
+                                mmu_data_ready &&
+                                (mmu_data_paddr[31:22] == 10'b1000000000); // 0x80000000-0x803fffff
 
     cpu_bus_bridge u_bus_bridge(
         .clk              (clk),

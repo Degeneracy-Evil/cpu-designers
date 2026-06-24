@@ -623,3 +623,17 @@ tasks:
       DDR3_BYPASS_CLK_WIZ: 1
     phex: app/ddr3_test.hex
     runtime: 100ms
+
+  # ── Linux Kernel Boot 仿真 (DDR3) ──
+  # Loads OpenSBI+kernel payload into DDR3 via AXI4 force writes,
+  # then releases CPU to boot. Trap delegation debug enabled.
+  # Expected wall-clock time: 2-8 hours depending on crash point.
+  kernel_boot_ddr3:
+    tb: tb_kernel_boot
+    blhex: boot/bootloader_phase1.hex
+    phex: firmware/fw_payload.hex
+    runtime: 300s
+    verilog_defines:
+      LINUX_BOOT: "TRUE"
+      DEBUG_TRAP_DELEG: 1
+      DEBUG_UART_TX: 1

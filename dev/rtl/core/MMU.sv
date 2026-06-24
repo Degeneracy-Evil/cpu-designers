@@ -629,7 +629,14 @@ module MMU #(
                         // Go to W_IDLE. If pending_i_walk/pending_d_walk,
                         // W_IDLE will restart PTW on the next cycle.
                         walk_state <= W_IDLE;
-                        // pending flags preserved for W_IDLE to process
+                        // BUG-FIX: Capture i_walk_req that arrives in the same
+                        // cycle as ptw_walk_done. Without this, the i-walk
+                        // request is lost because ptw_walk_done has higher
+                        // priority in the if-else chain, and i_state transitions
+                        // to I_WALK_PENDING on the next cycle (making
+                        // i_walk_req=0). This causes a permanent deadlock.
+                        if (i_walk_req && !pending_i_walk)
+                            pending_i_walk <= 1'b1;
                     end else if (i_walk_req && !pending_i_walk) begin
                         // i-side miss arrived while d-walk in progress — queue it
                         pending_i_walk <= 1'b1;
@@ -643,6 +650,10 @@ module MMU #(
                         pending_d_walk <= 1'b0;
                     end else if (ptw_walk_done || ptw_walk_fault) begin
                         walk_state <= W_IDLE;
+                        // BUG-FIX: Same race as W_D_WALK — capture d_walk_req
+                        // that arrives simultaneously with ptw_walk_done.
+                        if (d_walk_req && !pending_d_walk)
+                            pending_d_walk <= 1'b1;
                     end else if (d_walk_req && !pending_d_walk) begin
                         // d-side miss arrived while i-walk in progress — queue it
                         pending_d_walk <= 1'b1;

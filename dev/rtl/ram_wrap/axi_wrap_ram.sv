@@ -88,10 +88,10 @@ module axi_wrap_ram(
 // ===========================================================================
 // BRAM memory array
 // ===========================================================================
-// MEM_DEPTH = 33554432 => 128MB / 4bytes = 32M words
-// Address bits [26:2] index into BRAM (25-bit index for 32M entries)
-localparam MEM_DEPTH = 33554432;
-// 128MB SRAM model for simulation, matches DTS memory size.
+// MEM_DEPTH = 4194304 => 16MB / 4bytes = 4M words
+// Address bits [23:2] index into BRAM (22-bit index for 4M entries)
+localparam MEM_DEPTH = 4194304;
+// 16MB SRAM model for simulation.
 // For FPGA, DDR3 MIG is used instead (axi_wrap_ddr).
 
 reg [31:0] BRAM [0:MEM_DEPTH-1];
@@ -150,7 +150,7 @@ reg [7:0]  r_len;        // total burst length (arlen)
 reg [2:0]  r_size;       // burst size
 reg [1:0]  r_burst;      // burst type
 reg [3:0]  r_id;         // transaction ID
-reg [24:0] r_word_addr;  // word-aligned address for BRAM indexing
+reg [21:0] r_word_addr;  // word-aligned address for BRAM indexing
 reg [1 :0] r_resp;
 
 // Computed next address for INCR burst
@@ -169,7 +169,7 @@ always @(posedge aclk or negedge aresetn) begin
         r_size      <= 3'd0;
         r_burst     <= 2'd0;
         r_id        <= 4'd0;
-        r_word_addr <= 25'd0;
+        r_word_addr <= 22'd0;
         r_resp      <= 2'b00;
 
     end else begin
@@ -184,7 +184,7 @@ always @(posedge aclk or negedge aresetn) begin
                     r_size  <= axi_arsize;
                     r_burst <= axi_arburst;
                     r_id    <= axi_arid;
-                    r_word_addr <= remapped_araddr[26:2];  // word index
+                    r_word_addr <= remapped_araddr[23:2];  // word index
 `ifdef SIMULATION
                     if (sim_inject_rresp_pending && (remapped_araddr == sim_inject_rresp_addr)) begin
                         r_resp <= sim_inject_rresp_code;
@@ -212,7 +212,7 @@ always @(posedge aclk or negedge aresetn) begin
                         r_count <= r_count - 8'd1;
                         if (r_burst == 2'b01) begin  // INCR
                             r_addr      <= r_next_addr;
-                            r_word_addr <= r_next_addr[26:2];
+                            r_word_addr <= r_next_addr[23:2];
                         end
                         // FIXED burst: address stays the same
                         // WRAP burst: not supported in this model, treat as INCR
@@ -319,10 +319,10 @@ always @(posedge aclk or negedge aresetn) begin
                 if (axi_wvalid) begin
                     if (!w_drop_write) begin
                         // Injected write errors model a failed memory commit in simulation.
-                        if (axi_wstrb[3]) BRAM[w_addr[26:2]][31:24] <= axi_wdata[31:24];
-                        if (axi_wstrb[2]) BRAM[w_addr[26:2]][23:16] <= axi_wdata[23:16];
-                        if (axi_wstrb[1]) BRAM[w_addr[26:2]][15:8]  <= axi_wdata[15:8];
-                        if (axi_wstrb[0]) BRAM[w_addr[26:2]][7:0]   <= axi_wdata[7:0];
+                        if (axi_wstrb[3]) BRAM[w_addr[23:2]][31:24] <= axi_wdata[31:24];
+                        if (axi_wstrb[2]) BRAM[w_addr[23:2]][23:16] <= axi_wdata[23:16];
+                        if (axi_wstrb[1]) BRAM[w_addr[23:2]][15:8]  <= axi_wdata[15:8];
+                        if (axi_wstrb[0]) BRAM[w_addr[23:2]][7:0]   <= axi_wdata[7:0];
                     end
 
                     if (w_count == 8'd0) begin

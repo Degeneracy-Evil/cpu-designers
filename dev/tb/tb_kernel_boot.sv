@@ -222,6 +222,110 @@ module tb_kernel_boot;
     end
 
     // ========================================================================
+    // Stall watchdog: detect when CPU is stuck (if_done==0 for too long)
+    // Prints comprehensive debug state and $finish to diagnose deadlocks
+    // ========================================================================
+    integer stall_cnt;
+    reg [31:0] stall_pc_r;
+    initial begin
+        stall_cnt = 0;
+        stall_pc_r = 32'b0;
+        forever begin
+            @(posedge clk);
+            if (resetn) begin
+                if (!u_soc.cpu.if_done) begin
+                    // CPU stalled — IF stage not completing
+                    if (if_pc == stall_pc_r) begin
+                        stall_cnt = stall_cnt + 1;
+                    end else begin
+                        stall_cnt = 0;
+                        stall_pc_r <= if_pc;
+                    end
+
+                    // After 10000 cycles of stall at same PC, dump state
+                    if (stall_cnt == 10000) begin
+                        $display("");
+                        $display("========================================");
+                        $display("[STALL-WATCHDOG] %0t: CPU stalled at PC=0x%08h for 10000 cycles!", $time, if_pc);
+                        $display("========================================");
+
+                        // CPU core state
+                        $display("[STALL] if_pc=0x%08h if_inst=0x%08h if_done=%0b priv=%0d",
+                                 if_pc, if_inst, u_soc.cpu.if_done, u_soc.cpu.priv_mode);
+                        $display("[STALL] satp=0x%08h mstatus=0x%08h",
+                                 u_soc.cpu.csr_satp, u_soc.cpu.csr_mstatus);
+                        $display("[STALL] mepc=0x%08h mcause=0x%08h",
+                                 u_soc.cpu.csr_mepc, u_soc.cpu.csr_mcause);
+                        $display("[STALL] sepc=0x%08h scause=0x%08h stval=0x%08h",
+                                 u_soc.cpu.csr_sepc, u_soc.cpu.csr_scause, u_soc.cpu.csr_stval);
+
+                        // MMU state
+                        $display("[STALL] MMU: i_state=%0d d_state=%0d walk_state=%0d",
+                                 u_soc.cpu.mmu_dbg_i_state,
+                                 u_soc.cpu.mmu_dbg_d_state,
+                                 u_soc.cpu.mmu_dbg_walk_state);
+                        $display("[STALL] MMU: i_tlb_hit=%0b i_tlb_valid=%0b i_sv32=%0b",
+                                 u_soc.cpu.mmu_dbg_i_tlb_hit,
+                                 u_soc.cpu.mmu_dbg_i_tlb_valid,
+                                 u_soc.cpu.mmu_dbg_i_sv32);
+                        $display("[STALL] MMU: d_tlb_hit=%0b d_tlb_valid=%0b d_sv32=%0b d_tlb_miss=%0b",
+                                 u_soc.cpu.mmu_dbg_d_tlb_hit,
+                                 u_soc.cpu.mmu_dbg_d_tlb_valid,
+                                 u_soc.cpu.mmu_dbg_d_latched_sv32,
+                                 u_soc.cpu.mmu_dbg_d_tlb_miss);
+                        $display("[STALL] MMU: i_input_changed=%0b d_input_changed=%0b",
+                                 u_soc.cpu.mmu_dbg_i_input_changed,
+                                 u_soc.cpu.mmu_dbg_d_input_changed);
+                        $display("[STALL] MMU: i_latched_vaddr=0x%08h d_latched_vaddr=0x%08h",
+                                 u_soc.cpu.mmu_dbg_i_latched_vaddr,
+                                 u_soc.cpu.mmu_dbg_d_latched_vaddr);
+                        $display("[STALL] MMU: i_walk_active=%0b pending_i_walk=%0b pending_d_walk=%0b",
+                                 u_soc.cpu.mmu_dbg_i_walk_active,
+                                 u_soc.cpu.mmu_dbg_pending_i_walk,
+                                 u_soc.cpu.mmu_dbg_pending_d_walk);
+                        $display("[STALL] MMU: mmu_inst_ready=%0b mmu_data_ready=%0b",
+                                 u_soc.cpu.mmu_inst_ready,
+                                 u_soc.cpu.mmu_data_ready);
+
+                        // Icache state
+                        $display("[STALL] Icache: state=%0d mmio_req=%0b refill_req=%0b",
+                                 u_soc.cpu.dbg_icache_state,
+                                 u_soc.cpu.icache_mmio_req,
+                                 u_soc.cpu.icache_refill_req);
+
+                        // Dcache state
+                        $display("[STALL] Dcache: refill_req=%0b wb_req=%0b",
+                                 u_soc.cpu.dcache_refill_req,
+                                 u_soc.cpu.dcache_wb_req);
+
+                        // Bus bridge state (hierarchical reference)
+                        $display("[STALL] BusBridge: state=%0d", u_soc.cpu.u_bus_bridge.state);
+                        $display("[STALL] BusBridge: arvalid=%0b arready=%0b",
+                                 u_soc.cpu.u_bus_bridge.arvalid,
+                                 u_soc.cpu.u_bus_bridge.arready);
+                        $display("[STALL] BusBridge: awvalid=%0b awready=%0b wvalid=%0b wready=%0b bvalid=%0b",
+                                 u_soc.cpu.u_bus_bridge.awvalid,
+                                 u_soc.cpu.u_bus_bridge.awready,
+                                 u_soc.cpu.u_bus_bridge.wvalid,
+                                 u_soc.cpu.u_bus_bridge.wready,
+                                 u_soc.cpu.u_bus_bridge.bvalid);
+
+                        // PTW state (hierarchical reference)
+                        $display("[STALL] PTW: state=%0d bus_req_pending=%0d",
+                                 u_soc.cpu.u_mmu.u_ptw.state,
+                                 u_soc.cpu.u_mmu.u_ptw.bus_req_pending_r);
+
+                        $fflush;
+                        $finish;
+                    end
+                end else begin
+                    stall_cnt = 0;
+                end
+            end
+        end
+    end
+
+    // ========================================================================
     // Main simulation body
     // ========================================================================
     initial begin

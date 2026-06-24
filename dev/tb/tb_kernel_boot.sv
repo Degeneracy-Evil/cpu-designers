@@ -237,12 +237,12 @@ module tb_kernel_boot;
         $fflush;
 
         // Run for a very long time — kernel boot takes millions of cycles
-        // 300M cycles at 100MHz = 3 seconds of sim time
+        // 3B cycles at 100MHz = 30 seconds of sim time (kernel panic at ~0.63s)
         // The sim will be killed by timeout or $finish before this completes
-        repeat (300000000) @(posedge clk);
+        repeat (2000000000) @(posedge clk);
 
         $display("========================================");
-        $display("[PROBE] %0t: Kernel boot simulation complete (300M cycles reached).", $time);
+        $display("[PROBE] %0t: Kernel boot simulation complete (3B cycles reached).", $time);
         $display("Check trap_deleg.log, trap_trace.log, instr_trace.log, uart_tx.log");
         $display("========================================");
         $finish;

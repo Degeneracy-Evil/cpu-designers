@@ -19,7 +19,7 @@
          * 没有 initramfs 时，kernel 能打印日志后 panic 也算阶段性成功。
          */
 
-        bootargs = "console=ttyS0,230400 earlycon=uart8250,mmio32,0x10008000,230400n8 ignore_loglevel loglevel=8 rdinit=/init";
+        bootargs = "console=ttyS0,230400 earlycon=uart8250,mmio32,0x10008000,230400n8 ignore_loglevel loglevel=8 initcall_debug rdinit=/init";
 
     };
 

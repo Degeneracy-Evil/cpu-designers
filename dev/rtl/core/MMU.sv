@@ -593,10 +593,14 @@ module MMU #(
     // Walk arbiter FSM (manages single PTW instance)
     // =========================================================================
     // Walk request pulses from each side (detected in I_LOOKUP / D_LOOKUP on miss)
-    // BUG-FIX: gate with !tlb_fill_req — during fill, TLB outputs are garbage
-    // and could falsely trigger a miss, starting a spurious PTW walk.
-    wire i_walk_req = (i_state == I_LOOKUP) && i_tlb_miss && !i_input_changed && !tlb_fill_req;
-    wire d_walk_req = (d_state == D_LOOKUP) && d_tlb_miss && !d_input_changed && !d_lookup_stalled;
+    // NOTE: NOT gated by tlb_fill_req. i_tlb_miss is derived from BRAM outputs
+    // which may be garbage during fill, BUT i_tlb_miss is only consumed by the
+    // walk arbiter — it does NOT trigger a BRAM read. The actual BRAM read
+    // (i_tlb_lookup_req) is gated separately. The walk arbiter capture logic
+    // in W_D_WALK/W_I_WALK needs the un-gated miss signal to detect the race
+    // where i-side miss and d-walk-done happen simultaneously.
+    wire i_walk_req = (i_state == I_LOOKUP) && i_tlb_miss && !i_input_changed;
+    wire d_walk_req = (d_state == D_LOOKUP) && d_tlb_miss && !d_input_changed;
     wire selected_d_walk = pending_d_walk || (!pending_i_walk && d_walk_req);
     wire selected_i_walk = pending_i_walk || (!selected_d_walk && i_walk_req);
 

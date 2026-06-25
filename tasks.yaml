@@ -632,8 +632,15 @@ tasks:
     tb: tb_kernel_boot
     blhex: boot/bootloader_phase1.hex
     phex: firmware/fw_payload.hex
+    sim_mode: ddr3
     runtime: 300s
     verilog_defines:
       LINUX_BOOT: "TRUE"
       DEBUG_TRAP_DELEG: 1
       DEBUG_UART_TX: 1
+      SIM_BYPASS_INIT_CAL: FAST
+      SIMULATION: "TRUE"
+      SIMU_USE_DDR: 1
+      SIMU_USE_PLL: 0
+      SIMU_DDR_MODE: 1
+      sg125: 1

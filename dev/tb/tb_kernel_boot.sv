@@ -232,7 +232,7 @@ module tb_kernel_boot;
         stall_pc_r = 32'b0;
         forever begin
             @(posedge clk);
-            if (resetn) begin
+            if (resetn && u_soc.ddr_data_init) begin
                 if (!u_soc.cpu.if_done) begin
                     // CPU stalled — IF stage not completing
                     if (if_pc == stall_pc_r) begin

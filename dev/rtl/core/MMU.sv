@@ -198,9 +198,13 @@ module MMU #(
     // BUG-16 fix: keep lookup req active during I_LOOKUP/D_LOOKUP so BRAM-based
     // TLB i_lookup_valid_r/d_lookup_valid_r stay high. Otherwise the 1-cycle
     // valid pulse expires and the MMU deadlocks (valid=0, hit=1, ready=0, miss=0).
+    // BUG-FIX: stall BOTH i-side and d-side lookups during TLB fill. The BRAM
+    // is dual-port, but Port B write (fill) collides with Port A read (i-lookup)
+    // when both address the same set. The collision returns garbage PPN, causing
+    // the CPU to fetch from a wrong physical address and trap-loop on ecall.
     wire i_req_active = (i_state == I_LOOKUP) && !i_input_changed;
     wire d_req_active = (d_state == D_LOOKUP) && !d_input_changed;
-    wire i_tlb_lookup_req = i_req_active && !mmu_flush_req;
+    wire i_tlb_lookup_req = i_req_active && !mmu_flush_req && !tlb_fill_req;
     wire d_tlb_lookup_req = d_req_active && !mmu_flush_req && !d_lookup_stalled;
 
     // PTW fill signals (declared early — used by TLB instance below)
@@ -329,9 +333,11 @@ module MMU #(
     // Ready / Miss outputs
     // =========================================================================
     // BUG-11 fix (symmetric): i_ready 仅在翻译真正完成且无 fault 时有效。
-    assign i_ready = (i_state == I_LOOKUP) && !i_input_changed
+    // BUG-FIX: gate with !tlb_fill_req — during fill, Port A BRAM output may
+    // be garbage due to collision with Port B write. Must not signal ready.
+    assign i_ready = (i_state == I_LOOKUP) && !i_input_changed && !tlb_fill_req
                      && (!i_latched_sv32 || (i_tlb_valid && i_tlb_hit && !i_tlb_perm_fault));
-    assign i_miss  = (i_state == I_LOOKUP) && i_latched_sv32 && i_tlb_miss && !i_input_changed;
+    assign i_miss  = (i_state == I_LOOKUP) && i_latched_sv32 && i_tlb_miss && !i_input_changed && !tlb_fill_req;
 
     // BUG-11 fix: d_ready 仅在翻译真正完成且无 fault 时有效。
     // bare 模式 (!d_latched_sv32) 无需翻译；Sv32 模式必须 hit 且无 perm fault。
@@ -587,7 +593,9 @@ module MMU #(
     // Walk arbiter FSM (manages single PTW instance)
     // =========================================================================
     // Walk request pulses from each side (detected in I_LOOKUP / D_LOOKUP on miss)
-    wire i_walk_req = (i_state == I_LOOKUP) && i_tlb_miss && !i_input_changed;
+    // BUG-FIX: gate with !tlb_fill_req — during fill, TLB outputs are garbage
+    // and could falsely trigger a miss, starting a spurious PTW walk.
+    wire i_walk_req = (i_state == I_LOOKUP) && i_tlb_miss && !i_input_changed && !tlb_fill_req;
     wire d_walk_req = (d_state == D_LOOKUP) && d_tlb_miss && !d_input_changed && !d_lookup_stalled;
     wire selected_d_walk = pending_d_walk || (!pending_i_walk && d_walk_req);
     wire selected_i_walk = pending_i_walk || (!selected_d_walk && i_walk_req);

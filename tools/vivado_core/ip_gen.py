@@ -269,8 +269,8 @@ def generate_bram_create_ip_tcl(cfg: BramConfig, ip_dir: str) -> str:
         f"{{{'true' if cfg.register_output else 'false'}}}",
         f"CONFIG.Register_PortB_Output_of_Memory_Primitives "
         f"{{{'true' if cfg.register_output else 'false'}}}",
-        f"CONFIG.Operating_Mode_A {{WRITE_FIRST}}",
-        f"CONFIG.Operating_Mode_B {{WRITE_FIRST}}",
+        f"CONFIG.Operating_Mode_A {{READ_FIRST}}",
+        f"CONFIG.Operating_Mode_B {{READ_FIRST}}",
         f"CONFIG.Interface_Type {{Native}}",
         f"CONFIG.PRIM_type_to_Implement {{BRAM}}",
         f"CONFIG.Port_B_Clock {{100}}",

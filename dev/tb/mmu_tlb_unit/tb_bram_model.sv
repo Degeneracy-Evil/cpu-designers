@@ -7,6 +7,7 @@
 //   - 128-bit width, 4 entries, 2-bit address, 16-bit byte-write enable
 //   - Registered output (1-cycle read latency)
 //   - READ_FIRST behavior (read returns old data before write)
+//   - Matches IP config: CONFIG.Operating_Mode_A/B = READ_FIRST
 // =========================================================================
 
 module tlb_flag(

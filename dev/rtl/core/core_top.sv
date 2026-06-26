@@ -270,11 +270,6 @@ module core_top(
 
     wire mem_en;
 
-    wire [31:0] mmu_inst_paddr;
-    wire [31:0] mmu_data_paddr;
-
-    wire        mmu_inst_miss;
-    wire        mmu_data_miss;
     wire        mem_data_access;   // Combinational: is_load||is_store||is_flw||is_fsw (consumed by cpu_controller)
     wire        mmu_inst_page_fault;
     wire        mmu_data_page_fault;
@@ -285,6 +280,45 @@ module core_top(
 
     wire        mmu_inst_ready;
     wire        mmu_data_ready;
+
+    // ── Unified MMU translate interface wires ──
+    wire        mmu_translate_req;
+    wire [31:0] mmu_translate_vaddr;
+    wire [1:0]  mmu_translate_access;
+    wire        mmu_translate_done;
+    wire [31:0] mmu_translate_paddr;
+    wire        mmu_translate_fault;
+    wire [3:0]  mmu_translate_cause;
+    wire [31:0] mmu_translate_vaddr_out;
+
+    // ── Unified MMU: translate request logic ──
+    // CPU requests translation when in FETCH or MEM with a memory access.
+    // translate_req is held until translate_done returns (CPU blocks in that state).
+    assign mmu_translate_req    = if_valid || (mem_valid && mem_en);
+    assign mmu_translate_vaddr  = if_valid ? fetch_vaddr : mem_dataAddr_32;
+    assign mmu_translate_access = if_valid ? 2'b00 : (mem_hwrite ? 2'b10 : 2'b01);  // FETCH : (STORE : LOAD)
+
+    // ── Route translate results to i-side and d-side ──
+    // i-side and d-side never overlap, so paddr can be shared directly.
+    wire [31:0] mmu_inst_paddr;
+    wire [31:0] mmu_data_paddr;
+    assign mmu_inst_paddr       = mmu_translate_paddr;
+    assign mmu_data_paddr       = mmu_translate_paddr;
+    assign mmu_inst_ready       = mmu_translate_done && !mmu_translate_fault;
+    assign mmu_data_ready       = mmu_translate_done && !mmu_translate_fault;
+
+    // ── Page fault routing with state gating ──
+    // Only report i-side fault in FETCH, d-side fault in MEM.
+    assign mmu_inst_page_fault  = mmu_translate_fault && if_valid;
+    assign mmu_data_page_fault  = mmu_translate_fault && mem_valid;
+    assign mmu_inst_pf_cause    = mmu_translate_cause;
+    assign mmu_data_pf_cause    = mmu_translate_cause;
+    assign mmu_inst_pf_vaddr    = mmu_translate_vaddr_out;
+    assign mmu_data_pf_vaddr    = mmu_translate_vaddr_out;
+
+    // ── MMU miss signals: always 0 in unified MMU (no autonomous miss) ──
+    wire mmu_inst_miss  = 1'b0;
+    wire mmu_data_miss  = 1'b0;
     wire        mmu_dbg_i_walk_active;
     wire        mmu_dbg_pending_i_walk;
     wire [2:0]  mmu_dbg_i_state;
@@ -638,8 +672,6 @@ module core_top(
         .data_access_fault_pending(data_access_fault_pending),
         .inst_page_fault_pending(inst_page_fault_pending),
         .data_page_fault_pending(data_page_fault_pending),
-        .mmu_inst_miss(mmu_inst_miss),
-        .mmu_data_miss(mmu_data_miss),
         .mem_data_access(mem_data_access),  // Combinational: instruction is load/store (not mem_en which is registered bus-active)
         .init_sig(init_sig),
         .if_valid(if_valid),
@@ -1298,7 +1330,8 @@ module core_top(
         .mem_access_fault_pc(exe_pc),
         .inst_page_fault(mmu_inst_page_fault && (mmu_inst_pf_cause == 4'd12)),
         .inst_page_fault_vaddr(mmu_inst_pf_vaddr),
-        // BUG-10 fix: 移除 mem_en 门控 — mem_en=0 时 MMU d-side 不翻译 (d_translate_en=mem_en),
+        // BUG-10 fix: 移除 mem_en 门控 — unified MMU uses translate_req gating instead,
+        // so page faults are only generated when CPU is in the correct state.
         // d_page_fault 不会产生，因此 mem_en 门控是冗余的。保留 mem_en 会在 PTW 完成
         // 后 mem_en 已变 0 时吞掉 PF 信号。
         .load_page_fault(mmu_data_page_fault && (mmu_data_pf_cause == 4'd13)),
@@ -1369,29 +1402,38 @@ module core_top(
         .hw_trap_tval     (hw_trap_tval_w)
     );
 
-    // Unified MMU: single instance with dual i/d interfaces
+    // Unified MMU: single instance with unified translate interface
     MMU u_mmu(
         .clk(clk),
         .resetn(resetn),
-        // i-side
-        .i_vaddr(fetch_vaddr),
-        .i_translate_en(1'b1),             // inst MMU always translates
-        .i_paddr(mmu_inst_paddr),
-        .i_miss(mmu_inst_miss),
-        .i_page_fault(mmu_inst_page_fault),
-        .i_pf_cause(mmu_inst_pf_cause),
-        .i_pf_vaddr(mmu_inst_pf_vaddr),
-        .i_ready(mmu_inst_ready),
-        // d-side
-        .d_vaddr(mem_dataAddr_32),
-        .d_access_type(mem_hwrite ? 2'b10 : 2'b01),
-        .d_translate_en(mem_en),           // data MMU only translates when address is valid
-        .d_paddr(mmu_data_paddr),
-        .d_miss(mmu_data_miss),
-        .d_page_fault(mmu_data_page_fault),
-        .d_pf_cause(mmu_data_pf_cause),
-        .d_pf_vaddr(mmu_data_pf_vaddr),
-        .d_ready(mmu_data_ready),
+        // Unified translate request interface
+        .translate_req(mmu_translate_req),
+        .translate_vaddr(mmu_translate_vaddr),
+        .translate_access(mmu_translate_access),
+        .translate_priv(priv_mode),
+        .translate_satp(csr_satp),
+        .translate_sum(csr_mstatus[18]),       // mstatus.SUM
+        .translate_mxr(csr_mstatus[19]),       // mstatus.MXR
+        // Unified translate result
+        .translate_done(mmu_translate_done),
+        .translate_paddr(mmu_translate_paddr),
+        .translate_fault(mmu_translate_fault),
+        .translate_cause(mmu_translate_cause),
+        .translate_vaddr_out(mmu_translate_vaddr_out),
+        // Backward-compat i-side outputs (not used — core_top drives mmu_inst_* directly)
+        .i_paddr(),
+        .i_ready(),
+        .i_miss(),
+        .i_page_fault(),
+        .i_pf_cause(),
+        .i_pf_vaddr(),
+        // Backward-compat d-side outputs (not used — core_top drives mmu_data_* directly)
+        .d_paddr(),
+        .d_ready(),
+        .d_miss(),
+        .d_page_fault(),
+        .d_pf_cause(),
+        .d_pf_vaddr(),
         // shared CSR
         .priv_mode(priv_mode),
         .satp(csr_satp),

@@ -19,8 +19,10 @@ module tb_mmu_unit;
     // =====================
     // MMU DUT Signals
     // =====================
-    reg  [31:0] i_vaddr = 0;
-    reg         i_translate_en = 1;
+    reg         translate_req = 0;
+    reg  [31:0] translate_vaddr = 0;
+    reg  [1:0]  translate_access = 2'b00;
+
     wire [31:0] i_paddr;
     wire        i_miss;
     wire        i_page_fault;
@@ -28,15 +30,18 @@ module tb_mmu_unit;
     wire [31:0] i_pf_vaddr;
     wire        i_ready;
 
-    reg  [31:0] d_vaddr = 0;
-    reg  [1:0]  d_access_type = 2'b00;
-    reg         d_translate_en = 0;
     wire [31:0] d_paddr;
     wire        d_miss;
     wire        d_page_fault;
     wire [3:0]  d_pf_cause;
     wire [31:0] d_pf_vaddr;
     wire        d_ready;
+
+    wire        translate_done_w;
+    wire [31:0] translate_paddr_w;
+    wire        translate_fault_w;
+    wire [3:0]  translate_cause_w;
+    wire [31:0] translate_vaddr_out_w;
 
     reg  [1:0]  priv_mode = 2'b11;   // M mode default
     reg  [31:0] satp = 32'h0;
@@ -67,6 +72,16 @@ module tb_mmu_unit;
     wire        dbg_i_tlb_valid;
     wire        dbg_i_tlb_perm_fault;
     wire [1:0]  dbg_walk_state;
+    wire [2:0]  dbg_nb_d_state;
+    wire        dbg_d_tlb_hit;
+    wire        dbg_d_tlb_valid;
+    wire        dbg_d_tlb_perm_fault;
+    wire        dbg_d_input_changed;
+    wire [31:0] dbg_d_latched_vaddr;
+    wire        dbg_d_latched_sv32;
+    wire        dbg_pending_d_walk;
+    wire        dbg_d_pf_from_ptw;
+    wire        dbg_d_tlb_miss;
 
     // =====================
     // DUT Instantiation
@@ -74,13 +89,24 @@ module tb_mmu_unit;
     MMU u_dut(
         .clk(clk), .resetn(resetn),
 
-        .i_vaddr(i_vaddr), .i_translate_en(i_translate_en),
+        .translate_req(translate_req),
+        .translate_vaddr(translate_vaddr),
+        .translate_access(translate_access),
+        .translate_priv(priv_mode),
+        .translate_satp(satp),
+        .translate_sum(mstatus_sum),
+        .translate_mxr(mstatus_mxr),
+
+        .translate_done(translate_done_w),
+        .translate_paddr(translate_paddr_w),
+        .translate_fault(translate_fault_w),
+        .translate_cause(translate_cause_w),
+        .translate_vaddr_out(translate_vaddr_out_w),
+
         .i_paddr(i_paddr), .i_miss(i_miss),
         .i_page_fault(i_page_fault), .i_pf_cause(i_pf_cause),
         .i_pf_vaddr(i_pf_vaddr), .i_ready(i_ready),
 
-        .d_vaddr(d_vaddr), .d_access_type(d_access_type),
-        .d_translate_en(d_translate_en),
         .d_paddr(d_paddr), .d_miss(d_miss),
         .d_page_fault(d_page_fault), .d_pf_cause(d_pf_cause),
         .d_pf_vaddr(d_pf_vaddr), .d_ready(d_ready),
@@ -106,7 +132,17 @@ module tb_mmu_unit;
         .dbg_i_tlb_hit(dbg_i_tlb_hit),
         .dbg_i_tlb_valid(dbg_i_tlb_valid),
         .dbg_i_tlb_perm_fault(dbg_i_tlb_perm_fault),
-        .dbg_walk_state(dbg_walk_state)
+        .dbg_walk_state(dbg_walk_state),
+        .dbg_nb_d_state(dbg_nb_d_state),
+        .dbg_d_tlb_hit(dbg_d_tlb_hit),
+        .dbg_d_tlb_valid(dbg_d_tlb_valid),
+        .dbg_d_tlb_perm_fault(dbg_d_tlb_perm_fault),
+        .dbg_d_input_changed(dbg_d_input_changed),
+        .dbg_d_latched_vaddr(dbg_d_latched_vaddr),
+        .dbg_d_latched_sv32(dbg_d_latched_sv32),
+        .dbg_pending_d_walk(dbg_pending_d_walk),
+        .dbg_d_pf_from_ptw(dbg_d_pf_from_ptw),
+        .dbg_d_tlb_miss(dbg_d_tlb_miss)
     );
 
     // =====================
@@ -314,8 +350,9 @@ module tb_mmu_unit;
             #1;
             satp = 32'h0;
             priv_mode = 2'b11;
-            d_translate_en = 0;
-            d_access_type = 2'b00;
+            translate_req = 0;
+            translate_vaddr = 0;
+            translate_access = 2'b00;
             do_sfence;
             clear_mem;
         end
@@ -333,9 +370,9 @@ module tb_mmu_unit;
             #1;
             satp = 32'h0;
             priv_mode = 2'b11;       // M mode
-            i_vaddr = 32'h00100000;
-            i_translate_en = 1;
-            d_translate_en = 0;
+            translate_vaddr = 32'h00100000;
+            translate_access = 2'b00;  // FETCH
+            translate_req = 1;
 
             wait_i_ready_or_fault(100);
 
@@ -361,9 +398,9 @@ module tb_mmu_unit;
             priv_mode = 2'b01;      // S mode
             mstatus_sum = 0;
             mstatus_mxr = 0;
-            i_vaddr = 32'h00100000;
-            i_translate_en = 1;
-            d_translate_en = 0;
+            translate_vaddr = 32'h00100000;
+            translate_access = 2'b00;  // FETCH
+            translate_req = 1;
 
             wait_i_ready_or_fault(200);
 
@@ -389,11 +426,9 @@ module tb_mmu_unit;
             priv_mode = 2'b01;      // S mode
             mstatus_sum = 0;
             mstatus_mxr = 0;
-            i_vaddr = 32'h00100000; // i-side also translates (valid mapping)
-            i_translate_en = 1;
-            d_vaddr = 32'h00200000;
-            d_access_type = 2'b01;  // LOAD
-            d_translate_en = 1;
+            translate_vaddr = 32'h00200000;
+            translate_access = 2'b01;  // LOAD
+            translate_req = 1;
 
             wait_d_ready_or_fault(200);
 
@@ -418,9 +453,9 @@ module tb_mmu_unit;
             priv_mode = 2'b00;      // U mode
             mstatus_sum = 0;
             mstatus_mxr = 0;
-            i_vaddr = 32'h00100000;
-            i_translate_en = 1;
-            d_translate_en = 0;
+            translate_vaddr = 32'h00100000;
+            translate_access = 2'b00;  // FETCH
+            translate_req = 1;
 
             wait_i_ready_or_fault(200);
 
@@ -446,11 +481,9 @@ module tb_mmu_unit;
             priv_mode = 2'b01;      // S mode
             mstatus_sum = 0;
             mstatus_mxr = 0;
-            i_vaddr = 32'h00100000; // i-side translates normally
-            i_translate_en = 1;
-            d_vaddr = 32'h00300000;
-            d_access_type = 2'b10;  // STORE
-            d_translate_en = 1;
+            translate_vaddr = 32'h00300000;
+            translate_access = 2'b10;  // STORE
+            translate_req = 1;
 
             wait_d_ready_or_fault(200);
 
@@ -478,9 +511,9 @@ module tb_mmu_unit;
             #1;
             satp = 32'h80000001;
             priv_mode = 2'b01;      // S mode
-            i_vaddr = 32'h00100000;
-            i_translate_en = 1;
-            d_translate_en = 0;
+            translate_vaddr = 32'h00100000;
+            translate_access = 2'b00;  // FETCH
+            translate_req = 1;
 
             // Wait for first translation (fills TLB)
             wait_i_ready_or_fault(200);
@@ -535,51 +568,43 @@ module tb_mmu_unit;
         end
     endtask
 
-    // TC_MMU_006: Walk arbiter loses i-side walk (BUG MMU-6)
-    // When both i and d miss simultaneously, d-side has priority.
-    // pending_i_walk should capture the i-side miss for later service.
-    // Bug: i-side walk might be lost (pending_i_walk not set or cleared).
-    // Test: flush TLB, drive both i+d with miss addresses simultaneously,
-    // verify d-side walk happens first, then i-side walk happens after.
+    // TC_MMU_006: Sequential i-then-d translation (unified MMU)
+    // With unified MMU, i and d cannot translate simultaneously.
+    // Test: do i-side translation first, then d-side, verify both succeed.
     task tc_mmu_006;
-        integer d_walked, i_walked;
-        integer cnt;
         begin
-            $display("--- TC_MMU_006: Walk arbiter doesn't lose i-side (BUG MMU-6) ---");
+            $display("--- TC_MMU_006: Sequential i-then-d translation (unified MMU) ---");
             setup_page_table;
             @(posedge clk);
             #1;
             satp = 32'h80000001;
             priv_mode = 2'b01;      // S mode
-            i_vaddr = 32'h00100000;   // vpn1=0, vpn0=0x100 → needs walk
-            i_translate_en = 1;
-            d_vaddr = 32'h00200000;   // vpn1=0, vpn0=0x200 → needs walk
-            d_access_type = 2'b01;     // LOAD
-            d_translate_en = 1;
 
-            // Monitor walks: check d-side walks first, then i-side
-            d_walked = 0;
-            i_walked = 0;
-            cnt = 0;
+            // First: i-side translation
+            translate_vaddr = 32'h00100000;   // vpn1=0, vpn0=0x100 → needs walk
+            translate_access = 2'b00;         // FETCH
+            translate_req = 1;
 
-            // Wait up to 300 cycles, tracking walk state
-            while ((!i_ready || !d_ready) && cnt < 300) begin
-                @(posedge clk);
-                #1;
-                cnt = cnt + 1;
-                if (ptw_cache_req) begin
-                    if (dbg_walk_state === 2'd1) d_walked = 1;  // W_D_WALK
-                    if (dbg_walk_state === 2'd2) i_walked = 1;  // W_I_WALK
-                end
-            end
+            wait_i_ready_or_fault(200);
 
-            $display("  [DBG] d_walked=%0d i_walked=%0d d_ready=%b i_ready=%b cycles=%0d",
-                     d_walked, i_walked, d_ready, i_ready, cnt);
+            $display("  [DBG] i_ready=%b i_paddr=0x%08h i_pf=%b", i_ready, i_paddr, i_page_fault);
+            check(i_ready === 1'b1, "TC_MMU_006: i_ready after i-side walk");
+            check(i_paddr === 32'h00003000, "TC_MMU_006: i_paddr=0x3000 (PPN=0x3,off=0x000)");
+            check(i_page_fault === 1'b0, "TC_MMU_006: no i_page_fault");
 
-            check(d_walked === 1, "TC_MMU_006: d-side walk occurred");
-            check(i_walked === 1, "TC_MMU_006: i-side walk occurred (not lost)");
-            check(d_ready === 1'b1, "TC_MMU_006: d_ready after both walks");
-            check(i_ready === 1'b1, "TC_MMU_006: i_ready after both walks");
+            // Deassert request, then do d-side translation
+            translate_req = 0;
+            @(posedge clk); #1;
+            translate_vaddr = 32'h00200000;   // vpn1=0, vpn0=0x200 → needs walk
+            translate_access = 2'b01;         // LOAD
+            translate_req = 1;
+
+            wait_d_ready_or_fault(200);
+
+            $display("  [DBG] d_ready=%b d_paddr=0x%08h d_pf=%b", d_ready, d_paddr, d_page_fault);
+            check(d_ready === 1'b1, "TC_MMU_006: d_ready after d-side walk");
+            check(d_paddr === 32'h00004000, "TC_MMU_006: d_paddr=0x4000 (PPN=0x4,off=0x000)");
+            check(d_page_fault === 1'b0, "TC_MMU_006: no d_page_fault");
         end
     endtask
 
@@ -590,7 +615,7 @@ module tb_mmu_unit;
             setup_perm_page_table;
             @(posedge clk); #1;
             satp = 32'h80000001; priv_mode = 2'b01; mstatus_sum = 0; mstatus_mxr = 0;
-            i_vaddr = 32'h00100000; i_translate_en = 1; d_translate_en = 0;
+            translate_vaddr = 32'h00100000; translate_access = 2'b00; translate_req = 1;
             wait_i_ready_or_fault(200);
             $display("  [DBG] i_ready=%b i_paddr=0x%08h i_pf=%b cause=%0d", i_ready, i_paddr, i_page_fault, i_pf_cause);
             check(i_ready === 1'b1, "TC_MMU_007: i_ready S-fetch S-page");
@@ -606,8 +631,7 @@ module tb_mmu_unit;
             setup_perm_page_table;
             @(posedge clk); #1;
             satp = 32'h80000001; priv_mode = 2'b01; mstatus_sum = 0; mstatus_mxr = 0;
-            i_translate_en = 0;
-            d_vaddr = 32'h00100000; d_access_type = 2'b01; d_translate_en = 1;
+            translate_vaddr = 32'h00100000; translate_access = 2'b01; translate_req = 1;
             wait_d_ready_or_fault(200);
             $display("  [DBG] d_ready=%b d_paddr=0x%08h d_pf=%b cause=%0d", d_ready, d_paddr, d_page_fault, d_pf_cause);
             check(d_ready === 1'b1, "TC_MMU_008: d_ready S-load S-page");
@@ -623,8 +647,7 @@ module tb_mmu_unit;
             setup_perm_page_table;
             @(posedge clk); #1;
             satp = 32'h80000001; priv_mode = 2'b01; mstatus_sum = 0; mstatus_mxr = 0;
-            i_translate_en = 0;
-            d_vaddr = 32'h00100000; d_access_type = 2'b10; d_translate_en = 1;
+            translate_vaddr = 32'h00100000; translate_access = 2'b10; translate_req = 1;
             wait_d_ready_or_fault(200);
             $display("  [DBG] d_ready=%b d_paddr=0x%08h d_pf=%b cause=%0d", d_ready, d_paddr, d_page_fault, d_pf_cause);
             check(d_ready === 1'b1, "TC_MMU_009: d_ready S-store S-page");
@@ -640,7 +663,7 @@ module tb_mmu_unit;
             setup_perm_page_table;
             @(posedge clk); #1;
             satp = 32'h80000001; priv_mode = 2'b00; mstatus_sum = 0; mstatus_mxr = 0;
-            i_vaddr = 32'h00110000; i_translate_en = 1; d_translate_en = 0;
+            translate_vaddr = 32'h00110000; translate_access = 2'b00; translate_req = 1;
             wait_i_ready_or_fault(200);
             $display("  [DBG] i_ready=%b i_paddr=0x%08h i_pf=%b cause=%0d", i_ready, i_paddr, i_page_fault, i_pf_cause);
             check(i_ready === 1'b1, "TC_MMU_010: i_ready U-fetch U-page");
@@ -656,8 +679,7 @@ module tb_mmu_unit;
             setup_perm_page_table;
             @(posedge clk); #1;
             satp = 32'h80000001; priv_mode = 2'b00; mstatus_sum = 0; mstatus_mxr = 0;
-            i_translate_en = 0;
-            d_vaddr = 32'h00110000; d_access_type = 2'b01; d_translate_en = 1;
+            translate_vaddr = 32'h00110000; translate_access = 2'b01; translate_req = 1;
             wait_d_ready_or_fault(200);
             $display("  [DBG] d_ready=%b d_paddr=0x%08h d_pf=%b cause=%0d", d_ready, d_paddr, d_page_fault, d_pf_cause);
             check(d_ready === 1'b1, "TC_MMU_011: d_ready U-load U-page");
@@ -673,8 +695,7 @@ module tb_mmu_unit;
             setup_perm_page_table;
             @(posedge clk); #1;
             satp = 32'h80000001; priv_mode = 2'b00; mstatus_sum = 0; mstatus_mxr = 0;
-            i_translate_en = 0;
-            d_vaddr = 32'h00110000; d_access_type = 2'b10; d_translate_en = 1;
+            translate_vaddr = 32'h00110000; translate_access = 2'b10; translate_req = 1;
             wait_d_ready_or_fault(200);
             $display("  [DBG] d_ready=%b d_paddr=0x%08h d_pf=%b cause=%0d", d_ready, d_paddr, d_page_fault, d_pf_cause);
             check(d_ready === 1'b1, "TC_MMU_012: d_ready U-store U-page");
@@ -691,7 +712,7 @@ module tb_mmu_unit;
             setup_perm_page_table;
             @(posedge clk); #1;
             satp = 32'h80000001; priv_mode = 2'b01; mstatus_sum = 0; mstatus_mxr = 0;
-            i_vaddr = 32'h00110000; i_translate_en = 1; d_translate_en = 0;
+            translate_vaddr = 32'h00110000; translate_access = 2'b00; translate_req = 1;
             wait_i_ready_or_fault(200);
             $display("  [DBG] i_ready=%b i_pf=%b cause=%0d", i_ready, i_page_fault, i_pf_cause);
             check(i_page_fault === 1'b1, "TC_MMU_013: i_page_fault S-fetch U-page");
@@ -706,8 +727,7 @@ module tb_mmu_unit;
             setup_perm_page_table;
             @(posedge clk); #1;
             satp = 32'h80000001; priv_mode = 2'b01; mstatus_sum = 0; mstatus_mxr = 0;
-            i_translate_en = 0;
-            d_vaddr = 32'h00110000; d_access_type = 2'b01; d_translate_en = 1;
+            translate_vaddr = 32'h00110000; translate_access = 2'b01; translate_req = 1;
             wait_d_ready_or_fault(200);
             $display("  [DBG] d_ready=%b d_pf=%b cause=%0d", d_ready, d_page_fault, d_pf_cause);
             check(d_page_fault === 1'b1, "TC_MMU_014: d_page_fault S-load U-page no SUM");
@@ -722,8 +742,7 @@ module tb_mmu_unit;
             setup_perm_page_table;
             @(posedge clk); #1;
             satp = 32'h80000001; priv_mode = 2'b01; mstatus_sum = 1; mstatus_mxr = 0;
-            i_translate_en = 0;
-            d_vaddr = 32'h00110000; d_access_type = 2'b01; d_translate_en = 1;
+            translate_vaddr = 32'h00110000; translate_access = 2'b01; translate_req = 1;
             wait_d_ready_or_fault(200);
             $display("  [DBG] d_ready=%b d_paddr=0x%08h d_pf=%b cause=%0d", d_ready, d_paddr, d_page_fault, d_pf_cause);
             check(d_ready === 1'b1, "TC_MMU_015: d_ready S-load U-page SUM=1");
@@ -739,8 +758,7 @@ module tb_mmu_unit;
             setup_perm_page_table;
             @(posedge clk); #1;
             satp = 32'h80000001; priv_mode = 2'b01; mstatus_sum = 1; mstatus_mxr = 0;
-            i_translate_en = 0;
-            d_vaddr = 32'h00110000; d_access_type = 2'b10; d_translate_en = 1;
+            translate_vaddr = 32'h00110000; translate_access = 2'b10; translate_req = 1;
             wait_d_ready_or_fault(200);
             $display("  [DBG] d_ready=%b d_paddr=0x%08h d_pf=%b cause=%0d", d_ready, d_paddr, d_page_fault, d_pf_cause);
             check(d_ready === 1'b1, "TC_MMU_016: d_ready S-store U-page SUM=1");
@@ -757,7 +775,7 @@ module tb_mmu_unit;
             setup_perm_page_table;
             @(posedge clk); #1;
             satp = 32'h80000001; priv_mode = 2'b01; mstatus_sum = 1; mstatus_mxr = 0;
-            i_vaddr = 32'h00110000; i_translate_en = 1; d_translate_en = 0;
+            translate_vaddr = 32'h00110000; translate_access = 2'b00; translate_req = 1;
             wait_i_ready_or_fault(200);
             $display("  [DBG] i_ready=%b i_pf=%b cause=%0d", i_ready, i_page_fault, i_pf_cause);
             check(i_page_fault === 1'b1, "TC_MMU_017: i_page_fault S-fetch U-page even with SUM");
@@ -772,8 +790,7 @@ module tb_mmu_unit;
             setup_perm_page_table;
             @(posedge clk); #1;
             satp = 32'h80000001; priv_mode = 2'b01; mstatus_sum = 0; mstatus_mxr = 0;
-            i_translate_en = 0;
-            d_vaddr = 32'h00120000; d_access_type = 2'b01; d_translate_en = 1;
+            translate_vaddr = 32'h00120000; translate_access = 2'b01; translate_req = 1;
             wait_d_ready_or_fault(200);
             $display("  [DBG] d_ready=%b d_paddr=0x%08h d_pf=%b cause=%0d", d_ready, d_paddr, d_page_fault, d_pf_cause);
             check(d_ready === 1'b1, "TC_MMU_018: d_ready S-load R-only");
@@ -789,8 +806,7 @@ module tb_mmu_unit;
             setup_perm_page_table;
             @(posedge clk); #1;
             satp = 32'h80000001; priv_mode = 2'b01; mstatus_sum = 0; mstatus_mxr = 0;
-            i_translate_en = 0;
-            d_vaddr = 32'h00130000; d_access_type = 2'b01; d_translate_en = 1;
+            translate_vaddr = 32'h00130000; translate_access = 2'b01; translate_req = 1;
             wait_d_ready_or_fault(200);
             $display("  [DBG] d_ready=%b d_pf=%b cause=%0d", d_ready, d_page_fault, d_pf_cause);
             check(d_page_fault === 1'b1, "TC_MMU_019: d_page_fault load X-only no MXR");
@@ -805,8 +821,7 @@ module tb_mmu_unit;
             setup_perm_page_table;
             @(posedge clk); #1;
             satp = 32'h80000001; priv_mode = 2'b01; mstatus_sum = 0; mstatus_mxr = 1;
-            i_translate_en = 0;
-            d_vaddr = 32'h00130000; d_access_type = 2'b01; d_translate_en = 1;
+            translate_vaddr = 32'h00130000; translate_access = 2'b01; translate_req = 1;
             wait_d_ready_or_fault(200);
             $display("  [DBG] d_ready=%b d_paddr=0x%08h d_pf=%b cause=%0d", d_ready, d_paddr, d_page_fault, d_pf_cause);
             check(d_ready === 1'b1, "TC_MMU_020: d_ready load X-only MXR=1");
@@ -822,8 +837,7 @@ module tb_mmu_unit;
             setup_perm_page_table;
             @(posedge clk); #1;
             satp = 32'h80000001; priv_mode = 2'b01; mstatus_sum = 0; mstatus_mxr = 0;
-            i_translate_en = 0;
-            d_vaddr = 32'h00120000; d_access_type = 2'b10; d_translate_en = 1;
+            translate_vaddr = 32'h00120000; translate_access = 2'b10; translate_req = 1;
             wait_d_ready_or_fault(200);
             $display("  [DBG] d_ready=%b d_pf=%b cause=%0d", d_ready, d_page_fault, d_pf_cause);
             check(d_page_fault === 1'b1, "TC_MMU_021: d_page_fault store R-only");
@@ -839,8 +853,7 @@ module tb_mmu_unit;
             setup_perm_page_table;
             @(posedge clk); #1;
             satp = 32'h80000001; priv_mode = 2'b00; mstatus_sum = 0; mstatus_mxr = 0;
-            i_translate_en = 0;
-            d_vaddr = 32'h00100000; d_access_type = 2'b01; d_translate_en = 1;
+            translate_vaddr = 32'h00100000; translate_access = 2'b01; translate_req = 1;
             wait_d_ready_or_fault(200);
             $display("  [DBG] d_ready=%b d_pf=%b cause=%0d", d_ready, d_page_fault, d_pf_cause);
             check(d_page_fault === 1'b1, "TC_MMU_022: d_page_fault U-load S-page");
@@ -857,7 +870,7 @@ module tb_mmu_unit;
             set_l1_megapage(10'h000, 22'h1000, 1'b1,1'b1,1'b0,1'b0,1'b1,1'b1,1'b1);
             @(posedge clk); #1;
             satp = 32'h80000001; priv_mode = 2'b01; mstatus_sum = 0; mstatus_mxr = 0;
-            i_vaddr = 32'h00100000; i_translate_en = 1; d_translate_en = 0;
+            translate_vaddr = 32'h00100000; translate_access = 2'b00; translate_req = 1;
             wait_i_ready_or_fault(200);
             $display("  [DBG] i_ready=%b i_paddr=0x%08h i_pf=%b cause=%0d", i_ready, i_paddr, i_page_fault, i_pf_cause);
             check(i_ready === 1'b1, "TC_MMU_023: i_ready megapage");
@@ -873,7 +886,7 @@ module tb_mmu_unit;
             set_l1_megapage(10'h000, 22'h1001, 1'b1,1'b1,1'b0,1'b0,1'b1,1'b1,1'b1); // PPN[9:0]=0x001
             @(posedge clk); #1;
             satp = 32'h80000001; priv_mode = 2'b01; mstatus_sum = 0; mstatus_mxr = 0;
-            i_vaddr = 32'h00100000; i_translate_en = 1; d_translate_en = 0;
+            translate_vaddr = 32'h00100000; translate_access = 2'b00; translate_req = 1;
             wait_i_ready_or_fault(200);
             $display("  [DBG] i_ready=%b i_pf=%b cause=%0d", i_ready, i_page_fault, i_pf_cause);
             check(i_page_fault === 1'b1, "TC_MMU_024: i_page_fault misaligned mega");
@@ -890,8 +903,7 @@ module tb_mmu_unit;
             set_l0_leaf(22'h2, 10'h100, 22'h3, 1'b0,1'b0,1'b0,1'b0,1'b1,1'b1,1'b1); // A=0, D=0
             @(posedge clk); #1;
             satp = 32'h80000001; priv_mode = 2'b01; mstatus_sum = 0; mstatus_mxr = 0;
-            i_translate_en = 0;
-            d_vaddr = 32'h00100000; d_access_type = 2'b01; d_translate_en = 1;
+            translate_vaddr = 32'h00100000; translate_access = 2'b01; translate_req = 1;
             wait_d_ready_or_fault(300);
             $display("  [DBG] d_ready=%b d_paddr=0x%08h d_pf=%b cause=%0d", d_ready, d_paddr, d_page_fault, d_pf_cause);
             check(d_page_fault === 1'b1, "TC_MMU_025: d_page_fault on A=0/D=0 (trap to sw)");
@@ -908,7 +920,7 @@ module tb_mmu_unit;
             ptw_mem[(22'h2 << 10) + 10'h100] = mk_pte(22'h3, 1'b0,1'b0,1'b0,1'b0,1'b1,1'b1,1'b1, 1'b0); // V=0
             @(posedge clk); #1;
             satp = 32'h80000001; priv_mode = 2'b01; mstatus_sum = 0; mstatus_mxr = 0;
-            i_vaddr = 32'h00100000; i_translate_en = 1; d_translate_en = 0;
+            translate_vaddr = 32'h00100000; translate_access = 2'b00; translate_req = 1;
             wait_i_ready_or_fault(200);
             $display("  [DBG] i_ready=%b i_pf=%b cause=%0d", i_ready, i_page_fault, i_pf_cause);
             check(i_page_fault === 1'b1, "TC_MMU_026: i_page_fault V=0 PTE");
@@ -923,7 +935,7 @@ module tb_mmu_unit;
             setup_perm_page_table;
             @(posedge clk); #1;
             satp = 32'h80000001; priv_mode = 2'b01; mstatus_sum = 0; mstatus_mxr = 0;
-            i_vaddr = 32'h00100000; i_translate_en = 1; d_translate_en = 0;
+            translate_vaddr = 32'h00100000; translate_access = 2'b00; translate_req = 1;
             inject_bus_error = 1;  // next cache response faults
             wait_i_ready_or_fault(200);
             $display("  [DBG] i_ready=%b i_pf=%b cause=%0d", i_ready, i_page_fault, i_pf_cause);
@@ -943,7 +955,7 @@ module tb_mmu_unit;
             ptw_mem[(22'h2 << 10) + 10'h100] = mk_pte(22'h3, 1'b0,1'b0,1'b0,1'b0,1'b0,1'b0,1'b0, 1'b1);
             @(posedge clk); #1;
             satp = 32'h80000001; priv_mode = 2'b01; mstatus_sum = 0; mstatus_mxr = 0;
-            i_vaddr = 32'h00100000; i_translate_en = 1; d_translate_en = 0;
+            translate_vaddr = 32'h00100000; translate_access = 2'b00; translate_req = 1;
             wait_i_ready_or_fault(200);
             $display("  [DBG] i_ready=%b i_pf=%b cause=%0d", i_ready, i_page_fault, i_pf_cause);
             check(i_page_fault === 1'b1, "TC_MMU_028: i_page_fault non-leaf L0");
@@ -959,15 +971,15 @@ module tb_mmu_unit;
             setup_perm_page_table;
             @(posedge clk); #1;
             satp = 32'h80000001; priv_mode = 2'b01; mstatus_sum = 0; mstatus_mxr = 0;
-            i_vaddr = 32'h00100000; i_translate_en = 1; d_translate_en = 0;
+            translate_vaddr = 32'h00100000; translate_access = 2'b00; translate_req = 1;
             // First translation — should walk
             wait_i_ready_or_fault(200);
             check(i_ready === 1'b1, "TC_MMU_029: first translation succeeded");
-            // Deassert translate_en, then re-assert for second translation
+            // Deassert request, then re-assert for second translation
             @(posedge clk); #1;
-            i_translate_en = 0;
+            translate_req = 0;
             @(posedge clk); #1;
-            i_translate_en = 1;
+            translate_req = 1;
             // Count bus requests — should be 0 (TLB hit)
             walk_count = 0;
             begin : hit_walk_count
@@ -985,20 +997,19 @@ module tb_mmu_unit;
         end
     endtask
 
-    // TC_MMU_030: d_translate_en=0 — d-side disabled, no translation
+    // TC_MMU_030: translate_req=0 — no translation when no request
     task tc_mmu_030;
         begin
-            $display("--- TC_MMU_030: d_translate_en=0 (no translation) ---");
+            $display("--- TC_MMU_030: translate_req=0 (no translation) ---");
             setup_perm_page_table;
             @(posedge clk); #1;
             satp = 32'h80000001; priv_mode = 2'b01; mstatus_sum = 0; mstatus_mxr = 0;
-            i_translate_en = 0;
-            d_vaddr = 32'h00100000; d_access_type = 2'b01; d_translate_en = 0;
+            translate_req = 0;
             repeat(10) @(posedge clk);
             #1;
             $display("  [DBG] d_ready=%b d_miss=%b d_pf=%b", d_ready, d_miss, d_page_fault);
-            check(d_ready === 1'b0, "TC_MMU_030: d_ready=0 when disabled");
-            check(d_page_fault === 1'b0, "TC_MMU_030: no fault when disabled");
+            check(d_ready === 1'b0, "TC_MMU_030: d_ready=0 when no request");
+            check(d_page_fault === 1'b0, "TC_MMU_030: no fault when no request");
         end
     endtask
 
@@ -1008,7 +1019,7 @@ module tb_mmu_unit;
             $display("--- TC_MMU_031: M-mode bare translation (identity) ---");
             @(posedge clk); #1;
             satp = 32'h0; priv_mode = 2'b11; mstatus_sum = 0; mstatus_mxr = 0;
-            i_vaddr = 32'hDEADBEEF; i_translate_en = 1; d_translate_en = 0;
+            translate_vaddr = 32'hDEADBEEF; translate_access = 2'b00; translate_req = 1;
             wait_i_ready_or_fault(100);
             $display("  [DBG] i_ready=%b i_paddr=0x%08h i_pf=%b", i_ready, i_paddr, i_page_fault);
             check(i_ready === 1'b1, "TC_MMU_031: i_ready bare mode");
@@ -1024,7 +1035,7 @@ module tb_mmu_unit;
             setup_perm_page_table;
             @(posedge clk); #1;
             satp = 32'h80000001; priv_mode = 2'b00; mstatus_sum = 0; mstatus_mxr = 0;
-            i_vaddr = 32'h00100000; i_translate_en = 1; d_translate_en = 0;
+            translate_vaddr = 32'h00100000; translate_access = 2'b00; translate_req = 1;
             wait_i_ready_or_fault(200);
             $display("  [DBG] i_pf=%b cause=%0d i_pf_vaddr=0x%08h", i_page_fault, i_pf_cause, i_pf_vaddr);
             check(i_page_fault === 1'b1, "TC_MMU_032: page fault occurred");
@@ -1039,7 +1050,7 @@ module tb_mmu_unit;
             setup_perm_page_table;
             @(posedge clk); #1;
             satp = 32'h80000001; priv_mode = 2'b01; mstatus_sum = 0; mstatus_mxr = 0;
-            i_vaddr = 32'h00100000; i_translate_en = 1; d_translate_en = 0;
+            translate_vaddr = 32'h00100000; translate_access = 2'b00; translate_req = 1;
             // Wait a couple cycles for walk to start, then sfence
             repeat(3) @(posedge clk); #1;
             sfence_vma = 1;
@@ -1058,7 +1069,7 @@ module tb_mmu_unit;
             end
             // Re-assert translation — should walk again (TLB flushed)
             @(posedge clk); #1;
-            i_translate_en = 1;
+            translate_req = 1;
             wait_i_ready_or_fault(200);
             $display("  [DBG] i_ready=%b i_paddr=0x%08h i_pf=%b", i_ready, i_paddr, i_page_fault);
             check(i_ready === 1'b1, "TC_MMU_033: translation succeeds after sfence");
@@ -1066,26 +1077,31 @@ module tb_mmu_unit;
         end
     endtask
 
-    // TC_MMU_034: Concurrent i+d translation (both succeed, different addresses)
+    // TC_MMU_034: Sequential i-then-d translation (unified MMU)
+    // With unified MMU, i and d cannot translate simultaneously.
+    // Test: do i-side translation, then d-side, verify both succeed with correct paddr.
     task tc_mmu_034;
         integer cnt;
         begin
-            $display("--- TC_MMU_034: Concurrent i+d translation ---");
+            $display("--- TC_MMU_034: Sequential i-then-d translation ---");
             setup_perm_page_table;
             @(posedge clk); #1;
             satp = 32'h80000001; priv_mode = 2'b01; mstatus_sum = 0; mstatus_mxr = 0;
-            i_vaddr = 32'h00100000; i_translate_en = 1;
-            d_vaddr = 32'h00140000; d_access_type = 2'b01; d_translate_en = 1;
-            cnt = 0;
-            while ((!i_ready || !d_ready) && cnt < 300) begin
-                @(posedge clk); #1;
-                cnt = cnt + 1;
-            end
-            $display("  [DBG] i_ready=%b i_paddr=0x%08h d_ready=%b d_paddr=0x%08h cycles=%0d",
-                     i_ready, i_paddr, d_ready, d_paddr, cnt);
-            check(i_ready === 1'b1, "TC_MMU_034: i_ready concurrent");
+
+            // First: i-side translation
+            translate_vaddr = 32'h00100000; translate_access = 2'b00; translate_req = 1;
+            wait_i_ready_or_fault(200);
+            $display("  [DBG] i_ready=%b i_paddr=0x%08h", i_ready, i_paddr);
+            check(i_ready === 1'b1, "TC_MMU_034: i_ready after i-side");
             check(i_paddr === 32'h00003000, "TC_MMU_034: i_paddr=0x3000");
-            check(d_ready === 1'b1, "TC_MMU_034: d_ready concurrent");
+
+            // Then: d-side translation
+            translate_req = 0;
+            @(posedge clk); #1;
+            translate_vaddr = 32'h00140000; translate_access = 2'b01; translate_req = 1;
+            wait_d_ready_or_fault(200);
+            $display("  [DBG] d_ready=%b d_paddr=0x%08h", d_ready, d_paddr);
+            check(d_ready === 1'b1, "TC_MMU_034: d_ready after d-side");
             check(d_paddr === 32'h00008000, "TC_MMU_034: d_paddr=0x8000");
         end
     endtask
@@ -1109,7 +1125,7 @@ module tb_mmu_unit;
 
             @(posedge clk); #1;
             satp = 32'h80000001; priv_mode = 2'b01; mstatus_sum = 0; mstatus_mxr = 0;
-            i_vaddr = 32'h00100000; i_translate_en = 1; d_translate_en = 0;
+            translate_vaddr = 32'h00100000; translate_access = 2'b00; translate_req = 1;
             wait_i_ready_or_fault(200);
             check(i_ready === 1'b1, "TC_MMU_035: first translation succeeded");
             check(i_paddr === 32'h00003000, "TC_MMU_035: first translation uses root1");
@@ -1152,11 +1168,9 @@ module tb_mmu_unit;
 
         // Reset
         resetn = 0;
-        i_vaddr = 0;
-        i_translate_en = 1;
-        d_vaddr = 0;
-        d_access_type = 2'b00;
-        d_translate_en = 0;
+        translate_req = 0;
+        translate_vaddr = 0;
+        translate_access = 2'b00;
         priv_mode = 2'b11;
         satp = 32'h0;
         mstatus_sum = 0;

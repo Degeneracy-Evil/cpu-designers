@@ -189,8 +189,14 @@ module icache_ctrl(
     reg  invalidate_done_r;
 
     // Data BRAM Port A: enable in S_TAG_READ on hit (hit_way now known)
-    // Gated by mmu_ready to avoid reading with stale paddr
-    wire bram_ena = (state == S_TAG_READ) && cache_hit && mmu_ready;
+    // mmu_ready gate removed: paddr is latched in S_IDLE when mmu_ready=1,
+    // and S_TAG_READ wait ensures we only proceed after the second mmu_ready
+    // pulse confirms the address is stable (ping-pong mechanism).
+    // NOTE: bram_ena and S_TAG_READ wait are a coupled pair — removing the
+    // wait without removing this gate causes stale BRAM data (bram_ena=0 when
+    // icache proceeds past wait without mmu_ready). Removing both triggers
+    // icachet BRAM collision (Port A read + Port B write on refill→IDLE).
+    wire bram_ena = (state == S_TAG_READ) && cache_hit;
     wire bram_enb = refill_valid && (state == S_REFILL);
 
     icached u_icached(
@@ -337,7 +343,7 @@ module icache_ctrl(
                         refill_req_r <= 1'b0;
                         state <= S_IDLE;
                     end else if (!mmu_ready) begin
-                        // Stay in S_TAG_READ until paddr is valid
+                        // Stay in S_TAG_READ until paddr is valid (ping-pong)
                     end else if (cache_hit) begin
                         // Data BRAM Port A enabled this cycle (bram_ena above)
                         // Data available next cycle in S_READ

@@ -27,8 +27,6 @@ module cpu_controller(
     input        data_access_fault_pending,
     input        inst_page_fault_pending,
     input        data_page_fault_pending,
-    input        mmu_inst_miss,
-    input        mmu_data_miss,
     input        mem_data_access,
     input        init_sig,
     output       if_valid,
@@ -82,8 +80,6 @@ module cpu_controller(
                 STATE_FETCH: begin
                     if (inst_access_fault_pending || inst_page_fault_pending) begin
                         next_state = STATE_TRAP_ENTER;
-                    end else if (mmu_inst_miss) begin
-                        next_state = STATE_FETCH;
                     end else begin
                         next_state = if_done ? STATE_DECODE : STATE_FETCH;
                     end
@@ -123,8 +119,6 @@ module cpu_controller(
                 STATE_MEM: begin
                     if (data_access_fault_pending || data_page_fault_pending) begin
                         next_state = STATE_TRAP_ENTER;
-                    end else if (mmu_data_miss && mem_data_access) begin
-                        next_state = STATE_MEM;
                     end else begin
                         next_state = mem_done ? STATE_WB : STATE_MEM;
                     end

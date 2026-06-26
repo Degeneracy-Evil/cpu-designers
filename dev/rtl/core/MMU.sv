@@ -7,49 +7,60 @@ module MMU #(
     input              clk,
     input              resetn,
 
-    // ── i-side interface ──
-    input       [31:0] i_vaddr,
-    input              i_translate_en,       // tied to 1'b1 in core_top
-    output      [31:0] i_paddr,
-    output             i_miss,
-    output             i_page_fault,
-    output      [3:0]  i_pf_cause,
-    output      [31:0] i_pf_vaddr,
-    output             i_ready,
+    // ── Unified translation request (CPU-driven handshake) ──
+    input              translate_req,       // CPU requests translation (held high until done)
+    input       [31:0] translate_vaddr,    // Virtual address to translate
+    input       [1:0]  translate_access,   // ACCESS_FETCH/LOAD/STORE
+    input       [1:0]  translate_priv,     // Current privilege mode
+    input       [31:0] translate_satp,     // Current satp
+    input              translate_sum,      // mstatus.SUM
+    input              translate_mxr,      // mstatus.MXR
 
-    // ── d-side interface ──
-    input       [31:0] d_vaddr,
-    input       [1:0]  d_access_type,       // LOAD/STORE
-    input              d_translate_en,       // mem_en
-    output      [31:0] d_paddr,
-    output             d_miss,
-    output             d_page_fault,
-    output      [3:0]  d_pf_cause,
-    output      [31:0] d_pf_vaddr,
-    output             d_ready,
+    // ── Translation result ──
+    output reg        translate_done,      // Translation complete (1-cycle pulse)
+    output reg [31:0] translate_paddr,    // Physical address (valid when done)
+    output reg        translate_fault,     // Page fault or access fault
+    output reg [3:0]  translate_cause,    // Exception cause code
+    output reg [31:0] translate_vaddr_out,// Fault virtual address
 
-    // ── shared CSR inputs ──
+    // ── Backward-compatible outputs for icache/dcache ──
+    // These are driven from unified translate results; core_top muxes as needed
+    output wire [31:0] i_paddr,
+    output wire        i_ready,
+    output wire        i_miss,
+    output wire        i_page_fault,
+    output wire [3:0]  i_pf_cause,
+    output wire [31:0] i_pf_vaddr,
+
+    output wire [31:0] d_paddr,
+    output wire        d_ready,
+    output wire        d_miss,
+    output wire        d_page_fault,
+    output wire [3:0]  d_pf_cause,
+    output wire [31:0] d_pf_vaddr,
+
+    // ── CSR inputs (continuous) ──
     input       [1:0]  priv_mode,
     input       [31:0] satp,
     input              mstatus_sum,
     input              mstatus_mxr,
 
-    // ── single PTW cache interface ──
+    // ── PTW cache interface (unchanged) ──
     output             ptw_cache_req,
     output      [31:0] ptw_cache_addr,
     input              ptw_cache_ready,
     input       [31:0] ptw_cache_rdata,
     input              ptw_cache_fault,
 
-    // ── PMP check interface (pass-through to PTW) ──
+    // ── PMP (unchanged) ──
     input              pmp_grant,
     input       [1:0]  pmp_fault_type,
 
-    // ── flush ──
+    // ── Flush ──
     input              sfence_vma,
-
-    // ── sfence completion ──
     output wire        sfence_done,
+
+    // ── Debug outputs (must exist for core_top compilation) ──
     output wire        dbg_i_walk_active,
     output wire        dbg_pending_i_walk,
     output wire [2:0]  dbg_nb_i_state,
@@ -60,7 +71,6 @@ module MMU #(
     output wire        dbg_i_tlb_valid,
     output wire        dbg_i_tlb_perm_fault,
     output wire [1:0]  dbg_walk_state,
-    // ── d-side debug outputs ──
     output wire [2:0]  dbg_nb_d_state,
     output wire        dbg_d_tlb_hit,
     output wire        dbg_d_tlb_valid,
@@ -73,6 +83,9 @@ module MMU #(
     output wire        dbg_d_tlb_miss
 );
 
+    // =========================================================================
+    // Constants
+    // =========================================================================
     localparam PRIV_M = 2'b11;
 
     localparam ACCESS_FETCH = 2'b00;
@@ -81,17 +94,6 @@ module MMU #(
     localparam PTW_FAULT_NONE   = 2'd0;
     localparam PTW_FAULT_PAGE   = 2'd1;
     localparam PTW_FAULT_ACCESS = 2'd2;
-
-    // =========================================================================
-    // VPN / ASID / sv32 for each side
-    // =========================================================================
-    wire [19:0] i_vpn  = i_vaddr[31:12];
-    wire [8:0]  i_asid = satp[30:22];
-    wire        i_sv32 = satp[31] && (priv_mode != PRIV_M) && i_translate_en;
-
-    wire [19:0] d_vpn  = d_vaddr[31:12];
-    wire [8:0]  d_asid = satp[30:22];
-    wire        d_sv32 = satp[31] && (priv_mode != PRIV_M) && d_translate_en;
 
     // =========================================================================
     // TLB flush on satp write (RISC-V spec requirement)
@@ -112,100 +114,60 @@ module MMU #(
 `ifdef USE_TLB_BRAM
 
     // =========================================================================
-    // Unified MMU state machine
+    // Unified translation FSM states
     // =========================================================================
-    // i-side FSM
-    localparam I_IDLE         = 3'd0;
-    localparam I_LOOKUP       = 3'd1;
-    localparam I_WALK_PENDING = 3'd2;
-    localparam I_FILL_WAIT    = 3'd3;
-    localparam I_FLUSH        = 3'd4;
+    // Single FSM replaces dual i-side/d-side FSMs + walk arbiter.
+    // CPU drives translate_req handshake; MMU blocks until translate_done.
+    // i-side and d-side NEVER access TLB simultaneously → no BRAM collision.
+    localparam T_IDLE     = 4'd0;
+    localparam T_LOOKUP   = 4'd1;
+    localparam T_CHECK    = 4'd2;
+    localparam T_WALK     = 4'd3;
+    localparam T_FILL     = 4'd4;
+    localparam T_RELOOKUP = 4'd5;
+    localparam T_RECHECK  = 4'd6;
+    localparam T_DONE     = 4'd7;
+    localparam T_FAULT    = 4'd8;
+    localparam T_FLUSH    = 4'd9;
 
-    // d-side FSM
-    localparam D_IDLE         = 3'd0;
-    localparam D_LOOKUP       = 3'd1;
-    localparam D_WALK_PENDING = 3'd2;
-    localparam D_FILL_WAIT    = 3'd3;
-    localparam D_FLUSH        = 3'd4;
-
-    // Walk arbiter FSM
-    localparam W_IDLE   = 2'd0;
-    localparam W_D_WALK = 2'd1;
-    localparam W_I_WALK = 2'd2;
-
-    reg [2:0] i_state;
-    reg [2:0] d_state;
-    reg [1:0] walk_state;
-    reg       pending_i_walk;     // i-miss queued while d-walk in progress
-    reg       pending_d_walk;     // d-miss queued while i-walk in progress
-
-    // ── i-side latched values ──
-    reg [31:0] i_latched_vaddr;
-    reg [1:0]  i_latched_access_type;  // always FETCH, but kept for uniformity
-    reg [1:0]  i_latched_priv_mode;
-    reg [31:0] i_latched_satp;
-    reg        i_latched_translate_en;
-    reg        i_latched_mstatus_sum;
-    reg        i_latched_mstatus_mxr;
-    wire       i_latched_sv32 = i_latched_satp[31] && (i_latched_priv_mode != PRIV_M) && i_latched_translate_en;
-
-    // ── d-side latched values ──
-    reg [31:0] d_latched_vaddr;
-    reg [1:0]  d_latched_access_type;
-    reg [1:0]  d_latched_priv_mode;
-    reg [31:0] d_latched_satp;
-    reg        d_latched_translate_en;
-    reg        d_latched_mstatus_sum;
-    reg        d_latched_mstatus_mxr;
-    wire       d_latched_sv32 = d_latched_satp[31] && (d_latched_priv_mode != PRIV_M) && d_latched_translate_en;
-
-    // ── Input change detection ──
-    wire i_input_changed = (i_vaddr != i_latched_vaddr) ||
-                           (priv_mode != i_latched_priv_mode) ||
-                           (satp != i_latched_satp) ||
-                           (i_translate_en != i_latched_translate_en) ||
-                           (mstatus_sum != i_latched_mstatus_sum) ||
-                           (mstatus_mxr != i_latched_mstatus_mxr);
-    // Note: i_access_type is always FETCH, no change detection needed
-
-    wire d_input_changed = (d_vaddr != d_latched_vaddr) ||
-                           (d_access_type != d_latched_access_type) ||
-                           (priv_mode != d_latched_priv_mode) ||
-                           (satp != d_latched_satp) ||
-                           (d_translate_en != d_latched_translate_en) ||
-                           (mstatus_sum != d_latched_mstatus_sum) ||
-                           (mstatus_mxr != d_latched_mstatus_mxr);
+    reg [3:0] t_state;
 
     // =========================================================================
-    // TLB instance (dual-port)
+    // Latched values (single set — no separate i_/d_)
+    // =========================================================================
+    reg [31:0] latched_vaddr;
+    reg [1:0]  latched_access_type;
+    reg [1:0]  latched_priv_mode;
+    reg [31:0] latched_satp;
+    reg        latched_sum;
+    reg        latched_mxr;
+    wire       latched_sv32 = latched_satp[31] && (latched_priv_mode != PRIV_M);
+
+    // VPN/ASID derived from latched values (stable during translation)
+    wire [19:0] latched_vpn  = latched_vaddr[31:12];
+    wire [8:0]  latched_asid = latched_satp[30:22];
+
+    // =========================================================================
+    // Fault origin tracking (for debug output dbg_d_pf_from_ptw)
+    // =========================================================================
+    reg fault_from_ptw_r;
+
+    // =========================================================================
+    // TLB Port A signals (used for ALL lookups)
     // =========================================================================
     wire        i_tlb_hit, i_tlb_r, i_tlb_w, i_tlb_x, i_tlb_u;
     wire        i_tlb_a, i_tlb_d, i_tlb_g, i_tlb_is_megapage;
     wire [21:0] i_tlb_ppn;
     wire        i_tlb_valid;
 
-    wire        d_tlb_hit, d_tlb_r, d_tlb_w, d_tlb_x, d_tlb_u;
-    wire        d_tlb_a, d_tlb_d, d_tlb_g, d_tlb_is_megapage;
-    wire [21:0] d_tlb_ppn;
-    wire        d_tlb_valid;
-
     wire        tlb_flush_done;
 
-    // PTW done/fault (declared early for tlb_fill_req)
+    // =========================================================================
+    // PTW signals
+    // =========================================================================
     wire        ptw_walk_done;
     wire        ptw_walk_fault;
     wire [1:0]  ptw_fault_kind_out;
-
-    // TLB lookup requests
-    // BUG-16 fix: keep lookup req active during I_LOOKUP/D_LOOKUP so BRAM-based
-    // TLB i_lookup_valid_r/d_lookup_valid_r stay high. Otherwise the 1-cycle
-    // valid pulse expires and the MMU deadlocks (valid=0, hit=1, ready=0, miss=0).
-    wire i_req_active = (i_state == I_LOOKUP) && !i_input_changed;
-    wire d_req_active = (d_state == D_LOOKUP) && !d_input_changed;
-    wire i_tlb_lookup_req = i_req_active && !mmu_flush_req;
-    wire d_tlb_lookup_req = d_req_active && !mmu_flush_req && !d_lookup_stalled;
-
-    // PTW fill signals (declared early — used by TLB instance below)
     wire [21:0] ptw_fill_ppn;
     wire        ptw_fill_r, ptw_fill_w, ptw_fill_x, ptw_fill_u;
     wire        ptw_fill_a, ptw_fill_d, ptw_fill_g;
@@ -213,24 +175,34 @@ module MMU #(
     wire [3:0]  ptw_fault_cause_out;
     wire [31:0] ptw_fault_vaddr_out;
 
-    // TLB fill request: only on PTW done (NOT fault — no valid PTE to fill on fault)
-    wire tlb_fill_req = ptw_walk_done &&
-                        (walk_state == W_D_WALK || walk_state == W_I_WALK);
+    // =========================================================================
+    // TLB Port A lookup request
+    // =========================================================================
+    // Issued in T_LOOKUP and T_RELOOKUP; BRAM has 1-cycle read latency,
+    // so output is valid in T_CHECK / T_RECHECK respectively.
+    wire tlb_lookup_req = (t_state == T_LOOKUP || t_state == T_RELOOKUP) && !mmu_flush_req;
 
-    // Fill VPN/ASID from the side being serviced by the walk arbiter
-    wire [19:0] fill_vpn  = (walk_state == W_D_WALK) ? d_latched_vaddr[31:12] : i_latched_vaddr[31:12];
-    wire [8:0]  fill_asid = (walk_state == W_D_WALK) ? d_latched_satp[30:22] : i_latched_satp[30:22];
+    // =========================================================================
+    // TLB fill request (1 cycle in T_FILL, uses Port B write)
+    // =========================================================================
+    wire tlb_fill_req = (t_state == T_FILL);
 
-    // d-side lookup stalled when Port B is used for fill
-    wire d_lookup_stalled = tlb_fill_req;
+    // Fill VPN/ASID from latched values (no walk_state mux needed)
+    wire [19:0] fill_vpn  = latched_vaddr[31:12];
+    wire [8:0]  fill_asid = latched_satp[30:22];
 
+    // =========================================================================
+    // TLB instance (dual-port BRAM)
+    // Port A: ALL lookups (unified, never simultaneous i/d)
+    // Port B: fill only (d_lookup_req = 0 always)
+    // =========================================================================
     tlb #(.ENTRIES(TLB_ENTRIES)) u_tlb(
         .clk(clk),
         .resetn(resetn),
-        // i-side lookup (Port A)
-        .i_lookup_vpn(i_vpn),
-        .i_lookup_asid(i_asid),
-        .i_lookup_req(i_tlb_lookup_req),
+        // Port A: unified lookup
+        .i_lookup_vpn(latched_vpn),
+        .i_lookup_asid(latched_asid),
+        .i_lookup_req(tlb_lookup_req),
         .i_lookup_hit(i_tlb_hit),
         .i_lookup_ppn(i_tlb_ppn),
         .i_lookup_r(i_tlb_r),
@@ -242,22 +214,22 @@ module MMU #(
         .i_lookup_g(i_tlb_g),
         .i_lookup_is_megapage(i_tlb_is_megapage),
         .i_lookup_valid(i_tlb_valid),
-        // d-side lookup (Port B)
-        .d_lookup_vpn(d_vpn),
-        .d_lookup_asid(d_asid),
-        .d_lookup_req(d_tlb_lookup_req),
-        .d_lookup_hit(d_tlb_hit),
-        .d_lookup_ppn(d_tlb_ppn),
-        .d_lookup_r(d_tlb_r),
-        .d_lookup_w(d_tlb_w),
-        .d_lookup_x(d_tlb_x),
-        .d_lookup_u(d_tlb_u),
-        .d_lookup_a(d_tlb_a),
-        .d_lookup_d(d_tlb_d),
-        .d_lookup_g(d_tlb_g),
-        .d_lookup_is_megapage(d_tlb_is_megapage),
-        .d_lookup_valid(d_tlb_valid),
-        // Fill (Port B write, preempts d-lookup)
+        // Port B: NEVER used for lookup — only fill uses Port B write
+        .d_lookup_vpn(20'b0),
+        .d_lookup_asid(9'b0),
+        .d_lookup_req(1'b0),
+        .d_lookup_hit(),
+        .d_lookup_ppn(),
+        .d_lookup_r(),
+        .d_lookup_w(),
+        .d_lookup_x(),
+        .d_lookup_u(),
+        .d_lookup_a(),
+        .d_lookup_d(),
+        .d_lookup_g(),
+        .d_lookup_is_megapage(),
+        .d_lookup_valid(),
+        // Fill (Port B write, preempts d-lookup — but d_lookup_req=0 so no conflict)
         .fill_req(tlb_fill_req),
         .fill_vpn(fill_vpn),
         .fill_asid(fill_asid),
@@ -276,424 +248,62 @@ module MMU #(
     );
 
     // =========================================================================
-    // Permission checks (using latched values + TLB outputs)
+    // Permission check (using latched values + TLB Port A outputs)
     // =========================================================================
-    wire i_tlb_perm_fault;
-    assign i_tlb_perm_fault = (i_latched_priv_mode == 2'b00 && !i_tlb_u) ? 1'b1 :
-                              (i_latched_priv_mode == 2'b01 && i_tlb_u &&
-                               (i_latched_access_type == ACCESS_FETCH || !i_latched_mstatus_sum)) ? 1'b1 :
-                              (i_latched_access_type == ACCESS_FETCH && !i_tlb_x) ? 1'b1 :
-                              (i_latched_access_type == ACCESS_LOAD && !i_tlb_r && !(i_tlb_x && i_latched_mstatus_mxr)) ? 1'b1 :
-                              (i_latched_access_type == ACCESS_STORE && !i_tlb_w) ? 1'b1 : 1'b0;
-
-    wire d_tlb_need_ad_update;
-    assign d_tlb_need_ad_update = d_latched_sv32 && d_tlb_valid && d_tlb_hit &&
-                                  (d_latched_access_type == ACCESS_STORE) && !d_tlb_d;
-
-    wire d_tlb_perm_fault;
-    assign d_tlb_perm_fault = (d_latched_priv_mode == 2'b00 && !d_tlb_u) ? 1'b1 :
-                              (d_latched_priv_mode == 2'b01 && d_tlb_u &&
-                               (d_latched_access_type == ACCESS_FETCH || !d_latched_mstatus_sum)) ? 1'b1 :
-                              (d_latched_access_type == ACCESS_FETCH && !d_tlb_x) ? 1'b1 :
-                              (d_latched_access_type == ACCESS_LOAD && !d_tlb_r && !(d_tlb_x && d_latched_mstatus_mxr)) ? 1'b1 :
-                              (d_latched_access_type == ACCESS_STORE && !d_tlb_w) ? 1'b1 : 1'b0;
+    wire tlb_perm_fault =
+        (latched_priv_mode == 2'b00 && !i_tlb_u) ? 1'b1 :              // U-mode access to non-U page
+        (latched_priv_mode == 2'b01 && i_tlb_u &&
+         (latched_access_type == ACCESS_FETCH || !latched_sum)) ? 1'b1 : // S-mode access to U page
+        (latched_access_type == ACCESS_FETCH && !i_tlb_x) ? 1'b1 :      // fetch from non-X page
+        (latched_access_type == ACCESS_LOAD && !i_tlb_r && !(i_tlb_x && latched_mxr)) ? 1'b1 : // load, MXR
+        (latched_access_type == ACCESS_STORE && !i_tlb_w) ? 1'b1 :      // store to non-W page
+        1'b0;
 
     // =========================================================================
-    // Translation outputs
+    // A/D bit check — trap to software as page fault
     // =========================================================================
-    wire [33:0] i_translated_paddr;
-    assign i_translated_paddr = i_tlb_is_megapage ?
-        {i_tlb_ppn[21:10], i_latched_vaddr[21:0]} :
-        {i_tlb_ppn, i_latched_vaddr[11:0]};
-
-    wire i_translation_ok = i_latched_sv32 && i_tlb_valid && i_tlb_hit && !i_tlb_perm_fault;
-    wire i_tlb_miss       = i_latched_sv32 && i_tlb_valid && !i_tlb_hit;
-    wire i_tlb_pf         = i_latched_sv32 && i_tlb_valid && i_tlb_hit && i_tlb_perm_fault;
-
-    assign i_paddr = !i_latched_sv32 ? i_latched_vaddr :
-                     i_translation_ok ? i_translated_paddr[31:0] : i_latched_vaddr;
-
-    wire [33:0] d_translated_paddr;
-    assign d_translated_paddr = d_tlb_is_megapage ?
-        {d_tlb_ppn[21:10], d_latched_vaddr[21:0]} :
-        {d_tlb_ppn, d_latched_vaddr[11:0]};
-
-    wire d_translation_ok = d_latched_sv32 && d_tlb_valid && d_tlb_hit &&
-                            !d_tlb_perm_fault && !d_tlb_need_ad_update;
-    wire d_tlb_miss       = d_latched_sv32 && d_tlb_valid && (!d_tlb_hit || d_tlb_need_ad_update);
-    wire d_tlb_pf         = d_latched_sv32 && d_tlb_valid && d_tlb_hit &&
-                            d_tlb_perm_fault && !d_tlb_need_ad_update;
-
-    assign d_paddr = !d_latched_sv32 ? d_latched_vaddr :
-                     d_translation_ok ? d_translated_paddr[31:0] : d_latched_vaddr;
+    // RISC-V spec: if A=0 or (store && D=0), implementation may trap to software.
+    wire tlb_need_ad_update = latched_sv32 && i_tlb_valid && i_tlb_hit &&
+                             (!i_tlb_a || (latched_access_type == ACCESS_STORE && !i_tlb_d));
 
     // =========================================================================
-    // Ready / Miss outputs
+    // Physical address computation (megapage handling)
     // =========================================================================
-    // BUG-11 fix (symmetric): i_ready 仅在翻译真正完成且无 fault 时有效。
-    assign i_ready = (i_state == I_LOOKUP) && !i_input_changed
-                     && (!i_latched_sv32 || (i_tlb_valid && i_tlb_hit && !i_tlb_perm_fault));
-    assign i_miss  = (i_state == I_LOOKUP) && i_latched_sv32 && i_tlb_miss && !i_input_changed;
-
-    // BUG-11 fix: d_ready 仅在翻译真正完成且无 fault 时有效。
-    // bare 模式 (!d_latched_sv32) 无需翻译；Sv32 模式必须 hit 且无 perm fault。
-    assign d_ready = (d_state == D_LOOKUP) && !d_input_changed && !d_lookup_stalled
-                     && (!d_latched_sv32 || (d_tlb_valid && d_tlb_hit && !d_tlb_perm_fault));
-    assign d_miss  = (d_state == D_LOOKUP) && d_latched_sv32 && d_tlb_miss && !d_input_changed && !d_lookup_stalled;
+    wire [33:0] translated_paddr = i_tlb_is_megapage ?
+        {i_tlb_ppn[21:10], latched_vaddr[21:0]} :
+        {i_tlb_ppn, latched_vaddr[11:0]};
 
     // =========================================================================
-    // Page fault (registered, per side)
+    // Permission fault cause code (based on access type)
     // =========================================================================
-    // PTW done/fault routed to the correct side
-    wire ptw_done_for_d = ptw_walk_done && (walk_state == W_D_WALK);
-    wire ptw_done_for_i = ptw_walk_done && (walk_state == W_I_WALK);
-    wire ptw_fault_for_d = ptw_walk_fault && (walk_state == W_D_WALK);
-    wire ptw_fault_for_i = ptw_walk_fault && (walk_state == W_I_WALK);
-
-    // i-side page fault
-    reg i_pf_r;
-    reg [3:0] i_pf_cause_r;
-    reg [31:0] i_pf_vaddr_r;
-    reg i_pf_from_ptw_r;   // BUG-5: distinguish TLB perm fault from PTW walk fault
-
-    always_ff @(posedge clk or negedge resetn) begin
-        if (!resetn) begin
-            i_pf_r <= 1'b0;
-            i_pf_cause_r <= 4'b0;
-            i_pf_vaddr_r <= 32'b0;
-            i_pf_from_ptw_r <= 1'b0;
-        end else begin
-            i_pf_r <= 1'b0;
-            i_pf_from_ptw_r <= 1'b0;
-            if (i_state == I_LOOKUP && i_tlb_pf && !i_input_changed) begin
-                i_pf_r <= 1'b1;
-                i_pf_from_ptw_r <= 1'b0;   // TLB permission fault
-                i_pf_vaddr_r <= i_latched_vaddr;
-                case (i_latched_access_type)
-                    ACCESS_FETCH: i_pf_cause_r <= 4'd12;
-                    ACCESS_LOAD:  i_pf_cause_r <= 4'd13;
-                    default:      i_pf_cause_r <= 4'd15;
-                endcase
-            end else if (ptw_fault_for_i) begin
-                i_pf_r <= 1'b1;
-                i_pf_from_ptw_r <= 1'b1;   // PTW walk fault
-                i_pf_cause_r <= ptw_fault_cause_out;
-                i_pf_vaddr_r <= ptw_fault_vaddr_out;
-            end
-        end
-    end
-
-    assign i_page_fault = i_pf_r;
-    assign i_pf_cause   = i_pf_r ? i_pf_cause_r : 4'b0;    // BUG-9 fix: always use latched value
-    assign i_pf_vaddr   = i_pf_r ? i_pf_vaddr_r : 32'b0;    // BUG-9 fix: always use latched value
-
-    // d-side page fault
-    reg d_pf_r;
-    reg [3:0] d_pf_cause_r;
-    reg [31:0] d_pf_vaddr_r;
-    reg d_pf_from_ptw_r;   // BUG-5: distinguish TLB perm fault from PTW walk fault
-
-    always_ff @(posedge clk or negedge resetn) begin
-        if (!resetn) begin
-            d_pf_r <= 1'b0;
-            d_pf_cause_r <= 4'b0;
-            d_pf_vaddr_r <= 32'b0;
-            d_pf_from_ptw_r <= 1'b0;
-        end else begin
-            d_pf_r <= 1'b0;
-            d_pf_from_ptw_r <= 1'b0;
-            if (d_state == D_LOOKUP && d_tlb_pf && !d_input_changed) begin
-                d_pf_r <= 1'b1;
-                d_pf_from_ptw_r <= 1'b0;   // TLB permission fault
-                d_pf_vaddr_r <= d_latched_vaddr;
-                case (d_latched_access_type)
-                    ACCESS_FETCH: d_pf_cause_r <= 4'd12;
-                    ACCESS_LOAD:  d_pf_cause_r <= 4'd13;
-                    default:      d_pf_cause_r <= 4'd15;
-                endcase
-            end else if (ptw_fault_for_d) begin
-                d_pf_r <= 1'b1;
-                d_pf_from_ptw_r <= 1'b1;   // PTW walk fault
-                d_pf_cause_r <= ptw_fault_cause_out;
-                d_pf_vaddr_r <= ptw_fault_vaddr_out;
-            end
-        end
-    end
-
-    assign d_page_fault = d_pf_r;
-    assign d_pf_cause   = d_pf_r ? d_pf_cause_r : 4'b0;    // BUG-9 fix: always use latched value
-    assign d_pf_vaddr   = d_pf_r ? d_pf_vaddr_r : 32'b0;    // BUG-9 fix: always use latched value
+    wire [3:0] perm_fault_cause =
+        (latched_access_type == ACCESS_FETCH) ? 4'd12 :
+        (latched_access_type == ACCESS_LOAD)  ? 4'd13 : 4'd15;
 
     // =========================================================================
-    // i-side FSM
+    // PTW walk_req pulse — asserted when T_CHECK detects TLB miss
     // =========================================================================
-    always_ff @(posedge clk or negedge resetn) begin
-        if (!resetn) begin
-            i_state              <= I_IDLE;
-            i_latched_vaddr      <= 32'b0;
-            i_latched_access_type <= ACCESS_FETCH;
-            i_latched_priv_mode  <= 2'b0;
-            i_latched_satp       <= 32'b0;
-            i_latched_translate_en <= 1'b0;
-            i_latched_mstatus_sum  <= 1'b0;
-            i_latched_mstatus_mxr  <= 1'b0;
-        end else begin
-            case (i_state)
-                I_IDLE: begin
-                    if (mmu_flush_req) begin
-                        i_state <= I_FLUSH;
-                    end else begin
-                        i_latched_vaddr       <= i_vaddr;
-                        i_latched_access_type <= ACCESS_FETCH;
-                        i_latched_priv_mode   <= priv_mode;
-                        i_latched_satp        <= satp;
-                        i_latched_translate_en <= i_translate_en;
-                        i_latched_mstatus_sum  <= mstatus_sum;
-                        i_latched_mstatus_mxr  <= mstatus_mxr;
-                        i_state <= I_LOOKUP;
-                    end
-                end
-
-                I_LOOKUP: begin
-                    if (mmu_flush_req) begin
-                        i_state <= I_FLUSH;
-                    end else if (i_input_changed) begin
-                        i_state <= I_IDLE;
-                    end else if (i_tlb_miss) begin
-                        // Miss: signal walk arbiter (handled below)
-                        i_state <= I_WALK_PENDING;
-                    end
-                end
-
-                I_WALK_PENDING: begin
-                    if (mmu_flush_req) begin
-                        i_state <= I_FLUSH;
-                    end else if (ptw_done_for_i) begin
-                        // PTW completed for i-side, fill TLB, wait 1 cycle
-                        i_state <= I_FILL_WAIT;
-                    end else if (ptw_fault_for_i) begin
-                        // Page fault from PTW
-                        i_state <= I_IDLE;
-                    end
-                end
-
-                I_FILL_WAIT: begin
-                    // TLB fill via Port B has completed. Re-initiate lookup.
-                    i_state <= I_IDLE;
-                end
-
-                I_FLUSH: begin
-                    if (tlb_flush_done) begin
-                        i_state <= I_IDLE;
-                    end
-                end
-
-                default: i_state <= I_IDLE;
-            endcase
-        end
-    end
+    // High for exactly 1 cycle (when t_state == T_CHECK && miss).
+    // PTW sees walk_req on the next rising edge and starts the walk.
+    // By then, t_state has transitioned to T_WALK.
+    wire ptw_walk_req_pulse = (t_state == T_CHECK) && latched_sv32 && i_tlb_valid && !i_tlb_hit;
 
     // =========================================================================
-    // d-side FSM
+    // PTW instance — single shared walker (unchanged interface)
     // =========================================================================
-    always_ff @(posedge clk or negedge resetn) begin
-        if (!resetn) begin
-            d_state              <= D_IDLE;
-            d_latched_vaddr      <= 32'b0;
-            d_latched_access_type <= 2'b0;
-            d_latched_priv_mode  <= 2'b0;
-            d_latched_satp       <= 32'b0;
-            d_latched_translate_en <= 1'b0;
-            d_latched_mstatus_sum  <= 1'b0;
-            d_latched_mstatus_mxr  <= 1'b0;
-        end else begin
-            case (d_state)
-                D_IDLE: begin
-                    if (mmu_flush_req) begin
-                        d_state <= D_FLUSH;
-                    end else if (d_translate_en) begin    // BUG-13 fix: gate with d_translate_en
-                        // Only latch and transition when mem_en=1.
-                        // When mem_en=0, stay in D_IDLE — don't latch stale inputs,
-                        // don't trigger d_input_changed oscillation.
-                        d_latched_vaddr       <= d_vaddr;
-                        d_latched_access_type <= d_access_type;
-                        d_latched_priv_mode   <= priv_mode;
-                        d_latched_satp        <= satp;
-                        d_latched_translate_en <= d_translate_en;
-                        d_latched_mstatus_sum  <= mstatus_sum;
-                        d_latched_mstatus_mxr  <= mstatus_mxr;
-                        d_state <= D_LOOKUP;
-                    end
-                    // else: stay in D_IDLE, don't latch
-                end
-
-                D_LOOKUP: begin
-                    if (mmu_flush_req) begin
-                        d_state <= D_FLUSH;
-                    end else if (d_lookup_stalled) begin
-                        // Port B is filling (PTW done for other side).
-                        // d-side BRAM output is stale — must re-lookup.
-                        d_state <= D_IDLE;
-                    end else if (d_input_changed) begin
-                        d_state <= D_IDLE;
-                    end else if (d_tlb_miss) begin
-                        // Miss: signal walk arbiter
-                        d_state <= D_WALK_PENDING;
-                    end
-                end
-
-                D_WALK_PENDING: begin
-                    if (mmu_flush_req) begin
-                        d_state <= D_FLUSH;
-                    end else if (ptw_done_for_d) begin
-                        d_state <= D_FILL_WAIT;
-                    end else if (ptw_fault_for_d) begin
-                        d_state <= D_IDLE;
-                    end
-                end
-
-                D_FILL_WAIT: begin
-                    d_state <= D_IDLE;
-                end
-
-                D_FLUSH: begin
-                    if (tlb_flush_done) begin
-                        d_state <= D_IDLE;
-                    end
-                end
-
-                default: d_state <= D_IDLE;
-            endcase
-        end
-    end
-
-    // =========================================================================
-    // sfence.vma completion tracking
-    // =========================================================================
-    // sfence_done is asserted when both i-side and d-side have returned to
-    // IDLE after a sfence_vma-triggered TLB flush.  This allows core_top to
-    // sequence: dcache flush → icache inv → TLB flush → resume.
-    reg sfence_pending_r;
-    always_ff @(posedge clk or negedge resetn) begin
-        if (!resetn)
-            sfence_pending_r <= 1'b0;
-        else if (sfence_vma && !sfence_pending_r)
-            sfence_pending_r <= 1'b1;
-        else if (sfence_pending_r && (i_state == I_IDLE) && (d_state == D_IDLE) && !sfence_vma)
-            sfence_pending_r <= 1'b0;
-    end
-
-    assign sfence_done = sfence_pending_r && (i_state == I_IDLE) && (d_state == D_IDLE);
-
-    // =========================================================================
-    // Walk arbiter FSM (manages single PTW instance)
-    // =========================================================================
-    // Walk request pulses from each side (detected in I_LOOKUP / D_LOOKUP on miss)
-    wire i_walk_req = (i_state == I_LOOKUP) && i_tlb_miss && !i_input_changed;
-    wire d_walk_req = (d_state == D_LOOKUP) && d_tlb_miss && !d_input_changed && !d_lookup_stalled;
-    wire selected_d_walk = pending_d_walk || (!pending_i_walk && d_walk_req);
-    wire selected_i_walk = pending_i_walk || (!selected_d_walk && i_walk_req);
-
-    always_ff @(posedge clk or negedge resetn) begin
-        if (!resetn) begin
-            walk_state     <= W_IDLE;
-            pending_i_walk <= 1'b0;
-            pending_d_walk <= 1'b0;
-        end else begin
-            case (walk_state)
-                W_IDLE: begin
-                    if (mmu_flush_req) begin
-                        pending_i_walk <= 1'b0;
-                        pending_d_walk <= 1'b0;
-                    end else if (pending_i_walk) begin
-                        // Service pending i-walk (from previous walk completion)
-                        walk_state     <= W_I_WALK;
-                        pending_i_walk <= 1'b0;
-                    end else if (pending_d_walk) begin
-                        // Service pending d-walk (from previous walk completion)
-                        walk_state     <= W_D_WALK;
-                        pending_d_walk <= 1'b0;
-                    end else if (d_walk_req) begin
-                        walk_state     <= W_D_WALK;
-                        pending_i_walk <= i_walk_req;  // capture simultaneous i-miss
-                    end else if (i_walk_req) begin
-                        walk_state     <= W_I_WALK;
-                        pending_d_walk <= d_walk_req;  // capture simultaneous d-miss
-                    end
-                end
-
-                W_D_WALK: begin
-                    if (mmu_flush_req) begin
-                        walk_state     <= W_IDLE;
-                        pending_i_walk <= 1'b0;
-                        pending_d_walk <= 1'b0;
-                    end else if (ptw_walk_done || ptw_walk_fault) begin
-                        // Go to W_IDLE. If pending_i_walk/pending_d_walk,
-                        // W_IDLE will restart PTW on the next cycle.
-                        walk_state <= W_IDLE;
-                        // pending flags preserved for W_IDLE to process
-                    end else if (i_walk_req && !pending_i_walk) begin
-                        // i-side miss arrived while d-walk in progress — queue it
-                        pending_i_walk <= 1'b1;
-                    end
-                end
-
-                W_I_WALK: begin
-                    if (mmu_flush_req) begin
-                        walk_state     <= W_IDLE;
-                        pending_i_walk <= 1'b0;
-                        pending_d_walk <= 1'b0;
-                    end else if (ptw_walk_done || ptw_walk_fault) begin
-                        walk_state <= W_IDLE;
-                    end else if (d_walk_req && !pending_d_walk) begin
-                        // d-side miss arrived while i-walk in progress — queue it
-                        pending_d_walk <= 1'b1;
-                    end
-                end
-
-                default: walk_state <= W_IDLE;
-            endcase
-        end
-    end
-
-    // =========================================================================
-    // PTW instance — single shared walker
-    // =========================================================================
-    // (ptw_fill_* signals declared above, before TLB instance)
-
-    // PTW inputs: mux based on which side is being serviced
-    // BUG-2 fix: use "start" conditions for the startup instant when walk_state
-    // is still W_IDLE but the arbiter is about to transition to W_D_WALK/W_I_WALK.
-    // During active walk, walk_state is already correct.
-    wire start_d_walk = (walk_state == W_IDLE) && selected_d_walk;
-    wire start_i_walk = (walk_state == W_IDLE) && !selected_d_walk && selected_i_walk;
-
-    wire active_d_walk = (walk_state == W_D_WALK) || start_d_walk;
-    // active_i_walk = !active_d_walk (only two sides)
-
-    wire [31:0] walk_vaddr  = active_d_walk ? d_latched_vaddr  : i_latched_vaddr;
-    wire [1:0]  walk_access = active_d_walk ? d_latched_access_type : ACCESS_FETCH;
-    wire [1:0]  walk_priv   = active_d_walk ? d_latched_priv_mode  : i_latched_priv_mode;
-    wire [31:0] walk_satp   = active_d_walk ? d_latched_satp       : i_latched_satp;
-    wire        walk_sum    = active_d_walk ? d_latched_mstatus_sum  : i_latched_mstatus_sum;
-    wire        walk_mxr    = active_d_walk ? d_latched_mstatus_mxr  : i_latched_mstatus_mxr;
-
-    // PTW walk_req: pulse when walk arbiter starts a new walk
-    // Includes pending_i_walk/pending_d_walk: when W_IDLE services a queued miss, PTW needs restart
-    wire ptw_walk_req_pulse = (walk_state == W_IDLE) &&
-        (selected_d_walk || selected_i_walk);
-
+    // Inputs from latched values directly (no arbiter mux needed).
+    // walk_abort on mmu_flush_req (sfence_vma or satp_changed).
     ptw u_ptw(
         .clk(clk),
         .resetn(resetn),
-        .satp(walk_satp),
-        .priv_mode(walk_priv),
-        .mstatus_sum(walk_sum),
-        .mstatus_mxr(walk_mxr),
-        .access_type(walk_access),
-        .walk_vaddr(walk_vaddr),
+        .satp(latched_satp),
+        .priv_mode(latched_priv_mode),
+        .mstatus_sum(latched_sum),
+        .mstatus_mxr(latched_mxr),
+        .access_type(latched_access_type),
+        .walk_vaddr(latched_vaddr),
         .walk_req(ptw_walk_req_pulse),
-        .walk_abort(mmu_flush_req),           // BUG-7: abort PTW on sfence_vma or satp change
+        .walk_abort(mmu_flush_req),
         .walk_done(ptw_walk_done),
         .walk_fault(ptw_walk_fault),
         .walk_fault_cause(ptw_fault_cause_out),
@@ -717,28 +327,277 @@ module MMU #(
         .pmp_fault_type(pmp_fault_type)
     );
 
-    assign dbg_i_walk_active  = (walk_state != W_IDLE);
-    assign dbg_pending_i_walk = pending_i_walk;
-    assign dbg_nb_i_state = {2'b0, i_state};
-    assign dbg_nb_i_input_changed = i_input_changed;
-    assign dbg_nb_i_latched_vaddr = i_latched_vaddr;
-    assign dbg_nb_i_latched_sv32 = i_latched_sv32;
-    assign dbg_i_tlb_hit = i_tlb_hit;
-    assign dbg_i_tlb_valid = i_tlb_valid;
-    assign dbg_i_tlb_perm_fault = i_tlb_perm_fault;
-    assign dbg_walk_state = walk_state;
+    // =========================================================================
+    // Unified translation FSM
+    // =========================================================================
+    // T_IDLE   : Wait for translate_req or mmu_flush_req
+    // T_LOOKUP : Issue TLB Port A read (BRAM 1-cycle latency)
+    // T_CHECK  : TLB output valid — decide hit/miss/fault
+    // T_WALK   : PTW walking page tables
+    // T_FILL   : Write filled PTE into TLB via Port B (1 cycle)
+    // T_RELOOKUP: Re-issue TLB Port A read after fill
+    // T_RECHECK : Check re-lookup result (should hit after fill)
+    // T_DONE   : Translation successful — translate_done pulse (1 cycle)
+    // T_FAULT  : Translation fault — translate_done + translate_fault pulse (1 cycle)
+    // T_FLUSH  : TLB flush in progress — wait for tlb_flush_done
+    //
+    // Timing: translate_done is set on the edge that enters T_DONE/T_FAULT,
+    // so it is high for exactly 1 cycle while the FSM is in T_DONE/T_FAULT.
+    always_ff @(posedge clk or negedge resetn) begin
+        if (!resetn) begin
+            t_state              <= T_IDLE;
+            latched_vaddr        <= 32'b0;
+            latched_access_type  <= 2'b0;
+            latched_priv_mode    <= 2'b0;
+            latched_satp         <= 32'b0;
+            latched_sum          <= 1'b0;
+            latched_mxr          <= 1'b0;
+            fault_from_ptw_r     <= 1'b0;
+            translate_done       <= 1'b0;
+            translate_fault      <= 1'b0;
+            translate_paddr      <= 32'b0;
+            translate_cause      <= 4'b0;
+            translate_vaddr_out  <= 32'b0;
+        end else begin
+            // Default: translate_done/fault are 1-cycle pulses
+            translate_done  <= 1'b0;
+            translate_fault <= 1'b0;
 
-    // ── d-side debug assignments ──
-    assign dbg_nb_d_state        = {2'b0, d_state};
-    assign dbg_d_tlb_hit         = d_tlb_hit;
-    assign dbg_d_tlb_valid       = d_tlb_valid;
-    assign dbg_d_tlb_perm_fault  = d_tlb_perm_fault;
-    assign dbg_d_input_changed   = d_input_changed;
-    assign dbg_d_latched_vaddr   = d_latched_vaddr;
-    assign dbg_d_latched_sv32    = d_latched_sv32;
-    assign dbg_pending_d_walk    = pending_d_walk;
-    assign dbg_d_pf_from_ptw     = d_pf_from_ptw_r;
-    assign dbg_d_tlb_miss        = d_tlb_miss;
+            case (t_state)
+                // ── T_IDLE: Accept new request or flush ──
+                T_IDLE: begin
+                    if (mmu_flush_req) begin
+                        t_state <= T_FLUSH;
+                    end else if (translate_req) begin
+                        latched_vaddr       <= translate_vaddr;
+                        latched_access_type <= translate_access;
+                        latched_priv_mode   <= translate_priv;
+                        latched_satp        <= translate_satp;
+                        latched_sum         <= translate_sum;
+                        latched_mxr         <= translate_mxr;
+                        t_state             <= T_LOOKUP;
+                    end
+                end
+
+                // ── T_LOOKUP: TLB BRAM read request issued combinationally ──
+                T_LOOKUP: begin
+                    if (mmu_flush_req) begin
+                        t_state <= T_FLUSH;
+                    end else begin
+                        // tlb_lookup_req=1 this cycle → BRAM output valid next cycle
+                        t_state <= T_CHECK;
+                    end
+                end
+
+                // ── T_CHECK: TLB output valid, make decision ──
+                T_CHECK: begin
+                    if (mmu_flush_req) begin
+                        t_state <= T_FLUSH;
+                    end else if (!latched_sv32) begin
+                        // Bare mode — no translation needed
+                        translate_done   <= 1'b1;
+                        translate_paddr  <= latched_vaddr;
+                        fault_from_ptw_r <= 1'b0;
+                        t_state <= T_DONE;
+                    end else if (i_tlb_valid) begin
+                        if (i_tlb_hit && !tlb_perm_fault && !tlb_need_ad_update) begin
+                            // TLB hit, no permission fault, no A/D update needed
+                            translate_done   <= 1'b1;
+                            translate_paddr  <= translated_paddr[31:0];
+                            fault_from_ptw_r <= 1'b0;
+                            t_state <= T_DONE;
+                        end else if (i_tlb_hit && tlb_perm_fault) begin
+                            // TLB hit but permission fault
+                            translate_done     <= 1'b1;
+                            translate_fault    <= 1'b1;
+                            translate_cause    <= perm_fault_cause;
+                            translate_vaddr_out <= latched_vaddr;
+                            fault_from_ptw_r  <= 1'b0;
+                            t_state <= T_FAULT;
+                        end else if (i_tlb_hit && tlb_need_ad_update) begin
+                            // A/D bit needs update — trap to software as page fault
+                            translate_done     <= 1'b1;
+                            translate_fault    <= 1'b1;
+                            translate_cause    <= perm_fault_cause;
+                            translate_vaddr_out <= latched_vaddr;
+                            fault_from_ptw_r  <= 1'b0;
+                            t_state <= T_FAULT;
+                        end else begin
+                            // TLB miss — start PTW walk
+                            t_state <= T_WALK;
+                        end
+                    end
+                    // else: i_tlb_valid not yet asserted, wait in T_CHECK
+                end
+
+                // ── T_WALK: PTW walking page tables ──
+                T_WALK: begin
+                    if (mmu_flush_req) begin
+                        // PTW will be aborted via walk_abort=mmu_flush_req
+                        t_state <= T_FLUSH;
+                    end else if (ptw_walk_done) begin
+                        // Walk completed successfully — fill TLB
+                        t_state <= T_FILL;
+                    end else if (ptw_walk_fault) begin
+                        // Walk fault (page fault or access fault from PTW)
+                        translate_done     <= 1'b1;
+                        translate_fault    <= 1'b1;
+                        translate_cause    <= ptw_fault_cause_out;
+                        translate_vaddr_out <= ptw_fault_vaddr_out;
+                        fault_from_ptw_r  <= 1'b1;
+                        t_state <= T_FAULT;
+                    end
+                end
+
+                // ── T_FILL: Write filled PTE into TLB via Port B (1 cycle) ──
+                T_FILL: begin
+                    // tlb_fill_req=1 this cycle (combinational from t_state)
+                    if (mmu_flush_req) begin
+                        // Skip fill — TLB is being flushed anyway
+                        t_state <= T_FLUSH;
+                    end else begin
+                        t_state <= T_RELOOKUP;
+                    end
+                end
+
+                // ── T_RELOOKUP: Re-issue TLB Port A read after fill ──
+                T_RELOOKUP: begin
+                    if (mmu_flush_req) begin
+                        t_state <= T_FLUSH;
+                    end else begin
+                        // tlb_lookup_req=1 this cycle → BRAM output valid next cycle
+                        t_state <= T_RECHECK;
+                    end
+                end
+
+                // ── T_RECHECK: Check re-lookup result (should hit after fill) ──
+                T_RECHECK: begin
+                    if (mmu_flush_req) begin
+                        t_state <= T_FLUSH;
+                    end else if (i_tlb_valid) begin
+                        if (i_tlb_hit && !tlb_perm_fault && !tlb_need_ad_update) begin
+                            // Hit after fill — translation complete
+                            translate_done   <= 1'b1;
+                            translate_paddr  <= translated_paddr[31:0];
+                            fault_from_ptw_r <= 1'b0;
+                            t_state <= T_DONE;
+                        end else if (i_tlb_hit && tlb_perm_fault) begin
+                            // Permission fault after fill
+                            translate_done     <= 1'b1;
+                            translate_fault    <= 1'b1;
+                            translate_cause    <= perm_fault_cause;
+                            translate_vaddr_out <= latched_vaddr;
+                            fault_from_ptw_r  <= 1'b0;
+                            t_state <= T_FAULT;
+                        end else if (i_tlb_hit && tlb_need_ad_update) begin
+                            // A/D bit fault after fill — trap to software
+                            translate_done     <= 1'b1;
+                            translate_fault    <= 1'b1;
+                            translate_cause    <= perm_fault_cause;
+                            translate_vaddr_out <= latched_vaddr;
+                            fault_from_ptw_r  <= 1'b0;
+                            t_state <= T_FAULT;
+                        end else begin
+                            // Miss after fill — should not happen (filled entry
+                            // must be found). Treat as fault for robustness.
+                            translate_done     <= 1'b1;
+                            translate_fault    <= 1'b1;
+                            translate_cause    <= perm_fault_cause;
+                            translate_vaddr_out <= latched_vaddr;
+                            fault_from_ptw_r  <= 1'b0;
+                            t_state <= T_FAULT;
+                        end
+                    end
+                    // else: i_tlb_valid not yet asserted, wait in T_RECHECK
+                end
+
+                // ── T_DONE: Translation successful (1-cycle pulse) ──
+                T_DONE: begin
+                    // translate_done was set on the edge entering T_DONE,
+                    // so it is high for this 1 cycle. Return to IDLE.
+                    t_state <= T_IDLE;
+                end
+
+                // ── T_FAULT: Translation fault (1-cycle pulse) ──
+                T_FAULT: begin
+                    // translate_done + translate_fault were set on the edge
+                    // entering T_FAULT, so they are high for this 1 cycle.
+                    t_state <= T_IDLE;
+                end
+
+                // ── T_FLUSH: TLB flush in progress ──
+                T_FLUSH: begin
+                    if (tlb_flush_done) begin
+                        t_state <= T_IDLE;
+                    end
+                end
+
+                default: t_state <= T_IDLE;
+            endcase
+        end
+    end
+
+    // =========================================================================
+    // Backward-compatible outputs for icache/dcache
+    // =========================================================================
+    // In the unified MMU, i-side and d-side are not distinguished.
+    // Core_top muxes these based on which side is active.
+    // Default wiring: all outputs reflect the unified translate result.
+    assign i_paddr       = translate_paddr;
+    assign i_ready       = translate_done && !translate_fault;
+    assign i_miss        = 1'b0;   // No autonomous miss signaling in unified MMU
+    assign i_page_fault  = translate_fault;
+    assign i_pf_cause    = translate_cause;
+    assign i_pf_vaddr    = translate_vaddr_out;
+
+    assign d_paddr       = translate_paddr;
+    assign d_ready       = translate_done && !translate_fault;
+    assign d_miss        = 1'b0;   // No autonomous miss signaling in unified MMU
+    assign d_page_fault  = translate_fault;
+    assign d_pf_cause    = translate_cause;
+    assign d_pf_vaddr    = translate_vaddr_out;
+
+    // =========================================================================
+    // sfence.vma completion tracking
+    // =========================================================================
+    // sfence_done is asserted when T_FLUSH completes due to an sfence_vma.
+    // Only tracks sfence_vma (not satp_changed) — matches original behavior.
+    reg sfence_pending_r;
+    always_ff @(posedge clk or negedge resetn) begin
+        if (!resetn)
+            sfence_pending_r <= 1'b0;
+        else if (sfence_vma && !sfence_pending_r)
+            sfence_pending_r <= 1'b1;
+        else if (sfence_pending_r && (t_state == T_FLUSH) && tlb_flush_done)
+            sfence_pending_r <= 1'b0;
+    end
+
+    assign sfence_done = sfence_pending_r && (t_state == T_FLUSH) && tlb_flush_done;
+
+    // =========================================================================
+    // Debug outputs (simplified but valid for core_top compilation)
+    // =========================================================================
+    assign dbg_i_walk_active     = (t_state == T_WALK);
+    assign dbg_pending_i_walk    = 1'b0;    // No pending walks in unified FSM
+    assign dbg_nb_i_state        = t_state[2:0];
+    assign dbg_nb_i_input_changed = 1'b0;   // No input change detection in unified FSM
+    assign dbg_nb_i_latched_vaddr = latched_vaddr;
+    assign dbg_nb_i_latched_sv32  = latched_sv32;
+    assign dbg_i_tlb_hit         = i_tlb_hit;
+    assign dbg_i_tlb_valid       = i_tlb_valid;
+    assign dbg_i_tlb_perm_fault  = tlb_perm_fault;
+    assign dbg_walk_state        = (t_state == T_WALK) ? 2'd1 : 2'd0;
+
+    assign dbg_nb_d_state        = t_state[2:0];
+    assign dbg_d_tlb_hit         = i_tlb_hit;
+    assign dbg_d_tlb_valid       = i_tlb_valid;
+    assign dbg_d_tlb_perm_fault  = tlb_perm_fault;
+    assign dbg_d_input_changed   = 1'b0;    // No input change detection
+    assign dbg_d_latched_vaddr   = latched_vaddr;
+    assign dbg_d_latched_sv32    = latched_sv32;
+    assign dbg_pending_d_walk    = 1'b0;    // No pending walks
+    assign dbg_d_pf_from_ptw     = fault_from_ptw_r;
+    assign dbg_d_tlb_miss        = latched_sv32 && i_tlb_valid && !i_tlb_hit;
 
 `endif // USE_TLB_BRAM
 

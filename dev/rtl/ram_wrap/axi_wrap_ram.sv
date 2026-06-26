@@ -323,7 +323,7 @@ always @(posedge aclk or negedge aresetn) begin
                         if (axi_wstrb[2]) BRAM[w_addr[23:2]][23:16] <= axi_wdata[23:16];
                         if (axi_wstrb[1]) BRAM[w_addr[23:2]][15:8]  <= axi_wdata[15:8];
                         if (axi_wstrb[0]) BRAM[w_addr[23:2]][7:0]   <= axi_wdata[7:0];
-                    end
+end
 
                     if (w_count == 8'd0) begin
                         if (!axi_wlast) begin

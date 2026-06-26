@@ -25,6 +25,34 @@ module tb_privilege_priv_transition;
         end
     end
 
+    // ── fence.i / dcache flush trace + PTE check ──
+    initial begin : fencei_trace
+        $display("[CHK-PTE] START at time %0t", $time);
+        repeat (10) @(posedge clk);
+        $display("[CHK-PTE] cycle=%0d reached", cycle_cnt);
+    end
+
+    // ── S-mode trap debug + PTW walk trace ──
+    initial begin : smode_trap_monitor
+        forever begin
+            @(posedge clk);
+            if (u_soc.cpu.priv_mode == 2'b01 && (
+                u_soc.cpu.u_mmu.t_state == 4'd3 ||
+                u_soc.cpu.u_mmu.t_state == 4'd8)) begin
+                $display("[MMU-PTW] cycle=%0d t_state=%0d ptw_state=%0d latched_vaddr=0x%08h ptw_walk_done=%b ptw_walk_fault=%b ptw_cache_req=%b ptw_cache_ready=%b ptw_cache_rdata=0x%08h",
+                         cycle_cnt, u_soc.cpu.u_mmu.t_state, u_soc.cpu.u_mmu.u_ptw.state,
+                         u_soc.cpu.u_mmu.latched_vaddr,
+                         u_soc.cpu.u_mmu.ptw_walk_done, u_soc.cpu.u_mmu.ptw_walk_fault,
+                         u_soc.cpu.u_mmu.ptw_cache_req, u_soc.cpu.u_mmu.ptw_cache_ready,
+                         u_soc.cpu.u_mmu.ptw_cache_rdata);
+            end
+            if (u_soc.cpu.trap_enter_valid && u_soc.cpu.priv_mode == 2'b01) begin
+                $display("[S-TRAP] cycle=%0d scause=0x%0h sepc=0x%08h stval=0x%08h",
+                         cycle_cnt, u_soc.cpu.csr_scause, u_soc.cpu.csr_sepc, u_soc.cpu.csr_stval);
+            end
+        end
+    end
+
     initial begin
         pass_count = 0;
         fail_count = 0;

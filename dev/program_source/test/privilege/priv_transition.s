@@ -38,6 +38,19 @@ _start:
 
     # ── Page table setup (dual mapping for U-mode code execution) ──
     jal x1, setup_dual_map
+
+    # ── Verify L1 PTE was written: read PA 0x80002800, check V=1 ──
+    li x5, 0x80002800
+    lw x5, 0(x5)             # x5 = PTE value from memory
+    andi x6, x5, 1            # x6 = V bit
+    li x10, 1
+    bnez x6, 1f               # V=1 → PASS (x10=1)
+    li x10, 0                 # V=0 → FAIL (x10=0)
+    # Store the PTE value to shared memory for testbench inspection
+    li x7, 0x80007100
+    sw x5, 0(x7)             # offset 0: raw PTE
+    sw x10, 4(x7)            # offset 4: 1=PASS, 0=FAIL
+1:
     jal x1, enable_sv32
 
     # ── M-mode tests ──

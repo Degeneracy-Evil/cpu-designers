@@ -23,6 +23,7 @@ module icache_ctrl(
     output wire [31:0] refill_addr,
     input  wire [`ICACHE_LINE_WIDTH-1:0] refill_data,
     input  wire        refill_valid,
+    input  wire [31:0] refill_resp_addr,
 
     input  wire        invalidate_req,
     output wire        invalidate_done,
@@ -189,15 +190,18 @@ module icache_ctrl(
     reg  invalidate_done_r;
 
     // Data BRAM Port A: enable in S_TAG_READ on hit (hit_way now known)
-    // mmu_ready gate removed: paddr is latched in S_IDLE when mmu_ready=1,
-    // and S_TAG_READ wait ensures we only proceed after the second mmu_ready
-    // pulse confirms the address is stable (ping-pong mechanism).
-    // NOTE: bram_ena and S_TAG_READ wait are a coupled pair — removing the
-    // wait without removing this gate causes stale BRAM data (bram_ena=0 when
-    // icache proceeds past wait without mmu_ready). Removing both triggers
-    // icachet BRAM collision (Port A read + Port B write on refill→IDLE).
+    // paddr is latched in S_IDLE when mmu_ready=1, so S_TAG_READ can
+    // proceed immediately without waiting for a second mmu_ready pulse.
+    // The old "ping-pong" wait was needed when MMU re-translated on
+    // held-high translate_req; T_COMPLETE state now prevents that.
+    // --- Refill address validation: discard stale bridge responses ---
+    // When the icache cancels a refill (req_changed in S_REFILL), the bridge
+    // may still complete the old request.  Compare the bridge's response
+    // address with latched_addr to detect and discard stale data.
+    wire refill_addr_match = (refill_resp_addr[31:ADDR_LOWER_ZEROS] == latched_addr[31:ADDR_LOWER_ZEROS]);
+
     wire bram_ena = (state == S_TAG_READ) && cache_hit;
-    wire bram_enb = refill_valid && (state == S_REFILL);
+    wire bram_enb = refill_valid && (state == S_REFILL) && refill_addr_match;
 
     icached u_icached(
         .clka   (clk),
@@ -264,7 +268,7 @@ module icache_ctrl(
 
     always_ff @(posedge clk or negedge resetn) begin
         if (!resetn) begin
-            state            <= S_IDLE;
+                        state <= S_IDLE;
             refill_req_r     <= 1'b0;
             refill_addr_r    <= 32'b0;
             latched_set      <= {SET_IDX_W{1'b0}};
@@ -366,7 +370,7 @@ module icache_ctrl(
                         bypass_data     <= sel_word;
                         cpu_req_ready_r <= 1'b1;
                         plru_state[set_idx] <= plru_next;
-                        state <= S_IDLE;
+state <= S_IDLE;
                     end
                 end
 
@@ -377,7 +381,7 @@ module icache_ctrl(
                     end else begin
                         refill_req_r <= 1'b1;
                     end
-                    if (!req_changed && refill_valid) begin
+                    if (!req_changed && refill_valid && refill_addr_match) begin
                         refill_req_r    <= 1'b0;
                         bypass_data     <= sel_word;
                         cpu_req_ready_r <= 1'b1;
@@ -387,6 +391,16 @@ module icache_ctrl(
                         tag_bram_addrb_r <= latched_set;
                         tag_bram_dinb_r  <= refill_tag_din;
                         plru_state[latched_set] <= plru_next_refill;
+                        state <= S_IDLE;
+                    end
+                    // Stale refill (refill_valid && !refill_addr_match):
+                    //   Discard the data — do NOT write tag/data BRAM,
+                    //   do NOT set cpu_req_ready.  Return to S_IDLE so
+                    //   pending invalidate_req can be serviced (avoids
+                    //   deadlock with sfence.vma) and a fresh refill
+                    //   request will be issued on the next miss.
+                    else if (!req_changed && refill_valid && !refill_addr_match) begin
+                        refill_req_r <= 1'b0;
                         state <= S_IDLE;
                     end
                 end

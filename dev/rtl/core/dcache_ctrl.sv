@@ -801,7 +801,7 @@ module dcache_ctrl(
 
                 S_FLUSH_WB_RD: begin
                     wb_addr_r <= {1'b1, {ADDR_UPPER_ZEROS{1'b0}}, latched_victim_tag, latched_set, {ADDR_LOWER_ZEROS{1'b0}}};
-                    state <= S_FLUSH_WB_SD;
+state <= S_FLUSH_WB_SD;
                 end
 
                 S_FLUSH_WB_SD: begin

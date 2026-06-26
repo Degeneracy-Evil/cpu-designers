@@ -294,6 +294,9 @@ module core_top(
     // ── Unified MMU: translate request logic ──
     // CPU requests translation when in FETCH or MEM with a memory access.
     // translate_req is held until translate_done returns (CPU blocks in that state).
+    // The MMU's T_COMPLETE state ensures it waits for translate_req to deassert
+    // after T_DONE/T_FAULT before accepting a new request, preventing re-translation
+    // of the same address (which caused infinite nested trap loops at stvec).
     assign mmu_translate_req    = if_valid || (mem_valid && mem_en);
     assign mmu_translate_vaddr  = if_valid ? fetch_vaddr : mem_dataAddr_32;
     assign mmu_translate_access = if_valid ? 2'b00 : (mem_hwrite ? 2'b10 : 2'b01);  // FETCH : (STORE : LOAD)
@@ -702,6 +705,7 @@ module core_top(
     wire [31:0] icache_refill_addr;
     wire [255:0] icache_refill_data;
     wire        icache_refill_valid;
+    wire [31:0] icache_refill_resp_addr;
     wire [2:0]  icache_dbg_state;
 
     wire        dcache_flush_req;
@@ -818,6 +822,7 @@ module core_top(
         .refill_addr(icache_refill_addr),
         .refill_data(icache_refill_data),
         .refill_valid(icache_refill_valid),
+        .refill_resp_addr(icache_refill_resp_addr),
 
         .invalidate_req(icache_invalidate_req),
         .invalidate_done(icache_invalidate_done),
@@ -1510,6 +1515,7 @@ module core_top(
         .icache_refill_addr (icache_refill_addr),
         .icache_refill_data (icache_refill_data),
         .icache_refill_valid (icache_refill_valid),
+        .icache_refill_resp_addr (icache_refill_resp_addr),
         .dcache_refill_req  (dcache_refill_req),
         .dcache_refill_addr (dcache_refill_addr),
         .dcache_refill_data (dcache_refill_data),

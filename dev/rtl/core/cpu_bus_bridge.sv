@@ -38,6 +38,7 @@ module cpu_bus_bridge(
     input  [31:0] icache_refill_addr,
     output [255:0] icache_refill_data,
     output        icache_refill_valid,
+    output [31:0] icache_refill_resp_addr,
 
     input         dcache_refill_req,
     input  [31:0] dcache_refill_addr,
@@ -192,6 +193,7 @@ module cpu_bus_bridge(
 
     assign icache_refill_data  = refill_shift_reg_with_current;
     assign icache_refill_valid = icache_refill_valid_r;
+    assign icache_refill_resp_addr = burst_base_addr;
     assign dcache_refill_data  = refill_shift_reg_with_current;
     assign dcache_refill_valid = dcache_refill_valid_r;
     assign dcache_refill_done  = dcache_refill_done_r;
@@ -415,7 +417,7 @@ module cpu_bus_bridge(
                         burst_base_addr <= icache_refill_addr;
                         beat_cnt        <= 3'd0;
                         refill_shift_reg <= 256'b0;
-                    end
+end
                     else if (dcache_refill_req && !dcache_refill_valid_r) begin
                         // Dcache refill burst → AR then R
                         state           <= S_DREFILL_AR;
@@ -573,7 +575,7 @@ module cpu_bus_bridge(
                 S_IREFILL_R: begin
                     arvalid <= 1'b0;  // AR channel done — clear valid
                     if (rvalid) begin
-                        if (r_error) begin
+if (r_error) begin
                             // Consume remaining beats before returning to S_IDLE
                             // to prevent RAM from getting stuck in R_BURST
                             if (rlast) begin
@@ -586,7 +588,7 @@ module cpu_bus_bridge(
                             if (rlast) begin
                                 state                  <= S_IDLE;
                                 icache_refill_valid_r  <= 1'b1;
-                            end else begin
+end else begin
                                 beat_cnt <= beat_cnt + 3'd1;
                             end
                         end

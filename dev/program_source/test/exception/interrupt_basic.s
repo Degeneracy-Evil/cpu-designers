@@ -147,10 +147,15 @@ m_trap_handler:
 
 timer_int_handler:
     addi x23, x23, 1        # increment interrupt counter
-    # Clear timer interrupt by writing mtimecmp far ahead
+    # Clear timer interrupt by writing mtimecmp far ahead.
+    # Writing 0 would make mtime >= mtimecmp always true (mtime is
+    # unsigned), causing the interrupt to fire again immediately
+    # after mret — an infinite interrupt loop.  Write 0xFFFFFFFF
+    # instead so mtime < mtimecmp for a very long time.
     lui x10, 0x02004        # mtimecmp base (0x02004000)
-    sw x0, 0(x10)           # mtimecmp_lo = 0
-    sw x0, 4(x10)           # mtimecmp_hi = 0
+    li x11, -1              # 0xFFFFFFFF
+    sw x11, 0(x10)          # mtimecmp_lo = 0xFFFFFFFF
+    sw x11, 4(x10)          # mtimecmp_hi = 0xFFFFFFFF
     li x10, 0x1888
     csrw mstatus, x10
     mret

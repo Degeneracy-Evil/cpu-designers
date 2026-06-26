@@ -129,6 +129,7 @@ module MMU #(
     localparam T_DONE     = 4'd7;
     localparam T_FAULT    = 4'd8;
     localparam T_FLUSH    = 4'd9;
+    localparam T_COMPLETE = 4'd10;
 
     reg [3:0] t_state;
 
@@ -337,12 +338,14 @@ module MMU #(
     // T_FILL   : Write filled PTE into TLB via Port B (1 cycle)
     // T_RELOOKUP: Re-issue TLB Port A read after fill
     // T_RECHECK : Check re-lookup result (should hit after fill)
-    // T_DONE   : Translation successful — translate_done pulse (1 cycle)
-    // T_FAULT  : Translation fault — translate_done + translate_fault pulse (1 cycle)
+    // T_DONE   : Translation successful → T_COMPLETE
+    // T_FAULT  : Translation fault → T_COMPLETE
+    // T_COMPLETE: Hold translate_done level-high until !translate_req
     // T_FLUSH  : TLB flush in progress — wait for tlb_flush_done
     //
     // Timing: translate_done is set on the edge that enters T_DONE/T_FAULT,
-    // so it is high for exactly 1 cycle while the FSM is in T_DONE/T_FAULT.
+    // then held high in T_COMPLETE until translate_req deasserts (level signal).
+    // This prevents re-translation when translate_req is held high.
     always_ff @(posedge clk or negedge resetn) begin
         if (!resetn) begin
             t_state              <= T_IDLE;
@@ -511,18 +514,53 @@ module MMU #(
                     // else: i_tlb_valid not yet asserted, wait in T_RECHECK
                 end
 
-                // ── T_DONE: Translation successful (1-cycle pulse) ──
+                // ── T_DONE: Translation successful → T_COMPLETE ──
                 T_DONE: begin
-                    // translate_done was set on the edge entering T_DONE,
-                    // so it is high for this 1 cycle. Return to IDLE.
-                    t_state <= T_IDLE;
+                    // BUG-FIX: Hold translate_done high (override default clear).
+                    // Without this, translate_done drops for 1 cycle between
+                    // T_DONE and T_COMPLETE, causing mmu_ready to go low.
+                    // The dcache's data BRAM enable (is_store_hit/is_load_hit)
+                    // is gated by mmu_ready, but the S_TAG_READ state machine
+                    // proceeds on cache_hit without checking mmu_ready. The
+                    // 1-cycle gap causes: store hit → data BRAM write suppressed
+                    // but cpu_req_ready asserted (data lost); load hit → data
+                    // BRAM read suppressed but state moves to S_READ_HIT (stale
+                    // data returned). Holding translate_done high eliminates the gap.
+                    translate_done <= 1'b1;
+                    t_state <= T_COMPLETE;
                 end
 
-                // ── T_FAULT: Translation fault (1-cycle pulse) ──
+                // ── T_FAULT: Translation fault → T_COMPLETE ──
                 T_FAULT: begin
-                    // translate_done + translate_fault were set on the edge
-                    // entering T_FAULT, so they are high for this 1 cycle.
-                    t_state <= T_IDLE;
+                    // BUG-FIX: Hold both translate_done and translate_fault high.
+                    // Same reasoning as T_DONE: the 1-cycle gap of translate_done
+                    // breaks dcache data BRAM gating. Additionally, translate_fault
+                    // must be held high so T_COMPLETE's "translate_fault <= translate_fault"
+                    // preserves the fault status instead of latching the default clear.
+                    translate_done  <= 1'b1;
+                    translate_fault <= 1'b1;
+                    t_state <= T_COMPLETE;
+                end
+
+                // ── T_COMPLETE: Hold translate_done high until translate_req deasserts ──
+                // translate_done is a level signal here: it stays high as long as
+                // the CPU holds translate_req for the SAME address, preventing
+                // re-translation. If translate_req stays high but the virtual address
+                // changes (e.g., CPU transitions from FETCH to MEM), we must
+                // re-translate for the new address. If translate_req drops, return
+                // to T_IDLE.
+                T_COMPLETE: begin
+                    translate_done  <= 1'b1;   // override default clear — level signal
+                    translate_fault <= translate_fault; // hold fault status
+                    if (mmu_flush_req) begin
+                        t_state <= T_FLUSH;
+                    end else if (!translate_req) begin
+                        t_state <= T_IDLE;
+                    end else if (translate_vaddr != latched_vaddr) begin
+                        // Address changed while translate_req held high (e.g.,
+                        // FETCH→MEM transition). Must re-translate new address.
+                        t_state <= T_IDLE;
+                    end
                 end
 
                 // ── T_FLUSH: TLB flush in progress ──

@@ -119,16 +119,16 @@ module dcache_ctrl(
     // is only consumed after mmu_ready is asserted (paddr valid).
     wire is_mmio = ~cpu_req_addr[31] | cpu_req_addr[30];
 
-    // VIPT: use vaddr for set index (bits within page offset), paddr for tag
+    // PIPT: use paddr for both set index and tag
     wire [TAG_WIDTH-1:0]   req_tag  = cpu_req_addr[`DCACHE_TAG_HI:`DCACHE_TAG_LO];
-    wire [SET_IDX_W-1:0]   set_idx  = cpu_req_vaddr[`DCACHE_SET_IDX_HI:`DCACHE_SET_IDX_LO];
-    wire [SET_IDX_W-1:0]   word_off = cpu_req_vaddr[`DCACHE_WORD_OFF_HI:`DCACHE_WORD_OFF_LO];
+    wire [SET_IDX_W-1:0]   set_idx  = cpu_req_addr[`DCACHE_SET_IDX_HI:`DCACHE_SET_IDX_LO];
+    wire [SET_IDX_W-1:0]   word_off = cpu_req_addr[`DCACHE_WORD_OFF_HI:`DCACHE_WORD_OFF_LO];
 
-    // PTW address decomposition (VIPT: vaddr for set index, paddr for tag)
+    // PTW address decomposition (PIPT: paddr for both set index and tag)
     wire                  ptw_req_is_mmio = ~ptw_req_addr[31] | ptw_req_addr[30];
     wire [TAG_WIDTH-1:0]  ptw_req_tag     = ptw_req_addr[`DCACHE_TAG_HI:`DCACHE_TAG_LO];
-    wire [SET_IDX_W-1:0]  ptw_set_idx     = ptw_req_vaddr[`DCACHE_SET_IDX_HI:`DCACHE_SET_IDX_LO];
-    wire [SET_IDX_W-1:0]  ptw_word_off    = ptw_req_vaddr[`DCACHE_WORD_OFF_HI:`DCACHE_WORD_OFF_LO];
+    wire [SET_IDX_W-1:0]  ptw_set_idx     = ptw_req_addr[`DCACHE_SET_IDX_HI:`DCACHE_SET_IDX_LO];
+    wire [SET_IDX_W-1:0]  ptw_word_off    = ptw_req_addr[`DCACHE_WORD_OFF_HI:`DCACHE_WORD_OFF_LO];
 
     reg [3:0] state; // 状态机
 
@@ -228,13 +228,13 @@ module dcache_ctrl(
     reg [TAG_WIDTH-1:0]  latched_victim_tag;  // victim's tag for writeback addr
     reg        is_ptw_req_r;             // 1 = current request is from PTW
     reg [31:0] latched_ptw_addr;         // Latched PTW physical address
-    reg [31:0] latched_ptw_vaddr;        // Latched PTW virtual address (for VIPT set index)
+    reg [31:0] latched_ptw_vaddr;        // Latched PTW virtual address (port preserved for compatibility)
 
     // Active request signals (muxed between CPU and PTW based on is_ptw_req_r)
     // Must be declared before tree_plru instantiation which uses active_set_idx
     wire [TAG_WIDTH-1:0]   active_req_tag  = is_ptw_req_r ? latched_ptw_addr[`DCACHE_TAG_HI:`DCACHE_TAG_LO] : req_tag;
-    wire [SET_IDX_W-1:0]   active_set_idx  = is_ptw_req_r ? latched_ptw_vaddr[`DCACHE_SET_IDX_HI:`DCACHE_SET_IDX_LO] : set_idx;
-    wire [SET_IDX_W-1:0]   active_word_off = is_ptw_req_r ? latched_ptw_vaddr[`DCACHE_WORD_OFF_HI:`DCACHE_WORD_OFF_LO] : word_off;
+    wire [SET_IDX_W-1:0]   active_set_idx  = is_ptw_req_r ? latched_ptw_addr[`DCACHE_SET_IDX_HI:`DCACHE_SET_IDX_LO] : set_idx;
+    wire [SET_IDX_W-1:0]   active_word_off = is_ptw_req_r ? latched_ptw_addr[`DCACHE_WORD_OFF_HI:`DCACHE_WORD_OFF_LO] : word_off;
 
     wire [WAY_W-1:0] plru_victim;
     wire [NUM_WAYS-2:0] plru_next;
@@ -632,11 +632,10 @@ module dcache_ctrl(
 
                 S_TAG_READ: begin
                     // Tag BRAM Port A output is now valid
-                    // Wait for MMU ready (paddr valid) before tag comparison
-                    // For PTW requests, mmu_ready is not needed (address is already physical)
-                    if (!is_ptw_req_r && !mmu_ready) begin
-                        // Stay in S_TAG_READ until paddr is valid (CPU only)
-                    end else if (cache_hit) begin
+                    // T_COMPLETE in MMU.sv holds translate_done high until !translate_req,
+                    // so mmu_ready stays stable after translation — no ping-pong wait needed.
+                    // PTW addresses are already physical (no mmu_ready needed).
+                    if (cache_hit) begin
                         if (!is_ptw_req_r && cpu_req_hwrite) begin
                             // Store hit: write data BRAM + set dirty in tag BRAM
                             tag_bram_enb_r   <= 1'b1;

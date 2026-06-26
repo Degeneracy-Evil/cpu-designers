@@ -294,9 +294,7 @@ module core_top(
     // ── Unified MMU: translate request logic ──
     // CPU requests translation when in FETCH or MEM with a memory access.
     // translate_req is held until translate_done returns (CPU blocks in that state).
-    // The MMU's T_COMPLETE state ensures it waits for translate_req to deassert
-    // after T_DONE/T_FAULT before accepting a new request, preventing re-translation
-    // of the same address (which caused infinite nested trap loops at stvec).
+    // T_COMPLETE state holds translate_done high until !translate_req
     assign mmu_translate_req    = if_valid || (mem_valid && mem_en);
     assign mmu_translate_vaddr  = if_valid ? fetch_vaddr : mem_dataAddr_32;
     assign mmu_translate_access = if_valid ? 2'b00 : (mem_hwrite ? 2'b10 : 2'b01);  // FETCH : (STORE : LOAD)
@@ -1180,7 +1178,7 @@ module core_top(
         // PTW request port (priority over CPU requests)
         .ptw_req_valid(ptw_cache_req),
         .ptw_req_addr(ptw_cache_addr),
-        .ptw_req_vaddr(ptw_cache_addr),  // VIPT: PTW uses physical address as vaddr (page tables in DDR3 where vaddr=paddr for set index)
+        .ptw_req_vaddr(ptw_cache_addr),  // PIPT: PTW uses physical address for both index and tag
         .ptw_req_ready(ptw_cache_ready),
         .ptw_req_rdata(ptw_cache_rdata),
         .ptw_req_fault(ptw_cache_fault),

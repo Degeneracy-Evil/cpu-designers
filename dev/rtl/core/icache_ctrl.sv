@@ -82,10 +82,10 @@ module icache_ctrl(
     wire req_changed = lookup_active && cpu_req_valid &&
                        ((cpu_req_addr != active_req_addr_r) || (cpu_req_vaddr != active_req_vaddr_r));
 
-    // VIPT: use vaddr for set index (bits within page offset), paddr for tag
+    // PIPT: use paddr for both set index and tag
     wire [TAG_WIDTH-1:0]   req_tag  = req_addr_sel[`ICACHE_TAG_HI:`ICACHE_TAG_LO];
-    wire [SET_IDX_W-1:0]   set_idx  = req_vaddr_sel[`ICACHE_SET_IDX_HI:`ICACHE_SET_IDX_LO];
-    wire [SET_IDX_W-1:0]   word_off = req_vaddr_sel[`ICACHE_WORD_OFF_HI:`ICACHE_WORD_OFF_LO];
+    wire [SET_IDX_W-1:0]   set_idx  = req_addr_sel[`ICACHE_SET_IDX_HI:`ICACHE_SET_IDX_LO];
+    wire [SET_IDX_W-1:0]   word_off = req_addr_sel[`ICACHE_WORD_OFF_HI:`ICACHE_WORD_OFF_LO];
 
     reg [2:0] state;
 
@@ -343,11 +343,11 @@ module icache_ctrl(
                 end
 
                 S_TAG_READ: begin
+                    // T_COMPLETE in MMU.sv holds translate_done high until !translate_req,
+                    // so mmu_ready stays stable after translation — no ping-pong wait needed.
                     if (req_changed) begin
                         refill_req_r <= 1'b0;
                         state <= S_IDLE;
-                    end else if (!mmu_ready) begin
-                        // Stay in S_TAG_READ until paddr is valid (ping-pong)
                     end else if (cache_hit) begin
                         // Data BRAM Port A enabled this cycle (bram_ena above)
                         // Data available next cycle in S_READ

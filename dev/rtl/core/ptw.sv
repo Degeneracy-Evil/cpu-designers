@@ -137,8 +137,10 @@ module ptw(
     reg [31:0] cache_addr_r;
     reg        cache_req_pending_r;  // stays high until cache responds (ptw_cache_ready)
 
-    // BUG-15: cache response timeout counter — prevents permanent hang if cache never responds
-    localparam PTW_TIMEOUT = 16'd256;   // 256 cycles per cache beat
+    // Defensive: cache response timeout counter — if the dcache never responds
+    // (e.g., AXI bus error, bridge deadlock, or SRAM stuck), force a fault
+    // after PTW_TIMEOUT cycles to prevent permanent CPU hang.
+    localparam PTW_TIMEOUT = 16'd256;   // 256 cycles — defensive timeout for cache response
     reg [15:0] timeout_cnt;
 
     assign ptw_cache_req  = cache_req_pending_r;
@@ -187,7 +189,7 @@ module ptw(
             timeout_cnt      <= 16'd0;
             fault_kind_r     <= FAULT_NONE;
         end else begin
-            // BUG-15: timeout counter — increments while waiting for cache response
+            // Defensive: timeout counter — increments while waiting for cache response
             // in S_L1_CHECK/S_L0_CHECK (after request issued). On expiry, force S_FAULT.
             if ((state == S_L1_CHECK || state == S_L0_CHECK) && cache_req_pending_r) begin
                 if (ptw_cache_ready) begin
@@ -258,7 +260,7 @@ module ptw(
                                     state <= S_L0_READ;
                                 end
                             end
-                        end else if (timeout_cnt >= PTW_TIMEOUT) begin  // BUG-15: timeout
+                        end else if (timeout_cnt >= PTW_TIMEOUT) begin  // Defensive: timeout
                             fault_kind_r <= FAULT_ACCESS;
                             state <= S_FAULT;
                             cache_req_pending_r <= 1'b0;
@@ -300,7 +302,7 @@ module ptw(
                                     state <= S_FAULT;
                                 end
                             end
-                        end else if (timeout_cnt >= PTW_TIMEOUT) begin  // BUG-15: timeout
+                        end else if (timeout_cnt >= PTW_TIMEOUT) begin  // Defensive: timeout
                             fault_kind_r <= FAULT_ACCESS;
                             state <= S_FAULT;
                             cache_req_pending_r <= 1'b0;

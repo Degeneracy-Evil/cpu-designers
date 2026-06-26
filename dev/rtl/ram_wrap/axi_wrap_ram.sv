@@ -99,6 +99,11 @@ reg [31:0] BRAM [0:MEM_DEPTH-1];
 // FPGA: synthesizer handles COE via Sram IP.
 `ifdef SIMULATION
 initial begin
+    // Zero entire array first to avoid X propagation when kernel accesses
+    // memory beyond the hex file's coverage (e.g. 128MB DTB but hex only
+    // covers ~9.4MB). Real DDR3 powers up with defined values, not X.
+    for (integer i = 0; i < MEM_DEPTH; i = i + 1)
+        BRAM[i] = 32'h00000000;
     $readmemh("prog.hex", BRAM);
 end
 

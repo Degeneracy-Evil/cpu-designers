@@ -197,6 +197,13 @@ module tb_kernel_boot;
     integer dbg_if_fd;
     integer dbg_forensic_fd;
     integer dbg_dmmu_fd;
+    integer dbg_pte_fd;
+    integer dbg_dcache_pte_fd;
+    integer dbg_ptw_fd;
+    integer dbg_axi_pte_fd;
+    integer dbg_vmalloc_fd;
+    integer dbg_maint_fd;
+    integer dbg_pte_final_fd;
     integer dbg_if_cycle;
     reg     dbg_if_miss_prev;
     reg     dbg_ptw_active_prev;
@@ -205,9 +212,31 @@ module tb_kernel_boot;
     reg [31:0] dbg_last_map_vaddr;
     reg [31:0] dbg_last_map_paddr;
     reg        dbg_last_map_valid;
+    reg [31:0] dbg_last_pte_word;
+    reg [31:0] dbg_last_pte_line_word0;
+    reg [31:0] dbg_last_pte_line_word1;
+    reg [31:0] dbg_last_pte_line_word2;
+    reg [31:0] dbg_last_pte_line_word3;
+    reg        dbg_pte_shadow_valid;
+    reg        dbg_vmalloc_window;
+    reg [31:0] dbg_vmalloc_start_cycle;
+    reg        dbg_prev_sfence_vma_req;
+    reg        dbg_prev_dcache_flush_req;
+    reg        dbg_prev_dcache_flush_done;
+    reg        dbg_prev_icache_invalidate_req;
+    reg        dbg_prev_icache_invalidate_done;
+    reg        dbg_prev_mmu_sfence_done;
+    reg        dbg_prev_ptw_ad_inv_req;
+    reg        dbg_prev_ptw_ad_inv_done;
 
     localparam integer IF_SANITY_ENABLE_CYCLE = 200000000;
     localparam integer FORENSIC_DEPTH = 128;
+    localparam [31:0] PTE_WATCH_ADDR      = 32'h809b7084;
+    localparam [31:0] PTE_WATCH_LINE_ADDR = 32'h809b7080;
+    localparam [31:0] PTE_WATCH_PAGE_BASE = 32'h809b7000;
+    localparam [31:0] PTE_WATCH_PAGE_END  = 32'h809b7fff;
+    localparam [31:0] VMALLOC_WATCH_BASE  = 32'ha0021000;
+    localparam [31:0] VMALLOC_WATCH_END   = 32'ha0021fff;
 
     integer dbg_forensic_wr_ptr;
     integer dbg_forensic_count;
@@ -345,6 +374,38 @@ module tb_kernel_boot;
         input [31:0] addr;
         begin
             is_sram_cacheable_addr = addr[31] && !addr[30] && (addr[29:27] == 3'b000);
+        end
+    endfunction
+
+    function is_pte_page_addr;
+        input [31:0] addr;
+        begin
+            is_pte_page_addr = (addr >= PTE_WATCH_PAGE_BASE) && (addr <= PTE_WATCH_PAGE_END);
+        end
+    endfunction
+
+    function is_pte_line_addr;
+        input [31:0] addr;
+        begin
+            is_pte_line_addr = ({addr[31:5], 5'b0} == PTE_WATCH_LINE_ADDR);
+        end
+    endfunction
+
+    function is_vmalloc_watch_addr;
+        input [31:0] addr;
+        begin
+            is_vmalloc_watch_addr = (addr >= VMALLOC_WATCH_BASE) && (addr <= VMALLOC_WATCH_END);
+        end
+    endfunction
+
+    function is_vmalloc_trace_pc;
+        input [31:0] pc;
+        begin
+            is_vmalloc_trace_pc =
+                ((pc >= 32'hc00e0000) && (pc <= 32'hc00e8000)) ||
+                ((pc >= 32'hc00cfc00) && (pc <= 32'hc00d4a00)) ||
+                ((pc >= 32'hc00118c0) && (pc <= 32'hc0011960)) ||
+                ((pc >= 32'hc01df360) && (pc <= 32'hc01df470));
         end
     endfunction
 
@@ -570,6 +631,13 @@ module tb_kernel_boot;
         dbg_if_fd = $fopen("if_sanity.log", "w");
         dbg_forensic_fd = $fopen("trap_forensics_dump.log", "w");
         dbg_dmmu_fd = $fopen("dmmu_fault_trace.log", "w");
+        dbg_pte_fd = $fopen("pte_lifecycle.log", "w");
+        dbg_dcache_pte_fd = $fopen("dcache_pte_deep.log", "w");
+        dbg_ptw_fd = $fopen("ptw_deep.log", "w");
+        dbg_axi_pte_fd = $fopen("axi_pte_trace.log", "w");
+        dbg_vmalloc_fd = $fopen("vmalloc_exec_trace.log", "w");
+        dbg_maint_fd = $fopen("maintenance_trace.log", "w");
+        dbg_pte_final_fd = $fopen("pte_final_snapshot.log", "w");
         if (dbg_if_fd != 0) begin
             $fwrite(dbg_if_fd, "# IF sanity event log\n");
             $fwrite(dbg_if_fd, "# Cycle\tTime\tEvent\tPC\tINST\tPADDR\tAUX0\tAUX1\tAUX2\tAUX3\tAUX4\n");
@@ -577,6 +645,32 @@ module tb_kernel_boot;
         if (dbg_dmmu_fd != 0) begin
             $fwrite(dbg_dmmu_fd, "# DMMU focused trace\n");
             $fwrite(dbg_dmmu_fd, "# cyc time event mem_pc mem_inst mem_en mem_we mem_vaddr mem_wdata d_paddr d_ready d_miss d_pf d_pfc d_pfv d_state d_lat_vaddr d_atype d_priv d_sum d_mxr d_tlb_v d_tlb_h d_tlb_perm d_tlb_miss d_ppn d_r d_w d_x d_u d_a d_d d_g d_mega ptw_done ptw_fault ptw_fc ptw_fv fill fill_vpn fill_ppn fill_r fill_w fill_x fill_u fill_a fill_d coll_i coll_d hwc hwe hwt scause stval sepc\n");
+        end
+        if (dbg_pte_fd != 0) begin
+            $fwrite(dbg_pte_fd, "# PTE lifecycle trace for pte=%08h line=%08h page=%08h-%08h vmalloc=%08h-%08h\n",
+                    PTE_WATCH_ADDR, PTE_WATCH_LINE_ADDR, PTE_WATCH_PAGE_BASE, PTE_WATCH_PAGE_END,
+                    VMALLOC_WATCH_BASE, VMALLOC_WATCH_END);
+            $fwrite(dbg_pte_fd, "# cyc time event pc inst vaddr paddr wdata wstrb size dready dmiss dpf dstate dcstate dchit way set tag dirty sram_pte ptw_addr ptw_we ptw_wdata ptw_rdata ptw_done ptw_fault hwc hwe hwt\n");
+        end
+        if (dbg_dcache_pte_fd != 0) begin
+            $fwrite(dbg_dcache_pte_fd, "# DCache deep trace for PTE page/line\n");
+            $fwrite(dbg_dcache_pte_fd, "# cyc time event state cpu_valid hwrite hsize mmu_ready addr vaddr wdata req_tag set word hit way hitmask tag0 tag1 tag2 tag3 victim vdirty lat_addr lat_wdata lat_set lat_way lat_vtag refill_req refill_addr refill_valid refill_done refill_word wb_req wb_addr wb_done wb_word inv_req inv_addr inv_done sram_pte\n");
+        end
+        if (dbg_ptw_fd != 0) begin
+            $fwrite(dbg_ptw_fd, "# PTW deep trace\n");
+            $fwrite(dbg_ptw_fd, "# cyc time event walk_state dstate istate walk_vaddr walk_access satp req addr we wdata rdata done error fault fcause fvaddr fkind fill_vpn fill_ppn fill_perm sram_pte dc_state dc_hit dc_tags\n");
+        end
+        if (dbg_axi_pte_fd != 0) begin
+            $fwrite(dbg_axi_pte_fd, "# AXI/SRAM trace for PTE page\n");
+            $fwrite(dbg_axi_pte_fd, "# cyc time event cpu_awv cpu_awr cpu_awaddr cpu_awlen cpu_wv cpu_wr cpu_wdata cpu_wstrb cpu_wlast cpu_bv cpu_br cpu_arv cpu_arr cpu_araddr ddr_awv ddr_awr ddr_awaddr ddr_wv ddr_wr ddr_wdata ddr_wstrb sram_waddr sram_wdata sram_wstrb sram_old sram_new\n");
+        end
+        if (dbg_vmalloc_fd != 0) begin
+            $fwrite(dbg_vmalloc_fd, "# vmalloc/set_pte execution focused trace\n");
+            $fwrite(dbg_vmalloc_fd, "# cyc time event if_pc if_inst mem_pc mem_inst mem_valid mem_done mem_en mem_we vaddr paddr wdata size dready dmiss dpf wb_pc wb_inst rf_wen rf_waddr rf_wdata ra sp a0 a1 a2 a3 s1 s2 satp\n");
+        end
+        if (dbg_maint_fd != 0) begin
+            $fwrite(dbg_maint_fd, "# maintenance/sfence/flush trace\n");
+            $fwrite(dbg_maint_fd, "# cyc time event pc inst sfence_req dflush_req dflush_done iflush_req iflush_done mmu_sfence_done ptw_inv_req ptw_inv_addr ptw_inv_done dc_state flush_set flush_way inv_set inv_tag wb_req wb_addr wb_done wb_word sram_pte\n");
         end
         dbg_if_cycle = 0;
         dbg_if_miss_prev = 1'b0;
@@ -586,6 +680,22 @@ module tb_kernel_boot;
         dbg_last_map_vaddr = 32'b0;
         dbg_last_map_paddr = 32'b0;
         dbg_last_map_valid = 1'b0;
+        dbg_last_pte_word = 32'b0;
+        dbg_last_pte_line_word0 = 32'b0;
+        dbg_last_pte_line_word1 = 32'b0;
+        dbg_last_pte_line_word2 = 32'b0;
+        dbg_last_pte_line_word3 = 32'b0;
+        dbg_pte_shadow_valid = 1'b0;
+        dbg_vmalloc_window = 1'b0;
+        dbg_vmalloc_start_cycle = 32'b0;
+        dbg_prev_sfence_vma_req = 1'b0;
+        dbg_prev_dcache_flush_req = 1'b0;
+        dbg_prev_dcache_flush_done = 1'b0;
+        dbg_prev_icache_invalidate_req = 1'b0;
+        dbg_prev_icache_invalidate_done = 1'b0;
+        dbg_prev_mmu_sfence_done = 1'b0;
+        dbg_prev_ptw_ad_inv_req = 1'b0;
+        dbg_prev_ptw_ad_inv_done = 1'b0;
         dbg_forensic_wr_ptr = 0;
         dbg_forensic_count = 0;
         dbg_forensic_dumped = 1'b0;
@@ -769,6 +879,258 @@ module tb_kernel_boot;
                 $fflush(dbg_dmmu_fd);
             end
 
+`ifndef SIMU_DDR_MODE
+            if (if_sanity_window_active()) begin
+                if (!dbg_pte_shadow_valid) begin
+                    dbg_last_pte_word = sram_read_word(PTE_WATCH_ADDR);
+                    dbg_last_pte_line_word0 = sram_read_word(PTE_WATCH_LINE_ADDR + 32'h00);
+                    dbg_last_pte_line_word1 = sram_read_word(PTE_WATCH_LINE_ADDR + 32'h04);
+                    dbg_last_pte_line_word2 = sram_read_word(PTE_WATCH_LINE_ADDR + 32'h08);
+                    dbg_last_pte_line_word3 = sram_read_word(PTE_WATCH_LINE_ADDR + 32'h0c);
+                    dbg_pte_shadow_valid = 1'b1;
+                end
+
+                if (u_soc.cpu.mem_pc == 32'hc00e7394 || u_soc.cpu.mem_pc == 32'hc00e7248) begin
+                    dbg_vmalloc_window = 1'b1;
+                    if (dbg_vmalloc_start_cycle == 32'b0)
+                        dbg_vmalloc_start_cycle = dbg_if_cycle;
+                end
+                if (u_soc.cpu.trap_enter_valid && (u_soc.cpu.hw_trap_epc != 32'hc0010bbc))
+                    dbg_vmalloc_window = 1'b0;
+
+                if (dbg_pte_fd != 0 &&
+                    ((u_soc.cpu.mem_en && (is_pte_page_addr(u_soc.cpu.mmu_data_paddr) ||
+                                           is_vmalloc_watch_addr(u_soc.cpu.mem_dataAddr_32))) ||
+                     (u_soc.cpu.u_mmu.ptw_bus_req && (is_pte_page_addr(u_soc.cpu.u_mmu.ptw_bus_addr) ||
+                                                      is_pte_line_addr(u_soc.cpu.u_mmu.ptw_bus_addr))) ||
+                     (u_soc.cpu.u_mmu.ptw_bus_done && (is_pte_page_addr(u_soc.cpu.u_mmu.ptw_bus_addr) ||
+                                                       is_pte_line_addr(u_soc.cpu.u_mmu.ptw_bus_addr))) ||
+                     u_soc.cpu.u_mmu.ptw_walk_fault ||
+                     (u_soc.cpu.trap_enter_valid && (u_soc.cpu.hw_trap_epc != 32'hc0010bbc)))) begin
+                    $fwrite(dbg_pte_fd,
+                            "%0d %0t PTE %08h %08h %08h %08h %08h %04b %0d %0b %0b %0b %0d %0d %0b %0d %0d %05h %0b %08h %08h %0b %08h %08h %0b %0b %08h %08h %08h\n",
+                            dbg_if_cycle, $time,
+                            u_soc.cpu.mem_pc, u_soc.cpu.mem_inst,
+                            u_soc.cpu.mem_dataAddr_32, u_soc.cpu.mmu_data_paddr,
+                            u_soc.cpu.mem_writeData_32,
+                            (u_soc.cpu.mem_hsize == 3'd0) ? (4'b0001 << u_soc.cpu.mmu_data_paddr[1:0]) :
+                            (u_soc.cpu.mem_hsize == 3'd1) ? (u_soc.cpu.mmu_data_paddr[1] ? 4'b1100 : 4'b0011) :
+                                                            4'b1111,
+                            u_soc.cpu.mem_hsize,
+                            u_soc.cpu.mmu_data_ready, u_soc.cpu.mmu_data_miss,
+                            u_soc.cpu.mmu_data_page_fault, u_soc.cpu.mmu_dbg_d_state,
+                            u_soc.cpu.u_dcache_wrap.state, u_soc.cpu.u_dcache_wrap.cache_hit,
+                            u_soc.cpu.u_dcache_wrap.hit_way, u_soc.cpu.u_dcache_wrap.set_idx,
+                            u_soc.cpu.u_dcache_wrap.req_tag,
+                            u_soc.cpu.u_dcache_wrap.tag_r_hit[19],
+                            sram_read_word(PTE_WATCH_ADDR),
+                            u_soc.cpu.u_mmu.ptw_bus_addr, u_soc.cpu.u_mmu.ptw_bus_we,
+                            u_soc.cpu.u_mmu.ptw_bus_wdata, u_soc.cpu.u_mmu.ptw_bus_rdata,
+                            u_soc.cpu.u_mmu.ptw_bus_done, u_soc.cpu.u_mmu.ptw_walk_fault,
+                            u_soc.cpu.hw_trap_cause, u_soc.cpu.hw_trap_epc, u_soc.cpu.hw_trap_tval);
+                    $fflush(dbg_pte_fd);
+                end
+
+                if (dbg_dcache_pte_fd != 0 &&
+                    (is_pte_page_addr(u_soc.cpu.u_dcache_wrap.cpu_req_addr) ||
+                     is_pte_page_addr(u_soc.cpu.u_dcache_wrap.latched_addr) ||
+                     is_pte_page_addr(u_soc.cpu.u_dcache_wrap.refill_addr) ||
+                     is_pte_page_addr(u_soc.cpu.u_dcache_wrap.wb_addr) ||
+                     is_pte_line_addr(u_soc.cpu.u_dcache_wrap.cpu_req_addr) ||
+                     is_pte_line_addr(u_soc.cpu.u_dcache_wrap.latched_addr) ||
+                     is_pte_line_addr(u_soc.cpu.u_dcache_wrap.refill_addr) ||
+                     is_pte_line_addr(u_soc.cpu.u_dcache_wrap.wb_addr) ||
+                     (u_soc.cpu.u_dcache_wrap.inv_line_req && is_pte_page_addr(u_soc.cpu.u_dcache_wrap.inv_line_addr)) ||
+                     (u_soc.cpu.mem_en && is_vmalloc_watch_addr(u_soc.cpu.mem_dataAddr_32)))) begin
+                    $fwrite(dbg_dcache_pte_fd,
+                            "%0d %0t DCACHE %0d %0b %0b %0d %0b %08h %08h %08h %05h %0d %0d %0b %0d %04b %06h %06h %06h %06h %0d %0b %08h %08h %0d %0d %05h %0b %08h %0b %0b %08h %0b %08h %0b %08h %0b %08h %0b %08h\n",
+                            dbg_if_cycle, $time,
+                            u_soc.cpu.u_dcache_wrap.state,
+                            u_soc.cpu.u_dcache_wrap.cpu_req_valid,
+                            u_soc.cpu.u_dcache_wrap.cpu_req_hwrite,
+                            u_soc.cpu.u_dcache_wrap.cpu_req_hsize,
+                            u_soc.cpu.u_dcache_wrap.mmu_ready,
+                            u_soc.cpu.u_dcache_wrap.cpu_req_addr,
+                            u_soc.cpu.u_dcache_wrap.cpu_req_vaddr,
+                            u_soc.cpu.u_dcache_wrap.cpu_req_wdata,
+                            u_soc.cpu.u_dcache_wrap.req_tag,
+                            u_soc.cpu.u_dcache_wrap.set_idx,
+                            u_soc.cpu.u_dcache_wrap.word_off,
+                            u_soc.cpu.u_dcache_wrap.cache_hit,
+                            u_soc.cpu.u_dcache_wrap.hit_way,
+                            {u_soc.cpu.u_dcache_wrap.hit3, u_soc.cpu.u_dcache_wrap.hit2,
+                             u_soc.cpu.u_dcache_wrap.hit1, u_soc.cpu.u_dcache_wrap.hit0},
+                            u_soc.cpu.u_dcache_wrap.tag_r0,
+                            u_soc.cpu.u_dcache_wrap.tag_r1,
+                            u_soc.cpu.u_dcache_wrap.tag_r2,
+                            u_soc.cpu.u_dcache_wrap.tag_r3,
+                            u_soc.cpu.u_dcache_wrap.victim_way,
+                            u_soc.cpu.u_dcache_wrap.victim_dirty,
+                            u_soc.cpu.u_dcache_wrap.latched_addr,
+                            u_soc.cpu.u_dcache_wrap.latched_wdata,
+                            u_soc.cpu.u_dcache_wrap.latched_set,
+                            u_soc.cpu.u_dcache_wrap.latched_victim_way,
+                            u_soc.cpu.u_dcache_wrap.latched_victim_tag,
+                            u_soc.cpu.u_dcache_wrap.refill_req,
+                            u_soc.cpu.u_dcache_wrap.refill_addr,
+                            u_soc.cpu.u_dcache_wrap.refill_valid,
+                            u_soc.cpu.u_dcache_wrap.refill_done,
+                            u_soc.cpu.u_dcache_wrap.refill_data[32*1 +: 32],
+                            u_soc.cpu.u_dcache_wrap.wb_req,
+                            u_soc.cpu.u_dcache_wrap.wb_addr,
+                            u_soc.cpu.u_dcache_wrap.wb_done,
+                            u_soc.cpu.u_dcache_wrap.wb_data[32*1 +: 32],
+                            u_soc.cpu.u_dcache_wrap.inv_line_req,
+                            u_soc.cpu.u_dcache_wrap.inv_line_addr,
+                            u_soc.cpu.u_dcache_wrap.inv_line_done,
+                            sram_read_word(PTE_WATCH_ADDR));
+                    $fflush(dbg_dcache_pte_fd);
+                end
+
+                if (dbg_ptw_fd != 0 &&
+                    (u_soc.cpu.u_mmu.ptw_bus_req || u_soc.cpu.u_mmu.ptw_bus_done ||
+                     u_soc.cpu.u_mmu.ptw_walk_done || u_soc.cpu.u_mmu.ptw_walk_fault ||
+                     ((u_soc.cpu.u_mmu.walk_vaddr[31:12] == 20'ha0021) && (u_soc.cpu.u_mmu.walk_state != 2'd0)) ||
+                     is_pte_page_addr(u_soc.cpu.u_mmu.ptw_bus_addr))) begin
+                    $fwrite(dbg_ptw_fd,
+                            "%0d %0t PTW %0d %0d %0d %08h %0d %08h %0b %08h %0b %08h %08h %0b %0b %0b %0d %08h %0d %05h %05h %0b%0b%0b%0b%0b%0b %08h %0d %0b %06h_%06h_%06h_%06h\n",
+                            dbg_if_cycle, $time,
+                            u_soc.cpu.u_mmu.walk_state,
+                            u_soc.cpu.mmu_dbg_d_state,
+                            u_soc.cpu.mmu_dbg_i_state,
+                            u_soc.cpu.u_mmu.walk_vaddr,
+                            u_soc.cpu.u_mmu.walk_access,
+                            u_soc.cpu.u_mmu.walk_satp,
+                            u_soc.cpu.u_mmu.ptw_bus_req,
+                            u_soc.cpu.u_mmu.ptw_bus_addr,
+                            u_soc.cpu.u_mmu.ptw_bus_we,
+                            u_soc.cpu.u_mmu.ptw_bus_wdata,
+                            u_soc.cpu.u_mmu.ptw_bus_rdata,
+                            u_soc.cpu.u_mmu.ptw_bus_done,
+                            u_soc.cpu.u_mmu.ptw_bus_error,
+                            u_soc.cpu.u_mmu.ptw_walk_fault,
+                            u_soc.cpu.u_mmu.ptw_fault_cause_out,
+                            u_soc.cpu.u_mmu.ptw_fault_vaddr_out,
+                            u_soc.cpu.u_mmu.ptw_fault_kind_out,
+                            u_soc.cpu.u_mmu.fill_vpn,
+                            u_soc.cpu.u_mmu.ptw_fill_ppn,
+                            u_soc.cpu.u_mmu.ptw_fill_r, u_soc.cpu.u_mmu.ptw_fill_w,
+                            u_soc.cpu.u_mmu.ptw_fill_x, u_soc.cpu.u_mmu.ptw_fill_u,
+                            u_soc.cpu.u_mmu.ptw_fill_a, u_soc.cpu.u_mmu.ptw_fill_d,
+                            sram_read_word(PTE_WATCH_ADDR),
+                            u_soc.cpu.u_dcache_wrap.state,
+                            u_soc.cpu.u_dcache_wrap.cache_hit,
+                            u_soc.cpu.u_dcache_wrap.tag_r0,
+                            u_soc.cpu.u_dcache_wrap.tag_r1,
+                            u_soc.cpu.u_dcache_wrap.tag_r2,
+                            u_soc.cpu.u_dcache_wrap.tag_r3);
+                    $fflush(dbg_ptw_fd);
+                end
+
+                if (dbg_axi_pte_fd != 0 &&
+                    (is_pte_page_addr(u_soc.cpu_awaddr) ||
+                     is_pte_page_addr(u_soc.cpu_araddr) ||
+                     is_pte_page_addr(u_soc.ddr_awaddr) ||
+                     is_pte_page_addr(u_soc.ddr_araddr) ||
+                     is_pte_page_addr(u_soc.sim_ram.u_axi_ram.w_addr) ||
+                     is_pte_line_addr(u_soc.sim_ram.u_axi_ram.w_addr))) begin
+                    $fwrite(dbg_axi_pte_fd,
+                            "%0d %0t AXI %0b %0b %08h %0d %0b %0b %08h %04b %0b %0b %0b %0b %0b %08h %0b %0b %08h %0b %0b %08h %04b %08h %08h %04b %08h %08h\n",
+                            dbg_if_cycle, $time,
+                            u_soc.cpu_awvalid, u_soc.cpu_awready, u_soc.cpu_awaddr, u_soc.cpu_awlen,
+                            u_soc.cpu_wvalid, u_soc.cpu_wready, u_soc.cpu_wdata, u_soc.cpu_wstrb, u_soc.cpu_wlast,
+                            u_soc.cpu_bvalid, u_soc.cpu_bready,
+                            u_soc.cpu_arvalid, u_soc.cpu_arready, u_soc.cpu_araddr,
+                            u_soc.ddr_awvalid, u_soc.ddr_awready, u_soc.ddr_awaddr,
+                            u_soc.ddr_wvalid, u_soc.ddr_wready, u_soc.ddr_wdata, u_soc.ddr_wstrb,
+                            u_soc.sim_ram.u_axi_ram.w_addr,
+                            u_soc.sim_ram.u_axi_ram.axi_wdata,
+                            u_soc.sim_ram.u_axi_ram.axi_wstrb,
+                            sram_read_word(u_soc.sim_ram.u_axi_ram.w_addr),
+                            sram_read_word(PTE_WATCH_ADDR));
+                    $fflush(dbg_axi_pte_fd);
+                end
+
+                if (dbg_vmalloc_fd != 0 &&
+                    (dbg_vmalloc_window || is_vmalloc_trace_pc(if_pc) || is_vmalloc_trace_pc(u_soc.cpu.mem_pc) ||
+                     (u_soc.cpu.mem_en && (is_pte_page_addr(u_soc.cpu.mmu_data_paddr) ||
+                                           is_vmalloc_watch_addr(u_soc.cpu.mem_dataAddr_32))))) begin
+                    $fwrite(dbg_vmalloc_fd,
+                            "%0d %0t EXEC %08h %08h %08h %08h %0b %0b %0b %0b %08h %08h %08h %0d %0b %0b %0b %08h %08h %0b %0d %08h %08h %08h %08h %08h %08h %08h %08h %08h %08h\n",
+                            dbg_if_cycle, $time,
+                            if_pc, if_inst,
+                            u_soc.cpu.mem_pc, u_soc.cpu.mem_inst,
+                            u_soc.cpu.mem_valid, u_soc.cpu.mem_done,
+                            u_soc.cpu.mem_en, u_soc.cpu.mem_hwrite,
+                            u_soc.cpu.mem_dataAddr_32, u_soc.cpu.mmu_data_paddr,
+                            u_soc.cpu.mem_writeData_32, u_soc.cpu.mem_hsize,
+                            u_soc.cpu.mmu_data_ready, u_soc.cpu.mmu_data_miss,
+                            u_soc.cpu.mmu_data_page_fault,
+                            u_soc.cpu.wb_pc, u_soc.cpu.wb_inst,
+                            u_soc.cpu.rf_wen, u_soc.cpu.rf_waddr, u_soc.cpu.rf_wdata,
+                            u_soc.cpu.gpr_ra, u_soc.cpu.gpr_sp, u_soc.cpu.gpr_a0,
+                            u_soc.cpu.gpr_a1, u_soc.cpu.gpr_a2, u_soc.cpu.gpr_a3,
+                            u_soc.cpu.gpr_s1, u_soc.cpu.gpr_s2, u_soc.cpu.csr_satp);
+                    $fflush(dbg_vmalloc_fd);
+                end
+
+                if (dbg_maint_fd != 0 &&
+                    (u_soc.cpu.sfence_vma_req != dbg_prev_sfence_vma_req ||
+                     u_soc.cpu.dcache_flush_req != dbg_prev_dcache_flush_req ||
+                     u_soc.cpu.dcache_flush_done != dbg_prev_dcache_flush_done ||
+                     u_soc.cpu.icache_invalidate_req != dbg_prev_icache_invalidate_req ||
+                     u_soc.cpu.icache_invalidate_done != dbg_prev_icache_invalidate_done ||
+                     u_soc.cpu.mmu_sfence_done != dbg_prev_mmu_sfence_done ||
+                     u_soc.cpu.ptw_ad_inv_req != dbg_prev_ptw_ad_inv_req ||
+                     u_soc.cpu.ptw_ad_inv_done != dbg_prev_ptw_ad_inv_done ||
+                     (u_soc.cpu.u_dcache_wrap.wb_req && is_pte_page_addr(u_soc.cpu.u_dcache_wrap.wb_addr)) ||
+                     (u_soc.cpu.u_dcache_wrap.state >= 4'd6 && u_soc.cpu.u_dcache_wrap.state <= 4'd13))) begin
+                    $fwrite(dbg_maint_fd,
+                            "%0d %0t MAINT %08h %08h %0b %0b %0b %0b %0b %0b %0b %08h %0b %0d %0d %0d %0d %05h %0b %08h %0b %08h %08h\n",
+                            dbg_if_cycle, $time, if_pc, if_inst,
+                            u_soc.cpu.sfence_vma_req,
+                            u_soc.cpu.dcache_flush_req, u_soc.cpu.dcache_flush_done,
+                            u_soc.cpu.icache_invalidate_req, u_soc.cpu.icache_invalidate_done,
+                            u_soc.cpu.mmu_sfence_done,
+                            u_soc.cpu.ptw_ad_inv_req, u_soc.cpu.ptw_ad_inv_addr,
+                            u_soc.cpu.ptw_ad_inv_done,
+                            u_soc.cpu.u_dcache_wrap.state,
+                            u_soc.cpu.u_dcache_wrap.flush_set,
+                            u_soc.cpu.u_dcache_wrap.flush_way,
+                            u_soc.cpu.u_dcache_wrap.invalidate_set,
+                            u_soc.cpu.u_dcache_wrap.inv_latched_tag,
+                            u_soc.cpu.u_dcache_wrap.wb_req,
+                            u_soc.cpu.u_dcache_wrap.wb_addr,
+                            u_soc.cpu.u_dcache_wrap.wb_done,
+                            u_soc.cpu.u_dcache_wrap.wb_data[32*1 +: 32],
+                            sram_read_word(PTE_WATCH_ADDR));
+                    $fflush(dbg_maint_fd);
+                end
+
+                if (sram_read_word(PTE_WATCH_ADDR) !== dbg_last_pte_word) begin
+                    if (dbg_pte_fd != 0) begin
+                        $fwrite(dbg_pte_fd, "%0d %0t SRAM_PTE_CHANGE old=%08h new=%08h line0=%08h line1=%08h line2=%08h line3=%08h\n",
+                                dbg_if_cycle, $time, dbg_last_pte_word, sram_read_word(PTE_WATCH_ADDR),
+                                sram_read_word(PTE_WATCH_LINE_ADDR + 32'h00),
+                                sram_read_word(PTE_WATCH_LINE_ADDR + 32'h04),
+                                sram_read_word(PTE_WATCH_LINE_ADDR + 32'h08),
+                                sram_read_word(PTE_WATCH_LINE_ADDR + 32'h0c));
+                        $fflush(dbg_pte_fd);
+                    end
+                    dbg_last_pte_word = sram_read_word(PTE_WATCH_ADDR);
+                end
+
+                dbg_prev_sfence_vma_req = u_soc.cpu.sfence_vma_req;
+                dbg_prev_dcache_flush_req = u_soc.cpu.dcache_flush_req;
+                dbg_prev_dcache_flush_done = u_soc.cpu.dcache_flush_done;
+                dbg_prev_icache_invalidate_req = u_soc.cpu.icache_invalidate_req;
+                dbg_prev_icache_invalidate_done = u_soc.cpu.icache_invalidate_done;
+                dbg_prev_mmu_sfence_done = u_soc.cpu.mmu_sfence_done;
+                dbg_prev_ptw_ad_inv_req = u_soc.cpu.ptw_ad_inv_req;
+                dbg_prev_ptw_ad_inv_done = u_soc.cpu.ptw_ad_inv_done;
+            end
+`endif
+
             if (dbg_if_fd != 0) begin
                 if (u_soc.cpu.mmu_inst_miss && !dbg_if_miss_prev) begin
                     $fwrite(dbg_if_fd, "%0d\t%0t\tI_MISS\t%08h\t%08h\t%08h\t%08h\t%0d\t%08h\t%0d\t%0d\n",
@@ -875,6 +1237,56 @@ module tb_kernel_boot;
     end
 
     final begin
+`ifndef SIMU_DDR_MODE
+        if (dbg_pte_final_fd != 0) begin
+            $fwrite(dbg_pte_final_fd, "# Final PTE snapshot at cycle=%0d time=%0t\n", dbg_if_cycle, $time);
+            $fwrite(dbg_pte_final_fd, "CSR satp=%08h priv=%0d hwc=%08h hwe=%08h hwt=%08h\n",
+                    u_soc.cpu.csr_satp, u_soc.cpu.priv_mode,
+                    u_soc.cpu.hw_trap_cause, u_soc.cpu.hw_trap_epc, u_soc.cpu.hw_trap_tval);
+            $fwrite(dbg_pte_final_fd, "SRAM pte_addr=%08h pte=%08h line=%08h %08h %08h %08h %08h %08h %08h %08h\n",
+                    PTE_WATCH_ADDR, sram_read_word(PTE_WATCH_ADDR),
+                    sram_read_word(PTE_WATCH_LINE_ADDR + 32'h00),
+                    sram_read_word(PTE_WATCH_LINE_ADDR + 32'h04),
+                    sram_read_word(PTE_WATCH_LINE_ADDR + 32'h08),
+                    sram_read_word(PTE_WATCH_LINE_ADDR + 32'h0c),
+                    sram_read_word(PTE_WATCH_LINE_ADDR + 32'h10),
+                    sram_read_word(PTE_WATCH_LINE_ADDR + 32'h14),
+                    sram_read_word(PTE_WATCH_LINE_ADDR + 32'h18),
+                    sram_read_word(PTE_WATCH_LINE_ADDR + 32'h1c));
+            $fwrite(dbg_pte_final_fd, "DCACHE state=%0d req_addr=%08h latched_addr=%08h refill_addr=%08h wb_addr=%08h set=%0d req_tag=%05h hit=%0b way=%0d victim=%0d victim_dirty=%0b\n",
+                    u_soc.cpu.u_dcache_wrap.state,
+                    u_soc.cpu.u_dcache_wrap.cpu_req_addr,
+                    u_soc.cpu.u_dcache_wrap.latched_addr,
+                    u_soc.cpu.u_dcache_wrap.refill_addr,
+                    u_soc.cpu.u_dcache_wrap.wb_addr,
+                    u_soc.cpu.u_dcache_wrap.set_idx,
+                    u_soc.cpu.u_dcache_wrap.req_tag,
+                    u_soc.cpu.u_dcache_wrap.cache_hit,
+                    u_soc.cpu.u_dcache_wrap.hit_way,
+                    u_soc.cpu.u_dcache_wrap.victim_way,
+                    u_soc.cpu.u_dcache_wrap.victim_dirty);
+            $fwrite(dbg_pte_final_fd, "DCACHE tags tag0=%06h tag1=%06h tag2=%06h tag3=%06h inv_req=%0b inv_addr=%08h inv_done=%0b\n",
+                    u_soc.cpu.u_dcache_wrap.tag_r0,
+                    u_soc.cpu.u_dcache_wrap.tag_r1,
+                    u_soc.cpu.u_dcache_wrap.tag_r2,
+                    u_soc.cpu.u_dcache_wrap.tag_r3,
+                    u_soc.cpu.u_dcache_wrap.inv_line_req,
+                    u_soc.cpu.u_dcache_wrap.inv_line_addr,
+                    u_soc.cpu.u_dcache_wrap.inv_line_done);
+            $fwrite(dbg_pte_final_fd, "MMU walk_state=%0d dstate=%0d istate=%0d walk_vaddr=%08h walk_satp=%08h ptw_addr=%08h ptw_we=%0b ptw_rdata=%08h ptw_done=%0b ptw_fault=%0b\n",
+                    u_soc.cpu.u_mmu.walk_state,
+                    u_soc.cpu.mmu_dbg_d_state,
+                    u_soc.cpu.mmu_dbg_i_state,
+                    u_soc.cpu.u_mmu.walk_vaddr,
+                    u_soc.cpu.u_mmu.walk_satp,
+                    u_soc.cpu.u_mmu.ptw_bus_addr,
+                    u_soc.cpu.u_mmu.ptw_bus_we,
+                    u_soc.cpu.u_mmu.ptw_bus_rdata,
+                    u_soc.cpu.u_mmu.ptw_bus_done,
+                    u_soc.cpu.u_mmu.ptw_walk_fault);
+            $fflush(dbg_pte_final_fd);
+        end
+`endif
         if (dbg_if_fd != 0) begin
             $fflush(dbg_if_fd);
             $fclose(dbg_if_fd);
@@ -889,6 +1301,41 @@ module tb_kernel_boot;
             $fflush(dbg_dmmu_fd);
             $fclose(dbg_dmmu_fd);
             $display("[DEBUG-DMMU] DMMU focused trace closed");
+        end
+        if (dbg_pte_fd != 0) begin
+            $fflush(dbg_pte_fd);
+            $fclose(dbg_pte_fd);
+            $display("[DEBUG-PTE] PTE lifecycle trace closed");
+        end
+        if (dbg_dcache_pte_fd != 0) begin
+            $fflush(dbg_dcache_pte_fd);
+            $fclose(dbg_dcache_pte_fd);
+            $display("[DEBUG-DCACHE-PTE] DCache PTE trace closed");
+        end
+        if (dbg_ptw_fd != 0) begin
+            $fflush(dbg_ptw_fd);
+            $fclose(dbg_ptw_fd);
+            $display("[DEBUG-PTW] PTW deep trace closed");
+        end
+        if (dbg_axi_pte_fd != 0) begin
+            $fflush(dbg_axi_pte_fd);
+            $fclose(dbg_axi_pte_fd);
+            $display("[DEBUG-AXI-PTE] AXI PTE trace closed");
+        end
+        if (dbg_vmalloc_fd != 0) begin
+            $fflush(dbg_vmalloc_fd);
+            $fclose(dbg_vmalloc_fd);
+            $display("[DEBUG-VMALLOC] vmalloc execution trace closed");
+        end
+        if (dbg_maint_fd != 0) begin
+            $fflush(dbg_maint_fd);
+            $fclose(dbg_maint_fd);
+            $display("[DEBUG-MAINT] maintenance trace closed");
+        end
+        if (dbg_pte_final_fd != 0) begin
+            $fflush(dbg_pte_final_fd);
+            $fclose(dbg_pte_final_fd);
+            $display("[DEBUG-PTE-FINAL] final PTE snapshot closed");
         end
     end
 `endif

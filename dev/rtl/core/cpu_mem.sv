@@ -34,6 +34,39 @@ module cpu_mem(
         output     [31:0]  dbg_load_value
     );
 
+    // =========================================================================
+    // cpu_mem FSM states (entry / exit / duration)
+    // =========================================================================
+    // MEM_IDLE      : Entry: reset, or any completing state on done_reg.
+    //                 Exit : mem_valid + !mem_seen_valid → MEM_READ/MEM_WRITE/
+    //                        MEM_AMO_READ (based on instruction type).
+    //                        Non-memory or misalign → done_reg (stay in IDLE).
+    //                 Duration: 1 cycle (waits for mem_valid).
+    //
+    // MEM_READ      : Entry: MEM_IDLE on load/flw (aligned).
+    //                 Exit : data_valid → MEM_IDLE (returns load_value).
+    //                 Duration: variable (dcache hit: 1-2 cyc, miss: 10-40 cyc).
+    //
+    // MEM_WRITE     : Entry: MEM_IDLE on store/fsw (aligned).
+    //                 Exit : data_valid → MEM_IDLE (clears LR reservation).
+    //                 Duration: variable (dcache hit: 1-2 cyc, miss: 10-40 cyc).
+    //
+    // MEM_AMO_READ  : Entry: MEM_IDLE on AMO/LR/SC (aligned).
+    //                 Exit : data_valid → MEM_AMO_WRITE (SC/AMO) or
+    //                        MEM_AMO_FENCE (ordered LR) or MEM_IDLE (unordered LR).
+    //                        SC reservation mismatch → MEM_IDLE/MEM_AMO_FENCE (rd=1).
+    //                 Duration: variable (same as MEM_READ).
+    //
+    // MEM_AMO_WRITE : Entry: MEM_AMO_READ on SC (reservation match) or AMO.
+    //                 Exit : data_valid → MEM_AMO_FENCE (ordered) or MEM_IDLE.
+    //                 Duration: variable (same as MEM_WRITE).
+    //
+    // MEM_AMO_FENCE : Entry: MEM_AMO_READ or MEM_AMO_WRITE on aq/rl ordered op.
+    //                 Exit : → MEM_IDLE (1-cycle bubble for ordering).
+    //                 Duration: 1 cycle.
+    //
+    // trap_enter forces MEM_IDLE from any state (clears LR reservation, drops
+    // stale dcache requests that never set cpu_req_ready).
     localparam MEM_IDLE      = 3'd0;
     localparam MEM_READ      = 3'd1;
     localparam MEM_WRITE     = 3'd2;

@@ -114,6 +114,34 @@ module cpu_bus_bridge(
     //   Write: AW+W (issue addr+data) → B (receive response)
     //          or AW → W (burst beats) → B
     // =====================================================================
+    // State summary (entry / exit / duration):
+    //
+    // S_IDLE       : Entry: reset, or any completing state.
+    //               Exit : MMIO read → S_MMIO_AR; MMIO write → S_MMIO_AW_W;
+    //                      icache refill → S_IREFILL_AR;
+    //                      dcache refill → S_DREFILL_AR;
+    //                      dcache writeback → S_WB_AW.
+    //                      Priority: dcache_wb > icache_refill > dcache_refill
+    //                      > MMIO (write > read). icache_refill may be cancelled
+    //                      mid-flight (see CONTRACT at L412).
+    //               Duration: 1 cycle (arbitrates among pending requests).
+    //
+    // S_MMIO_AR    : Entry: S_IDLE on MMIO read. Exit: aw_hs → S_MMIO_R.
+    //               Duration: 1+ cycles (AXI AR handshake).
+    // S_MMIO_R     : Entry: S_MMIO_AR. Exit: rvalid → S_IDLE. Duration: 1 cycle.
+    // S_MMIO_AW_W  : Entry: S_IDLE on MMIO write. Exit: AW+W hs → S_MMIO_B.
+    //               Duration: 1+ cycles (AXI AW+W handshake, single-beat).
+    // S_MMIO_B     : Entry: S_MMIO_AW_W. Exit: bvalid → S_IDLE. Duration: 1 cycle.
+    //
+    // S_IREFILL_AR : Entry: S_IDLE on icache refill. Exit: AR hs → S_IREFILL_R.
+    // S_IREFILL_R  : Entry: S_IREFILL_AR. Exit: rlast → S_IDLE (8 beats).
+    // S_DREFILL_AR : Entry: S_IDLE on dcache refill. Exit: AR hs → S_DREFILL_R.
+    // S_DREFILL_R  : Entry: S_DREFILL_AR. Exit: rlast → S_IDLE (8 beats).
+    //
+    // S_WB_AW      : Entry: S_IDLE on dcache writeback. Exit: AW hs → S_WB_W.
+    // S_WB_W       : Entry: S_WB_AW. Exit: wlast → S_WB_B (8 beats).
+    // S_WB_B       : Entry: S_WB_W. Exit: bvalid → S_IDLE (wb_done/wb_error).
+    //
     localparam S_IDLE          = 4'd0;
     // MMIO read
     localparam S_MMIO_AR       = 4'd1;

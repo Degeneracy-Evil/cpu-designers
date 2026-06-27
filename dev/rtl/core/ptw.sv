@@ -55,6 +55,55 @@ module ptw(
     localparam FAULT_PAGE   = 2'd1;
     localparam FAULT_ACCESS = 2'd2;
 
+    // =========================================================================
+    // PTW FSM states (entry / exit / duration)
+    // =========================================================================
+    // S_IDLE       : Entry: reset, S_DONE, S_FAULT, or walk_abort.
+    //               Exit : walk_req → S_L1_READ.
+    //               Duration: 1 cycle (waits for walk_req from MMU T_CHECK).
+    //
+    // S_L1_READ   : Entry: S_IDLE on walk_req (latches vaddr_r).
+    //               Exit : → S_L1_CHECK (computes L1 PTE address).
+    //               Duration: 1 cycle.
+    //
+    // S_L1_CHECK  : Entry: S_L1_READ.
+    //               Exit : PMP deny → S_FAULT; cache fault → S_FAULT;
+    //                      !V or reserved → S_FAULT (page fault);
+    //                      leaf PTE (megapage) → S_PERM_CHECK;
+    //                      non-leaf → S_L0_READ;
+    //                      cache response wait → stay;
+    //                      timeout (256 cyc) → S_FAULT (access fault).
+    //               Duration: 2+ cycles (PMP check, then cache response wait).
+    //
+    // S_L0_READ   : Entry: S_L1_CHECK on non-leaf PTE (pointer to L0 table).
+    //               Exit : → S_L0_CHECK (computes L0 PTE address).
+    //               Duration: 1 cycle.
+    //
+    // S_L0_CHECK  : Entry: S_L0_READ.
+    //               Exit : PMP deny → S_FAULT; cache fault → S_FAULT;
+    //                      !V or reserved → S_FAULT (page fault);
+    //                      leaf PTE (4K page) → S_PERM_CHECK;
+    //                      non-leaf → S_FAULT (page fault, SV32 max 2 levels);
+    //                      cache response wait → stay;
+    //                      timeout (256 cyc) → S_FAULT (access fault).
+    //               Duration: 2+ cycles (PMP check, then cache response wait).
+    //
+    // S_PERM_CHECK: Entry: S_L1_CHECK (megapage) or S_L0_CHECK (4K page).
+    //               Exit : perm_fault → S_FAULT;
+    //                      A=0 or (store && D=0) → S_FAULT (page fault);
+    //                      pass → S_DONE.
+    //               Duration: 1 cycle (combinational permission check).
+    //
+    // S_DONE      : Entry: S_PERM_CHECK on successful permission check.
+    //               Exit : → S_IDLE (walk_done pulse, 1 cycle).
+    //               Duration: 1 cycle. Asserts walk_done for MMU to fill TLB.
+    //
+    // S_FAULT     : Entry: any check state on fault (page/access/perm/A-D).
+    //               Exit : → S_IDLE (walk_fault pulse, 1 cycle).
+    //               Duration: 1 cycle. Asserts walk_fault + fault_cause/vaddr.
+    //
+    // walk_abort (sfence_vma) forces S_IDLE from any non-IDLE state (BUG-7).
+    // ISSUE-5: timeout_cnt pauses while dcache_flush_active is set.
     localparam S_IDLE       = 4'd0;
     localparam S_L1_READ    = 4'd1;
     localparam S_L1_CHECK   = 4'd2;

@@ -90,6 +90,100 @@ module dcache_ctrl(
     localparam integer DBG_WATCH_WORD_OFF = 7;
 
     // 状态机状态
+    // =========================================================================
+    // dcache FSM states (entry / exit / duration)
+    // =========================================================================
+    // S_IDLE             : Entry: reset (via S_RST_CLEAR), or any completing
+    //                      state (S_TAG_READ/S_READ_HIT/S_REFILL/S_WB_SEND/
+    //                      S_INV_LINE_WRITE/S_FLUSH_INVALIDATE).
+    //                      Exit : flush_req → S_FLUSH_SCAN;
+    //                             inv_line_req → S_INV_LINE;
+    //                             ptw_req_valid → S_TAG_READ (priority);
+    //                             cpu_req_valid + mmu_ready + !is_mmio → S_TAG_READ;
+    //                             cpu_req_valid + is_mmio → MMIO bypass (stay).
+    //                      Duration: 1 cycle (waits for request).
+    //
+    // S_TAG_READ         : Entry: S_IDLE on cacheable CPU or PTW request.
+    //                      Exit : store hit → S_IDLE (write data+tag, ready);
+    //                             load hit → S_READ_HIT;
+    //                             miss + victim dirty → S_WB_READ;
+    //                             miss + victim clean → S_REFILL.
+    //                      Duration: 1 cycle. Tag BRAM Port A output valid.
+    //
+    // S_READ_HIT         : Entry: S_TAG_READ on load hit (CPU or PTW).
+    //                      Exit : → S_IDLE (returns hit data, updates PLRU).
+    //                      Duration: 1 cycle. Data BRAM Port A output valid.
+    //
+    // S_WB_READ          : Entry: S_TAG_READ on miss with dirty victim.
+    //                      Exit : → S_WB_SEND (latches writeback address).
+    //                      Duration: 1 cycle. Data BRAM Port B read for WB.
+    //
+    // S_WB_SEND          : Entry: S_WB_READ (asserts wb_req).
+    //                      Exit : wb_done + wb_error → S_IDLE;
+    //                             wb_done + !wb_error → S_REFILL (clears
+    //                             dirty bit, issues refill for new line).
+    //                      Duration: variable (AXI write burst latency).
+    //
+    // S_REFILL           : Entry: S_TAG_READ on clean miss, or S_WB_SEND
+    //                      after successful writeback.
+    //                      Exit : refill_done + refill_error → S_IDLE
+    //                             (PTW: fault; CPU: silent drop);
+    //                             refill_done + !refill_error → S_IDLE
+    //                             (writes tag+data, returns refill word).
+    //                      Duration: variable (AXI read burst latency).
+    //
+    // S_FLUSH_SCAN       : Entry: S_IDLE on flush_req.
+    //                      Exit : → S_FLUSH_CHECK (tag BRAM Port A read).
+    //                      Duration: 1 cycle per set/way scan step.
+    //
+    // S_FLUSH_CHECK      : Entry: S_FLUSH_SCAN (tag BRAM output valid).
+    //                      Exit : valid+dirty → S_FLUSH_WB_RD;
+    //                             not dirty, more ways → stay (next way);
+    //                             not dirty, last way, more sets → S_FLUSH_SCAN;
+    //                             not dirty, last way, last set → S_FLUSH_INVALIDATE.
+    //                      Duration: 1 cycle per way (BRAM output held).
+    //
+    // S_FLUSH_WB_RD      : Entry: S_FLUSH_CHECK on valid+dirty line.
+    //                      Exit : → S_FLUSH_WB_SD (latches WB address).
+    //                      Duration: 1 cycle. Data BRAM Port B read.
+    //
+    // S_FLUSH_WB_SD      : Entry: S_FLUSH_WB_RD (asserts wb_req).
+    //                      Exit : wb_done + wb_error → S_INV_LINE
+    //                             (drop faulting line, set flush_error_seen_r);
+    //                             wb_done + !wb_error → S_FLUSH_WB_WAIT
+    //                             (clears dirty, advances flush_set/flush_way).
+    //                      Duration: variable (AXI write burst latency).
+    //
+    // S_FLUSH_INVALIDATE : Entry: S_FLUSH_CHECK (all scanned) or
+    //                      S_FLUSH_WB_WAIT (flush_resume_invalidate_r).
+    //                      Exit : invalidate_set == NUM_SETS-1 → S_IDLE
+    //                             (flush_done_r pulse, clears PLRU).
+    //                      Duration: NUM_SETS cycles. Zero-writes all tag
+    //                      BRAM sets (clears all valid bits).
+    //
+    // S_INV_LINE         : Entry: S_IDLE on inv_line_req (PTW A/D coherency),
+    //                      or S_FLUSH_WB_SD on wb_error (flush error recovery).
+    //                      Exit : → S_INV_LINE_WRITE (tag BRAM Port A read).
+    //                      Duration: 1 cycle.
+    //
+    // S_INV_LINE_WRITE   : Entry: S_INV_LINE (tag BRAM output valid).
+    //                      Exit : flush_error_seen_r → S_FLUSH_WB_WAIT
+    //                             (ISSUE-1: resume scanning past faulting line);
+    //                             normal → S_IDLE (inv_line_done_r pulse).
+    //                      Duration: 1 cycle. Clears V bit on matching way(s).
+    //
+    // S_FLUSH_WB_WAIT    : Entry: S_FLUSH_WB_SD (success path) or
+    //                      S_INV_LINE_WRITE (error recovery path).
+    //                      Exit : flush_resume_invalidate_r → S_FLUSH_INVALIDATE;
+    //                             else → S_FLUSH_SCAN.
+    //                      Duration: 1 cycle. Defers next Port A read so the
+    //                      Port B tag write commits without BRAM collision.
+    //
+    // S_RST_CLEAR        : Entry: reset (ISSUE-4: tag BRAM undefined at reset).
+    //                      Exit : invalidate_set == NUM_SETS-1 → S_IDLE.
+    //                      Duration: NUM_SETS cycles. Zero-writes all tag BRAM
+    //                      sets before accepting any CPU/PTW request.
+    //
     localparam S_IDLE             = 4'd0;
     localparam S_TAG_READ         = 4'd1;
     localparam S_READ_HIT         = 4'd2;
@@ -329,6 +423,15 @@ module dcache_ctrl(
     reg ptw_req_ready_r;
     reg ptw_req_fault_r;
 
+    // CONTRACT: LSU address stability. cpu_req_addr, cpu_req_vaddr, cpu_req_wdata,
+    // cpu_req_hwrite, and cpu_req_hsize MUST remain stable from cpu_req_valid
+    // assertion until cpu_req_ready is asserted. The dcache combinational
+    // decode (is_mmio, set_idx, req_tag, word_off, word_byte_we, word_store_data)
+    // all use cpu_req_* directly. If the LSU changes these mid-request, the
+    // tag comparison, store data positioning, or BRAM address would be wrong.
+    // The LSU (cpu_mem.sv) guarantees this by latching addr_reg/dataAddr_32_reg
+    // in MEM_IDLE and holding them until data_valid (which maps to cpu_req_ready).
+    //
     // Store hit / Load hit detected in S_TAG_READ (after tag comparison)
     // MUST be gated by mmu_ready: the data BRAM Port A write is combinational,
     // so without this gate, a store_hit with stale paddr (mmu_ready=0) would
@@ -343,6 +446,14 @@ module dcache_ctrl(
     wire bram_ena = is_load_hit || is_store_hit;
     wire [WEA_WIDTH-1:0]  bram_wea  = is_store_hit ? store_full_wea : {WEA_WIDTH{1'b0}};
     wire [LINE_WIDTH-1:0] bram_dina = is_store_hit ? store_full_dina : {LINE_WIDTH{1'b0}};
+
+    // CONTRACT: BRAM en=0 output hold. When bram_ena/bram_enb=0, Xilinx BRAM IP
+    // holds the last read data on bram_douta/bram_doutb. The FSM relies on this:
+    // S_READ_HIT reads bram_douta which was latched by the ena pulse in
+    // S_TAG_READ (is_load_hit). S_WB_SEND reads bram_doutb which was latched by
+    // the enb pulse in S_WB_READ. If en=0 caused dout to go X or 0, the hit
+    // data or writeback data would be corrupted. Do NOT add logic that assumes
+    // en=0 clears dout.
 
     wire [3:0] latched_word_byte_we;
     assign latched_word_byte_we = (latched_hsize == `AXI_SIZE_BYTE) ? (4'b0001 << latched_addr[1:0]) :
@@ -882,6 +993,26 @@ state <= S_FLUSH_WB_SD;
                 end
 
                 S_INV_LINE_WRITE: begin
+                    // BUG-FIX (ISSUE-1): When wb_error occurs during a dcache flush
+                    // writeback, this state previously set flush_done_r immediately
+                    // and returned to S_IDLE, terminating the flush prematurely.
+                    // This caused remaining dirty lines in later sets/ways to be
+                    // silently lost (never written back to memory).
+                    //
+                    // Fix: When flush_error_seen_r==1, clear it, do NOT set
+                    // flush_done_r. Advance flush_set/flush_way past the faulting
+                    // line (mirroring the success path in S_FLUSH_WB_SD), then
+                    // jump to S_FLUSH_WB_WAIT (not S_IDLE) to defer one cycle for
+                    // Port B tag write commit before next Port A read. The
+                    // faulting line is still invalidated (existing logic above).
+                    // flush_done_r is now ONLY set in S_FLUSH_INVALIDATE when all
+                    // sets have been scanned and invalidated.
+                    //
+                    // The store access fault (mcause=7) is routed independently via
+                    // wb_error → cpu_bus_bridge → core_top → cpu_trap_manager.
+                    // flush_error_seen_r is purely internal to dcache_ctrl for FSM
+                    // control and does NOT feed the trap path.
+                    //
                     // Tag BRAM Port A output is now valid.
                     // Invalidate any matching way by clearing its V bit.
                     // If the line is dirty, we must write it back first to avoid data loss.

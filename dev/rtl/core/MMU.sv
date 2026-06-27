@@ -113,7 +113,14 @@ module MMU #(
     // =========================================================================
     // Single FSM replaces dual i-side/d-side FSMs + walk arbiter.
     // CPU drives translate_req handshake; MMU blocks until translate_done.
-    // i-side and d-side NEVER access TLB simultaneously → no BRAM collision.
+    //
+    // CONTRACT: i-side and d-side NEVER access TLB simultaneously.
+    //   core_top.sv drives mmu_translate_req = if_valid || (mem_valid && mem_en).
+    //   if_valid and mem_valid are mutually exclusive (pipeline guarantees only
+    //   one stage issues a memory access per cycle). Therefore the unified FSM
+    //   services at most one translation at a time, and TLB Port A is never
+    //   contended. Port B is used only for fill (d_lookup_req hardwired to 0).
+    //   Violating this contract would cause BRAM read corruption on Port A.
     localparam T_IDLE     = 4'd0;
     localparam T_LOOKUP   = 4'd1;
     localparam T_CHECK    = 4'd2;
@@ -327,17 +334,65 @@ module MMU #(
     // =========================================================================
     // Unified translation FSM
     // =========================================================================
-    // T_IDLE   : Wait for translate_req or mmu_flush_req
-    // T_LOOKUP : Issue TLB Port A read (BRAM 1-cycle latency)
-    // T_CHECK  : TLB output valid — decide hit/miss/fault
-    // T_WALK   : PTW walking page tables
-    // T_FILL   : Write filled PTE into TLB via Port B (1 cycle)
-    // T_RELOOKUP: Re-issue TLB Port A read after fill
-    // T_RECHECK : Check re-lookup result (should hit after fill)
-    // T_DONE   : Translation successful → T_COMPLETE
-    // T_FAULT  : Translation fault → T_COMPLETE
-    // T_COMPLETE: Hold translate_done level-high until !translate_req
-    // T_FLUSH  : TLB flush in progress — wait for tlb_flush_done
+    // State summary (entry / exit / duration):
+    //
+    // T_IDLE     : Entry: reset, or T_COMPLETE when translate_req drops, or
+    //              T_FLUSH when tlb_flush_done.
+    //              Exit : translate_req → T_LOOKUP; mmu_flush_req → T_FLUSH.
+    //              Duration: 1 cycle (waits for request).
+    //
+    // T_LOOKUP   : Entry: T_IDLE latches vaddr/satp/priv and issues TLB read.
+    //              Exit : → T_CHECK (BRAM output valid next cycle).
+    //                     mmu_flush_req → T_FLUSH.
+    //              Duration: 1 cycle (BRAM read latency).
+    //
+    // T_CHECK    : Entry: T_LOOKUP (TLB Port A output now valid).
+    //              Exit : bare mode or TLB hit → T_DONE;
+    //                     TLB hit + perm/A-D fault → T_FAULT;
+    //                     TLB miss → T_WALK;
+    //                     i_tlb_valid not yet asserted → stay (wait).
+    //                     mmu_flush_req → T_FLUSH.
+    //              Duration: 1 cycle (hit/miss) or multi-cycle (wait for valid).
+    //
+    // T_WALK     : Entry: T_CHECK on TLB miss (ptw_walk_req_pulse fired).
+    //              Exit : ptw_walk_done → T_FILL;
+    //                     ptw_walk_fault → T_FAULT;
+    //                     mmu_flush_req → T_FLUSH (aborts PTW via walk_abort).
+    //              Duration: variable (2-level SV32 walk, ~10-40 cycles typical).
+    //
+    // T_FILL     : Entry: T_WALK on ptw_walk_done (PTE fetched, TLB fill via Port B).
+    //              Exit : → T_RELOOKUP. mmu_flush_req → T_FLUSH (skip fill).
+    //              Duration: 1 cycle (single Port B write).
+    //
+    // T_RELOOKUP : Entry: T_FILL (re-read TLB to confirm fill committed).
+    //              Exit : → T_RECHECK. mmu_flush_req → T_FLUSH.
+    //              Duration: 1 cycle (BRAM read latency).
+    //
+    // T_RECHECK  : Entry: T_RELOOKUP (TLB Port A output valid after fill).
+    //              Exit : hit → T_DONE; perm/A-D fault → T_FAULT;
+    //                     miss-after-fill → T_FAULT (should not happen).
+    //                     mmu_flush_req → T_FLUSH.
+    //              Duration: 1 cycle (hit) or multi-cycle (wait for valid).
+    //
+    // T_DONE     : Entry: T_CHECK/T_RECHECK on successful translation.
+    //              Exit : → T_COMPLETE (next cycle).
+    //              Duration: 1 cycle. Sets translate_done + translate_paddr.
+    //
+    // T_FAULT    : Entry: T_CHECK/T_RECHECK/T_WALK on fault.
+    //              Exit : → T_COMPLETE (next cycle).
+    //              Duration: 1 cycle. Sets translate_done + translate_fault.
+    //
+    // T_COMPLETE : Entry: T_DONE or T_FAULT.
+    //              Exit : !translate_req → T_IDLE;
+    //                     translate_vaddr changed → T_IDLE (re-translate);
+    //                     mmu_flush_req → T_FLUSH.
+    //              Duration: variable (held until CPU drops translate_req).
+    //              Holds translate_done high (level signal) to prevent
+    //              re-translation and avoid 1-cycle gap in mmu_ready.
+    //
+    // T_FLUSH    : Entry: any state on mmu_flush_req (sfence_vma).
+    //              Exit : tlb_flush_done → T_IDLE.
+    //              Duration: NUM_SETS cycles (TLB scans all sets, zeroing BRAM).
     //
     // Timing: translate_done is set on the edge that enters T_DONE/T_FAULT,
     // then held high in T_COMPLETE until translate_req deasserts (level signal).

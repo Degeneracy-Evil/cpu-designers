@@ -297,6 +297,18 @@ module core_top(
     // CPU requests translation when in FETCH or MEM with a memory access.
     // translate_req is held until translate_done returns (CPU blocks in that state).
     // T_COMPLETE state holds translate_done high until !translate_req
+    //
+    // CONTRACT: if_valid and mem_valid are mutually exclusive.
+    //   The pipeline guarantees that only one stage (FETCH or MEM) issues a
+    //   memory access per cycle. if_valid is asserted during the FETCH stage
+    //   (instruction fetch), mem_valid during the MEM stage (load/store).
+    //   These stages never overlap in the same cycle. This mutual exclusion is
+    //   what allows the unified MMU to share a single TLB Port A without
+    //   contention (see MMU.sv TLB contract comment). The translate_vaddr and
+    //   translate_access muxes below rely on this: if_valid takes priority in
+    //   the address mux, but since both are never high simultaneously, there is
+    //   no actual conflict. Violating this contract would cause TLB BRAM
+    //   corruption and wrong translation results.
     assign mmu_translate_req    = if_valid || (mem_valid && mem_en);
     assign mmu_translate_vaddr  = if_valid ? fetch_vaddr : mem_dataAddr_32;
     assign mmu_translate_access = if_valid ? 2'b00 : (mem_hwrite ? 2'b10 : 2'b01);  // FETCH : (STORE : LOAD)

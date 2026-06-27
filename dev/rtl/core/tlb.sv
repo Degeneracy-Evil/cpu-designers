@@ -73,6 +73,17 @@ localparam FLAG_ENTRY_W  = `TLB_FLAG_ENTRY_WIDTH;
 localparam DATA_ENTRY_W  = `TLB_DATA_ENTRY_WIDTH;
 
 // --- State machine (simplified: no per-lookup FSM, MMU manages sequencing) ---
+// S_RUN   : Entry: reset (via S_FLUSH completion) or S_FLUSH on tlb_flush_done.
+//           Exit : flush_all → S_FLUSH.
+//           Duration: indefinite (steady-state — services lookups and fills).
+//           In S_RUN, Port A and Port B BRAM reads are combinational
+//           (ena/enb gated by i_lookup_req/d_lookup_req/fill_req). No
+//           FSM sequencing is needed for lookups — MMU drives the handshake.
+// S_FLUSH : Entry: S_RUN on flush_all (sfence_vma), OR reset (BUG-9: start
+//           in S_FLUSH to zero BRAM on reset, clearing undefined valid bits).
+//           Exit : flush_set reaches NUM_SETS-1 → S_RUN (flush_done_r pulse).
+//           Duration: NUM_SETS cycles (1 BRAM write per set, zeroing all ways).
+//           Clears shadow valid bits and PLRU state for all sets.
 localparam S_RUN   = 2'd0;
 localparam S_FLUSH = 2'd1;
 

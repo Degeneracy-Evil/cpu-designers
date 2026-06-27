@@ -48,6 +48,46 @@ module icache_ctrl(
     localparam ADDR_UPPER_ZEROS = 30 - `ICACHE_TAG_HI;
     localparam ADDR_LOWER_ZEROS = `ICACHE_SET_IDX_LO;
 
+    // =========================================================================
+    // icache FSM states (entry / exit / duration)
+    // =========================================================================
+    // S_IDLE       : Entry: reset (via S_RST_CLEAR), or any state on flush_req
+    //               abort, or S_TAG_READ/S_READ/S_REFILL on completion.
+    //               Exit : invalidate_req → S_INVALIDATE;
+    //                      cpu_req_valid + mmu_ready + !is_mmio → S_TAG_READ;
+    //                      cpu_req_valid + is_mmio → MMIO bypass (stay in S_IDLE).
+    //               Duration: 1 cycle (waits for request).
+    //
+    // S_TAG_READ   : Entry: S_IDLE on cacheable CPU request (tag BRAM Port A
+    //               read enabled in S_IDLE, output valid this cycle).
+    //               Exit : req_changed → S_IDLE; cache_hit → S_READ;
+    //                      cache_miss → S_REFILL (issues refill_req).
+    //               Duration: 1 cycle.
+    //
+    // S_READ       : Entry: S_TAG_READ on cache hit (data BRAM Port A enabled
+    //               in S_TAG_READ, output valid this cycle).
+    //               Exit : req_changed → S_IDLE; → S_IDLE (returns hit data).
+    //               Duration: 1 cycle. Sets cpu_req_ready + updates PLRU.
+    //
+    // S_REFILL     : Entry: S_TAG_READ on cache miss (refill_req_r asserted).
+    //               Exit : req_changed → S_IDLE (abort);
+    //                      refill_valid + addr_match → S_IDLE (write tag+data);
+    //                      refill_valid + !addr_match → S_IDLE (stale, discard).
+    //               Duration: variable (AXI burst latency, ~8-20 cycles).
+    //
+    // S_INVALIDATE : Entry: S_IDLE on invalidate_req (sfence.vma coherency).
+    //               Exit : invalidate_set == NUM_SETS-1 → S_IDLE.
+    //               Duration: NUM_SETS cycles (1 BRAM write per set, zeroing
+    //               all ways' valid bits). Also clears PLRU state.
+    //
+    // S_RST_CLEAR  : Entry: reset (ISSUE-4: tag BRAM contents undefined at
+    //               reset, valid bits could be X causing X-propagation).
+    //               Exit : invalidate_set == NUM_SETS-1 → S_IDLE.
+    //               Duration: NUM_SETS cycles. Zero-writes all tag BRAM sets
+    //               before accepting any CPU request. Reuses S_INVALIDATE
+    //               pattern. No CPU requests accepted during scan.
+    //               flush_req is blocked from interrupting this state.
+    //
     localparam S_IDLE       = 3'd0;
     localparam S_TAG_READ   = 3'd1;
     localparam S_READ       = 3'd2;
@@ -204,6 +244,11 @@ module icache_ctrl(
     wire bram_ena = (state == S_TAG_READ) && cache_hit;
     wire bram_enb = refill_valid && (state == S_REFILL) && refill_addr_match;
 
+    // CONTRACT: BRAM en=0 output hold. When ena/enb=0, Xilinx BRAM IP holds
+    // the last read data on douta/doutb (no explicit output register needed).
+    // The FSM relies on this: S_READ reads bram_douta which was latched by
+    // the ena pulse in S_TAG_READ. If en=0 caused dout to go X or 0, the hit
+    // data would be corrupted. Do NOT add logic that assumes en=0 clears dout.
     icached u_icached(
         .clka   (clk),
         .ena    (bram_ena),

@@ -188,6 +188,7 @@ module tb_kernel_boot;
     // ========================================================================
 `ifdef DEBUG_TRAP
     integer dbg_if_fd;
+    integer dbg_forensic_fd;
     integer dbg_if_cycle;
     reg     dbg_if_miss_prev;
     reg     dbg_ptw_active_prev;
@@ -198,6 +199,79 @@ module tb_kernel_boot;
     reg        dbg_last_map_valid;
 
     localparam integer IF_SANITY_ENABLE_CYCLE = 200000000;
+    localparam integer FORENSIC_DEPTH = 128;
+
+    integer dbg_forensic_wr_ptr;
+    integer dbg_forensic_count;
+    reg     dbg_forensic_dumped;
+    integer dbg_forensic_i;
+
+    time     forensic_time           [0:FORENSIC_DEPTH-1];
+    reg [31:0] forensic_cycle        [0:FORENSIC_DEPTH-1];
+    reg [31:0] forensic_if_pc        [0:FORENSIC_DEPTH-1];
+    reg [31:0] forensic_if_inst      [0:FORENSIC_DEPTH-1];
+    reg        forensic_if_done      [0:FORENSIC_DEPTH-1];
+    reg        forensic_inst_valid   [0:FORENSIC_DEPTH-1];
+    reg        forensic_id_valid     [0:FORENSIC_DEPTH-1];
+    reg        forensic_id_done      [0:FORENSIC_DEPTH-1];
+    reg [95:0] forensic_if_id_bus_r  [0:FORENSIC_DEPTH-1];
+    reg [31:0] forensic_id_pc        [0:FORENSIC_DEPTH-1];
+    reg [31:0] forensic_id_inst      [0:FORENSIC_DEPTH-1];
+    reg        forensic_dec_ecall    [0:FORENSIC_DEPTH-1];
+    reg        forensic_dec_illegal  [0:FORENSIC_DEPTH-1];
+    reg        forensic_dec_ebreak   [0:FORENSIC_DEPTH-1];
+    reg        forensic_exc_at_dec   [0:FORENSIC_DEPTH-1];
+    reg        forensic_exc_valid    [0:FORENSIC_DEPTH-1];
+    reg [31:0] forensic_exc_cause    [0:FORENSIC_DEPTH-1];
+    reg [31:0] forensic_exc_pc       [0:FORENSIC_DEPTH-1];
+    reg [31:0] forensic_exc_mtval    [0:FORENSIC_DEPTH-1];
+    reg        forensic_exc_valid_r  [0:FORENSIC_DEPTH-1];
+    reg [31:0] forensic_exc_cause_r  [0:FORENSIC_DEPTH-1];
+    reg [31:0] forensic_exc_pc_r     [0:FORENSIC_DEPTH-1];
+    reg [31:0] forensic_exc_mtval_r  [0:FORENSIC_DEPTH-1];
+    reg        forensic_af_valid     [0:FORENSIC_DEPTH-1];
+    reg        forensic_pf_valid     [0:FORENSIC_DEPTH-1];
+    reg        forensic_misalign_val [0:FORENSIC_DEPTH-1];
+    reg        forensic_exe_exc_val  [0:FORENSIC_DEPTH-1];
+    reg [31:0] forensic_dec_exc_cause[0:FORENSIC_DEPTH-1];
+    reg [31:0] forensic_dec_exc_tval [0:FORENSIC_DEPTH-1];
+    reg        forensic_trap_enter   [0:FORENSIC_DEPTH-1];
+    reg [31:0] forensic_hw_cause     [0:FORENSIC_DEPTH-1];
+    reg [31:0] forensic_hw_epc       [0:FORENSIC_DEPTH-1];
+    reg [31:0] forensic_hw_tval      [0:FORENSIC_DEPTH-1];
+    reg        forensic_trap_pending [0:FORENSIC_DEPTH-1];
+    reg [31:0] forensic_trap_pc      [0:FORENSIC_DEPTH-1];
+    reg [1:0]  forensic_priv         [0:FORENSIC_DEPTH-1];
+    reg [1:0]  forensic_target_priv  [0:FORENSIC_DEPTH-1];
+    reg [31:0] forensic_satp         [0:FORENSIC_DEPTH-1];
+    reg [31:0] forensic_fetch_vaddr  [0:FORENSIC_DEPTH-1];
+    reg [31:0] forensic_mmu_paddr    [0:FORENSIC_DEPTH-1];
+    reg        forensic_mmu_ready    [0:FORENSIC_DEPTH-1];
+    reg        forensic_mmu_miss     [0:FORENSIC_DEPTH-1];
+    reg        forensic_mmu_pf       [0:FORENSIC_DEPTH-1];
+    reg [3:0]  forensic_mmu_pf_cause [0:FORENSIC_DEPTH-1];
+    reg [31:0] forensic_mmu_pf_vaddr [0:FORENSIC_DEPTH-1];
+    reg [2:0]  forensic_mmu_i_state  [0:FORENSIC_DEPTH-1];
+    reg [1:0]  forensic_walk_state   [0:FORENSIC_DEPTH-1];
+    reg        forensic_tlb_hit      [0:FORENSIC_DEPTH-1];
+    reg        forensic_tlb_valid    [0:FORENSIC_DEPTH-1];
+    reg        forensic_walk_active  [0:FORENSIC_DEPTH-1];
+    reg        forensic_pending_i    [0:FORENSIC_DEPTH-1];
+    reg [2:0]  forensic_ic_state     [0:FORENSIC_DEPTH-1];
+    reg        forensic_refill_req   [0:FORENSIC_DEPTH-1];
+    reg        forensic_refill_valid [0:FORENSIC_DEPTH-1];
+    reg [31:0] forensic_refill_addr  [0:FORENSIC_DEPTH-1];
+    reg [31:0] forensic_refill_data0 [0:FORENSIC_DEPTH-1];
+    reg [31:0] forensic_sel_word     [0:FORENSIC_DEPTH-1];
+    reg [31:0] forensic_sel_woff     [0:FORENSIC_DEPTH-1];
+    reg        forensic_arvalid      [0:FORENSIC_DEPTH-1];
+    reg        forensic_arready      [0:FORENSIC_DEPTH-1];
+    reg [31:0] forensic_araddr       [0:FORENSIC_DEPTH-1];
+    reg        forensic_rvalid       [0:FORENSIC_DEPTH-1];
+    reg        forensic_rready       [0:FORENSIC_DEPTH-1];
+    reg        forensic_rlast        [0:FORENSIC_DEPTH-1];
+    reg [31:0] forensic_rdata        [0:FORENSIC_DEPTH-1];
+    reg [31:0] forensic_shadow_inst  [0:FORENSIC_DEPTH-1];
 
     function is_sram_cacheable_addr;
         input [31:0] addr;
@@ -214,6 +288,63 @@ module tb_kernel_boot;
                 u_soc.cpu.csr_satp[31];
         end
     endfunction
+
+    task dump_forensic_buffer;
+        input [255:0] reason;
+        integer start_idx;
+        integer dump_idx;
+        integer line_idx;
+        begin
+            if (dbg_forensic_dumped)
+                disable dump_forensic_buffer;
+            dbg_forensic_dumped = 1'b1;
+
+            if (dbg_forensic_fd != 0) begin
+                $fwrite(dbg_forensic_fd, "# ================================================================\n");
+                $fwrite(dbg_forensic_fd, "# Trap forensic dump: reason=%0s cycle=%0d time=%0t\n", reason, dbg_if_cycle, $time);
+                $fwrite(dbg_forensic_fd, "# idx cyc time if_pc if_inst ifd iv idv idd id_pc id_inst de decill debrk exd exv excause expc exmt exvr excr expr extr afv pfv msv exev decc dect trap hwc hwe hwt tpend tpc priv tpriv satp fva mpa mrdy mmiss mpf mpfc mpfv mis ws th tv wa pi ics rr rv ra rd sw wo arv arr ara rvv rry rls rdt shadow\n");
+                start_idx = (dbg_forensic_wr_ptr - dbg_forensic_count + FORENSIC_DEPTH) % FORENSIC_DEPTH;
+                for (line_idx = 0; line_idx < dbg_forensic_count; line_idx = line_idx + 1) begin
+                    dump_idx = (start_idx + line_idx) % FORENSIC_DEPTH;
+                    $fwrite(dbg_forensic_fd,
+                            "%0d %0d %0t %08h %08h %0b %0b %0b %0b %08h %08h %0b %0b %0b %0b %0b %08h %08h %08h %0b %08h %08h %08h %0b %0b %0b %0b %08h %08h %0b %08h %08h %08h %0b %08h %0d %0d %08h %08h %08h %0b %0b %0b %0d %08h %0d %0d %0b %0b %0d %0b %0b %0b %0b %08h %08h %08h %0d %0b %0b %08h %0b %0b %0b %08h %08h\n",
+                            line_idx, forensic_cycle[dump_idx], forensic_time[dump_idx],
+                            forensic_if_pc[dump_idx], forensic_if_inst[dump_idx],
+                            forensic_if_done[dump_idx], forensic_inst_valid[dump_idx],
+                            forensic_id_valid[dump_idx], forensic_id_done[dump_idx],
+                            forensic_id_pc[dump_idx], forensic_id_inst[dump_idx],
+                            forensic_dec_ecall[dump_idx], forensic_dec_illegal[dump_idx], forensic_dec_ebreak[dump_idx],
+                            forensic_exc_at_dec[dump_idx], forensic_exc_valid[dump_idx],
+                            forensic_exc_cause[dump_idx], forensic_exc_pc[dump_idx], forensic_exc_mtval[dump_idx],
+                            forensic_exc_valid_r[dump_idx], forensic_exc_cause_r[dump_idx],
+                            forensic_exc_pc_r[dump_idx], forensic_exc_mtval_r[dump_idx],
+                            forensic_af_valid[dump_idx], forensic_pf_valid[dump_idx],
+                            forensic_misalign_val[dump_idx], forensic_exe_exc_val[dump_idx],
+                            forensic_dec_exc_cause[dump_idx], forensic_dec_exc_tval[dump_idx],
+                            forensic_trap_enter[dump_idx], forensic_hw_cause[dump_idx],
+                            forensic_hw_epc[dump_idx], forensic_hw_tval[dump_idx],
+                            forensic_trap_pending[dump_idx], forensic_trap_pc[dump_idx],
+                            forensic_priv[dump_idx], forensic_target_priv[dump_idx],
+                            forensic_satp[dump_idx], forensic_fetch_vaddr[dump_idx],
+                            forensic_mmu_paddr[dump_idx], forensic_mmu_ready[dump_idx],
+                            forensic_mmu_miss[dump_idx], forensic_mmu_pf[dump_idx],
+                            forensic_mmu_pf_cause[dump_idx], forensic_mmu_pf_vaddr[dump_idx],
+                            forensic_mmu_i_state[dump_idx], forensic_walk_state[dump_idx],
+                            forensic_tlb_hit[dump_idx], forensic_tlb_valid[dump_idx],
+                            forensic_walk_active[dump_idx], forensic_pending_i[dump_idx],
+                            forensic_ic_state[dump_idx], forensic_refill_req[dump_idx],
+                            forensic_refill_valid[dump_idx], forensic_refill_addr[dump_idx],
+                            forensic_refill_data0[dump_idx], forensic_sel_word[dump_idx],
+                            forensic_sel_woff[dump_idx], forensic_arvalid[dump_idx],
+                            forensic_arready[dump_idx], forensic_araddr[dump_idx],
+                            forensic_rvalid[dump_idx], forensic_rready[dump_idx],
+                            forensic_rlast[dump_idx], forensic_rdata[dump_idx],
+                            forensic_shadow_inst[dump_idx]);
+                end
+                $fflush(dbg_forensic_fd);
+            end
+        end
+    endtask
 
     task dump_if_sanity_snapshot;
         input [255:0] reason;
@@ -269,6 +400,7 @@ module tb_kernel_boot;
 
     initial begin
         dbg_if_fd = $fopen("if_sanity.log", "w");
+        dbg_forensic_fd = $fopen("trap_forensics_dump.log", "w");
         if (dbg_if_fd != 0) begin
             $fwrite(dbg_if_fd, "# IF sanity event log\n");
             $fwrite(dbg_if_fd, "# Cycle\tTime\tEvent\tPC\tINST\tPADDR\tAUX0\tAUX1\tAUX2\tAUX3\tAUX4\n");
@@ -281,11 +413,93 @@ module tb_kernel_boot;
         dbg_last_map_vaddr = 32'b0;
         dbg_last_map_paddr = 32'b0;
         dbg_last_map_valid = 1'b0;
+        dbg_forensic_wr_ptr = 0;
+        dbg_forensic_count = 0;
+        dbg_forensic_dumped = 1'b0;
     end
 
     always @(posedge clk) begin
         if (resetn) begin
             dbg_if_cycle = dbg_if_cycle + 1;
+
+            if (if_sanity_window_active()) begin
+                forensic_time[dbg_forensic_wr_ptr]          = $time;
+                forensic_cycle[dbg_forensic_wr_ptr]         = dbg_if_cycle;
+                forensic_if_pc[dbg_forensic_wr_ptr]         = if_pc;
+                forensic_if_inst[dbg_forensic_wr_ptr]       = if_inst;
+                forensic_if_done[dbg_forensic_wr_ptr]       = u_soc.cpu.if_done;
+                forensic_inst_valid[dbg_forensic_wr_ptr]    = u_soc.cpu.inst_valid_mux;
+                forensic_id_valid[dbg_forensic_wr_ptr]      = u_soc.cpu.id_valid;
+                forensic_id_done[dbg_forensic_wr_ptr]       = u_soc.cpu.id_done;
+                forensic_if_id_bus_r[dbg_forensic_wr_ptr]   = u_soc.cpu.if_id_bus_r;
+                forensic_id_pc[dbg_forensic_wr_ptr]         = u_soc.cpu.id_pc_wire;
+                forensic_id_inst[dbg_forensic_wr_ptr]       = u_soc.cpu.id_inst_wire;
+                forensic_dec_ecall[dbg_forensic_wr_ptr]     = u_soc.cpu.dec_is_ecall;
+                forensic_dec_illegal[dbg_forensic_wr_ptr]   = u_soc.cpu.dec_illegal;
+                forensic_dec_ebreak[dbg_forensic_wr_ptr]    = u_soc.cpu.dec_is_ebreak;
+                forensic_exc_at_dec[dbg_forensic_wr_ptr]    = u_soc.cpu.u_trap_csr.u_trap_mgr.exception_at_decode;
+                forensic_exc_valid[dbg_forensic_wr_ptr]     = u_soc.cpu.u_trap_csr.u_trap_mgr.exception_valid;
+                forensic_exc_cause[dbg_forensic_wr_ptr]     = u_soc.cpu.u_trap_csr.u_trap_mgr.exception_cause;
+                forensic_exc_pc[dbg_forensic_wr_ptr]        = u_soc.cpu.u_trap_csr.u_trap_mgr.exception_pc;
+                forensic_exc_mtval[dbg_forensic_wr_ptr]     = u_soc.cpu.u_trap_csr.u_trap_mgr.exception_mtval;
+                forensic_exc_valid_r[dbg_forensic_wr_ptr]   = u_soc.cpu.u_trap_csr.u_trap_mgr.exception_valid_r;
+                forensic_exc_cause_r[dbg_forensic_wr_ptr]   = u_soc.cpu.u_trap_csr.u_trap_mgr.exception_cause_r;
+                forensic_exc_pc_r[dbg_forensic_wr_ptr]      = u_soc.cpu.u_trap_csr.u_trap_mgr.exception_pc_r;
+                forensic_exc_mtval_r[dbg_forensic_wr_ptr]   = u_soc.cpu.u_trap_csr.u_trap_mgr.exception_mtval_r;
+                forensic_af_valid[dbg_forensic_wr_ptr]      = u_soc.cpu.u_trap_csr.u_trap_mgr.access_fault_valid;
+                forensic_pf_valid[dbg_forensic_wr_ptr]      = u_soc.cpu.u_trap_csr.u_trap_mgr.pf_valid;
+                forensic_misalign_val[dbg_forensic_wr_ptr]  = u_soc.cpu.u_trap_csr.u_trap_mgr.misalign_exception_valid;
+                forensic_exe_exc_val[dbg_forensic_wr_ptr]   = u_soc.cpu.u_trap_csr.u_trap_mgr.exe_exception_valid;
+                forensic_dec_exc_cause[dbg_forensic_wr_ptr] = u_soc.cpu.u_trap_csr.u_trap_mgr.decode_exception_cause;
+                forensic_dec_exc_tval[dbg_forensic_wr_ptr]  = u_soc.cpu.u_trap_csr.u_trap_mgr.decode_exception_mtval;
+                forensic_trap_enter[dbg_forensic_wr_ptr]    = u_soc.cpu.trap_enter_valid;
+                forensic_hw_cause[dbg_forensic_wr_ptr]      = u_soc.cpu.hw_trap_cause;
+                forensic_hw_epc[dbg_forensic_wr_ptr]        = u_soc.cpu.hw_trap_epc;
+                forensic_hw_tval[dbg_forensic_wr_ptr]       = u_soc.cpu.hw_trap_tval;
+                forensic_trap_pending[dbg_forensic_wr_ptr]  = u_soc.cpu.trap_pending;
+                forensic_trap_pc[dbg_forensic_wr_ptr]       = u_soc.cpu.trap_csr_pc;
+                forensic_priv[dbg_forensic_wr_ptr]          = u_soc.cpu.priv_mode;
+                forensic_target_priv[dbg_forensic_wr_ptr]   = u_soc.cpu.target_priv;
+                forensic_satp[dbg_forensic_wr_ptr]          = u_soc.cpu.csr_satp;
+                forensic_fetch_vaddr[dbg_forensic_wr_ptr]   = u_soc.cpu.fetch_vaddr;
+                forensic_mmu_paddr[dbg_forensic_wr_ptr]     = u_soc.cpu.mmu_inst_paddr;
+                forensic_mmu_ready[dbg_forensic_wr_ptr]     = u_soc.cpu.mmu_inst_ready;
+                forensic_mmu_miss[dbg_forensic_wr_ptr]      = u_soc.cpu.mmu_inst_miss;
+                forensic_mmu_pf[dbg_forensic_wr_ptr]        = u_soc.cpu.mmu_inst_page_fault;
+                forensic_mmu_pf_cause[dbg_forensic_wr_ptr]  = u_soc.cpu.mmu_inst_pf_cause;
+                forensic_mmu_pf_vaddr[dbg_forensic_wr_ptr]  = u_soc.cpu.mmu_inst_pf_vaddr;
+                forensic_mmu_i_state[dbg_forensic_wr_ptr]   = u_soc.cpu.mmu_dbg_i_state;
+                forensic_walk_state[dbg_forensic_wr_ptr]    = u_soc.cpu.mmu_dbg_walk_state;
+                forensic_tlb_hit[dbg_forensic_wr_ptr]       = u_soc.cpu.mmu_dbg_i_tlb_hit;
+                forensic_tlb_valid[dbg_forensic_wr_ptr]     = u_soc.cpu.mmu_dbg_i_tlb_valid;
+                forensic_walk_active[dbg_forensic_wr_ptr]   = u_soc.cpu.mmu_dbg_i_walk_active;
+                forensic_pending_i[dbg_forensic_wr_ptr]     = u_soc.cpu.mmu_dbg_pending_i_walk;
+                forensic_ic_state[dbg_forensic_wr_ptr]      = u_soc.cpu.icache_dbg_state;
+                forensic_refill_req[dbg_forensic_wr_ptr]    = u_soc.cpu.icache_refill_req;
+                forensic_refill_valid[dbg_forensic_wr_ptr]  = u_soc.cpu.icache_refill_valid;
+                forensic_refill_addr[dbg_forensic_wr_ptr]   = u_soc.cpu.icache_refill_addr;
+                forensic_refill_data0[dbg_forensic_wr_ptr]  = u_soc.cpu.icache_refill_data[31:0];
+                forensic_sel_word[dbg_forensic_wr_ptr]      = u_soc.cpu.u_icache_wrap.sel_word;
+                forensic_sel_woff[dbg_forensic_wr_ptr]      = u_soc.cpu.u_icache_wrap.sel_word_off;
+                forensic_arvalid[dbg_forensic_wr_ptr]       = u_soc.cpu.arvalid;
+                forensic_arready[dbg_forensic_wr_ptr]       = u_soc.cpu.arready;
+                forensic_araddr[dbg_forensic_wr_ptr]        = u_soc.cpu.araddr;
+                forensic_rvalid[dbg_forensic_wr_ptr]        = u_soc.cpu.rvalid;
+                forensic_rready[dbg_forensic_wr_ptr]        = u_soc.cpu.rready;
+                forensic_rlast[dbg_forensic_wr_ptr]         = u_soc.cpu.rlast;
+                forensic_rdata[dbg_forensic_wr_ptr]         = u_soc.cpu.rdata;
+`ifndef SIMU_DDR_MODE
+                if (is_sram_cacheable_addr(u_soc.cpu.mmu_inst_paddr))
+                    forensic_shadow_inst[dbg_forensic_wr_ptr] = u_soc.sim_ram.u_axi_ram.BRAM[u_soc.cpu.mmu_inst_paddr[26:2]];
+                else
+                    forensic_shadow_inst[dbg_forensic_wr_ptr] = 32'hXXXXXXXX;
+`else
+                forensic_shadow_inst[dbg_forensic_wr_ptr] = 32'hXXXXXXXX;
+`endif
+                dbg_forensic_wr_ptr = (dbg_forensic_wr_ptr + 1) % FORENSIC_DEPTH;
+                if (dbg_forensic_count < FORENSIC_DEPTH)
+                    dbg_forensic_count = dbg_forensic_count + 1;
+            end
 
             if (dbg_if_fd != 0) begin
                 if (u_soc.cpu.mmu_inst_miss && !dbg_if_miss_prev) begin
@@ -330,10 +544,10 @@ module tb_kernel_boot;
                             u_soc.cpu.icache_dbg_state, u_soc.cpu.mmu_dbg_i_state);
                 end
                 if (u_soc.cpu.dec_is_ecall) begin
-                    $fwrite(dbg_if_fd, "%0d\t%0t\tECALL_DECODE\t%08h\t%08h\t%08h\t%08h\t%0d\t%0d\t%0b\t%0b\n",
-                            dbg_if_cycle, $time, if_pc, if_inst, u_soc.cpu.mmu_inst_paddr,
-                            u_soc.cpu.fetch_vaddr, u_soc.cpu.icache_dbg_state, u_soc.cpu.mmu_dbg_i_state,
-                            u_soc.cpu.inst_valid_mux, u_soc.cpu.if_done);
+                    $fwrite(dbg_if_fd, "%0d\t%0t\tECALL_DECODE\t%08h\t%08h\t%08h\t%08h\t%08h\t%0d\t%0b\n",
+                            dbg_if_cycle, $time, u_soc.cpu.id_pc_wire, u_soc.cpu.id_inst_wire, u_soc.cpu.mmu_inst_paddr,
+                            u_soc.cpu.fetch_vaddr, u_soc.cpu.csr_satp, u_soc.cpu.icache_dbg_state,
+                            u_soc.cpu.mmu_dbg_i_state, u_soc.cpu.inst_valid_mux);
                 end
                 if (u_soc.cpu.trap_enter_valid && (u_soc.cpu.hw_trap_cause == 32'd9) &&
                     (u_soc.cpu.hw_trap_epc != 32'hc0010bbc)) begin
@@ -352,19 +566,30 @@ module tb_kernel_boot;
                 is_sram_cacheable_addr(u_soc.cpu.mmu_inst_paddr)) begin
                 dbg_expected_inst = u_soc.sim_ram.u_axi_ram.BRAM[u_soc.cpu.mmu_inst_paddr[26:2]];
                 if (if_inst !== dbg_expected_inst) begin
+                    dump_forensic_buffer("FETCH_TRUTH_MISMATCH");
                     dump_if_sanity_snapshot("FETCH_TRUTH_MISMATCH");
                     $finish;
                 end
             end
 `endif
 
-            if (u_soc.cpu.dec_is_ecall && (if_inst !== 32'h00000073)) begin
+            if (if_sanity_window_active() && u_soc.cpu.dec_is_ecall &&
+                (u_soc.cpu.id_inst_wire !== 32'h00000073)) begin
+                dump_forensic_buffer("DECODE_ECALL_MISMATCH");
                 dump_if_sanity_snapshot("DECODE_ECALL_MISMATCH");
+                $finish;
+            end
+
+            if (if_sanity_window_active() && u_soc.cpu.dec_is_ecall &&
+                (u_soc.cpu.id_pc_wire != 32'hc0010bbc)) begin
+                dump_forensic_buffer("UNEXPECTED_ECALL_DECODE");
+                dump_if_sanity_snapshot("UNEXPECTED_ECALL_DECODE");
                 $finish;
             end
 
             if (u_soc.cpu.trap_enter_valid && (u_soc.cpu.hw_trap_cause == 32'd9) &&
                 (u_soc.cpu.hw_trap_epc != 32'hc0010bbc)) begin
+                dump_forensic_buffer("SUSPICIOUS_ECALL_TRAP");
                 dump_if_sanity_snapshot("SUSPICIOUS_ECALL_TRAP");
                 $finish;
             end
@@ -386,6 +611,11 @@ module tb_kernel_boot;
             $fflush(dbg_if_fd);
             $fclose(dbg_if_fd);
             $display("[DEBUG-IF-SANITY] IF sanity log closed at cycle %0d", dbg_if_cycle);
+        end
+        if (dbg_forensic_fd != 0) begin
+            $fflush(dbg_forensic_fd);
+            $fclose(dbg_forensic_fd);
+            $display("[DEBUG-FORENSICS] Trap forensic dump file closed");
         end
     end
 `endif

@@ -923,9 +923,34 @@ state <= S_FLUSH_WB_SD;
 
                     inv_line_done_r <= 1'b1;
                     if (flush_error_seen_r) begin
-                        flush_done_r <= 1'b1;
+                        // Flush error recovery: the faulting line has been
+                        // invalidated above. Do NOT signal flush_done —
+                        // remaining dirty lines must still be scanned and
+                        // written back. Advance flush_set/flush_way past the
+                        // faulting line (mirroring the success path in
+                        // S_FLUSH_WB_SD) and resume scanning via S_FLUSH_WB_WAIT
+                        // (defers one cycle so the Port B tag write commits
+                        // before the next Port A read).
+                        flush_error_seen_r <= 1'b0;
+                        if (latched_victim_way == NUM_WAYS - 1) begin
+                            if (latched_set == NUM_SETS - 1) begin
+                                // All sets scanned → invalidate all
+                                flush_resume_invalidate_r <= 1'b1;
+                                invalidate_set <= {SET_IDX_W{1'b0}};
+                            end else begin
+                                flush_set <= latched_set + 1'b1;
+                                flush_way <= {WAY_W{1'b0}};
+                                flush_resume_invalidate_r <= 1'b0;
+                            end
+                        end else begin
+                            flush_set <= latched_set;
+                            flush_way <= latched_victim_way + 1'b1;
+                            flush_resume_invalidate_r <= 1'b0;
+                        end
+                        state <= S_FLUSH_WB_WAIT;
+                    end else begin
+                        state <= S_IDLE;
                     end
-                    state <= S_IDLE;
                 end
 
                 default: state <= S_IDLE;

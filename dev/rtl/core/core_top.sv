@@ -41,6 +41,8 @@ module core_top(
     output [31:0] hw_trap_epc,       // faulting PC at trap entry
     output [31:0] hw_trap_cause,     // raw cause at trap entry
     output [31:0] hw_trap_tval,      // trap value at trap entry
+    output [31:0] csr_mtval,         // M-mode trap value (CSR register, held)
+    output [31:0] csr_mstatus,       // M-mode status register
     output [31:0] exe_mem_vaddr,     // load/store virtual address
     output        exe_is_store,      // memory write flag
     output        exe_is_load,       // memory read flag
@@ -442,6 +444,7 @@ module core_top(
     wire [31:0] csr_mtvec;
     wire [31:0] csr_mepc;
     wire [31:0] csr_mcause;
+    wire [31:0] csr_mtval;
     wire [31:0] csr_mip;
     wire [31:0] csr_medeleg;
     wire [31:0] csr_mideleg;
@@ -1360,6 +1363,7 @@ module core_top(
         .csr_mtvec        (csr_mtvec),
         .csr_mepc         (csr_mepc),
         .csr_mcause       (csr_mcause),
+        .csr_mtval        (csr_mtval),
         .csr_mip          (csr_mip),
         .csr_medeleg      (csr_medeleg),
         .csr_mideleg      (csr_mideleg),

@@ -2,7 +2,7 @@
 
 module tb_audit_csr_bugs;
 
-    localparam integer EXPECTED_TOTAL = 8;
+    localparam integer EXPECTED_TOTAL = 7;
     localparam integer SIM_CYCLES    = 200000;
 
 
@@ -20,7 +20,7 @@ module tb_audit_csr_bugs;
         read_reg(5'd30, _val); $display("  x30 (first_fail_id) = %0d", _val);
         // Print individual test results from memory at 0x80007000+16+4*i
         for (integer i = 0; i < EXPECTED_TOTAL; i = i + 1) begin
-            check_mem_word(32'h80007000 + 16 + 4*i, _val);
+            _val = u_soc.sim_ram.u_axi_ram.BRAM[(32'h80007000 + 16 + 4*i - 32'h80000000) / 4];
             if (_val === 32'd1) $display("  test_%0d: PASS", i+1);
             else if (_val === 32'd0) $display("  test_%0d: FAIL", i+1);
             else $display("  test_%0d: UNRUN (val=0x%08h)", i+1, _val);

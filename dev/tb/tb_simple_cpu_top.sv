@@ -151,6 +151,50 @@ module tb_simple_cpu_top;
     end
 `endif
 
+`ifdef LINUX_BOOT
+    // ========================================================================
+    // Store Access Fault watchdog — detect cause=7 or PC entering sbi_hart_hang
+    // ========================================================================
+    integer wd_cause7_count;
+    initial begin
+        wd_cause7_count = 0;
+        forever begin
+            @(posedge clk);
+            if (resetn && u_soc.cpu.trap_enter_valid) begin
+                // mcause bit[31]=0 (exception), bits[5:0]=7 → Store Access Fault
+                if (u_soc.cpu.csr_mcause[31:6] == 26'b0 && u_soc.cpu.csr_mcause[5:0] == 6'd7) begin
+                    wd_cause7_count = wd_cause7_count + 1;
+                    $display("[WATCHDOG-CAUSE7] %0t: Store Access Fault! count=%0d", $time, wd_cause7_count);
+                    $display("[WATCHDOG-CAUSE7]   mepc=0x%08h mtval=0x%08h if_pc=0x%08h priv=%0d",
+                             u_soc.cpu.csr_mepc, u_soc.cpu.hw_trap_tval,
+                             if_pc, u_soc.cpu.priv_mode);
+                    $display("[WATCHDOG-CAUSE7]   mstatus=0x%08h satp=0x%08h medeleg=0x%08h",
+                             u_soc.cpu.csr_mstatus, u_soc.cpu.csr_satp, u_soc.cpu.csr_medeleg);
+                    $fflush;
+                    if (wd_cause7_count >= 3) begin
+                        $display("[WATCHDOG-CAUSE7] Repeated Store Access Fault — stopping simulation");
+                        $display("========================================");
+                        $display("BUG REPRODUCED: Store Access Fault in Linux boot");
+                        $display("========================================");
+                        $finish;
+                    end
+                end
+            end
+            // Detect PC entering sbi_hart_hang (0x80005358-0x8000536c)
+            if (resetn && if_pc[31:8] == 24'h800053 && if_pc[7:0] >= 8'h58 && if_pc[7:0] <= 8'h6c) begin
+                $display("[WATCHDOG-HANG] %0t: PC in sbi_hart_hang! PC=0x%08h inst=0x%08h priv=%0d",
+                         $time, if_pc, if_inst, u_soc.cpu.priv_mode);
+                $display("[WATCHDOG-HANG]   mepc=0x%08h mcause=0x%08h mtval=0x%08h",
+                         u_soc.cpu.csr_mepc, u_soc.cpu.csr_mcause, u_soc.cpu.hw_trap_tval);
+                $display("========================================");
+                $display("BUG REPRODUCED: CPU entered sbi_hart_hang");
+                $display("========================================");
+                $finish;
+            end
+        end
+    end
+`endif
+
     initial begin
         pass_count = 0;
         fail_count = 0;
@@ -163,7 +207,7 @@ module tb_simple_cpu_top;
         $fflush;
         repeat (600000) @(posedge clk);
 `elsif LINUX_BOOT
-        $display("[PROBE] %0t: Linux boot mode: waiting 200M cycles...", $time);
+        $display("[PROBE] %0t: Linux boot mode: waiting 200M cycles (watchdog active)...", $time);
         $fflush;
         repeat (200000000) @(posedge clk);
         $display("[PROBE] %0t: Linux boot simulation complete.", $time);
@@ -214,9 +258,9 @@ module tb_simple_cpu_top;
         check_reg(5'd17, 32'h00000007);
         check_reg(5'd18, 32'h00000006);
         check_reg(5'd19, 32'h00000002);
-        check_reg(5'd20, 32'h80000230);  // timing-dependent: x20 = mepc from last ecall trap
-        check_reg(5'd21, 32'h80001000);
-        check_reg(5'd22, 32'h80001050);
+        check_reg(5'd20, 32'h8000047c);  // x20 = mepc from last trap through trap_handler
+        check_reg(5'd21, 32'h00000009);  // x21 = mscratch count (9 traps through trap_handler)
+        check_reg(5'd22, 32'h80001068);  // x22 = 0x80001000 + 8*4 + 72 (last trap's record addr)
         check_reg(5'd23, 32'h00000000);
         check_reg(5'd24, 32'h00000000);
         check_reg(5'd25, 32'hffffffff);

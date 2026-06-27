@@ -258,6 +258,8 @@ module system_top(
     wire [31:0] hw_trap_epc;
     wire [31:0] hw_trap_cause;
     wire [31:0] hw_trap_tval;
+    wire [31:0] csr_mtval;
+    wire [31:0] csr_mstatus;
     wire [31:0] exe_mem_vaddr;
     wire        exe_is_store;
     wire        exe_is_load;
@@ -767,6 +769,8 @@ module system_top(
         .hw_trap_epc     (hw_trap_epc),
         .hw_trap_cause   (hw_trap_cause),
         .hw_trap_tval    (hw_trap_tval),
+        .csr_mtval       (csr_mtval),
+        .csr_mstatus     (csr_mstatus),
         .exe_mem_vaddr   (exe_mem_vaddr),
         .exe_is_store    (exe_is_store),
         .exe_is_load     (exe_is_load),
@@ -2206,6 +2210,15 @@ module system_top(
                         6'd15: disp_resp_bus_cpu <= {1'b1, "C_MTV", csr_mtvec};
                         6'd16: disp_resp_bus_cpu <= {1'b1, "C_TRP", {31'b0, trap_enter_valid}};
                         6'd17: disp_resp_bus_cpu <= {1'b1, "C_PRV", {30'b0, priv_mode}};
+                        6'd18: disp_resp_bus_cpu <= {1'b1, "C_EPC", csr_mepc};
+                        6'd19: disp_resp_bus_cpu <= {1'b1, "C_MVL", csr_mtval};
+                        6'd20: disp_resp_bus_cpu <= {1'b1, "C_MST", csr_mstatus};
+                        6'd21: disp_resp_bus_cpu <= {1'b1, "C_SAT", csr_satp};
+                        6'd22: disp_resp_bus_cpu <= {1'b1, "C_SEPC", csr_sepc};
+                        6'd23: disp_resp_bus_cpu <= {1'b1, "C_SCA", csr_scause};
+                        6'd24: disp_resp_bus_cpu <= {1'b1, "C_STV", csr_stval};
+                        6'd25: disp_resp_bus_cpu <= {1'b1, "C_HVL", hw_trap_tval};
+                        6'd26: disp_resp_bus_cpu <= {1'b1, "C_HEP", hw_trap_epc};
                         default: ;
                     endcase
                 end else if (disp_page_cpu == 2'b01) begin

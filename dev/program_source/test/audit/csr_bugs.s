@@ -10,7 +10,7 @@
 #   5. mip/sip SSIP software write path (bit 1)
 #   6. BUG-CSR-3: sip read after mip write (r_sip path)
 #   7. mstatus MPIE write/read (bit 7)
-#   8. scounteren S-mode write traps
+# (test 8 removed: scounteren is SRW — S-mode write is legal per spec)
 # ============================================================
 
 .equ PLIC_BASE,    0x0C000000
@@ -45,10 +45,9 @@ _start:
     jal  x1, test_run
     la   x11, test_07_mstatus_mpie_write
     jal  x1, test_run
-    la   x11, test_08_scounteren_smode_write
-    jal  x1, test_run
 
     jal  x1, test_report
+    fence.i
 
 end_loop:
     j    end_loop

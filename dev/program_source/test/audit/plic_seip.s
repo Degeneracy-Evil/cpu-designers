@@ -36,6 +36,7 @@ _start:
     jal  x1, test_run
 
     jal  x1, test_report
+    fence.i
 
 end_loop:
     j    end_loop

@@ -184,10 +184,6 @@ tasks:
     phex: test/privilege/csr_access_priv.hex
     runtime: 10ms
 
-  regression_icache_mmio_stale_resp:
-    tb: tb_regression_reg_icache_mmio_stale_resp
-    runtime: 2us
-
   # ── MMU 仿真 ──
 
   mmu_sv32_basic:

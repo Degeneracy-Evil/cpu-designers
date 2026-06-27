@@ -44,6 +44,7 @@ module cpu_csr_interface(
     output [31:0] csr_mtvec,
     output [31:0] csr_mepc,
     output [31:0] csr_mcause,
+    output [31:0] csr_mtval,
     output [31:0] csr_mip,
     output [31:0] csr_medeleg,
     output [31:0] csr_mideleg,

@@ -297,6 +297,13 @@ module icache_ctrl(
             if (mmio_accept)
                 mmio_pending_r <= 1'b0;
 
+            // CONTRACT: flush_req can abort S_REFILL mid-flight by dropping refill_req_r.
+            // The bus bridge (cpu_bus_bridge.sv) MUST tolerate request cancellation:
+            //   - Bridge latches refill address before req edge
+            //   - Stale responses are discarded via refill_addr_match check (L202, L403)
+            //   - Bridge re-accepts new refill requests from S_IDLE
+            // Removing this abort capability would deadlock on trap-during-refill.
+            // See also: cpu_bus_bridge.sv refill request handling.
             if (flush_req && (state != S_INVALIDATE) && (state != S_RST_CLEAR)) begin
                 state             <= S_IDLE;
                 refill_req_r      <= 1'b0;

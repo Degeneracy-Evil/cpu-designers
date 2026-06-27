@@ -409,6 +409,9 @@ module cpu_bus_bridge(
                         wb_boost_r      <= 1'b0;
                         wb_starve_cnt_r <= 3'd0;
                     end
+                    // CONTRACT: icache may drop refill_req mid-flight (trap/branch abort).
+                    // This bridge tolerates cancellation: stale responses are discarded by
+                    // icache's refill_addr_match check. No bridge-side action needed on cancel.
                     else if (icache_refill_req && !icache_refill_valid_r) begin
                         // Icache refill burst → AR then R
                         state           <= S_IREFILL_AR;

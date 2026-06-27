@@ -332,6 +332,12 @@ python -m tools.vivado_cli -task cpu_full -sim --log sim_output.log
 | `--max-parallel N` | 最大并行会话数（默认=min(任务数, max_concurrent)） |
 | `--on-error STRATEGY` | `continue`（默认）/ `fail-fast`（首败即停）/ `stop-accepting`（停提交等完成） |
 
+> ⚠️ **batch 模式下必须同时使用 `-create -sim`，不能只用 `-sim`。** 
+> 只用 `-sim` 复用已有 session 时，并发 `stop_vivado()` 释放信号量后进程立即启动，
+> 与仍在终止中的 xelab/xsim 子进程冲突，导致 Vivado 2018.3 崩溃
+> （segfault / "cannot find design unit"）。详见 `batch.py` 中 `_execute_single()` 
+> 的 docstring。
+
 ### 分轮执行
 
 当 batch 任务数超过 `max_sessions` 时，自动分轮执行：
@@ -403,6 +409,9 @@ python -m tools.vivado_cli -task uart_hello -create -sim
 
 ### 4'. 批处理模式（一条命令并行多任务）
 
+> ⚠️ **batch 模式下必须同时使用 `-create -sim`，不能只用 `-sim`。** 
+> 只用 `-sim` 复用已有 session 时并发崩溃，详见底部"批处理参数"节的警告。
+
 ```bash
 # 并行仿真所有 CPU 测试
 python -m tools.vivado_cli -batch "cpu_full,cpu_compute,cpu_trap" -create -sim
@@ -419,10 +428,12 @@ python -m tools.vivado_cli -batch "isa_*" -create -sim --max-parallel 2
 # 从 YAML 文件读取批处理计划
 python -m tools.vivado_cli -batch-plan regression.yaml
 
+# ⚠️ 以下两个 -sim 示例如无 -create 会复用已有 session 导致并发崩溃
+# 请优先使用 -create -sim（详见本页"批处理参数"节警告）
 # 失败策略：首败即停
 python -m tools.vivado_cli -batch "cpu_*" -sim --on-error fail-fast
 
-# 失败策略：不再提交新任务，但等待已运行的完成
+# ⚠️ 同上，-sim 单独使用会复用 session 崩溃，建议优先 -create -sim
 python -m tools.vivado_cli -batch "cpu_*" -sim --on-error stop-accepting
 
 # JSON 输出（CI/CD 友好）

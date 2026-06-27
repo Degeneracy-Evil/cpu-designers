@@ -118,6 +118,11 @@ python -m tools.vivado_cli --gen-config
 
 ### 批处理模式（一条命令并行多任务）
 
+> ⚠️ **batch 模式下必须使用 `-create -sim`（同时带两个 flag），不能只用 `-sim`。**
+> 如果只用 `-sim` 复用已有 session，在并行执行时 Vivado 2018.3 的 xelab/xsim
+> 子进程会被 `stop_vivado()` 干扰，导致 segfault 或 "cannot find design unit"。
+> 详见 `batch.py` 中 `_execute_single()` 的 docstring 分析。
+
 ```bash
 # 并行仿真所有 CPU 测试
 python -m tools.vivado_cli -batch "cpu_full,cpu_compute,cpu_trap" -create -sim
@@ -135,9 +140,11 @@ python -m tools.vivado_cli -batch "isa_*" -create -sim --max-parallel 2
 python -m tools.vivado_cli -batch-plan regression.yaml
 
 # 失败策略：首败即停
+# ⚠️ 以下 -sim 单独使用会复用 session 导致并发崩溃，详见顶部批处理警告
 python -m tools.vivado_cli -batch "cpu_*" -sim --on-error fail-fast
 
 # 失败策略：不再提交新任务，但等待已运行的完成
+# ⚠️ 同上，建议优先 -create -sim
 python -m tools.vivado_cli -batch "cpu_*" -sim --on-error stop-accepting
 
 # JSON 输出（CI/CD 友好）

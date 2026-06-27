@@ -1344,6 +1344,10 @@ module tb_tlb_unit;
         if (test_fail > 0)
             $display("  First failure: test #%0d", fail_id);
         $display("========================================");
+        if (test_fail == 0)
+            $display("ALL TESTS PASSED");
+        else
+            $display("TEST FAILED");
 
         $finish;
     end

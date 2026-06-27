@@ -615,6 +615,21 @@ if {{ [file exists "{tb_dir}/lcd_module_stub.sv"] }} {{
     import_files -fileset sim_1 "{tb_dir}/lcd_module_stub.sv"
 }}
 
+# --- Deduplicate: remove RTL .sv/.v from sources_1 (now in sim_1) ---
+# The prj generator emits BOTH sources_1 and sim_1 copies, so files with
+# $unit-scope declarations (e.g. MMU.sv → $unit_MMU_sv) get compiled twice.
+# The package redefinition invalidates modules compiled between the two
+# copies.  Removing sources_1 RTL (keeping */ip/* and *glbl*) fixes this.
+set _rtl_to_remove [list]
+foreach f [get_files -of_objects [get_filesets sources_1] -quiet {{*.sv *.v}}] {{
+    if {{ ![string match "*/ip/*" $f] && ![string match "*glbl*" $f] }} {{
+        lappend _rtl_to_remove $f
+    }}
+}}
+if {{ [llength $_rtl_to_remove] > 0 }} {{
+    remove_files -fileset sources_1 -quiet $_rtl_to_remove
+}}
+
 update_compile_order -fileset sim_1
 
 # --- set testbench as top (AFTER import_files + update_compile_order) ---
@@ -1278,18 +1293,15 @@ class Operations:
                 return patched
 
         # --- Semantic pass/fail check on sim output ---
-        # The normal path uses session.execute().success which only checks
-        # for Vivado "ERROR:" lines.  Strengthen with text-level PASS/FAIL
-        # detection so a sim that ran cleanly but reported FAIL in output
-        # is correctly classified.
-        if result.success and "PASS" in result.output:
-            if "FAIL" in result.output:
-                result = ExecuteResult(
-                    output=result.output,
-                    success=False,
-                    timed_out=result.timed_out,
-                    duration=result.duration,
-                )
+        # Only "ALL TESTS PASSED" counts as success; all other output
+        # (FAIL, incomplete logs, no self-check summary) → failure.
+        if result.success and "ALL TESTS PASSED" not in result.output:
+            result = ExecuteResult(
+                output=result.output,
+                success=False,
+                timed_out=result.timed_out,
+                duration=result.duration,
+            )
 
         session.update_last_used()
         return result

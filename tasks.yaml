@@ -644,3 +644,29 @@ tasks:
       SIMU_USE_PLL: 0
       SIMU_DDR_MODE: 1
       sg125: 1
+
+  kernel_boot_sram_cdc:
+    tb: tb_kernel_boot
+    blhex: boot/bootloader_phase1.hex
+    phex: firmware/fw_payload.hex
+    runtime: 300s
+    verilog_defines:
+      LINUX_BOOT: "TRUE"
+      DEBUG_TRAP_DELEG: 1
+      DEBUG_UART_TX: 1
+      SIMULATION: "TRUE"
+      SIMU_USE_DDR: 0
+      SIMU_USE_PLL: 0
+
+  kernel_boot_sram128_dtb16:
+    tb: tb_kernel_boot
+    blhex: boot/bootloader_phase1.hex
+    phex: firmware/fw_payload_16mb.hex
+    runtime: 300s
+    verilog_defines:
+      LINUX_BOOT: "TRUE"
+      DEBUG_TRAP_DELEG: 1
+      DEBUG_UART_TX: 1
+      SIMULATION: "TRUE"
+      SIMU_USE_DDR: 0
+      SIMU_USE_PLL: 0

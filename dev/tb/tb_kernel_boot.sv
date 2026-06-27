@@ -182,6 +182,215 @@ module tb_kernel_boot;
 `endif
 
     // ========================================================================
+    // IF sanity checker (enabled together with DEBUG_TRAP)
+    // Stops at the first impossible fetch/decode fact instead of waiting for
+    // trap-loop, and logs a compact event stream for the fetch path.
+    // ========================================================================
+`ifdef DEBUG_TRAP
+    integer dbg_if_fd;
+    integer dbg_if_cycle;
+    reg     dbg_if_miss_prev;
+    reg     dbg_ptw_active_prev;
+    reg     dbg_refill_prev;
+    reg [31:0] dbg_expected_inst;
+    reg [31:0] dbg_last_map_vaddr;
+    reg [31:0] dbg_last_map_paddr;
+    reg        dbg_last_map_valid;
+
+    localparam integer IF_SANITY_ENABLE_CYCLE = 200000000;
+
+    function is_sram_cacheable_addr;
+        input [31:0] addr;
+        begin
+            is_sram_cacheable_addr = addr[31] && !addr[30] && (addr[29:27] == 3'b000);
+        end
+    endfunction
+
+    function if_sanity_window_active;
+        begin
+            if_sanity_window_active =
+                (dbg_if_cycle >= IF_SANITY_ENABLE_CYCLE) &&
+                (u_soc.cpu.priv_mode == 2'b01) &&
+                u_soc.cpu.csr_satp[31];
+        end
+    endfunction
+
+    task dump_if_sanity_snapshot;
+        input [255:0] reason;
+        reg [31:0] shadow_word;
+        begin
+`ifndef SIMU_DDR_MODE
+            if (is_sram_cacheable_addr(u_soc.cpu.mmu_inst_paddr))
+                shadow_word = u_soc.sim_ram.u_axi_ram.BRAM[u_soc.cpu.mmu_inst_paddr[26:2]];
+            else
+                shadow_word = 32'hXXXXXXXX;
+`else
+            shadow_word = 32'hXXXXXXXX;
+`endif
+            $display("");
+            $display("========================================");
+            $display("[IF-SANITY] %0t cycle=%0d reason=%0s", $time, dbg_if_cycle, reason);
+            $display("========================================");
+            $display("[IF-SANITY] if_pc=0x%08h if_inst=0x%08h id_pc=0x%08h id_inst=0x%08h",
+                     if_pc, if_inst, id_pc, id_inst);
+            $display("[IF-SANITY] if_done=%0b inst_valid=%0b dec_is_ecall=%0b priv=%0d",
+                     u_soc.cpu.if_done, u_soc.cpu.inst_valid_mux, u_soc.cpu.dec_is_ecall, u_soc.cpu.priv_mode);
+            $display("[IF-SANITY] mmu_paddr=0x%08h mmu_ready=%0b mmu_miss=%0b i_pf=%0b satp=0x%08h",
+                     u_soc.cpu.mmu_inst_paddr, u_soc.cpu.mmu_inst_ready, u_soc.cpu.mmu_inst_miss,
+                     u_soc.cpu.mmu_inst_page_fault, u_soc.cpu.csr_satp);
+            $display("[IF-SANITY] shadow_inst=0x%08h fetch_vaddr=0x%08h latched_vaddr=0x%08h",
+                     shadow_word, u_soc.cpu.fetch_vaddr, u_soc.cpu.mmu_dbg_i_latched_vaddr);
+            $display("[IF-SANITY] icache: state=%0d mmio_req=%0b refill_req=%0b refill_valid=%0b refill_addr=0x%08h",
+                     u_soc.cpu.icache_dbg_state, u_soc.cpu.icache_mmio_req,
+                     u_soc.cpu.icache_refill_req, u_soc.cpu.icache_refill_valid,
+                     u_soc.cpu.icache_refill_addr);
+            $display("[IF-SANITY] mmu: i_state=%0d walk_state=%0d tlb_hit=%0b tlb_valid=%0b tlb_pf=%0b input_changed=%0b",
+                     u_soc.cpu.mmu_dbg_i_state, u_soc.cpu.mmu_dbg_walk_state,
+                     u_soc.cpu.mmu_dbg_i_tlb_hit, u_soc.cpu.mmu_dbg_i_tlb_valid,
+                     u_soc.cpu.mmu_dbg_i_tlb_perm_fault, u_soc.cpu.mmu_dbg_i_input_changed);
+            $display("[IF-SANITY] trap: enter=%0b cause=0x%08h epc=0x%08h tval=0x%08h",
+                     u_soc.cpu.trap_enter_valid, u_soc.cpu.hw_trap_cause,
+                     u_soc.cpu.hw_trap_epc, u_soc.cpu.hw_trap_tval);
+            $fflush;
+            if (dbg_if_fd != 0) begin
+                $fwrite(dbg_if_fd, "SNAPSHOT\t%0d\t%0t\t%0s\t%08h\t%08h\t%08h\t%08h\t%0b\t%0b\t%0b\t%0b\t%08h\t%08h\t%0d\t%0d\t%0b\t%0b\t%08h\t%0b\t%08h\t%08h\t%08h\n",
+                        dbg_if_cycle, $time, reason,
+                        if_pc, if_inst, shadow_word, u_soc.cpu.mmu_inst_paddr,
+                        u_soc.cpu.if_done, u_soc.cpu.inst_valid_mux, u_soc.cpu.dec_is_ecall,
+                        u_soc.cpu.mmu_inst_ready, u_soc.cpu.fetch_vaddr, u_soc.cpu.mmu_dbg_i_latched_vaddr,
+                        u_soc.cpu.icache_dbg_state, u_soc.cpu.mmu_dbg_i_state,
+                        u_soc.cpu.icache_refill_req, u_soc.cpu.icache_refill_valid, u_soc.cpu.icache_refill_addr,
+                        u_soc.cpu.trap_enter_valid, u_soc.cpu.hw_trap_cause,
+                        u_soc.cpu.hw_trap_epc, u_soc.cpu.hw_trap_tval);
+                $fflush(dbg_if_fd);
+            end
+        end
+    endtask
+
+    initial begin
+        dbg_if_fd = $fopen("if_sanity.log", "w");
+        if (dbg_if_fd != 0) begin
+            $fwrite(dbg_if_fd, "# IF sanity event log\n");
+            $fwrite(dbg_if_fd, "# Cycle\tTime\tEvent\tPC\tINST\tPADDR\tAUX0\tAUX1\tAUX2\tAUX3\tAUX4\n");
+        end
+        dbg_if_cycle = 0;
+        dbg_if_miss_prev = 1'b0;
+        dbg_ptw_active_prev = 1'b0;
+        dbg_refill_prev = 1'b0;
+        dbg_expected_inst = 32'b0;
+        dbg_last_map_vaddr = 32'b0;
+        dbg_last_map_paddr = 32'b0;
+        dbg_last_map_valid = 1'b0;
+    end
+
+    always @(posedge clk) begin
+        if (resetn) begin
+            dbg_if_cycle = dbg_if_cycle + 1;
+
+            if (dbg_if_fd != 0) begin
+                if (u_soc.cpu.mmu_inst_miss && !dbg_if_miss_prev) begin
+                    $fwrite(dbg_if_fd, "%0d\t%0t\tI_MISS\t%08h\t%08h\t%08h\t%08h\t%0d\t%08h\t%0d\t%0d\n",
+                            dbg_if_cycle, $time, if_pc, if_inst, u_soc.cpu.mmu_inst_paddr,
+                            u_soc.cpu.fetch_vaddr, u_soc.cpu.priv_mode,
+                            u_soc.cpu.csr_satp, u_soc.cpu.mmu_dbg_i_state, u_soc.cpu.mmu_dbg_walk_state);
+                end
+                if (u_soc.cpu.mmu_dbg_i_walk_active && !dbg_ptw_active_prev) begin
+                    $fwrite(dbg_if_fd, "%0d\t%0t\tPTW_START\t%08h\t%08h\t%08h\t%08h\t%0d\t%08h\t%0d\t%0d\n",
+                            dbg_if_cycle, $time, if_pc, if_inst, u_soc.cpu.mmu_inst_paddr,
+                            u_soc.cpu.mmu_dbg_i_latched_vaddr, u_soc.cpu.priv_mode,
+                            u_soc.cpu.csr_satp, u_soc.cpu.mmu_dbg_i_state, u_soc.cpu.mmu_dbg_walk_state);
+                end
+                if (!u_soc.cpu.mmu_dbg_i_walk_active && dbg_ptw_active_prev) begin
+                    $fwrite(dbg_if_fd, "%0d\t%0t\tPTW_DONE\t%08h\t%08h\t%08h\t%08h\t%08h\t%0d\t%0d\n",
+                            dbg_if_cycle, $time, if_pc, if_inst, u_soc.cpu.mmu_inst_paddr,
+                            u_soc.cpu.fetch_vaddr, u_soc.cpu.mmu_dbg_i_latched_vaddr,
+                            u_soc.cpu.mmu_dbg_i_tlb_hit, u_soc.cpu.mmu_dbg_i_tlb_valid);
+                end
+                if (u_soc.cpu.icache_refill_req && !dbg_refill_prev) begin
+                    $fwrite(dbg_if_fd, "%0d\t%0t\tIC_REFILL_REQ\t%08h\t%08h\t%08h\t%08h\t%08h\t%0d\t%0d\n",
+                            dbg_if_cycle, $time, if_pc, if_inst, u_soc.cpu.mmu_inst_paddr,
+                            u_soc.cpu.fetch_vaddr, u_soc.cpu.icache_refill_addr,
+                            u_soc.cpu.icache_dbg_state, u_soc.cpu.mmu_dbg_i_state, u_soc.cpu.mmu_dbg_walk_state);
+                end
+                if (u_soc.cpu.icache_refill_valid) begin
+                    $fwrite(dbg_if_fd, "%0d\t%0t\tIC_REFILL_DONE\t%08h\t%08h\t%08h\t%08h\t%08h\t%0d\t%0d\n",
+                            dbg_if_cycle, $time, if_pc, if_inst, u_soc.cpu.mmu_inst_paddr,
+                            u_soc.cpu.fetch_vaddr, u_soc.cpu.icache_refill_addr,
+                            u_soc.cpu.icache_refill_data[31:0], u_soc.cpu.icache_dbg_state,
+                            u_soc.cpu.mmu_dbg_i_state, u_soc.cpu.mmu_dbg_walk_state);
+                end
+                if (if_sanity_window_active() &&
+                    u_soc.cpu.if_done && u_soc.cpu.inst_valid_mux && u_soc.cpu.mmu_inst_ready &&
+                    (!dbg_last_map_valid ||
+                     (u_soc.cpu.fetch_vaddr != dbg_last_map_vaddr) ||
+                     (u_soc.cpu.mmu_inst_paddr != dbg_last_map_paddr))) begin
+                    $fwrite(dbg_if_fd, "%0d\t%0t\tIF_MAP\t%08h\t%08h\t%08h\t%08h\t%08h\t%0d\t%0d\n",
+                            dbg_if_cycle, $time, if_pc, if_inst, u_soc.cpu.mmu_inst_paddr,
+                            u_soc.cpu.fetch_vaddr, u_soc.cpu.csr_satp,
+                            u_soc.cpu.icache_dbg_state, u_soc.cpu.mmu_dbg_i_state);
+                end
+                if (u_soc.cpu.dec_is_ecall) begin
+                    $fwrite(dbg_if_fd, "%0d\t%0t\tECALL_DECODE\t%08h\t%08h\t%08h\t%08h\t%0d\t%0d\t%0b\t%0b\n",
+                            dbg_if_cycle, $time, if_pc, if_inst, u_soc.cpu.mmu_inst_paddr,
+                            u_soc.cpu.fetch_vaddr, u_soc.cpu.icache_dbg_state, u_soc.cpu.mmu_dbg_i_state,
+                            u_soc.cpu.inst_valid_mux, u_soc.cpu.if_done);
+                end
+                if (u_soc.cpu.trap_enter_valid && (u_soc.cpu.hw_trap_cause == 32'd9) &&
+                    (u_soc.cpu.hw_trap_epc != 32'hc0010bbc)) begin
+                    $fwrite(dbg_if_fd, "%0d\t%0t\tTRAP_PRE\t%08h\t%08h\t%08h\t%08h\t%08h\t%08h\t%0d\t%0d\n",
+                            dbg_if_cycle, $time, if_pc, if_inst, u_soc.cpu.mmu_inst_paddr,
+                            u_soc.cpu.hw_trap_epc, u_soc.cpu.hw_trap_tval, u_soc.cpu.csr_satp,
+                            u_soc.cpu.icache_dbg_state, u_soc.cpu.mmu_dbg_i_state);
+                end
+                $fflush(dbg_if_fd);
+            end
+
+`ifndef SIMU_DDR_MODE
+            if (if_sanity_window_active() &&
+                u_soc.cpu.if_done && u_soc.cpu.inst_valid_mux &&
+                u_soc.cpu.mmu_inst_ready && !u_soc.cpu.mmu_inst_page_fault &&
+                is_sram_cacheable_addr(u_soc.cpu.mmu_inst_paddr)) begin
+                dbg_expected_inst = u_soc.sim_ram.u_axi_ram.BRAM[u_soc.cpu.mmu_inst_paddr[26:2]];
+                if (if_inst !== dbg_expected_inst) begin
+                    dump_if_sanity_snapshot("FETCH_TRUTH_MISMATCH");
+                    $finish;
+                end
+            end
+`endif
+
+            if (u_soc.cpu.dec_is_ecall && (if_inst !== 32'h00000073)) begin
+                dump_if_sanity_snapshot("DECODE_ECALL_MISMATCH");
+                $finish;
+            end
+
+            if (u_soc.cpu.trap_enter_valid && (u_soc.cpu.hw_trap_cause == 32'd9) &&
+                (u_soc.cpu.hw_trap_epc != 32'hc0010bbc)) begin
+                dump_if_sanity_snapshot("SUSPICIOUS_ECALL_TRAP");
+                $finish;
+            end
+
+            dbg_if_miss_prev = u_soc.cpu.mmu_inst_miss;
+            dbg_ptw_active_prev = u_soc.cpu.mmu_dbg_i_walk_active;
+            dbg_refill_prev = u_soc.cpu.icache_refill_req;
+            if (if_sanity_window_active() &&
+                u_soc.cpu.if_done && u_soc.cpu.inst_valid_mux && u_soc.cpu.mmu_inst_ready) begin
+                dbg_last_map_vaddr = u_soc.cpu.fetch_vaddr;
+                dbg_last_map_paddr = u_soc.cpu.mmu_inst_paddr;
+                dbg_last_map_valid = 1'b1;
+            end
+        end
+    end
+
+    final begin
+        if (dbg_if_fd != 0) begin
+            $fflush(dbg_if_fd);
+            $fclose(dbg_if_fd);
+            $display("[DEBUG-IF-SANITY] IF sanity log closed at cycle %0d", dbg_if_cycle);
+        end
+    end
+`endif
+
+    // ========================================================================
     // Progress probe: print PC + key state every 1M cycles
     // ========================================================================
     integer probe_cnt;

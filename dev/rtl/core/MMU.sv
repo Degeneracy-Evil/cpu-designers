@@ -99,20 +99,12 @@ module MMU #(
     localparam PTW_FAULT_ACCESS = 2'd2;
 
     // =========================================================================
-    // TLB flush on satp write (RISC-V spec requirement)
+    // TLB flush request
     // =========================================================================
-    // Per spec: writing satp must invalidate TLB entries for current ASID.
-    // Detect satp change and combine with sfence_vma for TLB flush.
-    reg [31:0] satp_prev;
-    wire satp_changed = (satp != satp_prev);
-    wire mmu_flush_req = sfence_vma || satp_changed;
-
-    always_ff @(posedge clk or negedge resetn) begin
-        if (!resetn)
-            satp_prev <= 32'b0;
-        else
-            satp_prev <= satp;
-    end
+    // TLB flush is triggered ONLY by sfence_vma (RISC-V spec-compliant).
+    // Per spec: writing satp does NOT invalidate translation caches.
+    // Software must execute SFENCE.VMA after satp write.
+    wire mmu_flush_req = sfence_vma;
 
 `ifdef USE_TLB_BRAM
 
@@ -296,7 +288,7 @@ module MMU #(
     // PTW instance — single shared walker (unchanged interface)
     // =========================================================================
     // Inputs from latched values directly (no arbiter mux needed).
-    // walk_abort on mmu_flush_req (sfence_vma or satp_changed).
+    // walk_abort on mmu_flush_req (sfence_vma only, per RISC-V spec).
     ptw u_ptw(
         .clk(clk),
         .resetn(resetn),
@@ -603,7 +595,7 @@ module MMU #(
     // sfence.vma completion tracking
     // =========================================================================
     // sfence_done is asserted when T_FLUSH completes due to an sfence_vma.
-    // Only tracks sfence_vma (not satp_changed) — matches original behavior.
+    // Only tracks sfence_vma (mmu_flush_req is sfence_vma only, per RISC-V spec).
     reg sfence_pending_r;
     always_ff @(posedge clk or negedge resetn) begin
         if (!resetn)

@@ -1106,11 +1106,13 @@ module tb_mmu_unit;
         end
     endtask
 
-    // TC_MMU_035: satp write in M-mode must flush stale TLB entries
+    // TC_MMU_035: satp write + sfence.vma in M-mode flushes stale TLB entries
+    // Per RISC-V Privileged Spec: writing satp does NOT invalidate translation
+    // caches. Software must execute SFENCE.VMA after satp write to flush TLB.
     task tc_mmu_035;
         integer walk_count;
         begin
-            $display("--- TC_MMU_035: M-mode satp write flushes TLB ---");
+            $display("--- TC_MMU_035: M-mode satp write + sfence.vma flushes TLB ---");
             clear_mem;
 
             // Root 1 @ 0x1000 (PPN=0x1), L0 @ 0x2000 (PPN=0x2):
@@ -1130,15 +1132,18 @@ module tb_mmu_unit;
             check(i_ready === 1'b1, "TC_MMU_035: first translation succeeded");
             check(i_paddr === 32'h00003000, "TC_MMU_035: first translation uses root1");
 
-            // Rewrite satp while still in M-mode, then return to S-mode. The
-            // next translation must not hit the old TLB entry from root1.
+            // Rewrite satp while still in M-mode, then issue SFENCE.VMA to
+            // flush stale TLB entries (RISC-V spec-compliant pattern).
+            // Per spec: writing satp alone does NOT invalidate TLB.
             @(posedge clk); #1;
+            translate_req = 0;
             priv_mode = 2'b11;
             satp = 32'h80000003;
-            @(posedge clk); #1;
+            do_sfence;
             priv_mode = 2'b01;
 
             walk_count = 0;
+            translate_req = 1;
             begin : satp_m_walk_count
                 integer i;
                 for (i = 0; i < 40; i = i + 1) begin
@@ -1149,7 +1154,7 @@ module tb_mmu_unit;
             end
             $display("  [DBG] walk_count=%0d i_ready=%b i_paddr=0x%08h i_pf=%b",
                      walk_count, i_ready, i_paddr, i_page_fault);
-            check(i_ready === 1'b1, "TC_MMU_035: translation succeeds after M-mode satp write");
+            check(i_ready === 1'b1, "TC_MMU_035: translation succeeds after M-mode satp write + sfence");
             check(i_paddr === 32'h00009000, "TC_MMU_035: second translation uses root2");
             check(walk_count > 0, "TC_MMU_035: stale TLB entry was flushed and re-walked");
         end

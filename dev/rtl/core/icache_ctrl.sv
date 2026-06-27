@@ -53,6 +53,7 @@ module icache_ctrl(
     localparam S_READ       = 3'd2;
     localparam S_REFILL     = 3'd3;
     localparam S_INVALIDATE = 3'd4;
+    localparam S_RST_CLEAR  = 3'd5;  // ISSUE-4: reset-time tag BRAM clear (X-propagation fix)
 
     // Address map:
     //   0x00000000-0x7FFFFFFF: MMIO (peripherals)     — bit[31]=0
@@ -268,7 +269,7 @@ module icache_ctrl(
 
     always_ff @(posedge clk or negedge resetn) begin
         if (!resetn) begin
-                        state <= S_IDLE;
+                        state <= S_RST_CLEAR;  // ISSUE-4: clear tag BRAM before accepting requests
             refill_req_r     <= 1'b0;
             refill_addr_r    <= 32'b0;
             latched_set      <= {SET_IDX_W{1'b0}};
@@ -296,7 +297,7 @@ module icache_ctrl(
             if (mmio_accept)
                 mmio_pending_r <= 1'b0;
 
-            if (flush_req && (state != S_INVALIDATE)) begin
+            if (flush_req && (state != S_INVALIDATE) && (state != S_RST_CLEAR)) begin
                 state             <= S_IDLE;
                 refill_req_r      <= 1'b0;
                 mmio_pending_r    <= 1'b0;
@@ -417,6 +418,25 @@ state <= S_IDLE;
                             plru_state[s] <= {NUM_WAYS-1{1'b0}};
                         end
                         invalidate_done_r <= 1'b1;
+                        state <= S_IDLE;
+                    end else begin
+                        invalidate_set <= invalidate_set + 1'b1;
+                    end
+                end
+
+                S_RST_CLEAR: begin
+                    // ISSUE-4: At reset, tag BRAM contents are undefined (X in
+                    // simulation). Since valid bits live in BRAM (TAG_ENTRY_W:
+                    // V+D+tag), undefined BRAM means valid bits could be X,
+                    // causing X-propagation on first access. Scan all sets and
+                    // write zeros to clear valid bits before accepting any
+                    // CPU request. Reuses the S_INVALIDATE zero-write pattern.
+                    // No CPU requests accepted here — stay until scan complete.
+                    tag_bram_enb_r   <= 1'b1;
+                    tag_bram_web_r   <= {TAG_BRAM_WEA{1'b1}};   // write all 4 ways
+                    tag_bram_addrb_r <= invalidate_set;
+                    tag_bram_dinb_r  <= {TAG_BRAM_W{1'b0}};     // all zeros
+                    if (invalidate_set == NUM_SETS - 1) begin
                         state <= S_IDLE;
                     end else begin
                         invalidate_set <= invalidate_set + 1'b1;

@@ -104,6 +104,7 @@ module dcache_ctrl(
     localparam S_INV_LINE         = 4'd11;
     localparam S_INV_LINE_WRITE   = 4'd12;
     localparam S_FLUSH_WB_WAIT    = 4'd13;
+    localparam S_RST_CLEAR        = 4'd14;  // ISSUE-4: reset-time tag BRAM clear (X-propagation fix)
 
     // Address map (same as icache):
     //   0x00000000-0x7FFFFFFF: MMIO (peripherals)     — bit[31]=0
@@ -492,7 +493,7 @@ module dcache_ctrl(
 
     always_ff @(posedge clk or negedge resetn) begin
         if (!resetn) begin
-            state            <= S_IDLE;
+            state            <= S_RST_CLEAR;  // ISSUE-4: clear tag BRAM before accepting requests
             refill_req_r     <= 1'b0;
             refill_addr_r    <= 32'b0;
             wb_req_r         <= 1'b0;
@@ -950,6 +951,26 @@ state <= S_FLUSH_WB_SD;
                         state <= S_FLUSH_WB_WAIT;
                     end else begin
                         state <= S_IDLE;
+                    end
+                end
+
+                S_RST_CLEAR: begin
+                    // ISSUE-4: At reset, tag BRAM contents are undefined (X in
+                    // simulation). Since valid bits live in BRAM (TAG_ENTRY_W:
+                    // V+D+tag), undefined BRAM means valid bits could be X,
+                    // causing X-propagation on first access. Scan all sets and
+                    // write zeros to clear valid bits before accepting any
+                    // CPU/PTW request. Reuses the S_FLUSH_INVALIDATE zero-write
+                    // pattern. No CPU/PTW requests accepted here — stay until
+                    // scan complete.
+                    tag_bram_enb_r   <= 1'b1;
+                    tag_bram_web_r   <= {TAG_BRAM_WEA{1'b1}};   // write all 4 ways
+                    tag_bram_addrb_r <= invalidate_set;
+                    tag_bram_dinb_r  <= {TAG_BRAM_W{1'b0}};     // all zeros
+                    if (invalidate_set == NUM_SETS - 1) begin
+                        state <= S_IDLE;
+                    end else begin
+                        invalidate_set <= invalidate_set + 1'b1;
                     end
                 end
 

@@ -40,7 +40,7 @@ module tb_kernel_boot;
         dbg_deleg_fd = $fopen("trap_deleg.log", "w");
         if (dbg_deleg_fd != 0) begin
             $fwrite(dbg_deleg_fd, "# Trap Delegation Debug Log\n");
-            $fwrite(dbg_deleg_fd, "# Cycle\tTime\tEvent\tPC\t\tPriv\tTPriv\tCause\tDeleg\tToS\tEPC\t\tEMTVAL\t\tIPF_VA\t\tHW_EPC\t\tHW_TVAL\t\tHW_WEN\tHW_TPRIV\tMEDELEG\n");
+            $fwrite(dbg_deleg_fd, "# Cycle\tTime\tEvent\tPC\t\tPriv\tTPriv\tCSR_MCAUSE\tHW_CAUSE\tCSR_SCAUSE\tCSR_STVAL\tCSR_SEPC\tDeleg\tToS\tEPC\t\tEMTVAL\t\tIPF_VA\t\tHW_EPC\t\tHW_TVAL\t\tHW_WEN\tHW_TPRIV\tMEDELEG\n");
         end
         dbg_deleg_count = 0;
     end
@@ -50,11 +50,15 @@ module tb_kernel_boot;
             // Log on trap_enter_valid — the cycle where CSR writes happen
             if (u_soc.cpu.trap_enter_valid) begin
                 dbg_deleg_count = dbg_deleg_count + 1;
-                $fwrite(dbg_deleg_fd, "%0d\t%0t\tTRAP_IN\t%08h\t%0d\t%0d\t%08h\t%b\t%b\t%08h\t%08h\t%08h\t%08h\t%08h\t%b\t%0d\t%08h\n",
+                $fwrite(dbg_deleg_fd, "%0d\t%0t\tTRAP_IN\t%08h\t%0d\t%0d\t%08h\t%08h\t%08h\t%08h\t%08h\t%b\t%b\t%08h\t%08h\t%08h\t%08h\t%08h\t%b\t%0d\t%08h\n",
                         dbg_deleg_count, $time, if_pc,
                         u_soc.cpu.priv_mode,           // current privilege
                         u_soc.cpu.target_priv,          // target privilege
-                        u_soc.cpu.csr_mcause,           // mcause (raw cause)
+                        u_soc.cpu.csr_mcause,           // stale for S-mode traps; kept for comparison
+                        u_soc.cpu.hw_trap_cause,        // current trap write-data cause
+                        u_soc.cpu.csr_scause,           // S-mode CSR state before this posedge update
+                        u_soc.cpu.csr_stval,
+                        u_soc.cpu.csr_sepc,
                         u_soc.cpu.u_trap_csr.u_trap_mgr.u_clint.exc_delegated,  // delegation decision
                         u_soc.cpu.u_trap_csr.u_trap_mgr.u_clint.trap_to_s,      // trap to S-mode?
                         u_soc.cpu.u_trap_csr.u_trap_mgr.exception_pc_r,         // exception PC (→mepc/sepc)
@@ -71,9 +75,12 @@ module tb_kernel_boot;
             // Log on trap_return_valid — mret/sret
             if (u_soc.cpu.trap_return_valid) begin
                 dbg_deleg_count = dbg_deleg_count + 1;
-                $fwrite(dbg_deleg_fd, "%0d\t%0t\tRET\t%08h\t%0d\t--\t--\t--\t--\t--\t--\t--\t%08h\t%08h\t--\t--\t%08h\n",
+                $fwrite(dbg_deleg_fd, "%0d\t%0t\tRET\t%08h\t%0d\t--\t--\t--\t--\t%08h\t%08h\t%08h\t--\t--\t--\t--\t--\t%08h\t%08h\t--\t--\t%08h\n",
                         dbg_deleg_count, $time, if_pc,
                         u_soc.cpu.priv_mode,
+                        u_soc.cpu.csr_scause,
+                        u_soc.cpu.csr_stval,
+                        u_soc.cpu.csr_sepc,
                         u_soc.cpu.hw_trap_epc,          // return PC (mepc/sepc)
                         u_soc.cpu.hw_trap_tval,
                         u_soc.cpu.csr_medeleg
@@ -189,6 +196,7 @@ module tb_kernel_boot;
 `ifdef DEBUG_TRAP
     integer dbg_if_fd;
     integer dbg_forensic_fd;
+    integer dbg_dmmu_fd;
     integer dbg_if_cycle;
     reg     dbg_if_miss_prev;
     reg     dbg_ptw_active_prev;
@@ -272,6 +280,66 @@ module tb_kernel_boot;
     reg        forensic_rlast        [0:FORENSIC_DEPTH-1];
     reg [31:0] forensic_rdata        [0:FORENSIC_DEPTH-1];
     reg [31:0] forensic_shadow_inst  [0:FORENSIC_DEPTH-1];
+    reg [31:0] forensic_mem_pc       [0:FORENSIC_DEPTH-1];
+    reg [31:0] forensic_mem_inst     [0:FORENSIC_DEPTH-1];
+    reg        forensic_mem_valid    [0:FORENSIC_DEPTH-1];
+    reg        forensic_mem_done     [0:FORENSIC_DEPTH-1];
+    reg        forensic_mem_en       [0:FORENSIC_DEPTH-1];
+    reg        forensic_mem_we       [0:FORENSIC_DEPTH-1];
+    reg [2:0]  forensic_mem_size     [0:FORENSIC_DEPTH-1];
+    reg [31:0] forensic_mem_vaddr    [0:FORENSIC_DEPTH-1];
+    reg [31:0] forensic_mem_wdata    [0:FORENSIC_DEPTH-1];
+    reg [31:0] forensic_d_paddr      [0:FORENSIC_DEPTH-1];
+    reg        forensic_d_ready      [0:FORENSIC_DEPTH-1];
+    reg        forensic_d_miss       [0:FORENSIC_DEPTH-1];
+    reg        forensic_d_pf         [0:FORENSIC_DEPTH-1];
+    reg [3:0]  forensic_d_pf_cause   [0:FORENSIC_DEPTH-1];
+    reg [31:0] forensic_d_pf_vaddr   [0:FORENSIC_DEPTH-1];
+    reg [2:0]  forensic_d_state      [0:FORENSIC_DEPTH-1];
+    reg [31:0] forensic_d_lat_vaddr  [0:FORENSIC_DEPTH-1];
+    reg [1:0]  forensic_d_lat_atype  [0:FORENSIC_DEPTH-1];
+    reg [1:0]  forensic_d_lat_priv   [0:FORENSIC_DEPTH-1];
+    reg [31:0] forensic_d_lat_satp   [0:FORENSIC_DEPTH-1];
+    reg        forensic_d_lat_sum    [0:FORENSIC_DEPTH-1];
+    reg        forensic_d_lat_mxr    [0:FORENSIC_DEPTH-1];
+    reg        forensic_d_inchg      [0:FORENSIC_DEPTH-1];
+    reg        forensic_d_tlb_hit    [0:FORENSIC_DEPTH-1];
+    reg        forensic_d_tlb_valid  [0:FORENSIC_DEPTH-1];
+    reg        forensic_d_tlb_perm   [0:FORENSIC_DEPTH-1];
+    reg        forensic_d_tlb_miss   [0:FORENSIC_DEPTH-1];
+    reg [21:0] forensic_d_tlb_ppn    [0:FORENSIC_DEPTH-1];
+    reg        forensic_d_tlb_r      [0:FORENSIC_DEPTH-1];
+    reg        forensic_d_tlb_w      [0:FORENSIC_DEPTH-1];
+    reg        forensic_d_tlb_x      [0:FORENSIC_DEPTH-1];
+    reg        forensic_d_tlb_u      [0:FORENSIC_DEPTH-1];
+    reg        forensic_d_tlb_a      [0:FORENSIC_DEPTH-1];
+    reg        forensic_d_tlb_d      [0:FORENSIC_DEPTH-1];
+    reg        forensic_d_tlb_g      [0:FORENSIC_DEPTH-1];
+    reg        forensic_d_tlb_mega   [0:FORENSIC_DEPTH-1];
+    reg        forensic_d_pf_ptw     [0:FORENSIC_DEPTH-1];
+    reg        forensic_store_pf     [0:FORENSIC_DEPTH-1];
+    reg        forensic_load_pf      [0:FORENSIC_DEPTH-1];
+    reg        forensic_store_af     [0:FORENSIC_DEPTH-1];
+    reg        forensic_load_af      [0:FORENSIC_DEPTH-1];
+    reg        forensic_ptw_done     [0:FORENSIC_DEPTH-1];
+    reg        forensic_ptw_fault    [0:FORENSIC_DEPTH-1];
+    reg [3:0]  forensic_ptw_fcause   [0:FORENSIC_DEPTH-1];
+    reg [31:0] forensic_ptw_fvaddr   [0:FORENSIC_DEPTH-1];
+    reg [1:0]  forensic_ptw_fkind    [0:FORENSIC_DEPTH-1];
+    reg        forensic_tlb_fill     [0:FORENSIC_DEPTH-1];
+    reg [19:0] forensic_fill_vpn     [0:FORENSIC_DEPTH-1];
+    reg [21:0] forensic_fill_ppn     [0:FORENSIC_DEPTH-1];
+    reg [8:0]  forensic_fill_asid    [0:FORENSIC_DEPTH-1];
+    reg        forensic_fill_r       [0:FORENSIC_DEPTH-1];
+    reg        forensic_fill_w       [0:FORENSIC_DEPTH-1];
+    reg        forensic_fill_x       [0:FORENSIC_DEPTH-1];
+    reg        forensic_fill_u       [0:FORENSIC_DEPTH-1];
+    reg        forensic_fill_a       [0:FORENSIC_DEPTH-1];
+    reg        forensic_fill_d       [0:FORENSIC_DEPTH-1];
+    reg        forensic_fill_g       [0:FORENSIC_DEPTH-1];
+    reg        forensic_fill_mega    [0:FORENSIC_DEPTH-1];
+    reg        forensic_tlb_coll_i   [0:FORENSIC_DEPTH-1];
+    reg        forensic_tlb_coll_d   [0:FORENSIC_DEPTH-1];
 
     function is_sram_cacheable_addr;
         input [31:0] addr;
@@ -289,6 +357,75 @@ module tb_kernel_boot;
         end
     endfunction
 
+    function dmmu_focus_active;
+        begin
+            dmmu_focus_active =
+                if_sanity_window_active() &&
+                (u_soc.cpu.mem_en ||
+                 u_soc.cpu.mmu_data_page_fault ||
+                 u_soc.cpu.u_trap_csr.u_trap_mgr.store_page_fault_r ||
+                 u_soc.cpu.u_trap_csr.u_trap_mgr.load_page_fault_r ||
+                 u_soc.cpu.u_mmu.tlb_fill_req ||
+                 u_soc.cpu.u_mmu.ptw_walk_fault ||
+                 u_soc.cpu.u_mmu.ptw_walk_done) &&
+                (((u_soc.cpu.mem_dataAddr_32[31:12] == 20'ha0021) ||
+                  (u_soc.cpu.u_mmu.d_latched_vaddr[31:12] == 20'ha0021)) ||
+                 ((u_soc.cpu.mem_pc >= 32'hc01df390) && (u_soc.cpu.mem_pc <= 32'hc01df410)) ||
+                 ((u_soc.cpu.u_mmu.fill_vpn >= 20'ha0020) && (u_soc.cpu.u_mmu.fill_vpn <= 20'ha0022)));
+        end
+    endfunction
+
+    function [31:0] sram_read_word;
+        input [31:0] addr;
+        begin
+`ifndef SIMU_DDR_MODE
+            if (is_sram_cacheable_addr(addr))
+                sram_read_word = u_soc.sim_ram.u_axi_ram.BRAM[addr[26:2]];
+            else
+                sram_read_word = 32'hXXXXXXXX;
+`else
+            sram_read_word = 32'hXXXXXXXX;
+`endif
+        end
+    endfunction
+
+    task dump_sv32_truth;
+        input [31:0] vaddr;
+        reg [31:0] root_addr;
+        reg [31:0] l1_addr;
+        reg [31:0] l1_pte;
+        reg [31:0] l0_addr;
+        reg [31:0] l0_pte;
+        reg [21:0] l1_ppn;
+        reg [21:0] l0_ppn;
+        reg [31:0] expected_paddr;
+        begin
+            root_addr = {u_soc.cpu.csr_satp[19:0], 12'b0};
+            l1_addr = root_addr + {20'b0, vaddr[31:22], 2'b0};
+            l1_pte = sram_read_word(l1_addr);
+            l1_ppn = {l1_pte[31:20], l1_pte[19:10]};
+            l0_addr = {l1_ppn[19:0], 12'b0} + {20'b0, vaddr[21:12], 2'b0};
+            l0_pte = sram_read_word(l0_addr);
+            l0_ppn = {l0_pte[31:20], l0_pte[19:10]};
+            expected_paddr = ((l1_pte[1] || l1_pte[3]) && l1_pte[0]) ?
+                             {l1_ppn[19:10], vaddr[21:0]} :
+                             {l0_ppn[19:0], vaddr[11:0]};
+
+            if (dbg_forensic_fd != 0) begin
+                $fwrite(dbg_forensic_fd, "# SV32_TRUTH vaddr=%08h satp=%08h root=%08h\n",
+                        vaddr, u_soc.cpu.csr_satp, root_addr);
+                $fwrite(dbg_forensic_fd, "# SV32_L1 addr=%08h pte=%08h V=%0b R=%0b W=%0b X=%0b U=%0b G=%0b A=%0b D=%0b ppn=%05h leaf=%0b\n",
+                        l1_addr, l1_pte, l1_pte[0], l1_pte[1], l1_pte[2], l1_pte[3],
+                        l1_pte[4], l1_pte[5], l1_pte[6], l1_pte[7], l1_ppn,
+                        (l1_pte[1] || l1_pte[3]));
+                $fwrite(dbg_forensic_fd, "# SV32_L0 addr=%08h pte=%08h V=%0b R=%0b W=%0b X=%0b U=%0b G=%0b A=%0b D=%0b ppn=%05h expected_paddr=%08h\n",
+                        l0_addr, l0_pte, l0_pte[0], l0_pte[1], l0_pte[2], l0_pte[3],
+                        l0_pte[4], l0_pte[5], l0_pte[6], l0_pte[7], l0_ppn, expected_paddr);
+                $fflush(dbg_forensic_fd);
+            end
+        end
+    endtask
+
     task dump_forensic_buffer;
         input [255:0] reason;
         integer start_idx;
@@ -302,12 +439,13 @@ module tb_kernel_boot;
             if (dbg_forensic_fd != 0) begin
                 $fwrite(dbg_forensic_fd, "# ================================================================\n");
                 $fwrite(dbg_forensic_fd, "# Trap forensic dump: reason=%0s cycle=%0d time=%0t\n", reason, dbg_if_cycle, $time);
-                $fwrite(dbg_forensic_fd, "# idx cyc time if_pc if_inst ifd iv idv idd id_pc id_inst de decill debrk exd exv excause expc exmt exvr excr expr extr afv pfv msv exev decc dect trap hwc hwe hwt tpend tpc priv tpriv satp fva mpa mrdy mmiss mpf mpfc mpfv mis ws th tv wa pi ics rr rv ra rd sw wo arv arr ara rvv rry rls rdt shadow\n");
+                dump_sv32_truth(u_soc.cpu.hw_trap_tval);
+                $fwrite(dbg_forensic_fd, "# idx cyc time if_pc if_inst ifd iv idv idd id_pc id_inst de decill debrk exd exv excause expc exmt exvr excr expr extr afv pfv msv exev decc dect trap hwc hwe hwt tpend tpc priv tpriv satp fva mpa mrdy mmiss mpf mpfc mpfv mis ws th tv wa pi ics rr rv ra rd sw wo arv arr ara rvv rry rls rdt shadow mempc meminst memv memdone memen memwe msize mvaddr mwdata dpaddr drdy dmiss dpf dpfc dpfv ds dlatv dlatatype dlatpriv dlatsatp dlatsum dlatmxr dinchg dth dtv dtperm dtmiss dtppn dtr dtw dtx dtu dta dtd dtg dtmega dpfptw spf lpf saf laf ptwd ptwf ptwfc ptwfv ptwfk fill fillvpn fillppn fillasid fillr fillw fillx fillu filla filld fillg fillmega coll_i coll_d\n");
                 start_idx = (dbg_forensic_wr_ptr - dbg_forensic_count + FORENSIC_DEPTH) % FORENSIC_DEPTH;
                 for (line_idx = 0; line_idx < dbg_forensic_count; line_idx = line_idx + 1) begin
                     dump_idx = (start_idx + line_idx) % FORENSIC_DEPTH;
                     $fwrite(dbg_forensic_fd,
-                            "%0d %0d %0t %08h %08h %0b %0b %0b %0b %08h %08h %0b %0b %0b %0b %0b %08h %08h %08h %0b %08h %08h %08h %0b %0b %0b %0b %08h %08h %0b %08h %08h %08h %0b %08h %0d %0d %08h %08h %08h %0b %0b %0b %0d %08h %0d %0d %0b %0b %0d %0b %0b %0b %0b %08h %08h %08h %0d %0b %0b %08h %0b %0b %0b %08h %08h\n",
+                            "%0d %0d %0t %08h %08h %0b %0b %0b %0b %08h %08h %0b %0b %0b %0b %0b %08h %08h %08h %0b %08h %08h %08h %0b %0b %0b %0b %08h %08h %0b %08h %08h %08h %0b %08h %0d %0d %08h %08h %08h %0b %0b %0b %0d %08h %0d %0d %0b %0b %0d %0b %0b %0b %0b %08h %08h %08h %0d %0b %0b %08h %0b %0b %0b %08h %08h %08h %08h %0b %0b %0b %0b %0d %08h %08h %08h %0b %0b %0b %0d %08h %0d %08h %0d %0d %08h %0b %0b %0b %0b %0b %0b %0b %06h %0b %0b %0b %0b %0b %0b %0b %0b %0b %0b %0b %0b %0b %0b %0b %01h %08h %0d %0b %05h %06h %03h %0b %0b %0b %0b %0b %0b %0b %0b %0b %0b\n",
                             line_idx, forensic_cycle[dump_idx], forensic_time[dump_idx],
                             forensic_if_pc[dump_idx], forensic_if_inst[dump_idx],
                             forensic_if_done[dump_idx], forensic_inst_valid[dump_idx],
@@ -339,7 +477,37 @@ module tb_kernel_boot;
                             forensic_arready[dump_idx], forensic_araddr[dump_idx],
                             forensic_rvalid[dump_idx], forensic_rready[dump_idx],
                             forensic_rlast[dump_idx], forensic_rdata[dump_idx],
-                            forensic_shadow_inst[dump_idx]);
+                            forensic_shadow_inst[dump_idx],
+                            forensic_mem_pc[dump_idx], forensic_mem_inst[dump_idx],
+                            forensic_mem_valid[dump_idx], forensic_mem_done[dump_idx],
+                            forensic_mem_en[dump_idx], forensic_mem_we[dump_idx],
+                            forensic_mem_size[dump_idx], forensic_mem_vaddr[dump_idx],
+                            forensic_mem_wdata[dump_idx], forensic_d_paddr[dump_idx],
+                            forensic_d_ready[dump_idx], forensic_d_miss[dump_idx],
+                            forensic_d_pf[dump_idx], forensic_d_pf_cause[dump_idx],
+                            forensic_d_pf_vaddr[dump_idx], forensic_d_state[dump_idx],
+                            forensic_d_lat_vaddr[dump_idx], forensic_d_lat_atype[dump_idx],
+                            forensic_d_lat_priv[dump_idx], forensic_d_lat_satp[dump_idx],
+                            forensic_d_lat_sum[dump_idx], forensic_d_lat_mxr[dump_idx],
+                            forensic_d_inchg[dump_idx], forensic_d_tlb_hit[dump_idx],
+                            forensic_d_tlb_valid[dump_idx], forensic_d_tlb_perm[dump_idx],
+                            forensic_d_tlb_miss[dump_idx], forensic_d_tlb_ppn[dump_idx],
+                            forensic_d_tlb_r[dump_idx], forensic_d_tlb_w[dump_idx],
+                            forensic_d_tlb_x[dump_idx], forensic_d_tlb_u[dump_idx],
+                            forensic_d_tlb_a[dump_idx], forensic_d_tlb_d[dump_idx],
+                            forensic_d_tlb_g[dump_idx], forensic_d_tlb_mega[dump_idx],
+                            forensic_d_pf_ptw[dump_idx], forensic_store_pf[dump_idx],
+                            forensic_load_pf[dump_idx], forensic_store_af[dump_idx],
+                            forensic_load_af[dump_idx], forensic_ptw_done[dump_idx],
+                            forensic_ptw_fault[dump_idx], forensic_ptw_fcause[dump_idx],
+                            forensic_ptw_fvaddr[dump_idx], forensic_ptw_fkind[dump_idx],
+                            forensic_tlb_fill[dump_idx], forensic_fill_vpn[dump_idx],
+                            forensic_fill_ppn[dump_idx], forensic_fill_asid[dump_idx],
+                            forensic_fill_r[dump_idx], forensic_fill_w[dump_idx],
+                            forensic_fill_x[dump_idx], forensic_fill_u[dump_idx],
+                            forensic_fill_a[dump_idx], forensic_fill_d[dump_idx],
+                            forensic_fill_g[dump_idx], forensic_fill_mega[dump_idx],
+                            forensic_tlb_coll_i[dump_idx], forensic_tlb_coll_d[dump_idx]);
                 end
                 $fflush(dbg_forensic_fd);
             end
@@ -401,9 +569,14 @@ module tb_kernel_boot;
     initial begin
         dbg_if_fd = $fopen("if_sanity.log", "w");
         dbg_forensic_fd = $fopen("trap_forensics_dump.log", "w");
+        dbg_dmmu_fd = $fopen("dmmu_fault_trace.log", "w");
         if (dbg_if_fd != 0) begin
             $fwrite(dbg_if_fd, "# IF sanity event log\n");
             $fwrite(dbg_if_fd, "# Cycle\tTime\tEvent\tPC\tINST\tPADDR\tAUX0\tAUX1\tAUX2\tAUX3\tAUX4\n");
+        end
+        if (dbg_dmmu_fd != 0) begin
+            $fwrite(dbg_dmmu_fd, "# DMMU focused trace\n");
+            $fwrite(dbg_dmmu_fd, "# cyc time event mem_pc mem_inst mem_en mem_we mem_vaddr mem_wdata d_paddr d_ready d_miss d_pf d_pfc d_pfv d_state d_lat_vaddr d_atype d_priv d_sum d_mxr d_tlb_v d_tlb_h d_tlb_perm d_tlb_miss d_ppn d_r d_w d_x d_u d_a d_d d_g d_mega ptw_done ptw_fault ptw_fc ptw_fv fill fill_vpn fill_ppn fill_r fill_w fill_x fill_u fill_a fill_d coll_i coll_d hwc hwe hwt scause stval sepc\n");
         end
         dbg_if_cycle = 0;
         dbg_if_miss_prev = 1'b0;
@@ -496,9 +669,104 @@ module tb_kernel_boot;
 `else
                 forensic_shadow_inst[dbg_forensic_wr_ptr] = 32'hXXXXXXXX;
 `endif
+                forensic_mem_pc[dbg_forensic_wr_ptr]       = u_soc.cpu.mem_pc;
+                forensic_mem_inst[dbg_forensic_wr_ptr]     = u_soc.cpu.mem_inst;
+                forensic_mem_valid[dbg_forensic_wr_ptr]    = u_soc.cpu.mem_valid;
+                forensic_mem_done[dbg_forensic_wr_ptr]     = u_soc.cpu.mem_done;
+                forensic_mem_en[dbg_forensic_wr_ptr]       = u_soc.cpu.mem_en;
+                forensic_mem_we[dbg_forensic_wr_ptr]       = u_soc.cpu.mem_hwrite;
+                forensic_mem_size[dbg_forensic_wr_ptr]     = u_soc.cpu.mem_hsize;
+                forensic_mem_vaddr[dbg_forensic_wr_ptr]    = u_soc.cpu.mem_dataAddr_32;
+                forensic_mem_wdata[dbg_forensic_wr_ptr]    = u_soc.cpu.mem_writeData_32;
+                forensic_d_paddr[dbg_forensic_wr_ptr]      = u_soc.cpu.mmu_data_paddr;
+                forensic_d_ready[dbg_forensic_wr_ptr]      = u_soc.cpu.mmu_data_ready;
+                forensic_d_miss[dbg_forensic_wr_ptr]       = u_soc.cpu.mmu_data_miss;
+                forensic_d_pf[dbg_forensic_wr_ptr]         = u_soc.cpu.mmu_data_page_fault;
+                forensic_d_pf_cause[dbg_forensic_wr_ptr]   = u_soc.cpu.mmu_data_pf_cause;
+                forensic_d_pf_vaddr[dbg_forensic_wr_ptr]   = u_soc.cpu.mmu_data_pf_vaddr;
+                forensic_d_state[dbg_forensic_wr_ptr]      = u_soc.cpu.mmu_dbg_d_state;
+                forensic_d_lat_vaddr[dbg_forensic_wr_ptr]  = u_soc.cpu.u_mmu.d_latched_vaddr;
+                forensic_d_lat_atype[dbg_forensic_wr_ptr]  = u_soc.cpu.u_mmu.d_latched_access_type;
+                forensic_d_lat_priv[dbg_forensic_wr_ptr]   = u_soc.cpu.u_mmu.d_latched_priv_mode;
+                forensic_d_lat_satp[dbg_forensic_wr_ptr]   = u_soc.cpu.u_mmu.d_latched_satp;
+                forensic_d_lat_sum[dbg_forensic_wr_ptr]    = u_soc.cpu.u_mmu.d_latched_mstatus_sum;
+                forensic_d_lat_mxr[dbg_forensic_wr_ptr]    = u_soc.cpu.u_mmu.d_latched_mstatus_mxr;
+                forensic_d_inchg[dbg_forensic_wr_ptr]      = u_soc.cpu.mmu_dbg_d_input_changed;
+                forensic_d_tlb_hit[dbg_forensic_wr_ptr]    = u_soc.cpu.mmu_dbg_d_tlb_hit;
+                forensic_d_tlb_valid[dbg_forensic_wr_ptr]  = u_soc.cpu.mmu_dbg_d_tlb_valid;
+                forensic_d_tlb_perm[dbg_forensic_wr_ptr]   = u_soc.cpu.mmu_dbg_d_tlb_perm_fault;
+                forensic_d_tlb_miss[dbg_forensic_wr_ptr]   = u_soc.cpu.mmu_dbg_d_tlb_miss;
+                forensic_d_tlb_ppn[dbg_forensic_wr_ptr]    = u_soc.cpu.u_mmu.d_tlb_ppn;
+                forensic_d_tlb_r[dbg_forensic_wr_ptr]      = u_soc.cpu.u_mmu.d_tlb_r;
+                forensic_d_tlb_w[dbg_forensic_wr_ptr]      = u_soc.cpu.u_mmu.d_tlb_w;
+                forensic_d_tlb_x[dbg_forensic_wr_ptr]      = u_soc.cpu.u_mmu.d_tlb_x;
+                forensic_d_tlb_u[dbg_forensic_wr_ptr]      = u_soc.cpu.u_mmu.d_tlb_u;
+                forensic_d_tlb_a[dbg_forensic_wr_ptr]      = u_soc.cpu.u_mmu.d_tlb_a;
+                forensic_d_tlb_d[dbg_forensic_wr_ptr]      = u_soc.cpu.u_mmu.d_tlb_d;
+                forensic_d_tlb_g[dbg_forensic_wr_ptr]      = u_soc.cpu.u_mmu.d_tlb_g;
+                forensic_d_tlb_mega[dbg_forensic_wr_ptr]   = u_soc.cpu.u_mmu.d_tlb_is_megapage;
+                forensic_d_pf_ptw[dbg_forensic_wr_ptr]     = u_soc.cpu.mmu_dbg_d_pf_from_ptw;
+                forensic_store_pf[dbg_forensic_wr_ptr]     = u_soc.cpu.u_trap_csr.u_trap_mgr.store_page_fault_r;
+                forensic_load_pf[dbg_forensic_wr_ptr]      = u_soc.cpu.u_trap_csr.u_trap_mgr.load_page_fault_r;
+                forensic_store_af[dbg_forensic_wr_ptr]     = u_soc.cpu.u_trap_csr.u_trap_mgr.store_access_fault_r;
+                forensic_load_af[dbg_forensic_wr_ptr]      = u_soc.cpu.u_trap_csr.u_trap_mgr.load_access_fault_r;
+                forensic_ptw_done[dbg_forensic_wr_ptr]     = u_soc.cpu.u_mmu.ptw_walk_done;
+                forensic_ptw_fault[dbg_forensic_wr_ptr]    = u_soc.cpu.u_mmu.ptw_walk_fault;
+                forensic_ptw_fcause[dbg_forensic_wr_ptr]   = u_soc.cpu.u_mmu.ptw_fault_cause_out;
+                forensic_ptw_fvaddr[dbg_forensic_wr_ptr]   = u_soc.cpu.u_mmu.ptw_fault_vaddr_out;
+                forensic_ptw_fkind[dbg_forensic_wr_ptr]    = u_soc.cpu.u_mmu.ptw_fault_kind_out;
+                forensic_tlb_fill[dbg_forensic_wr_ptr]     = u_soc.cpu.u_mmu.tlb_fill_req;
+                forensic_fill_vpn[dbg_forensic_wr_ptr]     = u_soc.cpu.u_mmu.fill_vpn;
+                forensic_fill_ppn[dbg_forensic_wr_ptr]     = u_soc.cpu.u_mmu.ptw_fill_ppn;
+                forensic_fill_asid[dbg_forensic_wr_ptr]    = u_soc.cpu.u_mmu.fill_asid;
+                forensic_fill_r[dbg_forensic_wr_ptr]       = u_soc.cpu.u_mmu.ptw_fill_r;
+                forensic_fill_w[dbg_forensic_wr_ptr]       = u_soc.cpu.u_mmu.ptw_fill_w;
+                forensic_fill_x[dbg_forensic_wr_ptr]       = u_soc.cpu.u_mmu.ptw_fill_x;
+                forensic_fill_u[dbg_forensic_wr_ptr]       = u_soc.cpu.u_mmu.ptw_fill_u;
+                forensic_fill_a[dbg_forensic_wr_ptr]       = u_soc.cpu.u_mmu.ptw_fill_a;
+                forensic_fill_d[dbg_forensic_wr_ptr]       = u_soc.cpu.u_mmu.ptw_fill_d;
+                forensic_fill_g[dbg_forensic_wr_ptr]       = u_soc.cpu.u_mmu.ptw_fill_g;
+                forensic_fill_mega[dbg_forensic_wr_ptr]    = u_soc.cpu.u_mmu.ptw_fill_is_megapage;
+                forensic_tlb_coll_i[dbg_forensic_wr_ptr]   = u_soc.cpu.u_mmu.u_tlb.portb_fill &&
+                                                             u_soc.cpu.u_mmu.u_tlb.flag_bram_ena &&
+                                                             (u_soc.cpu.u_mmu.u_tlb.flag_bram_addra == u_soc.cpu.u_mmu.u_tlb.flag_bram_addrb);
+                forensic_tlb_coll_d[dbg_forensic_wr_ptr]   = u_soc.cpu.u_mmu.u_tlb.portb_fill &&
+                                                             u_soc.cpu.u_mmu.u_tlb.d_lookup_req &&
+                                                             (u_soc.cpu.u_mmu.u_tlb.d_lookup_set_idx == u_soc.cpu.u_mmu.u_tlb.fill_set_idx);
                 dbg_forensic_wr_ptr = (dbg_forensic_wr_ptr + 1) % FORENSIC_DEPTH;
                 if (dbg_forensic_count < FORENSIC_DEPTH)
                     dbg_forensic_count = dbg_forensic_count + 1;
+            end
+
+            if (dbg_dmmu_fd != 0 && dmmu_focus_active()) begin
+                $fwrite(dbg_dmmu_fd,
+                        "%0d %0t DMMU %08h %08h %0b %0b %08h %08h %08h %0b %0b %0b %0d %08h %0d %08h %0d %0d %0b %0b %0b %0b %0b %0b %05h %0b %0b %0b %0b %0b %0b %0b %0b %0b %0b %0d %08h %0b %05h %05h %0b %0b %0b %0b %0b %0b %0b %0b %08h %08h %08h %08h %08h %08h\n",
+                        dbg_if_cycle, $time,
+                        u_soc.cpu.mem_pc, u_soc.cpu.mem_inst, u_soc.cpu.mem_en, u_soc.cpu.mem_hwrite,
+                        u_soc.cpu.mem_dataAddr_32, u_soc.cpu.mem_writeData_32, u_soc.cpu.mmu_data_paddr,
+                        u_soc.cpu.mmu_data_ready, u_soc.cpu.mmu_data_miss, u_soc.cpu.mmu_data_page_fault,
+                        u_soc.cpu.mmu_data_pf_cause, u_soc.cpu.mmu_data_pf_vaddr,
+                        u_soc.cpu.mmu_dbg_d_state, u_soc.cpu.u_mmu.d_latched_vaddr,
+                        u_soc.cpu.u_mmu.d_latched_access_type, u_soc.cpu.u_mmu.d_latched_priv_mode,
+                        u_soc.cpu.u_mmu.d_latched_mstatus_sum, u_soc.cpu.u_mmu.d_latched_mstatus_mxr,
+                        u_soc.cpu.mmu_dbg_d_tlb_valid, u_soc.cpu.mmu_dbg_d_tlb_hit,
+                        u_soc.cpu.mmu_dbg_d_tlb_perm_fault, u_soc.cpu.mmu_dbg_d_tlb_miss,
+                        u_soc.cpu.u_mmu.d_tlb_ppn, u_soc.cpu.u_mmu.d_tlb_r,
+                        u_soc.cpu.u_mmu.d_tlb_w, u_soc.cpu.u_mmu.d_tlb_x,
+                        u_soc.cpu.u_mmu.d_tlb_u, u_soc.cpu.u_mmu.d_tlb_a,
+                        u_soc.cpu.u_mmu.d_tlb_d, u_soc.cpu.u_mmu.d_tlb_g,
+                        u_soc.cpu.u_mmu.d_tlb_is_megapage, u_soc.cpu.u_mmu.ptw_walk_done,
+                        u_soc.cpu.u_mmu.ptw_walk_fault, u_soc.cpu.u_mmu.ptw_fault_cause_out,
+                        u_soc.cpu.u_mmu.ptw_fault_vaddr_out, u_soc.cpu.u_mmu.tlb_fill_req,
+                        u_soc.cpu.u_mmu.fill_vpn, u_soc.cpu.u_mmu.ptw_fill_ppn,
+                        u_soc.cpu.u_mmu.ptw_fill_r, u_soc.cpu.u_mmu.ptw_fill_w,
+                        u_soc.cpu.u_mmu.ptw_fill_x, u_soc.cpu.u_mmu.ptw_fill_u,
+                        u_soc.cpu.u_mmu.ptw_fill_a, u_soc.cpu.u_mmu.ptw_fill_d,
+                        (u_soc.cpu.u_mmu.u_tlb.portb_fill && u_soc.cpu.u_mmu.u_tlb.flag_bram_ena && (u_soc.cpu.u_mmu.u_tlb.flag_bram_addra == u_soc.cpu.u_mmu.u_tlb.flag_bram_addrb)),
+                        (u_soc.cpu.u_mmu.u_tlb.portb_fill && u_soc.cpu.u_mmu.u_tlb.d_lookup_req && (u_soc.cpu.u_mmu.u_tlb.d_lookup_set_idx == u_soc.cpu.u_mmu.u_tlb.fill_set_idx)),
+                        u_soc.cpu.hw_trap_cause, u_soc.cpu.hw_trap_epc, u_soc.cpu.hw_trap_tval,
+                        u_soc.cpu.csr_scause, u_soc.cpu.csr_stval, u_soc.cpu.csr_sepc);
+                $fflush(dbg_dmmu_fd);
             end
 
             if (dbg_if_fd != 0) begin
@@ -549,7 +817,7 @@ module tb_kernel_boot;
                             u_soc.cpu.fetch_vaddr, u_soc.cpu.csr_satp, u_soc.cpu.icache_dbg_state,
                             u_soc.cpu.mmu_dbg_i_state, u_soc.cpu.inst_valid_mux);
                 end
-                if (u_soc.cpu.trap_enter_valid && (u_soc.cpu.hw_trap_cause == 32'd9) &&
+                if (u_soc.cpu.trap_enter_valid &&
                     (u_soc.cpu.hw_trap_epc != 32'hc0010bbc)) begin
                     $fwrite(dbg_if_fd, "%0d\t%0t\tTRAP_PRE\t%08h\t%08h\t%08h\t%08h\t%08h\t%08h\t%0d\t%0d\n",
                             dbg_if_cycle, $time, if_pc, if_inst, u_soc.cpu.mmu_inst_paddr,
@@ -587,10 +855,10 @@ module tb_kernel_boot;
                 $finish;
             end
 
-            if (u_soc.cpu.trap_enter_valid && (u_soc.cpu.hw_trap_cause == 32'd9) &&
+            if (if_sanity_window_active() && u_soc.cpu.trap_enter_valid &&
                 (u_soc.cpu.hw_trap_epc != 32'hc0010bbc)) begin
-                dump_forensic_buffer("SUSPICIOUS_ECALL_TRAP");
-                dump_if_sanity_snapshot("SUSPICIOUS_ECALL_TRAP");
+                dump_forensic_buffer("FIRST_NON_SBI_TRAP");
+                dump_if_sanity_snapshot("FIRST_NON_SBI_TRAP");
                 $finish;
             end
 
@@ -616,6 +884,11 @@ module tb_kernel_boot;
             $fflush(dbg_forensic_fd);
             $fclose(dbg_forensic_fd);
             $display("[DEBUG-FORENSICS] Trap forensic dump file closed");
+        end
+        if (dbg_dmmu_fd != 0) begin
+            $fflush(dbg_dmmu_fd);
+            $fclose(dbg_dmmu_fd);
+            $display("[DEBUG-DMMU] DMMU focused trace closed");
         end
     end
 `endif

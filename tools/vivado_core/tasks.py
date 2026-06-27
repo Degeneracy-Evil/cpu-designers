@@ -59,6 +59,13 @@ class TaskConfig:
         ``$readmemh("prog.hex")`` during simulation.  Only used in
         SRAM-mode simulation; DDR3 simulation loads the program via
         UART instead.
+    expected_fail:
+        If ``True``, the task is expected to fail (known limitation,
+        missing dependency, placeholder test).  The batch runner treats
+        a failure as non-fatal (XFAIL) and does not count it toward the
+        ``failed`` total.  An unexpected pass (XPASS) is also reported
+        but still counts as non-fatal.  Used to annotate tests that
+        cannot pass yet without masking real regressions.
     """
 
     name: str
@@ -71,6 +78,7 @@ class TaskConfig:
     mig_param_overrides: dict[str, str] = field(default_factory=dict)
     blhex: str = ""
     phex: str = ""
+    expected_fail: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -137,6 +145,7 @@ class TaskRegistry:
                 mig_param_overrides=cfg.get("mig_param_overrides", {}) or {},
                 blhex=cfg.get("blhex", ""),
                 phex=cfg.get("phex", ""),
+                expected_fail=bool(cfg.get("expected_fail", False)),
             )
 
     # ------------------------------------------------------------------

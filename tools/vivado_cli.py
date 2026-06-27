@@ -456,7 +456,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "-create", action="store_true", help="Create/open project in session"
     )
-    parser.add_argument("-sim", action="store_true", help="Run simulation")
+    parser.add_argument(
+        "-sim", action="store_true",
+        help=(
+            "Run simulation.  "
+            "WARNING: in batch mode, use -create -sim (not -sim alone) — "
+            "see batch.py _execute_single() docstring."
+        ),
+    )
     parser.add_argument(
         "-runtime", metavar="TIME", help="Override simulation runtime"
     )
@@ -570,18 +577,27 @@ def format_batch_result_text(result: Any) -> str:
     lines.append(f"Total    : {result.total}")
     lines.append(f"Succeeded: {result.succeeded}")
     lines.append(f"Failed   : {result.failed}")
+    if getattr(result, "xfailed", 0):
+        lines.append(f"XFailed  : {result.xfailed}")
     lines.append(f"Skipped  : {result.skipped}")
     lines.append(f"Duration : {result.duration:.1f}s")
     lines.append("-" * 60)
     for tr in result.results:
-        status = "PASS" if tr.success else "FAIL"
+        if tr.success:
+            status = "PASS"
+        elif getattr(tr, "expected_fail", False):
+            status = "XFAIL"
+        else:
+            status = "FAIL"
         if tr.error and tr.error.startswith("Skipped:"):
             status = "SKIP"
         elif tr.error and tr.error.startswith("Cancelled"):
             status = "SKIP"
         lines.append(f"  {tr.task_name:<20s} {status:<6s} {tr.duration:.1f}s  session={tr.session_name}")
-        if tr.error and status != "PASS":
+        if tr.error and status not in ("PASS", "XFAIL"):
             lines.append(f"    Error: {tr.error}")
+        elif status == "XFAIL":
+            lines.append(f"    Expected failure: {tr.error or 'no details'}")
         for op in tr.operations:
             if op.get("timed_out"):
                 op_status = "TIMEOUT"
@@ -611,6 +627,7 @@ def format_batch_result_json(result: Any) -> str:
         "total": result.total,
         "succeeded": result.succeeded,
         "failed": result.failed,
+        "xfailed": getattr(result, "xfailed", 0),
         "skipped": result.skipped,
         "duration": round(result.duration, 3),
         "exit_code": result.exit_code,
@@ -619,6 +636,7 @@ def format_batch_result_json(result: Any) -> str:
                 "task_name": tr.task_name,
                 "session_name": tr.session_name,
                 "success": tr.success,
+                "expected_fail": getattr(tr, "expected_fail", False),
                 "duration": round(tr.duration, 3),
                 "error": tr.error,
                 "operations": tr.operations,

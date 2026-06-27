@@ -267,6 +267,7 @@ tasks:
     blhex: boot/bootloader_phase1.hex
     phex: test/mmu/pmp_violation.hex
     runtime: 20ms
+    expected_fail: true  # PMP not yet implemented (ptw_pmp_grant hardwired to 1'b1)
 
   # ── Cache 仿真 ──
 

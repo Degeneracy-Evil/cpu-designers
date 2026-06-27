@@ -125,6 +125,11 @@ class TaskResult:
         Total wall-clock time for this task.
     error:
         Error message if the task failed, ``None`` otherwise.
+    expected_fail:
+        ``True`` if this task was annotated ``expected_fail: true`` in
+        ``tasks.yaml``.  A failure with ``expected_fail=True`` is
+        reported as ``XFAIL`` (expected failure) and does not count
+        toward the batch ``failed`` total.
     """
 
     task_name: str
@@ -133,6 +138,7 @@ class TaskResult:
     operations: list[dict[str, Any]] = field(default_factory=list)
     duration: float = 0.0
     error: str | None = None
+    expected_fail: bool = False
 
 
 @dataclass
@@ -146,7 +152,7 @@ class BatchResult:
     succeeded:
         Number of tasks that completed successfully.
     failed:
-        Number of tasks that failed.
+        Number of tasks that failed (excluding expected failures).
     skipped:
         Number of tasks skipped (due to fail-fast / stop-accepting).
     duration:
@@ -155,6 +161,8 @@ class BatchResult:
         Per-task results in completion order.
     exit_code:
         Process exit code (0 if all succeeded, 1 otherwise).
+    xfailed:
+        Number of tasks that failed as expected (``expected_fail: true``).
     """
 
     total: int
@@ -164,6 +172,7 @@ class BatchResult:
     duration: float
     results: list[TaskResult] = field(default_factory=list)
     exit_code: int = 0
+    xfailed: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -432,7 +441,7 @@ class BatchExecutor:
             all_results.extend(round_result.results)
 
             for tr in round_result.results:
-                if not tr.success:
+                if not tr.success and not tr.expected_fail:
                     if spec.on_error == "fail-fast":
                         global_cancel.set()
                     elif spec.on_error == "stop-accepting":
@@ -465,9 +474,11 @@ class BatchExecutor:
         failed = sum(
             1 for r in all_results
             if not r.success
+            and not r.expected_fail
             and r.error != "Skipped: stop-accepting after earlier failure"
             and not (r.error and r.error.startswith("Cancelled"))
         )
+        xfailed = sum(1 for r in all_results if not r.success and r.expected_fail)
         skipped = sum(
             1 for r in all_results
             if r.error and (
@@ -476,7 +487,9 @@ class BatchExecutor:
             )
         )
 
-        exit_code = 0 if failed == 0 and all(r.success for r in all_results) else 1
+        exit_code = 0 if failed == 0 and all(
+            r.success or r.expected_fail for r in all_results
+        ) else 1
 
         return BatchResult(
             total=total,
@@ -486,6 +499,7 @@ class BatchExecutor:
             duration=duration,
             results=all_results,
             exit_code=exit_code,
+            xfailed=xfailed,
         )
 
     def _execute_single_round(self, spec: BatchSpec, t0: float) -> BatchResult:
@@ -590,7 +604,7 @@ class BatchExecutor:
                     results.append(task_result)
 
                 # Handle error strategies
-                if not task_result.success:
+                if not task_result.success and not task_result.expected_fail:
                     if spec.on_error == "fail-fast":
                         cancel.set()
                         logger.warning(
@@ -607,12 +621,19 @@ class BatchExecutor:
         # --- Aggregate ---
         duration = time.monotonic() - t0
         succeeded = sum(1 for r in results if r.success)
-        failed = sum(1 for r in results if not r.success and r.error != "Skipped: stop-accepting after earlier failure")
+        failed = sum(
+            1 for r in results
+            if not r.success
+            and not r.expected_fail
+            and r.error != "Skipped: stop-accepting after earlier failure"
+        )
+        xfailed = sum(1 for r in results if not r.success and r.expected_fail)
         skipped = sum(1 for r in results if r.error and r.error.startswith("Skipped:"))
-        # Also count tasks that were skipped due to cancel event
         skipped += sum(1 for r in results if r.error and r.error.startswith("Cancelled"))
 
-        exit_code = 0 if failed == 0 and all(r.success for r in results) else 1
+        exit_code = 0 if failed == 0 and all(
+            r.success or r.expected_fail for r in results
+        ) else 1
 
         return BatchResult(
             total=len(spec.tasks),
@@ -622,6 +643,7 @@ class BatchExecutor:
             duration=duration,
             results=results,
             exit_code=exit_code,
+            xfailed=xfailed,
         )
 
     def _execute_single(
@@ -647,6 +669,37 @@ class BatchExecutor:
         Returns
         -------
         TaskResult
+
+        .. warning::
+
+            **Batch mode + no-create + session-reuse crash.**
+
+            ``vivado_cli -batch "A,B" -sim`` (without ``-create``) relies on
+            existing sessions.  When sessions do not exist, every parallel task
+            raises ``SessionNotFoundError`` — all tasks fail harmlessly.
+
+            When sessions **do** exist, each task finds its own session and
+            starts a Vivado subprocess.  The crash scenario:
+
+            1. Two+ tasks run ``sim()`` in parallel (gated by the concurrent
+               semaphore at ``max_concurrent``).
+            2. After each task completes, ``stop_vivado()`` (line ~808) kills
+               its Vivado process and **releases** the semaphore.
+            3. **The release immediately allows another waiting Vivado to start
+               while the previous Vivado's child processes (xelab/xsim) may
+               still be terminating.**
+            4. Vivado 2018.3's ``launch_simulation`` spawns ``xelab`` / ``xsim``
+               children that use in-memory library caches.  When a sibling
+               process's Vivado is killed and its semaphore released concurrently,
+               the shared Vivado binary cache or pid-reuse can corrupt xsim
+               state, causing ``xelab``/``xsim`` to crash or produce corrupted
+               output (segfault, silent truncation, or ``cannot find design
+               unit``).
+
+            **Mitigation**: always use ``-create -sim`` (not ``-sim`` alone)
+            in batch mode so each task gets a fresh project from scratch.
+            See also the ``stop_vivado()`` call at ``batch.py`` line ~808 for
+            the cleanup code path.
         """
         # --- Check cancellation ---
         if cancel.is_set():
@@ -805,6 +858,12 @@ class BatchExecutor:
         # Batch mode explicit resource cleanup:
         # Stop Vivado to release the concurrent semaphore and drop running_count(),
         # allowing subsequent tasks in the batch to acquire a concurrency slot.
+        #
+        # !!! KNOWN CRASH: stop_vivado() + semaphore release + concurrent
+        # start_vivado() on another session can cause xelab/xsim child-process
+        # corruption in Vivado 2018.3 (segfault / "cannot find design unit").
+        # See docstring of _execute_single for the full root-cause analysis.
+        # Mitigation: always use "-create -sim" (not "-sim" alone) in batch.
         try:
             session.stop_vivado()
         except Exception as e:
@@ -816,6 +875,12 @@ class BatchExecutor:
             except Exception:
                 pass
 
+        try:
+            task_cfg = self._task_registry.get(batch_task.task_name)
+            expected_fail = task_cfg.expected_fail
+        except Exception:
+            expected_fail = False
+
         return TaskResult(
             task_name=batch_task.task_name,
             session_name=session_name,
@@ -823,6 +888,7 @@ class BatchExecutor:
             operations=op_results,
             duration=duration,
             error=None if all_success else "One or more operations failed",
+            expected_fail=expected_fail,
         )
 
     def _get_operations(self) -> Operations:

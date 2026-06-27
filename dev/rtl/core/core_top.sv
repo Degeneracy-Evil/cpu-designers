@@ -1455,6 +1455,8 @@ module core_top(
         // PMP check interface (pass-through to PTW)
         .pmp_grant(ptw_pmp_grant),
         .pmp_fault_type(ptw_pmp_fault_type),
+        // ISSUE-5: pause PTW timeout counter during dcache flush
+        .dcache_flush_active(dcache_flush_req),
         // flush
         .sfence_vma(sfence_vma_to_mmu_pulse),
         // sfence completion

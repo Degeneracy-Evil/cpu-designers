@@ -38,7 +38,10 @@ module ptw(
 
     // PMP check interface
     input              pmp_grant,        // PMP allows access to ptw_cache_addr
-    input       [1:0]  pmp_fault_type    // 0=fetch, 1=load, 2=store (from PMP)
+    input       [1:0]  pmp_fault_type,   // 0=fetch, 1=load, 2=store (from PMP)
+
+    // ISSUE-5: dcache flush in progress — pause timeout counter while set
+    input              dcache_flush_active
 );
 
     localparam PRIV_U = 2'b00;
@@ -191,12 +194,16 @@ module ptw(
         end else begin
             // Defensive: timeout counter — increments while waiting for cache response
             // in S_L1_CHECK/S_L0_CHECK (after request issued). On expiry, force S_FAULT.
+            // ISSUE-5: pause counter while dcache flush is active to avoid spurious
+            // timeout faults when the flush stalls the cache response beyond
+            // PTW_TIMEOUT cycles.
             if ((state == S_L1_CHECK || state == S_L0_CHECK) && cache_req_pending_r) begin
                 if (ptw_cache_ready) begin
                     timeout_cnt <= 16'd0;   // normal response — reset
-                end else begin
+                end else if (!dcache_flush_active) begin
                     timeout_cnt <= timeout_cnt + 16'd1;
                 end
+                // else: hold timeout_cnt while dcache_flush_active
             end else begin
                 timeout_cnt <= 16'd0;
             end

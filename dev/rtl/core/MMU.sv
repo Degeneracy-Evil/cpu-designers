@@ -56,6 +56,9 @@ module MMU #(
     input              pmp_grant,
     input       [1:0]  pmp_fault_type,
 
+    // ── Dcache flush status (ISSUE-5: pause PTW timeout during flush) ──
+    input              dcache_flush_active,
+
     // ── Flush ──
     input              sfence_vma,
     output wire        sfence_done,
@@ -325,7 +328,8 @@ module MMU #(
         .ptw_cache_rdata(ptw_cache_rdata),
         .ptw_cache_fault(ptw_cache_fault),
         .pmp_grant(pmp_grant),
-        .pmp_fault_type(pmp_fault_type)
+        .pmp_fault_type(pmp_fault_type),
+        .dcache_flush_active(dcache_flush_active)
     );
 
     // =========================================================================

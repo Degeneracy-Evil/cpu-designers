@@ -141,6 +141,7 @@ categories:
       - regression/reg_dcache_wb_error
       - regression/reg_fencei_wb_error
       - regression/reg_sfence_wb_error
+      - regression/reg_wb_error_multi_dirty
 
   integration:
     framework: none

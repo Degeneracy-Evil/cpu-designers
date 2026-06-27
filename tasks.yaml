@@ -405,6 +405,12 @@ tasks:
     phex: test/regression/reg_sfence_wb_error.hex
     runtime: 20ms
 
+  reg_wb_error_multi_dirty:
+    tb: tb_regression_reg_wb_error_multi_dirty
+    blhex: boot/bootloader_phase1.hex
+    phex: test/regression/reg_wb_error_multi_dirty.hex
+    runtime: 20ms
+
   reg_pf_latch:
     tb: tb_regression_reg_pf_latch
     blhex: boot/bootloader_phase1.hex

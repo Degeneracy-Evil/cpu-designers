@@ -416,9 +416,12 @@ module dcache_ctrl(
     assign cpu_req_ready = cpu_req_ready_r;
 
     // PTW response data (combinational — valid when ptw_req_ready is high)
+    // ptw_req_ready_r is asserted in S_READ_HIT/S_REFILL but takes effect next
+    // cycle when state has already moved to S_IDLE.  bypass_data latches the
+    // correct word in those states, so use it as fallback when ready is high.
     wire [31:0] ptw_live_rdata = (state == S_READ_HIT) ? rdata_word :
                                  (state == S_REFILL && refill_valid) ? refill_word :
-                                 32'b0;
+                                 ptw_req_ready_r ? bypass_data : 32'b0;
     assign ptw_req_ready  = ptw_req_ready_r;
     assign ptw_req_rdata  = ptw_live_rdata;
     assign ptw_req_fault  = ptw_req_fault_r;

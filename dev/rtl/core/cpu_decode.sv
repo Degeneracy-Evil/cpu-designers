@@ -555,7 +555,10 @@ wire inst_amomaxu  = (opcode == OPCODE_AMO) && (funct3 == 3'b010) && (funct5 == 
         end
     endfunction
 
-  assign dec_csr_addr_valid = is_s_csr(csr_addr) || is_m_csr(csr_addr) || is_u_csr(csr_addr);
+  // Accept ALL CSR addresses as valid. Unimplemented CSRs read as 0 and
+  // silently ignore writes in cpu_csr.sv. This prevents OpenSBI from trapping
+  // on optional feature probes (tselect, mhpmevent, mcountinhibit, etc.).
+  assign dec_csr_addr_valid = 1'b1;
 
   reg dec_csr_access_ok_r;
   always_comb begin
@@ -580,7 +583,16 @@ wire inst_amomaxu  = (opcode == OPCODE_AMO) && (funct3 == 3'b010) && (funct5 == 
                         (csr_funct3 == 3'b101) ||
                         (csr_funct3 == 3'b110 && inst[19:15] != 5'd0) ||
                         (csr_funct3 == 3'b111 && inst[19:15] != 5'd0);
-  wire write_ro_csr   = is_csr && csr_read_only && csr_is_write;
+  // Only trap on writes to IMPLEMENTED read-only CSRs (misa, mvendorid, etc.).
+  // Writes to unimplemented read-only CSRs are silently ignored by the CSR file
+  // (default case in write mux), so no need to trap.
+  wire write_ro_csr   = is_csr && csr_read_only && csr_is_write && dec_csr_addr_valid &&
+                        (csr_addr == 12'h301 ||   // misa
+                         csr_addr == 12'hF11 ||   // mvendorid
+                         csr_addr == 12'hF12 ||   // marchid
+                         csr_addr == 12'hF13 ||   // mimpid
+                         csr_addr == 12'hF14 ||   // mhartid
+                         csr_addr == 12'hF15);    // mconfigptr
 
   wire sret_priv_violation = is_sret && (priv_mode == PRIV_U);
   // BUG-FIX (sub-issue ⑥): Per RISC-V Privileged Spec, mret from S-mode or

@@ -293,7 +293,10 @@ module cpu_csr(
         end
     endfunction
 
-    assign csr_addr_valid = is_s_csr(sw_csr_addr) || is_m_csr(sw_csr_addr) || is_u_csr(sw_csr_addr) || is_pmp_csr(sw_csr_addr);
+    // Accept ALL CSR addresses as valid. Unimplemented CSRs read as 0 and
+    // silently ignore writes. This prevents OpenSBI from trapping on optional
+    // feature probes (tselect, mhpmevent, mstateen, debug/trace CSRs, etc.).
+    assign csr_addr_valid = 1'b1;
 
     wire is_read_only_csr;
     assign is_read_only_csr = (sw_csr_addr == ADDR_MISA)     ||

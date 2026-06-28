@@ -24,6 +24,7 @@ module icache_ctrl(
     input  wire [`ICACHE_LINE_WIDTH-1:0] refill_data,
     input  wire        refill_valid,
     input  wire [31:0] refill_resp_addr,
+    input  wire        refill_error,      // AXI error during refill — discard data, no tag write
 
     input  wire        invalidate_req,
     output wire        invalidate_done,
@@ -435,7 +436,12 @@ state <= S_DONE;
                     end else begin
                         refill_req_r <= 1'b1;
                     end
-                    if (!req_changed && refill_valid && refill_addr_match) begin
+                    // Error path: AXI error during refill — discard data, no tag write
+                    if (!req_changed && refill_valid && refill_error) begin
+                        refill_req_r <= 1'b0;
+                        state <= S_IDLE;
+                    end
+                    else if (!req_changed && refill_valid && refill_addr_match) begin
                         refill_req_r    <= 1'b0;
                         bypass_data     <= sel_word;
                         cpu_req_ready_r <= 1'b1;

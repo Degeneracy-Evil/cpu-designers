@@ -724,6 +724,7 @@ module cpu_bus_bridge(
                         // Timeout — abort to S_IDLE with error
                         state            <= S_IDLE;
                         icache_error_r   <= 1'b1;
+                        icache_refill_valid_r <= 1'b1;  // signal refill complete (with error)
                         bus_error_addr_r <= burst_base_addr;
                     end
                     else if (rvalid) begin
@@ -733,6 +734,7 @@ if (r_error) begin
                             if (rlast) begin
                                 state           <= S_IDLE;
                                 icache_error_r  <= 1'b1;
+                                icache_refill_valid_r <= 1'b1;  // signal refill complete (with error)
                                 bus_error_addr_r <= burst_base_addr;
                             end
                         end else begin

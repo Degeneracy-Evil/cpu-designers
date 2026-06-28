@@ -837,6 +837,7 @@ module core_top(
         .refill_data(icache_refill_data),
         .refill_valid(icache_refill_valid),
         .refill_resp_addr(icache_refill_resp_addr),
+        .refill_error(bridge_icache_error),
 
         .invalidate_req(icache_invalidate_req),
         .invalidate_done(icache_invalidate_done),

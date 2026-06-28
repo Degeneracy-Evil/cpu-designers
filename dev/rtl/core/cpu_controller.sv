@@ -119,6 +119,8 @@ module cpu_controller(
                 STATE_MEM: begin
                     if (data_access_fault_pending || data_page_fault_pending) begin
                         next_state = STATE_TRAP_ENTER;
+                    end else if (mem_done && trap_pending) begin
+                        next_state = STATE_TRAP_ENTER;
                     end else begin
                         next_state = mem_done ? STATE_WB : STATE_MEM;
                     end

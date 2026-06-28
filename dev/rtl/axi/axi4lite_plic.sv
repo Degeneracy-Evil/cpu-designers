@@ -40,7 +40,7 @@ module axi4lite_plic #(
 
     // Interrupt interface
     input  wire [NUM_SRC-1:0] src_irq,
-    output wire [NUM_CTX-1:0] o_eip       // [0]=M-mode, [1]=S-mode
+    output reg  [NUM_CTX-1:0] o_eip       // [0]=M-mode, [1]=S-mode
 );
 
     // =========================================================================
@@ -111,9 +111,10 @@ module axi4lite_plic #(
     // =========================================================================
     // AXI4-Lite Read FSM
     // =========================================================================
-    localparam RD_IDLE = 2'd0;
-    localparam RD_WAIT = 2'd1;
-    localparam RD_RESP = 2'd2;
+    localparam RD_IDLE        = 2'd0;
+    localparam RD_WAIT        = 2'd1;
+    localparam RD_RESP        = 2'd2;
+    localparam RD_CLAIM_APPLY = 2'd3;
 
     reg [1:0]  rd_state;
     reg [31:0] rd_addr;
@@ -198,16 +199,16 @@ module axi4lite_plic #(
         end
     endfunction
 
-    // Per-context highest-priority computation
+    // Per-context highest-priority computation (combinational find_highest, registered output)
     wire [7:0] highest_id [0:NUM_CTX-1];
+    reg  [7:0] r_highest_id [0:NUM_CTX-1];
     wire       any_pending [0:NUM_CTX-1];
 
     genvar gi;
     generate
         for (gi = 0; gi < NUM_CTX; gi = gi + 1) begin : gen_ctx
             assign highest_id[gi]  = find_highest(r_pending, r_enable[gi], r_threshold[gi], r_prio);
-            assign any_pending[gi]  = (highest_id[gi] != 8'd0);
-            assign o_eip[gi]        = any_pending[gi];
+            assign any_pending[gi]  = (r_highest_id[gi] != 8'd0);
         end
     endgenerate
 
@@ -255,22 +256,38 @@ module axi4lite_plic #(
             rd_claim_id <= 8'd0;
             r_pending <= 32'd0;
             r_gw_en   <= {(NUM_SRC){1'b1}};
+            o_eip     <= {NUM_CTX{1'b0}};
             for (ii = 0; ii < NUM_SRC; ii = ii + 1)
                 r_prio[ii] <= 32'd0;
             for (ci = 0; ci < NUM_CTX; ci = ci + 1) begin
                 r_enable[ci]    <= 32'd0;
                 r_threshold[ci] <= 32'd0;
+                r_highest_id[ci] <= 8'd0;
             end
         end else begin
             // 1. Pending and gateway enable logic (shared, level-triggered)
+            //    Defensive guard: when in RD_CLAIM_APPLY, exclude the claimed ID
+            //    to prevent re-assertion of the interrupt being cleared.
             for (ii = 1; ii < NUM_SRC; ii = ii + 1) begin
-                if (r_gw_en[ii] && src_irq[ii])
-                    r_pending[ii] <= 1'b1;
+                if (!(rd_state == RD_CLAIM_APPLY && ii == rd_claim_id)) begin
+                    if (r_gw_en[ii] && src_irq[ii])
+                        r_pending[ii] <= 1'b1;
+                end
             end
 
             for (ii = 1; ii < NUM_SRC; ii = ii + 1) begin
                 if (!src_irq[ii])
                     r_gw_en[ii] <= 1'b1;
+            end
+
+            // 1b. Register highest_id to break combinational path
+            for (ci = 0; ci < NUM_CTX; ci = ci + 1) begin
+                r_highest_id[ci] <= highest_id[ci];
+            end
+
+            // 1c. Register o_eip output
+            for (ci = 0; ci < NUM_CTX; ci = ci + 1) begin
+                o_eip[ci] <= any_pending[ci];
             end
 
             // 2. AXI4-Lite write operations (WSTRB-aware)
@@ -301,29 +318,32 @@ module axi4lite_plic #(
                     r_gw_en[wr_wdata_eff[7:0]] <= 1'b1;
             end
 
-            // 3. Read request handling, including atomic claim.
+            // 3. Read request handling, including pipelined claim.
             case (rd_state)
                 RD_IDLE: begin
                     if (s_axi_arvalid) begin
                         rd_addr  <= s_axi_araddr;
-                        rd_state <= RD_WAIT;
                         rd_claim_id <= 8'd0;
                         if ((s_axi_araddr[23:20] == 4'h2) && (s_axi_araddr[3:2] == 2'd1)) begin
+                            // Claim read: latch the registered highest_id, defer clear to RD_CLAIM_APPLY
                             if (s_axi_araddr[15:12] == 4'd0) begin
-                                rd_claim_id <= highest_id[0];
-                                if (any_pending[0]) begin
-                                    r_pending[highest_id[0]] <= 1'b0;
-                                    r_gw_en[highest_id[0]]   <= 1'b0;
-                                end
+                                rd_claim_id <= r_highest_id[0];
                             end else if ((NUM_CTX > 1) && (s_axi_araddr[15:12] == 4'd1)) begin
-                                rd_claim_id <= highest_id[1];
-                                if (any_pending[1]) begin
-                                    r_pending[highest_id[1]] <= 1'b0;
-                                    r_gw_en[highest_id[1]]   <= 1'b0;
-                                end
+                                rd_claim_id <= r_highest_id[1];
                             end
+                            rd_state <= RD_CLAIM_APPLY;
+                        end else begin
+                            rd_state <= RD_WAIT;
                         end
                     end
+                end
+                RD_CLAIM_APPLY: begin
+                    // Apply the claim: clear pending and gateway enable for the latched ID
+                    if (rd_claim_id != 8'd0) begin
+                        r_pending[rd_claim_id] <= 1'b0;
+                        r_gw_en[rd_claim_id]   <= 1'b0;
+                    end
+                    rd_state <= RD_WAIT;
                 end
                 RD_WAIT: begin
                     if (rd_addr_is_prio) begin

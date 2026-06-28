@@ -1,6 +1,8 @@
 `timescale 1ns / 1ps
 
-module ptw(
+module ptw #(
+    parameter [15:0] PTW_TIMEOUT = 16'd4096  // 4096 cycles covers cold cache miss chains with AXI latency margin
+)(
     input              clk,
     input              resetn,
 
@@ -72,7 +74,7 @@ module ptw(
     //                      leaf PTE (megapage) → S_PERM_CHECK;
     //                      non-leaf → S_L0_READ;
     //                      cache response wait → stay;
-    //                      timeout (256 cyc) → S_FAULT (access fault).
+    //                      timeout (PTW_TIMEOUT cyc) → S_FAULT (access fault).
     //               Duration: 2+ cycles (PMP check, then cache response wait).
     //
     // S_L0_READ   : Entry: S_L1_CHECK on non-leaf PTE (pointer to L0 table).
@@ -85,7 +87,7 @@ module ptw(
     //                      leaf PTE (4K page) → S_PERM_CHECK;
     //                      non-leaf → S_FAULT (page fault, SV32 max 2 levels);
     //                      cache response wait → stay;
-    //                      timeout (256 cyc) → S_FAULT (access fault).
+    //                      timeout (PTW_TIMEOUT cyc) → S_FAULT (access fault).
     //               Duration: 2+ cycles (PMP check, then cache response wait).
     //
     // S_PERM_CHECK: Entry: S_L1_CHECK (megapage) or S_L0_CHECK (4K page).
@@ -192,7 +194,7 @@ module ptw(
     // Defensive: cache response timeout counter — if the dcache never responds
     // (e.g., AXI bus error, bridge deadlock, or SRAM stuck), force a fault
     // after PTW_TIMEOUT cycles to prevent permanent CPU hang.
-    localparam PTW_TIMEOUT = 16'd256;   // 256 cycles — defensive timeout for cache response
+    // PTW_TIMEOUT is a module parameter (default 4096) — see #() above
     reg [15:0] timeout_cnt;
 
     assign ptw_cache_req  = cache_req_pending_r;

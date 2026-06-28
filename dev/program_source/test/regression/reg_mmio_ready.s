@@ -109,7 +109,7 @@ test_mtime_hi_lo_consistency:
 
     li x15, 0xFF8
     add x15, x14, x15
-    lw x18, 0(x15)             # mtime_lo second
+    lw x11, 0(x15)             # mtime_lo second (x11, not x18 — x18 is reserved by framework)
 
     # mtime_hi should be 0 (not enough cycles to overflow)
     # Second lo >= first lo (unless overflow happened)
@@ -117,7 +117,7 @@ test_mtime_hi_lo_consistency:
 
     # No overflow: second >= first
     li x10, 1
-    bge x18, x16, 2f
+    bge x11, x16, 2f
     li x10, 0
 2:  ret
 

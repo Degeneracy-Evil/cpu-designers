@@ -409,7 +409,11 @@ module MMU #(
             fault_from_ptw_r     <= 1'b0;
             translate_done       <= 1'b0;
             translate_fault      <= 1'b0;
-            translate_paddr      <= 32'b0;
+            // translate_paddr: intentionally NOT reset. Value is qualified by translate_done
+            // (which IS reset to 0). Consumers gate on mmu_ready=translate_done&&!fault,
+            // so stale paddr is never used during/after reset. This eliminates REQP-1839
+            // DRC warning (async reset on BRAM address driver).
+            // Coding standard exception: data register qualified by valid flag.
             translate_cause      <= 4'b0;
             translate_vaddr_out  <= 32'b0;
         end else begin

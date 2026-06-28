@@ -851,6 +851,8 @@ def main(argv: list[str] | None = None) -> int:
             session_mgr = SessionManager(project_root, config)  # type: ignore[call-arg]
             sessions = session_mgr.list_sessions()  # type: ignore[attr-defined]
             for s in sessions:
+                if s.meta.status == "busy" and not s.is_alive():
+                    s.meta.status = "stale"
                 staleness = layered_hash.compute_staleness(s.meta.hashes)
                 s._stale_layers = [k for k, v in staleness.items() if v]
         except Exception as e:

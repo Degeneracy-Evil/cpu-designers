@@ -7,6 +7,7 @@ sessions, enforces resource limits, and handles cleanup.
 """
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import threading
@@ -186,10 +187,30 @@ class Session:
     # ------------------------------------------------------------------
 
     def is_alive(self) -> bool:
-        """Check whether the Vivado subprocess is still running."""
-        if self._process is None:
+        """Check whether the Vivado subprocess is still running.
+
+        When this Session object owns the process (same Python process
+        that spawned it), ``Popen.poll()`` is authoritative.  When the
+        Session was loaded from disk by a fresh CLI invocation — which
+        has no in-process ``Popen`` handle — fall back to checking
+        whether the recorded ``vivado_pid`` still exists via
+        ``os.kill(pid, 0)``.  This prevents zombie ``status: busy``
+        metadata (left behind when a batch process was killed before
+        running ``stop_vivado()``) from being reported as running.
+        """
+        if self._process is not None:
+            return self._process.poll() is None
+        pid = self.meta.vivado_pid
+        if not pid:
             return False
-        return self._process.poll() is None
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            # PID exists but belongs to another user; treat as alive.
+            return True
+        return True
 
     def _project_xpr_path(self) -> Path:
         """Return the session project's XPR path."""

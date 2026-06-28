@@ -206,6 +206,8 @@ module cpu_bus_bridge(
     reg [2:0]  wb_starve_cnt_r;
     reg        wb_boost_r;
     reg [11:0] axi_timeout_cnt_r;  // AXI timeout watchdog counter
+    reg [2:0]  refill_starve_cnt_r;  // refill anti-starvation counter
+    reg        refill_boost_r;       // refill priority boost
 
     // ---------- Simultaneous AW+W handshake tracking ----------
     reg aw_hs_done_r;
@@ -324,6 +326,8 @@ module cpu_bus_bridge(
             aw_hs_done_r           <= 1'b0;
             w_hs_done_r            <= 1'b0;
             axi_timeout_cnt_r      <= 12'd0;
+            refill_starve_cnt_r    <= 3'd0;
+            refill_boost_r         <= 1'b0;
             // AXI4 channel defaults
             awvalid  <= 1'b0;
             wvalid   <= 1'b0;
@@ -385,6 +389,28 @@ module cpu_bus_bridge(
                 end
             end
 
+            // Refill anti-starvation: count cycles where refill is pending but blocked
+            // by MMIO or writeback. After 3 consecutive blocked cycles, boost refill
+            // priority above MMIO/writeback (mirrors wb_starve_cnt_r/wb_boost_r model).
+            if (state == S_IDLE) begin
+                if ((icache_refill_req || dcache_refill_req) && !refill_boost_r) begin
+                    // Refill pending but not yet boosted — check if blocked by higher priority
+                    if (icache_mmio_req || dcache_mmio_req || dcache_wb_req) begin
+                        if (refill_starve_cnt_r == 3'd3) begin
+                            refill_boost_r      <= 1'b1;
+                            refill_starve_cnt_r <= 3'd0;
+                        end else begin
+                            refill_starve_cnt_r <= refill_starve_cnt_r + 3'd1;
+                        end
+                    end else begin
+                        refill_starve_cnt_r <= 3'd0;
+                    end
+                end else if (!(icache_refill_req || dcache_refill_req)) begin
+                    refill_starve_cnt_r <= 3'd0;
+                    refill_boost_r      <= 1'b0;
+                end
+            end
+
             case (state)
                 // =====================================================
                 // S_IDLE — Arbitrate among request sources
@@ -395,7 +421,27 @@ module cpu_bus_bridge(
                     wvalid  <= 1'b0;
                     arvalid <= 1'b0;
 
-                    if (dcache_wb_req && wb_boost_r && !dcache_wb_valid_r && !dcache_wb_wait_drop_r) begin
+                    // Boosted refill takes top priority (anti-starvation)
+                    if ((icache_refill_req || dcache_refill_req) && refill_boost_r) begin
+                        refill_boost_r      <= 1'b0;
+                        refill_starve_cnt_r <= 3'd0;
+                        if (icache_refill_req && !icache_refill_valid_r) begin
+                            state            <= S_IREFILL_AR;
+                            addr_r           <= icache_refill_addr;
+                            write_r          <= 1'b0;
+                            burst_base_addr  <= icache_refill_addr;
+                            beat_cnt         <= 3'd0;
+                            refill_shift_reg <= 256'b0;
+                        end else if (dcache_refill_req && !dcache_refill_valid_r) begin
+                            state            <= S_DREFILL_AR;
+                            addr_r           <= dcache_refill_addr;
+                            write_r          <= 1'b0;
+                            burst_base_addr  <= dcache_refill_addr;
+                            beat_cnt         <= 3'd0;
+                            refill_shift_reg <= 256'b0;
+                        end
+                    end
+                    else if (dcache_wb_req && wb_boost_r && !dcache_wb_valid_r && !dcache_wb_wait_drop_r) begin
                         state           <= S_WB_AW;
                         addr_r          <= dcache_wb_addr;
                         write_r         <= 1'b1;
@@ -459,21 +505,25 @@ module cpu_bus_bridge(
                     // icache's refill_addr_match check. No bridge-side action needed on cancel.
                     else if (icache_refill_req && !icache_refill_valid_r) begin
                         // Icache refill burst → AR then R
-                        state           <= S_IREFILL_AR;
-                        addr_r          <= icache_refill_addr;
-                        write_r         <= 1'b0;
-                        burst_base_addr <= icache_refill_addr;
-                        beat_cnt        <= 3'd0;
+                        state            <= S_IREFILL_AR;
+                        addr_r           <= icache_refill_addr;
+                        write_r          <= 1'b0;
+                        burst_base_addr  <= icache_refill_addr;
+                        beat_cnt         <= 3'd0;
                         refill_shift_reg <= 256'b0;
-end
+                        refill_starve_cnt_r <= 3'd0;
+                        refill_boost_r      <= 1'b0;
+                    end
                     else if (dcache_refill_req && !dcache_refill_valid_r) begin
                         // Dcache refill burst → AR then R
-                        state           <= S_DREFILL_AR;
-                        addr_r          <= dcache_refill_addr;
-                        write_r         <= 1'b0;
-                        burst_base_addr <= dcache_refill_addr;
-                        beat_cnt        <= 3'd0;
+                        state            <= S_DREFILL_AR;
+                        addr_r           <= dcache_refill_addr;
+                        write_r          <= 1'b0;
+                        burst_base_addr  <= dcache_refill_addr;
+                        beat_cnt         <= 3'd0;
                         refill_shift_reg <= 256'b0;
+                        refill_starve_cnt_r <= 3'd0;
+                        refill_boost_r      <= 1'b0;
                     end
                 end
 

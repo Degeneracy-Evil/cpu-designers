@@ -600,17 +600,35 @@ module MMU #(
                 // changes (e.g., CPU transitions from FETCH to MEM), we must
                 // re-translate for the new address. If translate_req drops, return
                 // to T_IDLE.
+                //
+                // NBA shadow-cycle fix: translate_done/translate_fault assignments
+                // are conditioned on staying in T_COMPLETE. On any transition out
+                // (→ T_FLUSH or → T_IDLE), we do NOT assign them, so the default
+                // zero block (translate_done <= 0, translate_fault <= 0) takes
+                // effect immediately. Without this, the unconditional assignments
+                // would schedule 1/hold for the next cycle even after leaving
+                // T_COMPLETE, creating a 1-cycle shadow where translate_done is
+                // still high in the destination state.
                 T_COMPLETE: begin
-                    translate_done  <= 1'b1;   // override default clear — level signal
-                    translate_fault <= translate_fault; // hold fault status
                     if (mmu_flush_req) begin
                         t_state <= T_FLUSH;
+                        // No translate_done/translate_fault assignment —
+                        // default zeros take effect, no shadow cycle.
                     end else if (!translate_req) begin
                         t_state <= T_IDLE;
+                        // No translate_done/translate_fault assignment —
+                        // default zeros take effect, no shadow cycle.
                     end else if (translate_vaddr != latched_vaddr) begin
                         // Address changed while translate_req held high (e.g.,
                         // FETCH→MEM transition). Must re-translate new address.
                         t_state <= T_IDLE;
+                        // No translate_done/translate_fault assignment —
+                        // default zeros take effect, no shadow cycle.
+                    end else begin
+                        // Staying in T_COMPLETE: hold translate_done high
+                        // and preserve fault status (level signal).
+                        translate_done  <= 1'b1;   // override default clear
+                        translate_fault <= translate_fault; // hold fault status
                     end
                 end
 

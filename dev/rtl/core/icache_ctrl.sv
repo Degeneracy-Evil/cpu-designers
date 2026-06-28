@@ -94,6 +94,7 @@ module icache_ctrl(
     localparam S_REFILL     = 3'd3;
     localparam S_INVALIDATE = 3'd4;
     localparam S_RST_CLEAR  = 3'd5;  // ISSUE-4: reset-time tag BRAM clear (X-propagation fix)
+    localparam S_DONE       = 3'd6;  // ready/done 脉冲缓冲态：消除 S_IDLE 残留
 
     // Address map:
     //   0x00000000-0x7FFFFFFF: MMIO (peripherals)     — bit[31]=0
@@ -423,7 +424,7 @@ module icache_ctrl(
                         bypass_data     <= sel_word;
                         cpu_req_ready_r <= 1'b1;
                         plru_state[set_idx] <= plru_next;
-state <= S_IDLE;
+state <= S_DONE;
                     end
                 end
 
@@ -444,7 +445,7 @@ state <= S_IDLE;
                         tag_bram_addrb_r <= latched_set;
                         tag_bram_dinb_r  <= refill_tag_din;
                         plru_state[latched_set] <= plru_next_refill;
-                        state <= S_IDLE;
+                        state <= S_DONE;
                     end
                     // Stale refill (refill_valid && !refill_addr_match):
                     //   Discard the data — do NOT write tag/data BRAM,
@@ -470,7 +471,7 @@ state <= S_IDLE;
                             plru_state[s] <= {NUM_WAYS-1{1'b0}};
                         end
                         invalidate_done_r <= 1'b1;
-                        state <= S_IDLE;
+                        state <= S_DONE;
                     end else begin
                         invalidate_set <= invalidate_set + 1'b1;
                     end
@@ -493,6 +494,13 @@ state <= S_IDLE;
                     end else begin
                         invalidate_set <= invalidate_set + 1'b1;
                     end
+                end
+
+                S_DONE: begin
+                    // ready/done 信号在上一状态已置 1（非阻塞赋值），
+                    // 本周期可见并输出给消费者。下一周期转 S_IDLE，
+                    // 默认清零生效，无残留。
+                    state <= S_IDLE;
                 end
 
                 default: state <= S_IDLE;

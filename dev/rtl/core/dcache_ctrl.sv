@@ -199,6 +199,7 @@ module dcache_ctrl(
     localparam S_INV_LINE_WRITE   = 4'd12;
     localparam S_FLUSH_WB_WAIT    = 4'd13;
     localparam S_RST_CLEAR        = 4'd14;  // ISSUE-4: reset-time tag BRAM clear (X-propagation fix)
+    localparam S_DONE             = 4'd15;  // ready/done 脉冲缓冲态：消除 S_IDLE 残留
 
     // Address map (same as icache):
     //   0x00000000-0x7FFFFFFF: MMIO (peripherals)     — bit[31]=0
@@ -759,7 +760,7 @@ module dcache_ctrl(
                             tag_bram_dinb_r  <= store_hit_tag_din;
                             plru_state[active_set_idx] <= plru_next;
                             cpu_req_ready_r <= 1'b1;
-                            state <= S_IDLE;  // must return to S_IDLE; tag BRAM output is stale for new request
+                            state <= S_DONE;  // must return to S_IDLE (via S_DONE); tag BRAM output is stale for new request
                         end else begin
                             // Load hit (CPU or PTW): enable data BRAM, go to S_READ_HIT
                             hit_set_r      <= active_set_idx;
@@ -804,7 +805,7 @@ module dcache_ctrl(
                         dbg_watch_lh_data_r  <= rdata_word;
                         dbg_watch_lh_count_r <= dbg_watch_lh_count_r + 32'd1;
                     end
-                    state <= S_IDLE;
+                    state <= S_DONE;
                 end
 
                 S_WB_READ: begin
@@ -846,7 +847,7 @@ module dcache_ctrl(
                                 ptw_req_fault_r <= 1'b1;
                                 is_ptw_req_r    <= 1'b0;
                             end
-                            state <= S_IDLE;
+                            state <= S_DONE;
                         end else begin
                             if ({refill_addr_r[31:5], 5'b0} == DBG_WATCH_LINE_ADDR) begin
                                 dbg_watch_lh_valid_r <= 1'b1;
@@ -875,7 +876,7 @@ module dcache_ctrl(
                             tag_bram_addrb_r <= latched_set;
                             tag_bram_dinb_r  <= refill_tag_din;
                             plru_state[latched_set] <= plru_next_miss;
-                            state <= S_IDLE;
+                            state <= S_DONE;
                         end
                     end
                 end
@@ -980,7 +981,7 @@ state <= S_FLUSH_WB_SD;
                             plru_state[s] <= {NUM_WAYS-1{1'b0}};
                         end
                         flush_done_r <= 1'b1;
-                        state <= S_IDLE;
+                        state <= S_DONE;
                     end else begin
                         invalidate_set <= invalidate_set + 1'b1;
                     end
@@ -1081,7 +1082,7 @@ state <= S_FLUSH_WB_SD;
                         end
                         state <= S_FLUSH_WB_WAIT;
                     end else begin
-                        state <= S_IDLE;
+                        state <= S_DONE;
                     end
                 end
 
@@ -1103,6 +1104,13 @@ state <= S_FLUSH_WB_SD;
                     end else begin
                         invalidate_set <= invalidate_set + 1'b1;
                     end
+                end
+
+                S_DONE: begin
+                    // ready/done 信号在上一状态已置 1（非阻塞赋值），
+                    // 本周期可见并输出给消费者。下一周期转 S_IDLE，
+                    // 默认清零生效，无残留。
+                    state <= S_IDLE;
                 end
 
                 default: state <= S_IDLE;

@@ -812,7 +812,11 @@ module core_top(
     // (A/D bits are handled by software page fault path). No dcache line
     // invalidation is needed after PTW completes.
 
-
+    // Bus bridge error signals (used by icache_ctrl, dcache_ctrl, cpu_trap, debug)
+    wire        bridge_icache_error;
+    wire        bridge_dcache_error;
+    wire        bridge_dcache_error_is_store;
+    wire [31:0] bridge_bus_error_addr;
 
     icache_ctrl u_icache_wrap (
         .clk(clk),
@@ -978,11 +982,6 @@ module core_top(
     wire        dbg_dcache_wb_valid_w;
     wire [31:0] dbg_dcache_wb_data_w;
     wire [31:0] dbg_dcache_wb_count_w;
-
-    wire        bridge_icache_error;
-    wire        bridge_dcache_error;
-    wire        bridge_dcache_error_is_store;
-    wire [31:0] bridge_bus_error_addr;
 
 `ifdef SIMULATION
     localparam [31:0] DBG_WATCH_PADDR = 32'h8000_21FC;

@@ -661,18 +661,29 @@ module MMU #(
                 T_COMPLETE: begin
                     if (mmu_flush_req) begin
                         t_state <= T_FLUSH;
-                        // No translate_done/translate_fault assignment —
-                        // default zeros take effect, no shadow cycle.
+                        // On fault: hold translate_done/translate_fault for
+                        // 1 extra cycle so the CPU re-latches the fault when
+                        // re-entering FETCH for the same VA in a different
+                        // privilege mode (e.g., U→S trap at same stvec VA).
+                        // Without this, the stale fault is lost and the CPU
+                        // re-translates with the new privilege, which may
+                        // succeed (S-mode) — bypassing the fault handler.
+                        // On success (no fault): drop immediately (no shadow).
+                        if (translate_fault) begin
+                            translate_done  <= 1'b1;
+                            translate_fault <= 1'b1;
+                        end
                     end else if (!translate_req) begin
                         t_state <= T_IDLE;
-                        // No translate_done/translate_fault assignment —
-                        // default zeros take effect, no shadow cycle.
+                        if (translate_fault) begin
+                            translate_done  <= 1'b1;
+                            translate_fault <= 1'b1;
+                        end
                     end else if (translate_vaddr != latched_vaddr) begin
                         // Address changed while translate_req held high (e.g.,
                         // FETCH→MEM transition). Must re-translate new address.
                         t_state <= T_IDLE;
-                        // No translate_done/translate_fault assignment —
-                        // default zeros take effect, no shadow cycle.
+                        // No shadow — new address always needs fresh translation.
                     end else begin
                         // Staying in T_COMPLETE: hold translate_done high
                         // and preserve fault status (level signal).

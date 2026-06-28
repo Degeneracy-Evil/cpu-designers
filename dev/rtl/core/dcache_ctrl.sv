@@ -625,8 +625,13 @@ module dcache_ctrl(
             cpu_req_ready_r  <= 1'b0;
             ptw_req_ready_r  <= 1'b0;
             ptw_req_fault_r  <= 1'b0;
-            is_ptw_req_r     <= 1'b0;
-            latched_ptw_addr <= 32'b0;
+            // is_ptw_req_r: intentionally NOT reset. Value is qualified by state machine
+            // (only meaningful in S_TAG_READ/S_READ/S_REFILL). BRAM address driven by
+            // is_ptw_req_r is only used when state != S_IDLE, and BRAM EN is gated
+            // by state. This eliminates REQP-1839 DRC warning.
+            // Coding standard exception: control register qualified by state machine.
+            // latched_ptw_addr: intentionally NOT reset. Same reasoning — only used
+            // when is_ptw_req_r=1, which is only set during active PTW requests.
             latched_ptw_vaddr<= 32'b0;
             mmio_pending_r   <= 1'b0;
             mmio_inflight_r  <= 1'b0;

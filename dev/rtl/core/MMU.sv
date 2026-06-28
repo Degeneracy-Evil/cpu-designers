@@ -156,6 +156,13 @@ module MMU #(
     reg fault_from_ptw_r;
 
     // =========================================================================
+    // Timeout counter for T_CHECK / T_RECHECK — defensive: if i_tlb_valid
+    // does not arrive within 16 cycles, force T_FAULT with access fault cause.
+    // TLB BRAM lookup should complete in 1 cycle; 16 is very generous.
+    // =========================================================================
+    reg [3:0] timeout_cnt_r;
+
+    // =========================================================================
     // TLB Port A signals (used for ALL lookups)
     // =========================================================================
     wire        i_tlb_hit, i_tlb_r, i_tlb_w, i_tlb_x, i_tlb_u;
@@ -415,6 +422,7 @@ module MMU #(
             latched_sum          <= 1'b0;
             latched_mxr          <= 1'b0;
             fault_from_ptw_r     <= 1'b0;
+            timeout_cnt_r        <= 4'd0;
             translate_done       <= 1'b0;
             translate_fault      <= 1'b0;
             // translate_paddr: intentionally NOT reset. Value is qualified by translate_done
@@ -451,6 +459,7 @@ module MMU #(
                         t_state <= T_FLUSH;
                     end else begin
                         // tlb_lookup_req=1 this cycle → BRAM output valid next cycle
+                        timeout_cnt_r <= 4'd0;  // clear timeout on entry to T_CHECK
                         t_state <= T_CHECK;
                     end
                 end
@@ -464,8 +473,10 @@ module MMU #(
                         translate_done   <= 1'b1;
                         translate_paddr  <= latched_vaddr;
                         fault_from_ptw_r <= 1'b0;
+                        timeout_cnt_r    <= 4'd0;
                         t_state <= T_DONE;
                     end else if (i_tlb_valid) begin
+                        timeout_cnt_r <= 4'd0;  // normal response — reset
                         if (i_tlb_hit && !tlb_perm_fault && !tlb_need_ad_update) begin
                             // TLB hit, no permission fault, no A/D update needed
                             translate_done   <= 1'b1;
@@ -492,8 +503,19 @@ module MMU #(
                             // TLB miss — start PTW walk
                             t_state <= T_WALK;
                         end
+                    end else if (timeout_cnt_r >= 4'd15) begin
+                        // Defensive: i_tlb_valid not asserted within 16 cycles —
+                        // force access fault (cause 1/5/7) to prevent CPU hang
+                        translate_done     <= 1'b1;
+                        translate_fault    <= 1'b1;
+                        translate_cause    <= access_fault_cause;
+                        translate_vaddr_out <= latched_vaddr;
+                        fault_from_ptw_r  <= 1'b0;
+                        t_state <= T_FAULT;
+                    end else begin
+                        // i_tlb_valid not yet asserted, wait and count
+                        timeout_cnt_r <= timeout_cnt_r + 4'd1;
                     end
-                    // else: i_tlb_valid not yet asserted, wait in T_CHECK
                 end
 
                 // ── T_WALK: PTW walking page tables ──
@@ -532,6 +554,7 @@ module MMU #(
                         t_state <= T_FLUSH;
                     end else begin
                         // tlb_lookup_req=1 this cycle → BRAM output valid next cycle
+                        timeout_cnt_r <= 4'd0;  // clear timeout on entry to T_RECHECK
                         t_state <= T_RECHECK;
                     end
                 end
@@ -541,6 +564,7 @@ module MMU #(
                     if (mmu_flush_req) begin
                         t_state <= T_FLUSH;
                     end else if (i_tlb_valid) begin
+                        timeout_cnt_r <= 4'd0;  // normal response — reset
                         if (i_tlb_hit && !tlb_perm_fault && !tlb_need_ad_update) begin
                             // Hit after fill — translation complete
                             translate_done   <= 1'b1;
@@ -575,8 +599,19 @@ module MMU #(
                             fault_from_ptw_r  <= 1'b0;
                             t_state <= T_FAULT;
                         end
+                    end else if (timeout_cnt_r >= 4'd15) begin
+                        // Defensive: i_tlb_valid not asserted within 16 cycles —
+                        // force access fault (cause 1/5/7) to prevent CPU hang
+                        translate_done     <= 1'b1;
+                        translate_fault    <= 1'b1;
+                        translate_cause    <= access_fault_cause;
+                        translate_vaddr_out <= latched_vaddr;
+                        fault_from_ptw_r  <= 1'b0;
+                        t_state <= T_FAULT;
+                    end else begin
+                        // i_tlb_valid not yet asserted, wait and count
+                        timeout_cnt_r <= timeout_cnt_r + 4'd1;
                     end
-                    // else: i_tlb_valid not yet asserted, wait in T_RECHECK
                 end
 
                 // ── T_DONE: Translation successful → T_COMPLETE ──

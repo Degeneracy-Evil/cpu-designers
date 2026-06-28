@@ -62,7 +62,9 @@ module dcache_ctrl(
     output wire [31:0] dbg_watch_rf_count,
     output wire        dbg_watch_wb_valid,
     output wire [31:0] dbg_watch_wb_data,
-    output wire [31:0] dbg_watch_wb_count
+    output wire [31:0] dbg_watch_wb_count,
+
+    input  wire        amo_abort          // cancel in-progress AMO write on trap
 );
 
     // --- Cache geometry from config ---
@@ -814,69 +816,92 @@ module dcache_ctrl(
                 end
 
                 S_WB_SEND: begin
-                    wb_req_r <= 1'b1;
-                    if (wb_done) begin
-                        if ({wb_addr_r[31:5], 5'b0} == DBG_WATCH_LINE_ADDR) begin
-                            dbg_watch_wb_valid_r <= 1'b1;
-                            dbg_watch_wb_data_r  <= bram_doutb[DBG_WATCH_WORD_OFF*32 +: 32];
-                            dbg_watch_wb_count_r <= dbg_watch_wb_count_r + 32'd1;
-                        end
+                    if (amo_abort) begin
                         wb_req_r      <= 1'b0;
-                        if (wb_error) begin
-                            state <= S_IDLE;
-                        end else begin
-                            // Clear dirty bit in tag BRAM
-                            tag_bram_enb_r   <= 1'b1;
-                            tag_bram_web_r   <= ((1 << TAG_BRAM_BPW) - 1) << (latched_victim_way * TAG_BRAM_BPW);
-                            tag_bram_addrb_r <= latched_set;
-                            tag_bram_dinb_r  <= wb_clear_tag_din;
-                            refill_req_r  <= 1'b1;
-                            refill_addr_r <= {1'b1, {ADDR_UPPER_ZEROS{1'b0}}, latched_tag, latched_set, {ADDR_LOWER_ZEROS{1'b0}}};
-                            state <= S_REFILL;
+                        refill_req_r  <= 1'b0;
+                        state         <= S_IDLE;
+                    end else begin
+                        wb_req_r <= 1'b1;
+                        if (wb_done) begin
+                            if ({wb_addr_r[31:5], 5'b0} == DBG_WATCH_LINE_ADDR) begin
+                                dbg_watch_wb_valid_r <= 1'b1;
+                                dbg_watch_wb_data_r  <= bram_doutb[DBG_WATCH_WORD_OFF*32 +: 32];
+                                dbg_watch_wb_count_r <= dbg_watch_wb_count_r + 32'd1;
+                            end
+                            wb_req_r      <= 1'b0;
+                            if (wb_error) begin
+                                state <= S_IDLE;
+                            end else begin
+                                // Clear dirty bit in tag BRAM
+                                tag_bram_enb_r   <= 1'b1;
+                                tag_bram_web_r   <= ((1 << TAG_BRAM_BPW) - 1) << (latched_victim_way * TAG_BRAM_BPW);
+                                tag_bram_addrb_r <= latched_set;
+                                tag_bram_dinb_r  <= wb_clear_tag_din;
+                                refill_req_r  <= 1'b1;
+                                refill_addr_r <= {1'b1, {ADDR_UPPER_ZEROS{1'b0}}, latched_tag, latched_set, {ADDR_LOWER_ZEROS{1'b0}}};
+                                state <= S_REFILL;
+                            end
                         end
                     end
                 end
 
                 S_REFILL: begin
-                    refill_req_r <= 1'b1;
-                    if (refill_done) begin
-                        refill_req_r <= 1'b0;
-                        if (refill_error) begin
-                            if (is_ptw_req_r) begin
-                                ptw_req_ready_r <= 1'b1;
-                                ptw_req_fault_r <= 1'b1;
-                                is_ptw_req_r    <= 1'b0;
-                            end
-                            state <= S_DONE;
-                        end else begin
-                            if ({refill_addr_r[31:5], 5'b0} == DBG_WATCH_LINE_ADDR) begin
-                                dbg_watch_lh_valid_r <= 1'b1;
-                                dbg_watch_lh_data_r  <= refill_word;
-                                dbg_watch_lh_count_r <= {
-                                    21'b0,
-                                    refill_addr_r[`DCACHE_WORD_OFF_HI:`DCACHE_WORD_OFF_LO],
-                                    latched_word_off,
-                                    state,
-                                    refill_valid
-                                };
-                                dbg_watch_rf_valid_r <= 1'b1;
-                                dbg_watch_rf_data_r  <= refill_data[DBG_WATCH_WORD_OFF*32 +: 32];
-                                dbg_watch_rf_count_r <= dbg_watch_rf_count_r + 32'd1;
-                            end
-                            bypass_data     <= refill_word;
-                            if (is_ptw_req_r) begin
-                                ptw_req_ready_r <= 1'b1;
-                                is_ptw_req_r    <= 1'b0;
+                    // Flush can abort in-progress refill — fence.i must not be
+                    // blocked by unbounded AXI latency.  The bus bridge tolerates
+                    // request cancellation; stale responses are discarded via
+                    // refill_addr_match check.
+                    if (flush_req) begin
+                        refill_req_r      <= 1'b0;
+                        flush_error_seen_r <= 1'b0;
+                        flush_resume_invalidate_r <= 1'b0;
+                        flush_set <= {SET_IDX_W{1'b0}};
+                        flush_way <= {WAY_W{1'b0}};
+                        state     <= S_FLUSH_SCAN;
+                    end else if (amo_abort) begin
+                        refill_req_r  <= 1'b0;
+                        wb_req_r      <= 1'b0;
+                        state         <= S_IDLE;
+                    end else begin
+                        refill_req_r <= 1'b1;
+                        if (refill_done) begin
+                            refill_req_r <= 1'b0;
+                            if (refill_error) begin
+                                if (is_ptw_req_r) begin
+                                    ptw_req_ready_r <= 1'b1;
+                                    ptw_req_fault_r <= 1'b1;
+                                    is_ptw_req_r    <= 1'b0;
+                                end
+                                state <= S_DONE;
                             end else begin
-                                cpu_req_ready_r <= 1'b1;
+                                if ({refill_addr_r[31:5], 5'b0} == DBG_WATCH_LINE_ADDR) begin
+                                    dbg_watch_lh_valid_r <= 1'b1;
+                                    dbg_watch_lh_data_r  <= refill_word;
+                                    dbg_watch_lh_count_r <= {
+                                        21'b0,
+                                        refill_addr_r[`DCACHE_WORD_OFF_HI:`DCACHE_WORD_OFF_LO],
+                                        latched_word_off,
+                                        state,
+                                        refill_valid
+                                    };
+                                    dbg_watch_rf_valid_r <= 1'b1;
+                                    dbg_watch_rf_data_r  <= refill_data[DBG_WATCH_WORD_OFF*32 +: 32];
+                                    dbg_watch_rf_count_r <= dbg_watch_rf_count_r + 32'd1;
+                                end
+                                bypass_data     <= refill_word;
+                                if (is_ptw_req_r) begin
+                                    ptw_req_ready_r <= 1'b1;
+                                    is_ptw_req_r    <= 1'b0;
+                                end else begin
+                                    cpu_req_ready_r <= 1'b1;
+                                end
+                                // Write tag BRAM: set valid, dirty=latched_hwrite, tag
+                                tag_bram_enb_r   <= 1'b1;
+                                tag_bram_web_r   <= ((1 << TAG_BRAM_BPW) - 1) << (latched_victim_way * TAG_BRAM_BPW);
+                                tag_bram_addrb_r <= latched_set;
+                                tag_bram_dinb_r  <= refill_tag_din;
+                                plru_state[latched_set] <= plru_next_miss;
+                                state <= S_DONE;
                             end
-                            // Write tag BRAM: set valid, dirty=latched_hwrite, tag
-                            tag_bram_enb_r   <= 1'b1;
-                            tag_bram_web_r   <= ((1 << TAG_BRAM_BPW) - 1) << (latched_victim_way * TAG_BRAM_BPW);
-                            tag_bram_addrb_r <= latched_set;
-                            tag_bram_dinb_r  <= refill_tag_din;
-                            plru_state[latched_set] <= plru_next_miss;
-                            state <= S_DONE;
                         end
                     end
                 end

@@ -31,7 +31,9 @@ module cpu_mem(
         output             dbg_load_mem_unsigned,
         output     [31:0]  dbg_load_addr,
         output     [31:0]  dbg_load_raw_rdata,
-        output     [31:0]  dbg_load_value
+        output     [31:0]  dbg_load_value,
+
+        output reg          amo_abort      // notify dcache to cancel in-progress AMO write
     );
 
     // =========================================================================
@@ -261,6 +263,11 @@ module cpu_mem(
                 mem_en_reg           <= 1'b0;
                 mem_state            <= MEM_IDLE;
             end
+
+            // ── AMO abort notification ──
+            // When a trap interrupts an in-progress AMO write, signal dcache
+            // to cancel any pending refill/write-back for that AMO operation.
+            amo_abort <= trap_enter && (mem_state == MEM_AMO_WRITE);
 
             case (mem_state)
                 MEM_IDLE: begin

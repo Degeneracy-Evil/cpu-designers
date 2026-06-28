@@ -271,6 +271,7 @@ module core_top(
     wb_bus_t      mem_wb_bus_r;
 
     wire mem_en;
+    wire        amo_abort_w;
 
     wire        mem_data_access;   // Combinational: is_load||is_store||is_flw||is_fsw (consumed by cpu_controller)
     wire        mmu_inst_page_fault;
@@ -1206,7 +1207,8 @@ module core_top(
         .dbg_watch_rf_count(dbg_dcache_rf_count_w),
         .dbg_watch_wb_valid(dbg_dcache_wb_valid_w),
         .dbg_watch_wb_data(dbg_dcache_wb_data_w),
-        .dbg_watch_wb_count(dbg_dcache_wb_count_w)
+        .dbg_watch_wb_count(dbg_dcache_wb_count_w),
+        .amo_abort(amo_abort_w)
     );
 
     cpu_mem u_mem(
@@ -1235,7 +1237,8 @@ module core_top(
         .dbg_load_mem_unsigned(dbg_load_mem_unsigned_w),
         .dbg_load_addr(dbg_load_addr_w),
         .dbg_load_raw_rdata(dbg_load_raw_rdata_w),
-        .dbg_load_value(dbg_load_value_w)
+        .dbg_load_value(dbg_load_value_w),
+        .amo_abort(amo_abort_w)
     );
 
     cpu_wb u_wb(

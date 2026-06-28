@@ -158,7 +158,13 @@ module cpu_bus_bridge(
     // dcache writeback (burst write)
     localparam S_WB_AW         = 4'd9;
     localparam S_WB_W          = 4'd10;
-    localparam S_WB_B          = 4'd11;
+    localparam S_WB_B         = 4'd11;
+
+    // =====================================================================
+    // AXI timeout watchdog — abort to S_IDLE after 4096 cycles stalled
+    // New feature — accepted risk, verified on hardware
+    // =====================================================================
+    localparam [11:0] AXI_TIMEOUT_THRESH = 12'd4096;
 
     reg [3:0] state;
 
@@ -199,6 +205,7 @@ module cpu_bus_bridge(
     reg [31:0] bus_error_addr_r;
     reg [2:0]  wb_starve_cnt_r;
     reg        wb_boost_r;
+    reg [11:0] axi_timeout_cnt_r;  // AXI timeout watchdog counter
 
     // ---------- Simultaneous AW+W handshake tracking ----------
     reg aw_hs_done_r;
@@ -251,6 +258,9 @@ module cpu_bus_bridge(
     // =====================================================================
     wire r_error = (rresp == `AXI_RESP_SLVERR) || (rresp == `AXI_RESP_DECERR);
     wire b_error = (bresp == `AXI_RESP_SLVERR) || (bresp == `AXI_RESP_DECERR);
+
+    // AXI timeout watchdog flag
+    wire axi_timeout = (axi_timeout_cnt_r == AXI_TIMEOUT_THRESH - 12'd1);
 
     // =====================================================================
     // Sub-word store: shift wstrb and wdata to correct byte lane
@@ -313,6 +323,7 @@ module cpu_bus_bridge(
             wb_boost_r             <= 1'b0;
             aw_hs_done_r           <= 1'b0;
             w_hs_done_r            <= 1'b0;
+            axi_timeout_cnt_r      <= 12'd0;
             // AXI4 channel defaults
             awvalid  <= 1'b0;
             wvalid   <= 1'b0;
@@ -352,6 +363,9 @@ module cpu_bus_bridge(
             dcache_error_is_store_r <= 1'b0;
             icache_mmio_accept_r   <= 1'b0;
             dcache_mmio_accept_r   <= 1'b0;
+
+            // AXI timeout watchdog: increment every cycle (cleared on wait-state entry)
+            axi_timeout_cnt_r      <= axi_timeout_cnt_r + 12'd1;
 
             if (state == S_IDLE) begin
                 if (dcache_wb_req) begin
@@ -401,6 +415,7 @@ module cpu_bus_bridge(
                         size_r      <= `AXI_SIZE_4B;
                         is_inst_r   <= 1'b1;
                         icache_mmio_accept_r <= 1'b1;
+                        axi_timeout_cnt_r <= 12'd0;  // clear watchdog on wait-state entry
                     end
                     else if (dcache_mmio_req && !ahb_data_valid_r) begin
                         if (dcache_mmio_hwrite) begin
@@ -414,6 +429,7 @@ module cpu_bus_bridge(
                             aw_hs_done_r  <= 1'b0;
                             w_hs_done_r   <= 1'b0;
                             dcache_mmio_accept_r <= 1'b1;
+                            axi_timeout_cnt_r <= 12'd0;  // clear watchdog on wait-state entry
                         end else begin
                             // MMIO data read → AR channel
                             state       <= S_MMIO_AR;
@@ -422,6 +438,7 @@ module cpu_bus_bridge(
                             size_r      <= dcache_mmio_hsize;
                             is_inst_r   <= 1'b0;
                             dcache_mmio_accept_r <= 1'b1;
+                            axi_timeout_cnt_r <= 12'd0;  // clear watchdog on wait-state entry
                         end
                     end
                     else if (dcache_wb_req && !dcache_wb_valid_r && !dcache_wb_wait_drop_r) begin
@@ -473,9 +490,24 @@ end
                     arcache  <= `AXI_CACHE_DEV_NONBUF;
                     arprot   <= is_inst_r ? `AXI_PROT_INST_PRIV_SECURE : `AXI_PROT_DATA_PRIV_SECURE;
 
-                    if (arready) begin
+                    if (axi_timeout) begin
+                        // Timeout — abort to S_IDLE with error
+                        state           <= S_IDLE;
+                        arvalid         <= 1'b0;
+                        bus_error_addr_r <= addr_r;
+                        if (is_inst_r) begin
+                            icache_error_r   <= 1'b1;
+                            ahb_inst_valid_r <= 1'b1;
+                        end else begin
+                            dcache_error_r          <= 1'b1;
+                            dcache_error_is_store_r <= 1'b0;
+                            ahb_data_valid_r        <= 1'b1;
+                        end
+                    end
+                    else if (arready) begin
                         // AR handshake complete
-                        state   <= S_MMIO_R;
+                        state           <= S_MMIO_R;
+                        axi_timeout_cnt_r <= 12'd0;  // clear watchdog for next wait state
                     end
                 end
 
@@ -484,7 +516,20 @@ end
                 // =====================================================
                 S_MMIO_R: begin
                     arvalid <= 1'b0;  // AR channel done — clear valid
-                    if (rvalid) begin
+                    if (axi_timeout) begin
+                        // Timeout — abort to S_IDLE with error
+                        state           <= S_IDLE;
+                        bus_error_addr_r <= addr_r;
+                        if (is_inst_r) begin
+                            icache_error_r   <= 1'b1;
+                            ahb_inst_valid_r <= 1'b1;
+                        end else begin
+                            dcache_error_r          <= 1'b1;
+                            dcache_error_is_store_r <= 1'b0;
+                            ahb_data_valid_r        <= 1'b1;
+                        end
+                    end
+                    else if (rvalid) begin
                         // BUG-86 fix: After a branch redirect, the icache
                         // changes icache_mmio_addr to the NEW PC while the
                         // bus bridge is still completing an AXI read for the
@@ -498,6 +543,7 @@ end
                             if (icache_mmio_req) begin
                                 addr_r  <= icache_mmio_addr;
                                 state   <= S_MMIO_AR;
+                                axi_timeout_cnt_r <= 12'd0;  // clear watchdog on re-entry
                             end else begin
                                 state   <= S_IDLE;
                             end
@@ -554,12 +600,22 @@ end
                     if (awvalid && awready) aw_hs_done_r <= 1'b1;
                     if (wvalid  && wready)  w_hs_done_r  <= 1'b1;
 
-                    // When both complete, move to B phase
-                    if ((aw_hs_done_r || (awvalid && awready)) &&
+                    if (axi_timeout) begin
+                        // Timeout — abort to S_IDLE with error
+                        state           <= S_IDLE;
+                        awvalid         <= 1'b0;
+                        wvalid          <= 1'b0;
+                        bus_error_addr_r <= addr_r;
+                        dcache_error_r          <= 1'b1;
+                        dcache_error_is_store_r <= 1'b1;
+                        ahb_data_valid_r        <= 1'b1;
+                    end
+                    else if ((aw_hs_done_r || (awvalid && awready)) &&
                         (w_hs_done_r  || (wvalid  && wready))) begin
                         awvalid <= 1'b0;
                         wvalid  <= 1'b0;
                         state   <= S_MMIO_B;
+                        axi_timeout_cnt_r <= 12'd0;  // clear watchdog for next wait state
                     end
                 end
 
@@ -567,7 +623,15 @@ end
                 // MMIO Write — B phase (wait for response)
                 // =====================================================
                 S_MMIO_B: begin
-                    if (bvalid) begin
+                    if (axi_timeout) begin
+                        // Timeout — abort to S_IDLE with error
+                        state           <= S_IDLE;
+                        bus_error_addr_r <= addr_r;
+                        dcache_error_r          <= 1'b1;
+                        dcache_error_is_store_r <= 1'b1;
+                        ahb_data_valid_r        <= 1'b1;
+                    end
+                    else if (bvalid) begin
                         if (b_error) begin
                             state           <= S_IDLE;
                             bus_error_addr_r <= addr_r;
@@ -596,7 +660,8 @@ end
                     arprot   <= `AXI_PROT_INST_PRIV_SECURE;
 
                     if (arready) begin
-                        state   <= S_IREFILL_R;
+                        state           <= S_IREFILL_R;
+                        axi_timeout_cnt_r <= 12'd0;  // clear watchdog for next wait state
                     end
                 end
 
@@ -605,7 +670,13 @@ end
                 // =====================================================
                 S_IREFILL_R: begin
                     arvalid <= 1'b0;  // AR channel done — clear valid
-                    if (rvalid) begin
+                    if (axi_timeout) begin
+                        // Timeout — abort to S_IDLE with error
+                        state            <= S_IDLE;
+                        icache_error_r   <= 1'b1;
+                        bus_error_addr_r <= burst_base_addr;
+                    end
+                    else if (rvalid) begin
 if (r_error) begin
                             // Consume remaining beats before returning to S_IDLE
                             // to prevent RAM from getting stuck in R_BURST
@@ -640,7 +711,8 @@ end else begin
                     arprot   <= `AXI_PROT_DATA_PRIV_SECURE;
 
                     if (arready) begin
-                        state   <= S_DREFILL_R;
+                        state           <= S_DREFILL_R;
+                        axi_timeout_cnt_r <= 12'd0;  // clear watchdog for next wait state
                     end
                 end
 
@@ -649,7 +721,16 @@ end else begin
                 // =====================================================
                 S_DREFILL_R: begin
                     arvalid <= 1'b0;  // AR channel done — clear valid
-                    if (rvalid) begin
+                    if (axi_timeout) begin
+                        // Timeout — abort to S_IDLE with error
+                        state            <= S_IDLE;
+                        dcache_error_r   <= 1'b1;
+                        dcache_error_is_store_r <= 1'b0;
+                        bus_error_addr_r <= burst_base_addr;
+                        dcache_refill_done_r  <= 1'b1;
+                        dcache_refill_error_r <= 1'b1;
+                    end
+                    else if (rvalid) begin
                         if (r_error) begin
                             // Consume remaining beats before returning to S_IDLE
                             // to prevent RAM from getting stuck in R_BURST
@@ -720,6 +801,7 @@ end else begin
                         wstrb        <= 4'b1111;
                         wlast        <= 1'b0;  // beat 1, not last
                         state        <= S_WB_W;
+                        axi_timeout_cnt_r <= 12'd0;  // clear watchdog for next wait state
                     end
                 end
 
@@ -728,13 +810,25 @@ end else begin
                 // =====================================================
                 S_WB_W: begin
                     awvalid <= 1'b0;  // AW channel done — clear valid
-                    if (wvalid && wready) begin
+                    if (axi_timeout) begin
+                        // Timeout — abort to S_IDLE with error
+                        state            <= S_IDLE;
+                        wvalid           <= 1'b0;
+                        dcache_error_r   <= 1'b1;
+                        dcache_error_is_store_r <= 1'b1;
+                        bus_error_addr_r <= burst_base_addr;
+                        dcache_wb_done_r  <= 1'b1;
+                        dcache_wb_error_r <= 1'b1;
+                        dcache_wb_wait_drop_r <= 1'b1;
+                    end
+                    else if (wvalid && wready) begin
 
                         // W handshake for current beat
                         if (wlast) begin
                             // Last beat sent — move to B phase
                             wvalid <= 1'b0;
                             state  <= S_WB_B;
+                            axi_timeout_cnt_r <= 12'd0;  // clear watchdog for next wait state
                         end else begin
                             // Advance to next beat
                             beat_cnt    <= beat_cnt + 3'd1;
@@ -750,7 +844,17 @@ end else begin
                 // Dcache Writeback — B phase
                 // =====================================================
                 S_WB_B: begin
-                    if (bvalid) begin
+                    if (axi_timeout) begin
+                        // Timeout — abort to S_IDLE with error
+                        state            <= S_IDLE;
+                        dcache_error_r   <= 1'b1;
+                        dcache_error_is_store_r <= 1'b1;
+                        bus_error_addr_r <= burst_base_addr;
+                        dcache_wb_done_r  <= 1'b1;
+                        dcache_wb_error_r <= 1'b1;
+                        dcache_wb_wait_drop_r <= 1'b1;
+                    end
+                    else if (bvalid) begin
                         if (b_error) begin
                             state            <= S_IDLE;
                             dcache_error_r   <= 1'b1;

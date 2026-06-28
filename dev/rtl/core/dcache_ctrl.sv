@@ -1054,7 +1054,6 @@ state <= S_FLUSH_WB_SD;
                         tag_bram_dinb_r  <= {TAG_BRAM_W{1'b0}} | ({{(TAG_BRAM_W-TAG_ENTRY_W){1'b0}}, {1'b0, 1'b0, tag_r3[TAG_WIDTH-1:0]}} << (2'd3 * TAG_BRAM_BS));
                     end
 
-                    inv_line_done_r <= 1'b1;
                     if (flush_error_seen_r) begin
                         // Flush error recovery: the faulting line has been
                         // invalidated above. Do NOT signal flush_done —
@@ -1082,6 +1081,7 @@ state <= S_FLUSH_WB_SD;
                         end
                         state <= S_FLUSH_WB_WAIT;
                     end else begin
+                        inv_line_done_r <= 1'b1;
                         state <= S_DONE;
                     end
                 end

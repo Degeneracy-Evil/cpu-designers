@@ -284,6 +284,14 @@ module MMU #(
         (latched_access_type == ACCESS_LOAD)  ? 4'd13 : 4'd15;
 
     // =========================================================================
+    // Access fault cause code (TLB hardware exception, not permission error)
+    // Cause 1 = instruction access fault, 5 = load access fault, 7 = store access fault
+    // =========================================================================
+    wire [3:0] access_fault_cause =
+        (latched_access_type == ACCESS_FETCH) ? 4'd1 :
+        (latched_access_type == ACCESS_LOAD)  ? 4'd5 : 4'd7;
+
+    // =========================================================================
     // PTW walk_req pulse — asserted when T_CHECK detects TLB miss
     // =========================================================================
     // High for exactly 1 cycle (when t_state == T_CHECK && miss).
@@ -556,11 +564,13 @@ module MMU #(
                             fault_from_ptw_r  <= 1'b0;
                             t_state <= T_FAULT;
                         end else begin
-                            // Miss after fill — should not happen (filled entry
-                            // must be found). Treat as fault for robustness.
+                            // Miss after fill — TLB BRAM write-read hazard:
+                            // filled entry not yet readable. Use access fault
+                            // cause (1/5/7) not perm fault (12/13/15) since
+                            // this is a hardware timing issue, not a permission error.
                             translate_done     <= 1'b1;
                             translate_fault    <= 1'b1;
-                            translate_cause    <= perm_fault_cause;
+                            translate_cause    <= access_fault_cause;
                             translate_vaddr_out <= latched_vaddr;
                             fault_from_ptw_r  <= 1'b0;
                             t_state <= T_FAULT;

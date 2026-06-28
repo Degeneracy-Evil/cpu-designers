@@ -168,6 +168,14 @@ module axi4lite_plic #(
     // Per-context
     reg  [31:0] r_enable   [0:NUM_CTX-1];
     reg  [31:0] r_threshold[0:NUM_CTX-1];
+
+    // Stage 1 registered priority matrix:
+    //   r_prio_pe[ci][j] = r_prio[j] if (r_pending[j] && r_enable[ci][j]), else 0
+    // Pre-computed every cycle to break the r_enable -> find_highest -> r_highest_id
+    // combinational path (21 logic levels). Adds 1 cycle of latency to interrupt
+    // delivery (r_pending -> r_prio_pe -> r_highest_id -> o_eip = 4 cycles).
+    reg  [31:0] r_prio_pe  [0:NUM_CTX-1][0:NUM_SRC-1];
+
     integer ii;
     integer ci;
 
@@ -199,6 +207,29 @@ module axi4lite_plic #(
         end
     endfunction
 
+    // Pipelined variant: consumes the pre-computed registered priority matrix
+    // (r_prio_pe) instead of r_pending/r_enable. This removes Loop 1 (the
+    // pend+enbl AND-gate stage) from the r_enable -> r_highest_id timing path,
+    // leaving only the comparison chain (Loop 2) in the critical path.
+    function [7:0] find_highest_pipelined;
+        input [31:0] prio_pe [0:NUM_SRC-1];  // registered pending+enabled priorities
+        input [31:0] thresh;
+        reg   [31:0] best;
+        reg   [7:0]  id;
+        integer      j;
+        begin
+            best = 32'd0;
+            id   = 8'd0;
+            for (j = 1; j < NUM_SRC; j = j + 1) begin
+                if (prio_pe[j] > thresh && prio_pe[j] > best) begin
+                    best = prio_pe[j];
+                    id   = j;
+                end
+            end
+            find_highest_pipelined = id;
+        end
+    endfunction
+
     // Per-context highest-priority computation (combinational find_highest, registered output)
     wire [7:0] highest_id [0:NUM_CTX-1];
     reg  [7:0] r_highest_id [0:NUM_CTX-1];
@@ -207,7 +238,7 @@ module axi4lite_plic #(
     genvar gi;
     generate
         for (gi = 0; gi < NUM_CTX; gi = gi + 1) begin : gen_ctx
-            assign highest_id[gi]  = find_highest(r_pending, r_enable[gi], r_threshold[gi], r_prio);
+            assign highest_id[gi]  = find_highest_pipelined(r_prio_pe[gi], r_threshold[gi]);
             assign any_pending[gi]  = (r_highest_id[gi] != 8'd0);
         end
     endgenerate
@@ -263,6 +294,8 @@ module axi4lite_plic #(
                 r_enable[ci]    <= 32'd0;
                 r_threshold[ci] <= 32'd0;
                 r_highest_id[ci] <= 8'd0;
+                for (ii = 0; ii < NUM_SRC; ii = ii + 1)
+                    r_prio_pe[ci][ii] <= 32'd0;
             end
         end else begin
             // 1. Pending and gateway enable logic (shared, level-triggered)
@@ -278,6 +311,16 @@ module axi4lite_plic #(
             for (ii = 1; ii < NUM_SRC; ii = ii + 1) begin
                 if (!src_irq[ii])
                     r_gw_en[ii] <= 1'b1;
+            end
+
+            // 1a. Stage 1 priority matrix: pre-compute pending+enabled priorities.
+            //     Updated in the same always_ff as r_pending/r_enable so it reflects
+            //     the latest state. This breaks the r_enable -> find_highest path.
+            for (ci = 0; ci < NUM_CTX; ci = ci + 1) begin
+                for (ii = 0; ii < NUM_SRC; ii = ii + 1) begin
+                    r_prio_pe[ci][ii] <= (r_pending[ii] && r_enable[ci][ii])
+                                         ? r_prio[ii] : 32'd0;
+                end
             end
 
             // 1b. Register highest_id to break combinational path

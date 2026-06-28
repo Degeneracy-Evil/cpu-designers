@@ -1,5 +1,26 @@
 # Process Log
 
+## 2026-06-29: Pipeline PLIC find_highest to eliminate remaining timing violations
+
+### Summary
+Fixed the remaining 6 PLIC timing violations in `dev/rtl/axi/axi4lite_plic.sv`. All 6 failing endpoints were `r_enable_reg → r_highest_id_reg` with 21 logic levels (WNS=-0.744ns). Added a registered priority matrix `r_prio_pe[ci][j]` that pre-computes `(r_pending[j] && r_enable[ci][j]) ? r_prio[j] : 0` every cycle, breaking the `r_enable → find_highest → r_highest_id` combinational path. A new `find_highest_pipelined` function consumes the registered matrix, removing Loop 1 (the pend+enbl AND-gate stage) from the critical path.
+
+### Changes
+- `dev/rtl/axi/axi4lite_plic.sv`:
+  - Added `r_prio_pe[0:NUM_CTX-1][0:NUM_SRC-1]` registered priority matrix
+  - Added `find_highest_pipelined` function (consumes registered matrix, no pend/enbl inputs)
+  - Updated `highest_id[gi]` wire to call `find_highest_pipelined(r_prio_pe[gi], r_threshold[gi])`
+  - Added `r_prio_pe` reset (to 0) in async reset block
+  - Added `r_prio_pe` update logic in always_ff block (same block as r_pending/r_enable updates)
+
+### Latency impact
+Adds 1 cycle of latency to interrupt delivery. Total latency from src_irq to o_eip is now 4 cycles: `r_pending → r_prio_pe → r_highest_id → o_eip`. Acceptable.
+
+### Verification
+- exception tests: 6/6 PASS (including exception_interrupt_basic, exception_timer_irq)
+- privilege tests: 3/3 PASS
+- audit tests: 4/4 PASS (including audit_plic_bugs, audit_plic_seip)
+
 ## 2026-06-27: Fix all remaining failing tests + FPGA debug display enhancement
 
 ### Summary

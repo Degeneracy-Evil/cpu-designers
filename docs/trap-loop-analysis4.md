@@ -1,10 +1,14 @@
-# Trap-Loop Bug Analysis 4 — DCache Write-Back 与 PTW 缓存一致性缺失
+# Trap-Loop Bug Analysis 4 — PTE store 对 PTW 不可见
 
 ## 摘要
 
-通过 7 路独立 trace (pte_lifecycle / dcache_pte_deep / ptw_deep / axi_pte_trace / vmalloc_exec_trace / maintenance_trace / pte_final_snapshot) 的交叉分析，定位了 trap #118 (store page fault on 0xa0021014) 的硬件根因：
+通过 7 路独立 trace (pte_lifecycle / dcache_pte_deep / ptw_deep / axi_pte_trace / vmalloc_exec_trace / maintenance_trace / pte_final_snapshot) 的交叉分析，将 trap #118 (store page fault on 0xa0021014) 的根因收敛到：
 
-**DCache (write-back) 与 PTW 之间缺乏缓存一致性。** kernel 的 `set_ptes` 将 PTE 值 0x202720e7 写入 DCache (set=4, way=0, dirty=1)，但 DCache 未将该 cache line 写回 SRAM。PTW walk 通过 AXI 总线直接读 SRAM (绕过 DCache)，读到旧值 0x00000000 (V=0)，产生 store page fault。
+**PTW page-table read path 与 DCache/store path 不一致，导致 set_pte 写入的新 PTE 对 PTW 不可见。** cycle 264376503 CPU 在 pc=c00e372c 执行 store，将 wdata=0x202720e7 写向 paddr=0x809b7084，但 cycle 264378830 PTW 读同一地址时从 SRAM/AXI 路径得到旧值 0x00000000 (V=0)，产生 store page fault。
+
+问题已收敛到"页表写入路径和 PTW 读路径的可见性/一致性问题"，排除了 MMU 虚实地址计算错误、kernel 传参错误、PTE 值构造错误等方向。
+
+**不能只锁定为"DCache dirty line 没写回"这一种机制。** 现有日志确实证明 SRAM 中 PTE 为 0、PTW 读到 0，但 DCache 侧的 tag 编码分析暴露了额外风险 (见 §5.3)，需要同时排查 store miss/refill 后是否正确写 data array 和 dirty tag。
 
 ---
 
@@ -83,7 +87,7 @@ PC c00e5e9c 是 vmalloc 路径中的清零操作。
 
 PC c00e372c 是 `set_ptes.isra.0+0x4c` (`sw s1,0(s2)`)，写入 PTE 值 0x202720e7。
 
-**关键: `dirty=1` — 这次写入使 DCache line 变为 dirty，但 `sram_pte=00000000` — SRAM 中仍为 0。**
+**关键: `sram_pte=00000000` — CPU 发起了对 0x809b7084 的 store (wdata=0x202720e7, wstrb=1111)，但 SRAM 中该地址仍为 0。** 新 PTE 值没有到达 SRAM。trace 中的 `dirty` 字段来自 pte_lifecycle 的 DCache 侧观察，其含义需要在 §5.3 中进一步审视。
 
 ### 1.4 dcache_pte_deep.log — DCache 状态变化
 
@@ -115,9 +119,11 @@ DCache 收到写请求: set=4, tag=09b70, miss (hitmask=0000, 没有 way 命中)
   sram_pte=00000000
 ```
 
-DCache 完成写入: **way=0 现在有效 (tag0=109b70, V=1, D=1, tag=09b70)**, hit=1, hitmask=0001。**vdirty=1** — DCache line 被标记为 dirty。
+DCache 完成写入: **way=0 现在有效 (tag0=109b70), hit=1, hitmask=0001**。victim=way1, **vdirty=1** (victim way1 的 dirty 位为 1，指 victim 自身脏，不是 way0)。
 
-**SRAM 中仍为 0x00000000** — DCache 是 write-back，数据只在 DCache 中，未写回 SRAM。
+**SRAM 中仍为 0x00000000** — store 的数据没有到达 SRAM。
+
+**关于 way0 的 dirty 位**: tag0=0x109b70 按 tag 编码 (bit[20]=V, bit[19]=D, bit[18:0]=tag) 解码为 V=1, **D=0**, tag=0x09b70。这意味着 way0 的 dirty 位在 trace 采样时刻为 0——但 store hit 应该将 D 设为 1。这可能是 BRAM read-during-write 时序导致的采样问题，也可能指示 DCache store hit 后 dirty tag 更新路径存在 bug。详见 §5.3 的分析。
 
 ### 1.5 ptw_deep.log — PTW walk 读取 SRAM
 
@@ -206,11 +212,13 @@ c01df3c8  gen_pool_add_owner: sw s1,20(a0)       ← trap! store to a0021014
 来源: `axi_pte_trace.log`，记录 AXI 总线上对 PTE 页地址范围的访问。
 
 ```
-AXI write to 809b7084 (PTE 地址): 0 次
+AXI write to 809b7084 (word 粒度): 0 次
 AXI access to 809b7xxx (PTE 页): 63722 行 (包含读和写)
 ```
 
-AXI 总线上有对 0x809b7xxx 的访问 (memset 清零时 DCache refill/write-back 产生的 AXI 瀑发)，但**没有对 0x809b7084 的直接 AXI 写入**。set_pte 的写只到了 DCache，没有产生 AXI 写事务。
+AXI 总线上有对 0x809b7xxx 的访问 (memset 清零时 DCache refill/write-back 产生的 AXI 瀑发)。按 word 粒度统计，0x809b7084 没有被 AXI 直接写入。
+
+**注意**: DCache 写回通常是 cache line 粒度 (8 word)，不是 word 粒度。上述统计只检查了 word 地址 0x809b7084 的精确匹配，没有检查包含该 word 的 cache line (0x809b7080-0x809b709f)。需要进一步检查 0x809b7080 line 级别的 AXI 写事务，才能确认 set_pte 的写入是否曾通过 DCache write-back 到达 SRAM。不过，`pte_final_snapshot` 确认仿真结束时 SRAM 中 0x809b7084 = 0x00000000，`pte_lifecycle` 的 `SRAM_PTE_CHANGE` 事件为零，这些独立证据都表明新 PTE 值 0x202720e7 最终没有进入 SRAM。
 
 ---
 
@@ -316,13 +324,13 @@ cycle 264215202  memset 清零 0x809b7000-0x809b7fff
                  可能已经被 memset 填充。
 
 cycle 264374698  再次清零 0x809b7084 (wdata=0)
-                 → DCache write (set=4, way=0, dirty=1)
+                 → DCache write (set=4, way=0)
                  → SRAM 中 0x809b7084 = 0
 
 cycle 264376503  set_pte 写入 0x809b7084 = 0x202720e7
-                 → DCache write (set=4, way=0, dirty=1)
-                 → SRAM 中 0x809b7084 仍 = 0 (write-back, 未写回)
-                 → DCache 中 set=4 way=0 = 0x202720e7 (dirty)
+                 → DCache write (set=4, way=0)
+                 → SRAM 中 0x809b7084 仍 = 0 (新 PTE 值未到达 SRAM)
+                 → DCache 中 set=4 way=0 被写入 (但 dirty tag 是否正确设置存疑, 见 §5.3)
 
 cycle 264376507  set_pte 返回，继续执行 __vmalloc_node_range_noprof
 cycle 264376535  返回到 gen_pool_add_owner
@@ -334,9 +342,9 @@ cycle 264378812  sw s1,20(a0) → a0=0xa0021000, store to 0xa0021014
 cycle 264378829  PTW 读 L1 PTE @ 0x808fda00 → 0x2026dc01 (V=1, non-leaf)
                  → 计算 L0 PTE 地址 = 0x809b7084
 
-cycle 264378830  PTW 通过 AXI 读 SRAM 0x809b7084 → 0x00000000 (V=0)
-                 → PTW 不查询 DCache, 直接读 SRAM
-                 → SRAM 中 0x809b7084 = 0 (set_pte 的写入仍在 DCache 中, 未写回)
+cycle 264378830  PTW 通过 AXI 读 0x809b7084
+                 → PTW 读路径不查询 DCache, 直接走 AXI 到 SRAM
+                 → SRAM 中 0x809b7084 = 0 (新 PTE 值未到达 SRAM)
 
 cycle 264378840  PTW 读到 rdata=0x00000000, V=0 → page fault
 
@@ -350,22 +358,27 @@ cycle 264378845  trap_enter → handle_exception
 ```
 set_ptes 写入 PTE 0x202720e7 到物理地址 0x809b7084
   ↓
-DCache 收到 store, 写入 set=4 way=0, 标记 dirty=1 (write-back)
+store 进入 DCache 路径 (set=4, way=0)
   ↓
-SRAM 中 0x809b7084 仍为 0x00000000 (DCache 未写回)
+新 PTE 值 0x202720e7 未到达 SRAM (SRAM 中仍为 0x00000000)
   ↓
-kernel 没有执行 sfence.vma (vmalloc 使用 noflush 变体)
+kernel 没有执行 sfence.vma / dcache flush (vmalloc noflush 路径)
   ↓
 CPU 执行 sw s1,20(a0), a0=0xa0021000 → store to 0xa0021014
   ↓
 D-side TLB miss → PTW walk for 0xa0021014
   ↓
-PTW 通过 cpu_bus_bridge 直接发起 AXI 读到 SRAM (绕过 DCache)
+PTW 读路径通过 cpu_bus_bridge 直接走 AXI 到 SRAM (不查询 DCache)
   ↓
 PTW 读 0x809b7084 → rdata=0x00000000 (V=0)
   ↓
 Store page fault (cause=15)
 ```
+
+新 PTE 值未到达 SRAM 的具体机制有待进一步确认 (见 §5.3)，可能包括:
+1. DCache write-back 策略下 dirty line 未被 evict/flush → SRAM 未更新
+2. DCache store miss/refill 后 dirty tag 未正确设置 → 即使 evict 也不写回
+3. 其他 DCache 内部状态问题
 
 ### 4.3 为什么 kernel 不发 sfence.vma
 
@@ -377,7 +390,9 @@ Linux kernel 的 vmalloc 路径使用 `vmap_pages_range_noflush` 和 `set_ptes`�
 
 在 RISC-V 上，`set_ptes` 调用 `flush_icache_pte` (仅当 PTE 有 X 位时才 flush icache)，但不调用 sfence.vma。`update_mmu_cache_range` (c00cfcf8) 中有 sfence.vma，但 set_ptes 没有调用它。
 
-这个行为在 QEMU 上正常工作，因为 QEMU 的 TLB 是软件管理的，store 到页表内存后 PTW 立即能看到新值。但在这个 CPU 上，DCache (write-back) 和 PTW 之间没有缓存一致性，导致 PTW 看不到 DCache 中的 dirty 数据。
+这个行为在 QEMU 上正常工作，因为 QEMU 的 TLB 是软件管理的，store 到页表内存后 PTW 立即能看到新值。
+
+RISC-V 的 sfence.vma 负责页表更新与隐式 page walk 的顺序语义。Linux vmalloc noflush 路径确实常依赖硬件/内存系统能让 PTW 看到页表内存的新值。对当前 RTL 来说，明确缺的是"PTE store 对 PTW 可见"的机制。不能简单地说"这是 kernel 的 bug"或"这不是 kernel 的 bug"——更准确的表述是: 当前 CPU 的 DCache/PTW 架构不提供 Linux vmalloc noflush 路径所依赖的可见性保证。
 
 ---
 
@@ -387,10 +402,10 @@ Linux kernel 的 vmalloc 路径使用 `vmap_pages_range_noflush` 和 `set_ptes`�
 
 ```
 set=4:
-  way0: tag=189c8e (V=1, D=1, tag=89c8e)  ← 某个内核数据
+  way0: tag=189c8e (V=1, D=0, tag=89c8e)  ← 某个内核数据
   way1: tag=10989c (V=1, D=0, tag=0989c)  ← 某个内核数据
-  way2: tag=189848 (V=1, D=1, tag=89848)  ← 某个内核数据
-  way3: tag=18989d (V=1, D=1, tag=8989d)  ← 某个内核数据
+  way2: tag=189848 (V=1, D=0, tag=89848)  ← 某个内核数据
+  way3: tag=18989d (V=1, D=0, tag=8989d)  ← 某个内核数据
 
   victim=1, vdirty=0 (way1 不脏)
   hit=0, hitmask=0000 (全部 miss, tag 09b70 不匹配任何 way)
@@ -400,111 +415,53 @@ set=4:
 
 ```
 set=4:
-  way0: tag=109b70 (V=1, D=1, tag=09b70)  ← 新! PTE 页的 cache line, dirty!
-  way1: tag=189391 (V=1, D=1, tag=89391)  ← 变了 (refill 时读入)
-  way2: tag=1894c7 (V=1, D=1, tag=894c7)  ← 变了 (refill 时读入)
-  way3: tag=10989d (V=1, D=1, tag=0989d)  ← 变了
+  way0: tag=109b70 (V=1, D=0, tag=09b70)  ← 新! PTE 页的 cache line
+  way1: tag=189391 (V=1, D=1, tag=09391)  ← 变了 (refill 时读入), dirty
+  way2: tag=1894c7 (V=1, D=1, tag=094c7)  ← 变了 (refill 时读入), dirty
+  way3: tag=10989d (V=1, D=0, tag=0989d)  ← 变了
 
-  victim=1, vdirty=1
+  victim=1, vdirty=1 (victim way1 dirty)
   hit=1, way=0, hitmask=0001
 ```
 
-**way0 从 189c8e 变为 109b70** — victim way 被替换，refill 了 PTE 页的 cache line，然后写入了 PTE 值。tag=109b70 解码: V=1, D=1, tag=0x09b70，对应物理地址 0x809b7000 (set=4, way=0)。
+**way0 从 189c8e 变为 109b70** — victim way 被替换，refill 了 PTE 页的 cache line，然后写入了 PTE 值。tag=0x109b70 解码: V=1, **D=0**, tag=0x09b70。D=0 是一个疑点，详见 §5.3。
 
-### 5.3 DCache tag 编码
+### 5.3 DCache tag 编码与 dirty 位疑点
+
+tag entry 编码 (TAG_ENTRY_W = 21 bits):
 
 ```
-TAG_ENTRY_W = 21 bits
-  [20] = V (Valid)
-  [19] = D (Dirty)
-  [18:0] = tag (19 bits, DCACHE_TAG_WIDTH)
+[20] = V (Valid)
+[19] = D (Dirty)
+[18:0] = tag (19 bits, DCACHE_TAG_WIDTH)
+```
 
-tag_r0 = 0x109b70
-  [20] = 1 (V=1)
-  [19] = 0 (D=0) ← wait, this should be 1 after the write!
+set_pte 写入后 (cycle 264376504) 的 tag 值:
 
-Actually 0x109b70:
-  binary = 1 0000 1001 1011 0111 0000
-  [20] = 1 (V=1)
-  [19] = 0 (D=0) ← but we said dirty=1!
-
-Hmm, let me re-check. 0x109b70 in binary:
-  0x109b70 = 0001 0000 1001 1011 0111 0000
-  21 bits: 1 0000 1001 1011 0111 0000
-  [20] = 1 (V)
-  [19] = 0 (D)
-  [18:0] = 0 1001 1011 0111 0000 = 0x09b70
-
-Wait, that gives D=0. But the trace says vdirty=1.
-Let me re-check: 0x109b70
-  hex: 1 0 9 b 7 0
+```
+way0: tag0 = 0x109b70
   binary (21 bits): 1 0000 1001 1011 0111 0000
+  [20] = 1 → V=1
+  [19] = 0 → D=0  ← dirty 位为 0!
+  [18:0] = 0x09b70
 
-Actually TAG_ENTRY_W=21, so:
-  bit 20 = 1 (V=1)
-  bit 19 = 0 (D=0) ← but trace says dirty=1!
-
-Hmm. Let me check if the tag encoding might be different.
-Actually, looking at the code:
-  store_hit_new_entry = {1'b1, 1'b1, tag_r_hit[TAG_WIDTH-1:0]};
-  So V=1, D=1 → bit[20]=1, bit[19]=1 → 0x1?????
-
-0x109b70: bit 19 = 0 → D=0?
-Wait: 0x109b70 in 21 bits:
-  0x109b70 = 1089200 decimal
-  binary: 1 0000 1001 1011 0111 0000
-  That's only 21 bits. bit[20]=1, bit[19]=0, ...
-
-Hmm, but store_hit should set D=1. Let me check if maybe the tag is
-read on a different cycle than the dirty bit update.
-
-Actually, looking more carefully at the dcache_ctrl code, the tag BRAM
-is updated with store_hit_new_entry = {1'b1, 1'b1, tag_r_hit[TAG_WIDTH-1:0]}
-which is {V=1, D=1, tag}. So D should be 1.
-
-Let me re-check: 0x109b70
-  In hex: 1 0 9 b 7 0
-  In binary (24 bits): 0001 0000 1001 1011 0111 0000
-  In 21 bits:          1 0000 1001 1011 0111 0000
-
-  bit 20 = 1 (V=1)
-  bit 19 = 0 (D=0) ← problem!
-  bit 18-0 = 0 1001 1011 0111 0000 = 0x09b70
-
-Wait, but {1'b1, 1'b1, 19'b0_09b70} = {1, 1, 09b70}
-= 11 0000 1001 1011 0111 0000 = 0x189b70, not 0x109b70!
-
-Hmm, so 0x109b70 has D=0. But the trace says dirty=1 (vdirty=1).
-The vdirty field might refer to the victim's dirty, not the hit way's dirty.
-Let me re-check the DCache code...
-
-Actually, looking at the trace:
-  victim=1 vdirty=1
-
-vdirty = victim_dirty = tag_r_victim[TAG_ENTRY_W-2]
-victim=1, so tag_r_victim = tag_r1 = 0x189391
-  bit 19 = 1 (D=1) ← victim way1 is dirty
-
-So vdirty=1 refers to way1 (victim), not way0 (where we wrote).
-The D bit of way0 (where set_pte wrote) is actually 0 in the tag!
-
-Wait, but store_hit should set D=1. Let me look again...
-
-Actually, looking at the tag values:
-  Before write: way0 = 0x189c8e
-    bit20=1 (V), bit19=0 (D), tag=0x09c8e → V=1, D=0
-
-  After write: way0 = 0x109b70
-    bit20=1 (V), bit19=0 (D), tag=0x09b70 → V=1, D=0
-
-But store_hit_new_entry = {1'b1, 1'b1, tag} should give D=1!
-So the tag should be 0x189b70 (D=1), not 0x109b70 (D=0).
-
-This might indicate a bug in the DCache tag update, or the tag
-is read before the write completes (BRAM read-during-write timing).
+way1: tag1 = 0x189391 (victim)
+  [20] = 1 → V=1
+  [19] = 1 → D=1  ← dirty
+  [18:0] = 0x09391
 ```
 
-**注意**: 上述 tag 编码分析可能存在 BRAM read-during-write 时序问题。tag BRAM 的输出在写入周期可能还反映旧值或中间值。`vdirty=1` (victim way1 dirty) 是可靠的。way0 的 D 位是否正确设置需要进一步波形验证，但不影响核心结论——SRAM 中 PTE 为 0 是确认的。
+**疑点**: store hit 应该将 D 位设为 1。RTL 中 `store_hit_new_entry = {1'b1, 1'b1, tag_r_hit[TAG_WIDTH-1:0]}` 产生 {V=1, D=1, tag}，正确值应为 0x189b70。但 trace 中 tag0=0x109b70 (D=0)。
+
+`vdirty=1` 是 victim (way1) 的 dirty 位，不是 way0 的。way0 (set_pte 写入的 way) 的 D 位在 trace 中为 0。
+
+**可能的解释**:
+1. **BRAM read-during-write 时序**: tag BRAM 在写入周期输出的可能是旧值或写入前的值，trace 采样时刻恰好读到 D=0
+2. **DCache store hit 后 dirty tag 更新路径存在 bug**: store hit 写入了 data array 但没有正确更新 tag array 的 D 位
+
+如果是解释 2，则问题不只是"PTW 绕过 DCache"，还叠加了"DCache dirty tag 未正确设置"——即使 PTW 通过 DCache 查询，或者 cache line 被 evict 时触发 write-back，由于 D=0，DCache 也不会写回这行数据，SRAM 永远看不到新 PTE 值。
+
+**这需要进一步排查**: 检查 `dcache_ctrl.sv` 中 store hit 后 tag BRAM 的写入时序，确认 D 位是否在同一周期写入、BRAM 读取是否在同一周期采样。
 
 ---
 
@@ -529,7 +486,7 @@ PTW walk 开始前，先写回所有 dirty DCache line 到 SRAM。
 在 sfence.vma 执行时 flush DCache。
 
 优点: 实现较简单
-缺点: 本场景中 kernel 没有发 sfence.vma，不能解决问题
+缺点: **本场景中 kernel 没有发 sfence.vma，此方案不直接解决 noflush 路径的问题。** 只能覆盖有 sfence 的路径。
 
 ### 方案 4: 页表页 write-through
 
@@ -543,23 +500,29 @@ DCache 对页表页地址使用 write-through 而非 write-back。
 修改 kernel 的 set_ptes 实现，在写入 PTE 后立即 sfence.vma。
 
 优点: 不改硬件
-缺点: 修改 kernel 代码，可能影响性能；且这不是 kernel 的 bug
+缺点: 修改 kernel 代码，可能影响性能；且 RISC-V 的 sfence.vma 语义与本 CPU 的 DCache/PTW 一致性问题是硬件架构层面的缺失，不应通过软件 workaround 回避
 
-### 方案 6: PTW 读遇到 DCache dirty 时先写回
+### 方案 6: PTW 读时查询/仲裁 DCache (推荐)
 
-PTW 发起 AXI 读时，如果 DCache 中有对应地址的 dirty line，先写回再读。
+PTW 发起读请求时，先查询 DCache 是否有对应地址的 cache line:
+- 如果 DCache hit 且 dirty: 先将该 cache line 写回 SRAM，再让 PTW 读 SRAM (或直接返回 DCache 数据)
+- 如果 DCache hit 且 clean: 直接返回 DCache 数据 (或让 PTW 读 SRAM，结果相同)
+- 如果 DCache miss: PTW 直接读 SRAM
 
-优点: 正确且性能较好
-缺点: 需要在 cpu_bus_bridge 中增加 DCache 查询逻辑
+优点: 正确解决 noflush 路径的可见性问题，性能较好 (不需要每次 TLB miss 都 flush 整个 DCache)
+缺点: 需要在 cpu_bus_bridge 或 DCache 中增加 PTW 查询/仲裁逻辑
+
+**注意**: 此方案依赖 DCache 的 dirty tag 正确设置。如果 §5.3 中发现的 D=0 疑点是真正的 bug (而非 BRAM 时序采样问题)，则还需要修复 DCache store hit 后的 dirty tag 更新逻辑。
 
 ---
 
 ## 7. 下一步
 
-1. 选择修复方案 (建议方案 1 或方案 6)
-2. 实现 RTL 修改
-3. 重新仿真验证
-4. FPGA 验证
+1. **排查 DCache dirty tag 疑点**: 检查 `dcache_ctrl.sv` 中 store hit 后 tag BRAM 的 D 位写入时序，确认 §5.3 中 tag0=0x109b70 (D=0) 是 BRAM 时序问题还是真正的 bug
+2. **选择修复方案** (建议方案 6: PTW 读时查询/仲裁 DCache)
+3. 实现 RTL 修改
+4. 重新仿真验证
+5. FPGA 验证
 
 ---
 
@@ -586,7 +549,7 @@ RTL 文件:
 
 文档:
   docs/trap-loop-analysis3.md — 上一步分析 (store page fault 定位)
-  docs/trap-loop-analysis4.md — 本文档 (DCache/PTW 缓存一致性缺失)
+  docs/trap-loop-analysis4.md — 本文档 (PTE store 对 PTW 不可见)
 ```
 
 ## 附录 B: pte_lifecycle.log 字段定义

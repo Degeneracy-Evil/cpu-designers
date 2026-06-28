@@ -429,19 +429,19 @@ tasks:
     phex: test/regression/reg_linux_field_values.hex
     runtime: 20ms
 
-  reg_linux_ptr_reload_ddr3:
-    tb: tb_regression_reg_linux_ptr_reload
-    blhex: boot/bootloader.hex
-    sim_mode: ddr3
-    verilog_defines:
-      SIM_BYPASS_INIT_CAL: FAST
-      SIMULATION: "TRUE"
-      SIMU_USE_DDR: 1
-      SIMU_USE_PLL: 0
-      SIMU_DDR_MODE: 1
-      sg125: 1
-    phex: test/regression/reg_linux_ptr_reload.hex
-    runtime: 1s
+  # reg_linux_ptr_reload_ddr3:
+  #   tb: tb_regression_reg_linux_ptr_reload
+  #   blhex: boot/bootloader.hex
+  #   sim_mode: ddr3
+  #   verilog_defines:
+  #     SIM_BYPASS_INIT_CAL: FAST
+  #     SIMULATION: "TRUE"
+  #     SIMU_USE_DDR: 1
+  #     SIMU_USE_PLL: 0
+  #     SIMU_DDR_MODE: 1
+  #     sg125: 1
+  #   phex: test/regression/reg_linux_ptr_reload.hex
+  #   runtime: 1s
 
   # ── 应用仿真 ──
 

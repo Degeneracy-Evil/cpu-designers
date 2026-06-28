@@ -195,6 +195,34 @@ module tb_simple_cpu_top;
     end
 `endif
 
+    // ========================================================================
+    // Targeted probe: watch execution around uart8250_dev_init fault area
+    // Logs every cycle when if_pc is in 0x8001f790-0x8001f7e0
+    // ========================================================================
+`ifdef LINUX_BOOT
+    integer fault_probe_cnt;
+    initial begin
+        fault_probe_cnt = 0;
+        forever begin
+            @(posedge clk);
+            if (resetn && if_pc >= 32'h8001f790 && if_pc <= 32'h8001f7e0) begin
+                fault_probe_cnt = fault_probe_cnt + 1;
+                $display("[FAULT-PROBE] #%0d t=%0t PC=0x%08h inst=0x%08h fsm=%0d | ic: st=%0d rdy_r=%b req=%b ivmux=%b if_done=%b bp=0x%08h | id: PC=0x%08h inst=0x%08h",
+                    fault_probe_cnt, $time, if_pc, if_inst,
+                    u_soc.cpu.fsm_state,
+                    u_soc.cpu.u_icache_wrap.state,
+                    u_soc.cpu.u_icache_wrap.cpu_req_ready_r,
+                    u_soc.cpu.if_valid,
+                    u_soc.cpu.inst_valid_mux,
+                    u_soc.cpu.if_done,
+                    u_soc.cpu.u_icache_wrap.bypass_data,
+                    id_pc, id_inst);
+                $fflush;
+            end
+        end
+    end
+`endif
+
     initial begin
         pass_count = 0;
         fail_count = 0;

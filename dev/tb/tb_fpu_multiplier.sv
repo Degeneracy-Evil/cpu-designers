@@ -176,13 +176,19 @@ module tb_fpu_multiplier;
         //    2^-127 as subnormal: exp=0, frac=2^22 → 0x00400000, no flags
         run_op(SMALLEST_NORMAL, HALF, RNE, 32'h00400000, 5'b00000);
 
-        // k2. Underflow (inexact): smallest_normal^2 = 2^-252 → flushes to +0
-        //    RTL produces OF+UF+NX (spurious OF from extreme underflow, known issue)
-        run_op(SMALLEST_NORMAL, SMALLEST_NORMAL, RNE, POS_ZERO, 5'b00111);
+        // k2. Extreme underflow (inexact): smallest_normal^2 = 2^-252 → flushes to +0
+        //     Correct flags: UF=1 + NX=1 (no OF). Was buggy: OF=1 from unsigned
+        //     comparison of negative 10-bit exponent (BUG-93 follow-up).
+        run_op(SMALLEST_NORMAL, SMALLEST_NORMAL, RNE, POS_ZERO, 5'b00011);
 
         // l. Rounding: (1+2^-23)^2 = 1+2^-22+2^-46, 2^-46 below precision
         //    RNE rounds to 1+2^-22 = 3F800002, NX=1
         run_op(32'h3F800001, 32'h3F800001, RNE, 32'h3F800002, 5'b00001);
+
+        // m. Extreme underflow #2: smallest_normal × smallest_subnormal
+        //    2^-126 × 2^-149 = 2^-275 → flushes to +0
+        //    Expected: UF=1, NX=1, OF=0 (5'b00011)
+        run_op(SMALLEST_NORMAL, 32'h00000001, RNE, POS_ZERO, 5'b00011);
 
         // ============================================================
         // Summary

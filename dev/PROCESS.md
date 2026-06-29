@@ -261,3 +261,22 @@ Interrupt latency increases by 1 cycle (total 5 cycles: r_pending → r_prio_pe 
 - `python3 tools/run_regression.py --category exception` — 6/6 PASS
 - `python3 tools/run_regression.py --category privilege` — 3/3 PASS
 - `python3 tools/run_regression.py --category audit` — 4/4 PASS (includes audit_plic_bugs, audit_plic_seip)
+
+## Task 7: fpu_sqrt subnormal mantissa normalization fix (2026-06-30)
+
+**Bug**: `dev/rtl/FPU/fpu_sqrt.sv` — subnormal input mantissa normalization
+produced mantissa in [0.5, 1.0) instead of [1.0, 2.0) due to bit-width
+mismatch: `{1'b1, f1_shft[21:0]}` = 23 bits zero-extended to 24, placing
+the implicit 1 at bit 22 instead of bit 23.
+
+**Fix**: Changed to `{1'b1, f1_shft[21:0], 1'b0}` (24 bits, [1.0, 2.0))
+and adjusted exponent from `10'sd1 - lz_c` to `10'sd0 - lz_c`.
+
+**Files modified**:
+- `dev/rtl/FPU/fpu_sqrt.sv` — mantissa normalization fix (2 lines)
+- `dev/tb/tb_fpu_sqrt.sv` — added 26 subnormal test cases (j3–j9 + 20 random)
+
+**Verification**:
+- `python3 -m tools.vivado_cli -task fpu_sqrt -create -sim` — 48/48 PASS
+- `python3 tools/run_regression.py --category isa_f` — 2/2 PASS (isa_f_ext, isa_f_ext_special)
+- Evidence: `.omo/evidence/task-7-sqrt-subnormal-fix.txt`, `.omo/evidence/task-7-f-regression.txt`

@@ -190,22 +190,84 @@ module tb_fpu_sqrt;
         // j. sqrt(subnormal) — sqrt(2^-127) = 2^(-63.5)
         //    0x00400000 = 2^-127 (subnormal)
         //    sqrt(2^-127) = sqrt(2) * 2^-64
-        //    Mathematically: 0x3F3504F3, inexact (NX=1)
-        //    RTL BUG: subnormal exponent calculation is wrong;
-        //    RTL produces 0x1FB504F3 (exp=31 instead of 63).
-        //    Expected updated to match RTL output.
+        //    Result: 0x1FB504F3, inexact (NX=1)
         // ────────────────────────────────────────────
         run_op(32'h00400000, RNE, 32'h1FB504F3, 5'b00001);
 
         // ────────────────────────────────────────────
         // j2. sqrt(largest subnormal 0x007FFFFF)
         //     Value ≈ (2^23-1)*2^-149 ≈ 2^-126 * (1 - 2^-23)
-        //     Mathematically: 0x3F3504F2, inexact (NX=1)
-        //     RTL BUG: same subnormal exponent bug as case j;
-        //     RTL produces 0x1FFFFFFF (wrong exponent).
-        //     Expected updated to match RTL output.
+        //     sqrt ≈ 1.0842021e-19 = 0x1FFFFFFF, inexact (NX=1)
         // ────────────────────────────────────────────
         run_op(32'h007FFFFF, RNE, 32'h1FFFFFFF, 5'b00001);
+
+        // ────────────────────────────────────────────
+        // j3. sqrt(smallest subnormal 0x00000001) = sqrt(2^-149)
+        //     = 2^-74.5 = sqrt(2) * 2^-75 ≈ 3.743e-23
+        //     Result: 0x1A3504F3, inexact (NX=1)
+        //     BUG-FIX: subnormal exponent was wrong (exp 53 instead of 52)
+        // ────────────────────────────────────────────
+        run_op(32'h00000001, RNE, 32'h1A3504F3, 5'b00001);
+
+        // ────────────────────────────────────────────
+        // j4. sqrt(0x00100000) = sqrt(2^-129) = 2^-64.5
+        //     = sqrt(2) * 2^-65, lz_c=2 (even)
+        //     Result: 0x1F3504F3, inexact (NX=1)
+        // ────────────────────────────────────────────
+        run_op(32'h00100000, RNE, 32'h1F3504F3, 5'b00001);
+
+        // ────────────────────────────────────────────
+        // j5. sqrt(0x00200000) = sqrt(2^-128) = 2^-64
+        //     lz_c=1 (odd) — exact result
+        //     Result: 0x1F800000, exact (NX=0)
+        // ────────────────────────────────────────────
+        run_op(32'h00200000, RNE, 32'h1F800000, 5'b00000);
+
+        // ────────────────────────────────────────────
+        // j6. sqrt(0x00000002) = sqrt(2^-148) = 2^-74
+        //     lz_c=21 (odd) — exact result
+        //     Result: 0x1A800000, exact (NX=0)
+        // ────────────────────────────────────────────
+        run_op(32'h00000002, RNE, 32'h1A800000, 5'b00000);
+
+        // ────────────────────────────────────────────
+        // j7. sqrt(0x00010000) = sqrt(2^-133) = 2^-66.5
+        //     = sqrt(2) * 2^-67, lz_c=6 (even)
+        //     Result: 0x1E3504F3, inexact (NX=1)
+        // ────────────────────────────────────────────
+        run_op(32'h00010000, RNE, 32'h1E3504F3, 5'b00001);
+
+        // ────────────────────────────────────────────
+        // j8. sqrt(0x00000100) = sqrt(2^-141) = 2^-70.5
+        //     = sqrt(2) * 2^-71, lz_c=14 (even)
+        //     Result: 0x1C3504F3, inexact (NX=1)
+        // ────────────────────────────────────────────
+        run_op(32'h00000100, RNE, 32'h1C3504F3, 5'b00001);
+
+        // ────────────────────────────────────────────
+        // j9. Random subnormal tests (various lz_c parities)
+        //     Verifies correct sqrt for subnormal inputs across the range
+        // ────────────────────────────────────────────
+        run_op(32'h000E4019, RNE, 32'h1F2AD5E6, 5'b00001);
+        run_op(32'h0003338E, RNE, 32'h1EA1F194, 5'b00001);
+        run_op(32'h001F589E, RNE, 32'h1F7D5F03, 5'b00001);
+        run_op(32'h001C922C, RNE, 32'h1F71E538, 5'b00001);
+        run_op(32'h0011DC61, RNE, 32'h1F3F41A7, 5'b00001);
+        run_op(32'h000D1E90, RNE, 32'h1F23EA88, 5'b00001);
+        run_op(32'h007232F1, RNE, 32'h1FF1CE33, 5'b00001);
+        run_op(32'h0045CE93, RNE, 32'h1FBD0DA5, 5'b00001);
+        run_op(32'h00360189, RNE, 32'h1FA6493E, 5'b00001);
+        run_op(32'h00041175, RNE, 32'h1EB68E4A, 5'b00001);
+        run_op(32'h0051D8BD, RNE, 32'h1FCCB551, 5'b00001);
+        run_op(32'h005EEB21, RNE, 32'h1FDC733B, 5'b00001);
+        run_op(32'h0023342A, RNE, 32'h1F864135, 5'b00001);
+        run_op(32'h005E44B1, RNE, 32'h1FDBB19F, 5'b00001);
+        run_op(32'h00569E17, RNE, 32'h1FD2970F, 5'b00001);
+        run_op(32'h005ECE34, RNE, 32'h1FDC51A2, 5'b00001);
+        run_op(32'h004B9543, RNE, 32'h1FC4B82B, 5'b00001);
+        run_op(32'h000B20D0, RNE, 32'h1F16F719, 5'b00001);
+        run_op(32'h0003D066, RNE, 32'h1EB0C308, 5'b00001);
+        run_op(32'h000BFE35, RNE, 32'h1F1CB8BA, 5'b00001);
 
         // ────────────────────────────────────────────
         // k. Rounding: sqrt(2.0) with RTZ (truncate)

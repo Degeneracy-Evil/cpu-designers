@@ -117,8 +117,12 @@ module fpu_multiplier(
     // Exponent after normalization (10-bit)
     wire [9:0] exp_normed_10 = prod_carry ? (exp_raw_10 + 10'd1) : exp_raw_10;
 
-    // Overflow: exponent >= 255 before rounding
-    wire exp_overflow_pre = (exp_normed_10 >= 10'd255);
+    // Overflow: exponent >= 255 before rounding.
+    // BUG-93 follow-up: exp_normed_10 is a 10-bit signed value. Negative
+    // exponents (extreme underflow) have bit 9 set, making the unsigned
+    // comparison >= 255 spuriously true. Only flag overflow when the
+    // exponent is positive (bit 9 == 0) AND >= 255.
+    wire exp_overflow_pre = (exp_normed_10[9] == 1'b0) && (exp_normed_10 >= 10'd255);
 
     // Underflow: exponent <= 0
     wire exp_le_zero = exp_normed_10[9] | (exp_normed_10 == 10'd0);

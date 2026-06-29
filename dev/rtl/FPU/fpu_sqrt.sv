@@ -95,10 +95,20 @@ module fpu_sqrt(
     // ----------------------------------------------------------------
     // Normalization of subnormal input (combinational)
     // ----------------------------------------------------------------
+    // For subnormal: exponent=0, mantissa=f1 (no implicit 1).
+    // Actual value = (f1 / 2^23) * 2^-126 = f1 * 2^-149.
+    // Normalize: shift f1 left so leading 1 is at bit 22, then form
+    // 1.fraction (24-bit) and adjust exponent to compensate.
+    //
+    // BUG-FIX: Previous code used {1'b1, f1_shft[21:0]} (23 bits)
+    // which zero-extended to 24'h0_1_xxxxxx = [0.5, 1.0) — half the
+    // normal range.  Now use {1'b1, f1_shft[21:0], 1'b0} (24 bits)
+    // = [1.0, 2.0), matching the normal mantissa range.  Exponent
+    // adjusted by -1 to preserve the same value.
     wire [4:0]  lz_c    = clz23(f1);
     wire [22:0] f1_shft = f1 << lz_c;
-    wire [23:0] mant_c  = is_sub ? {1'b1, f1_shft[21:0]} : {1'b1, f1};
-    wire [9:0]  eff_e_c = is_sub ? (10'sd1 - {{5'd0}, lz_c}) : {2'b0, e1};
+    wire [23:0] mant_c  = is_sub ? {1'b1, f1_shft[21:0], 1'b0} : {1'b1, f1};
+    wire [9:0]  eff_e_c = is_sub ? (10'sd0 - {{5'd0}, lz_c}) : {2'b0, e1};
 
     // Exponent calculation for sqrt
     // If (eff_e - 127) is even => result_exp = (eff_e - 127)/2 + 127, no mantissa shift

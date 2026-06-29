@@ -235,3 +235,29 @@ Any test accessing 0x80008000+ in Sv32 S-mode page faults because L0[8+] is not 
 ### Verification
 - Rebuilt all 12 MMU tests: `python3 tools/test_builder.py --category mmu` — 12 built, 0 failed
 - Ran `mmu_tlb_asid` simulation: pass_count=4, total_count=4, first_fail_id=0 — ALL TESTS PASSED
+
+## 2026-06-29: Split PLIC priority encoder into 2-stage pipeline to close timing
+
+### Problem
+Commit 465b5a9 added `r_prio_pe` registered priority matrix, improving WNS from -0.744ns to -0.271ns.
+However, the 25-level combinational path from `r_prio_pe_reg` through the 31-iteration comparison loop
+in `find_highest_pipelined` to `r_highest_id_reg` still violated timing.
+
+### Fix
+Split the priority encoder into 2 half-range stages with a pipeline register between them:
+- **Stage 1 (combinational)**: `find_best_half` finds the best priority source in each half
+  (lower: sources 1..HALF_MID, upper: HALF_MID+1..NUM_SRC-1). Returns `{prio, id}` packed 40-bit.
+- **Stage 1 register**: `r_best_lower_id/prio` and `r_best_upper_id/prio` latch the two half-winners.
+- **Stage 2 (combinational)**: Compare the two registered half-winners by priority (1 comparison).
+- **Stage 2 register**: `r_highest_id` (unchanged).
+
+This halves the logic depth per stage (~15 levels each instead of 25 levels combined).
+Interrupt latency increases by 1 cycle (total 5 cycles: r_pending → r_prio_pe → r_best_lower/upper → r_highest_id → o_eip).
+
+### Changed files
+- `dev/rtl/axi/axi4lite_plic.sv` — replaced `find_highest_pipelined` with `find_best_half`, added Stage 1/2 pipeline registers and combinational logic
+
+### Verification
+- `python3 tools/run_regression.py --category exception` — 6/6 PASS
+- `python3 tools/run_regression.py --category privilege` — 3/3 PASS
+- `python3 tools/run_regression.py --category audit` — 4/4 PASS (includes audit_plic_bugs, audit_plic_seip)

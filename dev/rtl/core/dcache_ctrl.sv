@@ -612,8 +612,11 @@ module dcache_ctrl(
             refill_addr_r    <= 32'b0;
             wb_req_r         <= 1'b0;
             wb_addr_r        <= 32'b0;
-            latched_set      <= {SET_IDX_W{1'b0}};
-            latched_victim_way <= {WAY_W{1'b0}};
+            // flush_set, flush_way, latched_set, latched_victim_way: intentionally NOT reset.
+            // These registers drive BRAM addresses/write-enables but are only meaningful when
+            // the state machine is in active states (not S_IDLE). BRAM EN is gated by state.
+            // This eliminates REQP-1839 DRC warnings (async reset on BRAM address drivers).
+            // Coding standard exception: address/control registers qualified by state machine.
             latched_addr     <= 32'b0;
             latched_wdata    <= 32'b0;
             latched_hwrite   <= 1'b0;
@@ -639,8 +642,6 @@ module dcache_ctrl(
             mmio_wdata_r     <= 32'b0;
             mmio_hwrite_r    <= 1'b0;
             mmio_hsize_r     <= 3'b0;
-            flush_set        <= {SET_IDX_W{1'b0}};
-            flush_way        <= {WAY_W{1'b0}};
             flush_done_r     <= 1'b0;
             flush_error_seen_r <= 1'b0;
             flush_resume_invalidate_r <= 1'b0;

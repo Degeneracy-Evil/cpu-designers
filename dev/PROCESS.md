@@ -394,3 +394,28 @@ tasks.
 - 3 batches (2 tasks each, max-parallel=2), all PASS
 - Evidence: `.omo/evidence/task-22-d-unit-tests.txt`
 - Learnings: `.omo/notepads/d-extension-fpu-refactor/learnings.md`
+
+## Task 23 — FPU Dispatch D Extension Integration (2026-06-30)
+
+Integrated all 9 D extension sub-modules into the FPU dispatch. Widened
+fpu_unit.sv ports from 32-bit to 64-bit (src1/src2/src3/result). F results
+are NaN-boxed ({32'hFFFFFFFF, f_result_32bit}); D results use full 64 bits.
+
+**Files modified**:
+- `dev/rtl/FPU/fpu_unit.sv` — Widened ports/registers to 64-bit. Instantiated
+  9 D sub-modules. Extended F_DISPATCH, done_sel, result_sel, fflags_sel, and
+  is_rd_int muxes for D operations. F results NaN-boxed.
+- `dev/rtl/core/cpu_execute.sv` — Widened fpu_result to 64-bit. Added
+  fpu_is_d_op, fpu_src2_mux, fpu_src3_mux. Extended fpu_src_is_int for D
+  int→double ops. F ops use raw frs1_value; D ops use NaN-box-checked value.
+- `dev/tb/tb_fpu_unit.sv` — Widened ports to 64-bit. run_op NaN-boxes F
+  operands and expected results.
+
+**Key fix**: NaN-box check must NOT apply to F operations. F ops read raw
+lower 32 bits; D ops (fpu_funct 24..43) use NaN-box-checked 64-bit value.
+
+**Verification**:
+- `python3 tools/run_regression.py --category isa_f` — ALL PASS (3/3)
+- `python3 -m tools.vivado_cli -batch "fpu_unit" -create -sim` — ALL PASS (24/24)
+- Evidence: `.omo/evidence/task-23-f-regression.txt`, `.omo/evidence/task-23-fpu-unit-test.txt`
+- Learnings: `.omo/notepads/d-extension-fpu-refactor/learnings.md`

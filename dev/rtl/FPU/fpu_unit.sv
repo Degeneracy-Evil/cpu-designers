@@ -5,12 +5,12 @@ module fpu_unit(
     input         resetn,
     input  [6:0]  fpu_funct,    // FPU operation select
     input  [2:0]  fpu_rm,       // rounding mode (from instruction or CSR)
-    input  [31:0] src1, src2,   // FPU operands (from float register file)
-    input  [31:0] src3,         // FPU operand rs3 (for FMA instructions)
+    input  [63:0] src1, src2,   // FPU operands (from float register file)
+    input  [63:0] src3,         // FPU operand rs3 (for FMA instructions)
     input         req_valid,
     input         flush,
     input         result_got,
-    output [31:0] result,       // FPU result
+    output [63:0] result,       // FPU result (NaN-boxed for F, full 64-bit for D)
     output        fpu_busy,
     output        fpu_ready,
     output        result_valid,
@@ -100,15 +100,21 @@ module fpu_unit(
   reg sqrt_start;
   reg cvt_start;
   reg fma_start;
+  // D extension start signals
+  reg adder_d_start;
+  reg mul_d_start;
+  reg div_d_start;
+  reg sqrt_d_start;
+  reg cvt_d_start;
   reg result_valid_reg;
-  reg [31:0] result_hold_reg;
+  reg [63:0] result_hold_reg;
   reg [4:0]  fflags_reg;
   reg        rd_is_int_reg;
   reg [6:0]  fpu_funct_reg;
   reg [2:0]  fpu_rm_reg;
-  reg [31:0] src1_reg;
-  reg [31:0] src2_reg;
-  reg [31:0] src3_reg;
+  reg [63:0] src1_reg;
+  reg [63:0] src2_reg;
+  reg [63:0] src3_reg;
 
   // ===================================================================
   // Handshake logic
@@ -121,6 +127,7 @@ module fpu_unit(
   // ===================================================================
   // Category wires from latched fpu_funct_reg
   // ===================================================================
+  // F combinational ops
   wire is_comb_op = (fpu_funct_reg == FPU_FMIN)    || (fpu_funct_reg == FPU_FMAX) ||
                     (fpu_funct_reg == FPU_FSGNJ)   || (fpu_funct_reg == FPU_FSGNJN) ||
                     (fpu_funct_reg == FPU_FSGNJX)  ||
@@ -129,16 +136,45 @@ module fpu_unit(
                     (fpu_funct_reg == FPU_FCLASS)  ||
                     (fpu_funct_reg == FPU_FMV_X_W) || (fpu_funct_reg == FPU_FMV_W_X);
 
-  wire is_rd_int = (fpu_funct_reg == FPU_FEQ)       ||
-                   (fpu_funct_reg == FPU_FLT)       ||
-                   (fpu_funct_reg == FPU_FLE)       ||
-                   (fpu_funct_reg == FPU_FCLASS)    ||
-                   (fpu_funct_reg == FPU_FMV_X_W)   ||
-                   (fpu_funct_reg == FPU_FCVT_W_S)  ||
-                   (fpu_funct_reg == FPU_FCVT_WU_S);
+  // D combinational ops
+  wire is_d_comb_op = (fpu_funct_reg == FPU_FMIN_D)    || (fpu_funct_reg == FPU_FMAX_D) ||
+                      (fpu_funct_reg == FPU_FSGNJ_D)   || (fpu_funct_reg == FPU_FSGNJN_D) ||
+                      (fpu_funct_reg == FPU_FSGNJX_D)  ||
+                      (fpu_funct_reg == FPU_FEQ_D)     || (fpu_funct_reg == FPU_FLT_D) ||
+                      (fpu_funct_reg == FPU_FLE_D)     ||
+                      (fpu_funct_reg == FPU_FCLASS_D);
+
+  // D sequential ops
+  wire is_d_adder_op = (fpu_funct_reg == FPU_FADD_D) || (fpu_funct_reg == FPU_FSUB_D);
+  wire is_d_mul_op   = (fpu_funct_reg == FPU_FMUL_D);
+  wire is_d_div_op   = (fpu_funct_reg == FPU_FDIV_D);
+  wire is_d_sqrt_op  = (fpu_funct_reg == FPU_FSQRT_D);
+  wire is_d_cvt_op   = (fpu_funct_reg == FPU_FCVT_W_D)  || (fpu_funct_reg == FPU_FCVT_WU_D) ||
+                      (fpu_funct_reg == FPU_FCVT_D_W)  || (fpu_funct_reg == FPU_FCVT_D_WU) ||
+                      (fpu_funct_reg == FPU_FCVT_S_D)  || (fpu_funct_reg == FPU_FCVT_D_S);
+  wire is_d_op = is_d_adder_op || is_d_mul_op || is_d_div_op ||
+                 is_d_sqrt_op  || is_d_cvt_op || is_d_comb_op;
+
+  // rd_is_int: F operations that write integer register
+  wire is_rd_int_f = (fpu_funct_reg == FPU_FEQ)       ||
+                     (fpu_funct_reg == FPU_FLT)       ||
+                     (fpu_funct_reg == FPU_FLE)       ||
+                     (fpu_funct_reg == FPU_FCLASS)    ||
+                     (fpu_funct_reg == FPU_FMV_X_W)   ||
+                     (fpu_funct_reg == FPU_FCVT_W_S)  ||
+                     (fpu_funct_reg == FPU_FCVT_WU_S);
+  // rd_is_int: D operations that write integer register
+  //   FEQ.D, FLT.D, FLE.D, FCLASS.D, FCVT.W.D, FCVT.WU.D
+  wire is_rd_int_d = (fpu_funct_reg == FPU_FEQ_D)     ||
+                     (fpu_funct_reg == FPU_FLT_D)     ||
+                     (fpu_funct_reg == FPU_FLE_D)     ||
+                     (fpu_funct_reg == FPU_FCLASS_D)  ||
+                     (fpu_funct_reg == FPU_FCVT_W_D)  ||
+                     (fpu_funct_reg == FPU_FCVT_WU_D);
+  wire is_rd_int = is_rd_int_f || is_rd_int_d;
 
   // ===================================================================
-  // Sub-module funct encoding from latched fpu_funct_reg
+  // Sub-module funct encoding from latched fpu_funct_reg (F)
   // ===================================================================
   wire [2:0] cmp_funct_r;
   assign cmp_funct_r = (fpu_funct_reg == FPU_FEQ) ? 3'b010 :
@@ -157,7 +193,29 @@ module fpu_unit(
                        /* FPU_FCVT_S_WU */                3'd3;
 
   // ===================================================================
-  // Sequential sub-module instances (use latched src1_reg/src2_reg)
+  // Sub-module funct encoding from latched fpu_funct_reg (D)
+  // ===================================================================
+  wire [2:0] cmp_funct_d;
+  assign cmp_funct_d = (fpu_funct_reg == FPU_FEQ_D) ? 3'b010 :
+                       (fpu_funct_reg == FPU_FLT_D) ? 3'b000 :
+                       /* FPU_FLE_D */                 3'b001;
+
+  wire [2:0] sgnj_funct_d;
+  assign sgnj_funct_d = (fpu_funct_reg == FPU_FSGNJ_D)  ? 3'b000 :
+                        (fpu_funct_reg == FPU_FSGNJN_D) ? 3'b001 :
+                        /* FPU_FSGNJX_D */                3'b010;
+
+  wire [2:0] cvt_funct_d;
+  assign cvt_funct_d = (fpu_funct_reg == FPU_FCVT_W_D)  ? 3'd0 :
+                       (fpu_funct_reg == FPU_FCVT_WU_D) ? 3'd1 :
+                       (fpu_funct_reg == FPU_FCVT_D_W)  ? 3'd2 :
+                       (fpu_funct_reg == FPU_FCVT_D_WU) ? 3'd3 :
+                       (fpu_funct_reg == FPU_FCVT_S_D)  ? 3'd4 :
+                       /* FPU_FCVT_D_S */                 3'd5;
+
+  // ===================================================================
+  // Sequential sub-module instances — F (use latched src1_reg/src2_reg)
+  //   F sub-modules have 32-bit ports; feed lower 32 bits of src regs.
   // ===================================================================
   wire [31:0] adder_result;
   wire [4:0]  adder_fflags;
@@ -166,8 +224,8 @@ module fpu_unit(
   fpu_adder u_adder(
       .clk(clk),
       .resetn(resetn),
-      .src1(src1_reg),
-      .src2(src2_reg),
+      .src1(src1_reg[31:0]),
+      .src2(src2_reg[31:0]),
       .is_sub((fpu_funct_reg == FPU_FSUB)),
       .rm(fpu_rm_reg),
       .start(adder_start),
@@ -184,8 +242,8 @@ module fpu_unit(
   fpu_multiplier u_mul(
       .clk(clk),
       .resetn(resetn),
-      .src1(src1_reg),
-      .src2(src2_reg),
+      .src1(src1_reg[31:0]),
+      .src2(src2_reg[31:0]),
       .rm(fpu_rm_reg),
       .start(mul_start),
       .flush(flush),
@@ -201,8 +259,8 @@ module fpu_unit(
   fpu_divider u_div(
       .clk(clk),
       .resetn(resetn),
-      .src1(src1_reg),
-      .src2(src2_reg),
+      .src1(src1_reg[31:0]),
+      .src2(src2_reg[31:0]),
       .rm(fpu_rm_reg),
       .start(div_start),
       .flush(flush),
@@ -218,7 +276,7 @@ module fpu_unit(
   fpu_sqrt u_sqrt(
       .clk(clk),
       .resetn(resetn),
-      .src1(src1_reg),
+      .src1(src1_reg[31:0]),
       .rm(fpu_rm_reg),
       .start(sqrt_start),
       .flush(flush),
@@ -234,7 +292,7 @@ module fpu_unit(
   fpu_cvt u_cvt(
       .clk(clk),
       .resetn(resetn),
-      .src1(src1_reg),
+      .src1(src1_reg[31:0]),
       .cvt_funct(cvt_funct_r),
       .rm(fpu_rm_reg),
       .start(cvt_start),
@@ -251,9 +309,9 @@ module fpu_unit(
   fpu_fma u_fma(
       .clk(clk),
       .resetn(resetn),
-      .src1(src1_reg),
-      .src2(src2_reg),
-      .src3(src3_reg),
+      .src1(src1_reg[31:0]),
+      .src2(src2_reg[31:0]),
+      .src3(src3_reg[31:0]),
       .fma_funct(fpu_funct_reg),
       .rm(fpu_rm_reg),
       .start(fma_start),
@@ -264,14 +322,102 @@ module fpu_unit(
   );
 
   // ===================================================================
-  // Combinational sub-module instances (use latched src1_reg/src2_reg)
+  // Sequential sub-module instances — D (use full 64-bit src regs)
+  // ===================================================================
+  wire [63:0] adder_d_result;
+  wire [4:0]  adder_d_fflags;
+  wire        adder_d_done;
+
+  fpu_adder_d u_adder_d(
+      .clk(clk),
+      .resetn(resetn),
+      .src1(src1_reg),
+      .src2(src2_reg),
+      .is_sub((fpu_funct_reg == FPU_FSUB_D)),
+      .rm(fpu_rm_reg),
+      .start(adder_d_start),
+      .flush(flush),
+      .result(adder_d_result),
+      .fflags(adder_d_fflags),
+      .done(adder_d_done)
+  );
+
+  wire [63:0] mul_d_result;
+  wire [4:0]  mul_d_fflags;
+  wire        mul_d_done;
+
+  fpu_multiplier_d u_mul_d(
+      .clk(clk),
+      .resetn(resetn),
+      .src1(src1_reg),
+      .src2(src2_reg),
+      .rm(fpu_rm_reg),
+      .start(mul_d_start),
+      .flush(flush),
+      .result(mul_d_result),
+      .fflags(mul_d_fflags),
+      .done(mul_d_done)
+  );
+
+  wire [63:0] div_d_result;
+  wire [4:0]  div_d_fflags;
+  wire        div_d_done;
+
+  fpu_divider_d u_div_d(
+      .clk(clk),
+      .resetn(resetn),
+      .src1(src1_reg),
+      .src2(src2_reg),
+      .rm(fpu_rm_reg),
+      .start(div_d_start),
+      .flush(flush),
+      .result(div_d_result),
+      .fflags(div_d_fflags),
+      .done(div_d_done)
+  );
+
+  wire [63:0] sqrt_d_result;
+  wire [4:0]  sqrt_d_fflags;
+  wire        sqrt_d_done;
+
+  fpu_sqrt_d u_sqrt_d(
+      .clk(clk),
+      .resetn(resetn),
+      .src1(src1_reg),
+      .rm(fpu_rm_reg),
+      .start(sqrt_d_start),
+      .flush(flush),
+      .result(sqrt_d_result),
+      .fflags(sqrt_d_fflags),
+      .done(sqrt_d_done)
+  );
+
+  wire [63:0] cvt_d_result;
+  wire [4:0]  cvt_d_fflags;
+  wire        cvt_d_done;
+
+  fpu_cvt_d u_cvt_d(
+      .clk(clk),
+      .resetn(resetn),
+      .src1(src1_reg),
+      .cvt_funct(cvt_funct_d),
+      .rm(fpu_rm_reg),
+      .start(cvt_d_start),
+      .flush(flush),
+      .result(cvt_d_result),
+      .fflags(cvt_d_fflags),
+      .done(cvt_d_done)
+  );
+
+  // ===================================================================
+  // Combinational sub-module instances — F (use lower 32 bits of src regs)
   // ===================================================================
   wire [31:0] cmp_result;
   wire [4:0]  cmp_fflags;
 
   fpu_compare u_cmp(
-      .src1(src1_reg),
-      .src2(src2_reg),
+      .src1(src1_reg[31:0]),
+      .src2(src2_reg[31:0]),
       .cmp_funct(cmp_funct_r),
       .result(cmp_result),
       .fflags(cmp_fflags)
@@ -281,8 +427,8 @@ module fpu_unit(
   wire [4:0]  minmax_fflags;
 
   fpu_minmax u_minmax(
-      .src1(src1_reg),
-      .src2(src2_reg),
+      .src1(src1_reg[31:0]),
+      .src2(src2_reg[31:0]),
       .is_max((fpu_funct_reg == FPU_FMAX)),
       .result(minmax_result),
       .fflags(minmax_fflags)
@@ -292,7 +438,7 @@ module fpu_unit(
   wire [4:0]  classify_fflags;
 
   fpu_classify u_classify(
-      .src1(src1_reg),
+      .src1(src1_reg[31:0]),
       .result(classify_result),
       .fflags(classify_fflags)
   );
@@ -301,15 +447,61 @@ module fpu_unit(
   wire [4:0]  sgnj_fflags;
 
   fpu_sign_inject u_sgnj(
-      .src1(src1_reg),
-      .src2(src2_reg),
+      .src1(src1_reg[31:0]),
+      .src2(src2_reg[31:0]),
       .sgnj_funct(sgnj_funct_r),
       .result(sgnj_result),
       .fflags(sgnj_fflags)
   );
 
   // ===================================================================
-  // Combinational result mux (from latched fpu_funct_reg)
+  // Combinational sub-module instances — D (use full 64-bit src regs)
+  // ===================================================================
+  wire [63:0] cmp_d_result;
+  wire [4:0]  cmp_d_fflags;
+
+  fpu_compare_d u_cmp_d(
+      .src1(src1_reg),
+      .src2(src2_reg),
+      .cmp_funct(cmp_funct_d),
+      .result(cmp_d_result),
+      .fflags(cmp_d_fflags)
+  );
+
+  wire [63:0] minmax_d_result;
+  wire [4:0]  minmax_d_fflags;
+
+  fpu_minmax_d u_minmax_d(
+      .src1(src1_reg),
+      .src2(src2_reg),
+      .is_max((fpu_funct_reg == FPU_FMAX_D)),
+      .result(minmax_d_result),
+      .fflags(minmax_d_fflags)
+  );
+
+  wire [63:0] classify_d_result;
+  wire [4:0]  classify_d_fflags;
+
+  fpu_classify_d u_classify_d(
+      .src1(src1_reg),
+      .result(classify_d_result),
+      .fflags(classify_d_fflags)
+  );
+
+  wire [63:0] sgnj_d_result;
+  wire [4:0]  sgnj_d_fflags;
+
+  fpu_sign_inject_d u_sgnj_d(
+      .src1(src1_reg),
+      .src2(src2_reg),
+      .sgnj_funct(sgnj_funct_d),
+      .result(sgnj_d_result),
+      .fflags(sgnj_d_fflags)
+  );
+
+  // ===================================================================
+  // Combinational result mux — F (from latched fpu_funct_reg)
+  //   Produces 32-bit F result; NaN-boxed to 64-bit in result_sel.
   // ===================================================================
   wire [31:0] comb_result;
   assign comb_result = (fpu_funct_reg == FPU_FMIN)    ? minmax_result  :
@@ -321,8 +513,8 @@ module fpu_unit(
                        (fpu_funct_reg == FPU_FLT)     ? cmp_result     :
                        (fpu_funct_reg == FPU_FLE)     ? cmp_result     :
                        (fpu_funct_reg == FPU_FCLASS)  ? classify_result :
-                       (fpu_funct_reg == FPU_FMV_X_W) ? src1_reg       :
-                       /* FPU_FMV_W_X */                src1_reg;
+                       (fpu_funct_reg == FPU_FMV_X_W) ? src1_reg[31:0] :
+                       /* FPU_FMV_W_X */                src1_reg[31:0];
 
   wire [4:0] comb_fflags;
   assign comb_fflags = (fpu_funct_reg == FPU_FMIN)    ? minmax_fflags  :
@@ -337,7 +529,34 @@ module fpu_unit(
                        /* FMV.X.W / FMV.W.X */          5'b0;
 
   // ===================================================================
+  // Combinational result mux — D (from latched fpu_funct_reg)
+  //   Produces 64-bit D result directly.
+  // ===================================================================
+  wire [63:0] comb_d_result;
+  assign comb_d_result = (fpu_funct_reg == FPU_FMIN_D)    ? minmax_d_result  :
+                         (fpu_funct_reg == FPU_FMAX_D)    ? minmax_d_result  :
+                         (fpu_funct_reg == FPU_FSGNJ_D)   ? sgnj_d_result    :
+                         (fpu_funct_reg == FPU_FSGNJN_D)  ? sgnj_d_result    :
+                         (fpu_funct_reg == FPU_FSGNJX_D)  ? sgnj_d_result    :
+                         (fpu_funct_reg == FPU_FEQ_D)     ? cmp_d_result     :
+                         (fpu_funct_reg == FPU_FLT_D)     ? cmp_d_result     :
+                         (fpu_funct_reg == FPU_FLE_D)     ? cmp_d_result     :
+                         /* FPU_FCLASS_D */                 classify_d_result;
+
+  wire [4:0] comb_d_fflags;
+  assign comb_d_fflags = (fpu_funct_reg == FPU_FMIN_D)    ? minmax_d_fflags  :
+                         (fpu_funct_reg == FPU_FMAX_D)    ? minmax_d_fflags  :
+                         (fpu_funct_reg == FPU_FSGNJ_D)   ? sgnj_d_fflags    :
+                         (fpu_funct_reg == FPU_FSGNJN_D)  ? sgnj_d_fflags    :
+                         (fpu_funct_reg == FPU_FSGNJX_D)  ? sgnj_d_fflags    :
+                         (fpu_funct_reg == FPU_FEQ_D)     ? cmp_d_fflags     :
+                         (fpu_funct_reg == FPU_FLT_D)     ? cmp_d_fflags     :
+                         (fpu_funct_reg == FPU_FLE_D)     ? cmp_d_fflags     :
+                         /* FPU_FCLASS_D */                 classify_d_fflags;
+
+  // ===================================================================
   // Sub-module done/result/fflags selection (from latched fpu_funct_reg)
+  //   F category wires
   // ===================================================================
   wire is_adder_op = (fpu_funct_reg == FPU_FADD) || (fpu_funct_reg == FPU_FSUB);
   wire is_mul_op   = (fpu_funct_reg == FPU_FMUL);
@@ -348,31 +567,54 @@ module fpu_unit(
   wire is_fma_op   = (fpu_funct_reg == FPU_FMADD) || (fpu_funct_reg == FPU_FMSUB) ||
                      (fpu_funct_reg == FPU_FNMSUB) || (fpu_funct_reg == FPU_FNMADD);
 
-  wire done_sel = is_adder_op ? adder_done :
-                  is_mul_op   ? mul_done   :
-                  is_div_op   ? div_done   :
-                  is_sqrt_op  ? sqrt_done  :
-                  is_cvt_op   ? cvt_done   :
-                  is_fma_op   ? fma_done   :
+  // Done mux: F sequential + D sequential
+  wire done_sel = is_d_adder_op ? adder_d_done :
+                  is_d_mul_op   ? mul_d_done   :
+                  is_d_div_op   ? div_d_done   :
+                  is_d_sqrt_op  ? sqrt_d_done  :
+                  is_d_cvt_op   ? cvt_d_done   :
+                  is_adder_op   ? adder_done   :
+                  is_mul_op     ? mul_done     :
+                  is_div_op     ? div_done     :
+                  is_sqrt_op    ? sqrt_done    :
+                  is_cvt_op     ? cvt_done     :
+                  is_fma_op     ? fma_done     :
                   1'b0;
 
-  wire [31:0] result_sel = is_comb_op ? comb_result :
-                  is_adder_op ? adder_result :
-                  is_mul_op   ? mul_result   :
-                  is_div_op   ? div_result   :
-                  is_sqrt_op  ? sqrt_result  :
-                  is_cvt_op   ? cvt_result   :
-                  is_fma_op   ? fma_result   :
-                  32'b0;
+  // Result mux: 64-bit. F results are NaN-boxed ({32'hFFFFFFFF, f_result_32bit}).
+  //   D results use full 64 bits. D comb ops produce 64-bit directly.
+  //   F comb ops produce 32-bit → NaN-boxed.
+  //   F sequential ops produce 32-bit → NaN-boxed.
+  wire [63:0] result_sel = is_d_comb_op  ? comb_d_result    :
+                           is_d_adder_op ? adder_d_result   :
+                           is_d_mul_op   ? mul_d_result     :
+                           is_d_div_op   ? div_d_result     :
+                           is_d_sqrt_op  ? sqrt_d_result    :
+                           is_d_cvt_op   ? cvt_d_result     :
+                           is_comb_op    ? {32'hFFFFFFFF, comb_result} :
+                           is_adder_op   ? {32'hFFFFFFFF, adder_result} :
+                           is_mul_op     ? {32'hFFFFFFFF, mul_result}   :
+                           is_div_op     ? {32'hFFFFFFFF, div_result}   :
+                           is_sqrt_op    ? {32'hFFFFFFFF, sqrt_result}  :
+                           is_cvt_op     ? {32'hFFFFFFFF, cvt_result}   :
+                           is_fma_op     ? {32'hFFFFFFFF, fma_result}   :
+                           64'b0;
 
-  wire [4:0] fflags_sel = is_comb_op ? comb_fflags :
-                  is_adder_op ? adder_fflags :
-                  is_mul_op   ? mul_fflags   :
-                  is_div_op   ? div_fflags   :
-                  is_sqrt_op  ? sqrt_fflags  :
-                  is_cvt_op   ? cvt_fflags   :
-                  is_fma_op   ? fma_fflags   :
-                  5'b0;
+  // fflags mux: F + D
+  wire [4:0] fflags_sel = is_d_comb_op  ? comb_d_fflags  :
+                          is_d_adder_op ? adder_d_fflags :
+                          is_d_mul_op   ? mul_d_fflags   :
+                          is_d_div_op   ? div_d_fflags   :
+                          is_d_sqrt_op  ? sqrt_d_fflags  :
+                          is_d_cvt_op   ? cvt_d_fflags   :
+                          is_comb_op    ? comb_fflags    :
+                          is_adder_op   ? adder_fflags   :
+                          is_mul_op     ? mul_fflags     :
+                          is_div_op     ? div_fflags     :
+                          is_sqrt_op    ? sqrt_fflags    :
+                          is_cvt_op     ? cvt_fflags     :
+                          is_fma_op     ? fma_fflags     :
+                          5'b0;
 
   // ===================================================================
   // Main FSM (MMU-style explicit state register)
@@ -388,27 +630,37 @@ module fpu_unit(
       sqrt_start        <= 1'b0;
       cvt_start         <= 1'b0;
       fma_start         <= 1'b0;
+      adder_d_start     <= 1'b0;
+      mul_d_start       <= 1'b0;
+      div_d_start       <= 1'b0;
+      sqrt_d_start      <= 1'b0;
+      cvt_d_start       <= 1'b0;
       result_valid_reg  <= 1'b0;
-      result_hold_reg   <= 32'b0;
+      result_hold_reg   <= 64'b0;
       fflags_reg        <= 5'b0;
       rd_is_int_reg     <= 1'b0;
       fpu_funct_reg     <= 7'b0;
       fpu_rm_reg        <= 3'b0;
-      src1_reg          <= 32'b0;
-      src2_reg          <= 32'b0;
-      src3_reg          <= 32'b0;
+      src1_reg          <= 64'b0;
+      src2_reg          <= 64'b0;
+      src3_reg          <= 64'b0;
       timeout_cnt       <= 10'b0;
       fpu_error_reg     <= 1'b0;
     end
     else
     begin
       // Default: clear start signals (1-cycle pulses)
-      adder_start <= 1'b0;
-      mul_start   <= 1'b0;
-      div_start   <= 1'b0;
-      sqrt_start  <= 1'b0;
-      cvt_start   <= 1'b0;
-      fma_start   <= 1'b0;
+      adder_start   <= 1'b0;
+      mul_start     <= 1'b0;
+      div_start     <= 1'b0;
+      sqrt_start    <= 1'b0;
+      cvt_start     <= 1'b0;
+      fma_start     <= 1'b0;
+      adder_d_start <= 1'b0;
+      mul_d_start   <= 1'b0;
+      div_d_start   <= 1'b0;
+      sqrt_d_start  <= 1'b0;
+      cvt_d_start   <= 1'b0;
 
       if (flush)
       begin
@@ -416,7 +668,7 @@ module fpu_unit(
         // clear result_hold_reg to prevent stale data leakage)
         f_state          <= F_IDLE;
         result_valid_reg <= 1'b0;
-        result_hold_reg  <= 32'b0;
+        result_hold_reg  <= 64'b0;
         fflags_reg       <= 5'b0;
         rd_is_int_reg    <= 1'b0;
         timeout_cnt      <= 10'b0;
@@ -439,13 +691,15 @@ module fpu_unit(
 
           // ── F_DISPATCH: start sub-module, or skip to F_DONE for comb ops ──
           F_DISPATCH: begin
-            if (is_comb_op) begin
-              // Combinational op: result already available from comb mux
-              // (src1_reg/src2_reg/fpu_funct_reg settled after F_IDLE latch)
+            if (is_comb_op || is_d_comb_op) begin
+              // Combinational op (F or D): result already available from
+              // comb mux (src1_reg/src2_reg/fpu_funct_reg settled after
+              // F_IDLE latch)
               f_state <= F_DONE;
             end
             else begin
               case (fpu_funct_reg)
+                // F operations (existing)
                 FPU_FADD, FPU_FSUB: adder_start <= 1'b1;
                 FPU_FMUL:           mul_start   <= 1'b1;
                 FPU_FDIV:           div_start   <= 1'b1;
@@ -453,7 +707,15 @@ module fpu_unit(
                 FPU_FCVT_W_S, FPU_FCVT_WU_S,
                 FPU_FCVT_S_W, FPU_FCVT_S_WU: cvt_start <= 1'b1;
                 FPU_FMADD, FPU_FMSUB, FPU_FNMSUB, FPU_FNMADD: fma_start <= 1'b1;
-                default: ; // unreachable
+                // D operations (new)
+                FPU_FADD_D, FPU_FSUB_D: adder_d_start <= 1'b1;
+                FPU_FMUL_D:             mul_d_start   <= 1'b1;
+                FPU_FDIV_D:             div_d_start   <= 1'b1;
+                FPU_FSQRT_D:            sqrt_d_start  <= 1'b1;
+                FPU_FCVT_W_D, FPU_FCVT_WU_D,
+                FPU_FCVT_D_W, FPU_FCVT_D_WU,
+                FPU_FCVT_S_D, FPU_FCVT_D_S: cvt_d_start <= 1'b1;
+                default: ; // unreachable (FLD/FSD handled by LSU)
               endcase
               timeout_cnt <= 10'b0;   // arm watchdog on entering F_WAIT
               f_state <= F_WAIT;

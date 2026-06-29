@@ -62,12 +62,12 @@ module tb_fpu_unit;
     // ===================================================================
     reg  [6:0]  fpu_funct;
     reg  [2:0]  fpu_rm;
-    reg  [31:0] src1;
-    reg  [31:0] src2;
+    reg  [63:0] src1;
+    reg  [63:0] src2;
     reg         req_valid;
     reg         flush;
     reg         result_got;
-    wire [31:0] result;
+    wire [63:0] result;
     wire        fpu_busy;
     wire        fpu_ready;
     wire        result_valid;
@@ -111,6 +111,10 @@ module tb_fpu_unit;
     //   5. Compare result, fflags, rd_is_int
     //   6. Assert result_got for 1 cycle
     //   7. Increment pass/fail
+    //
+    //   Note: F operations produce NaN-boxed 64-bit results
+    //   ({32'hFFFFFFFF, f_result_32bit}). The task accepts a 32-bit
+    //   expected F result and NaN-boxes it internally.
     // ===================================================================
     task run_op;
         input  [6:0]  t_fpu_funct;
@@ -122,6 +126,10 @@ module tb_fpu_unit;
         input         t_expected_rd_is_int;
     begin
         integer timeout;
+        // F results are NaN-boxed to 64 bits by fpu_unit
+        reg [63:0] expected_result_boxed;
+
+        expected_result_boxed = {32'hFFFFFFFF, t_expected_result};
 
         // Step 1: Wait for fpu_ready
         timeout = 0;
@@ -137,11 +145,11 @@ module tb_fpu_unit;
             return;
         end
 
-        // Step 2: Drive inputs
+        // Step 2: Drive inputs (F ops: NaN-box the 32-bit operands)
         fpu_funct = t_fpu_funct;
         fpu_rm    = t_fpu_rm;
-        src1      = t_src1;
-        src2      = t_src2;
+        src1      = {32'hFFFFFFFF, t_src1};
+        src2      = {32'hFFFFFFFF, t_src2};
 
         // Step 3: Assert req_valid for 2 cycles
         // XSim evaluates testbench resume before DUT always block at the
@@ -168,13 +176,13 @@ module tb_fpu_unit;
             return;
         end
 
-        // Step 5: Compare results
-        if (result !== t_expected_result || fflags !== t_expected_fflags || rd_is_int !== t_expected_rd_is_int) begin
-            $display("[FAIL] Test %0d: result=%08X (exp=%08X) fflags=%05b (exp=%05b) rd_is_int=%0b (exp=%0b)",
-                     test_num, result, t_expected_result, fflags, t_expected_fflags, rd_is_int, t_expected_rd_is_int);
+        // Step 5: Compare results (64-bit NaN-boxed)
+        if (result !== expected_result_boxed || fflags !== t_expected_fflags || rd_is_int !== t_expected_rd_is_int) begin
+            $display("[FAIL] Test %0d: result=%016X (exp=%016X) fflags=%05b (exp=%05b) rd_is_int=%0b (exp=%0b)",
+                     test_num, result, expected_result_boxed, fflags, t_expected_fflags, rd_is_int, t_expected_rd_is_int);
             fail_count = fail_count + 1;
         end else begin
-            $display("[PASS] Test %0d: result=%08X fflags=%05b rd_is_int=%0b", test_num, result, fflags, rd_is_int);
+            $display("[PASS] Test %0d: result=%016X fflags=%05b rd_is_int=%0b", test_num, result, fflags, rd_is_int);
             pass_count = pass_count + 1;
         end
 
@@ -200,8 +208,8 @@ module tb_fpu_unit;
         resetn     = 1'b0;
         fpu_funct  = 7'b0;
         fpu_rm     = RNE;
-        src1       = 32'b0;
-        src2       = 32'b0;
+        src1       = 64'b0;
+        src2       = 64'b0;
         req_valid  = 1'b0;
         flush      = 1'b0;
         result_got = 1'b0;
@@ -365,8 +373,8 @@ module tb_fpu_unit;
             end
             fpu_funct = FPU_FADD;
             fpu_rm    = RNE;
-            src1      = ONE;
-            src2      = TWO;
+            src1      = {32'hFFFFFFFF, ONE};
+            src2      = {32'hFFFFFFFF, TWO};
             req_valid = 1'b1;
             @(posedge clk);
             @(posedge clk);
@@ -378,11 +386,11 @@ module tb_fpu_unit;
                 @(posedge clk);
                 timeout = timeout + 1;
             end
-            if (result !== THREE) begin
-                $display("[FAIL] B2B op1: result=%08X (exp=%08X)", result, THREE);
+            if (result !== {32'hFFFFFFFF, THREE}) begin
+                $display("[FAIL] B2B op1: result=%016X (exp=%016X)", result, {32'hFFFFFFFF, THREE});
                 fail_count = fail_count + 1;
             end else begin
-                $display("[PASS] B2B op1: result=%08X", result);
+                $display("[PASS] B2B op1: result=%016X", result);
                 pass_count = pass_count + 1;
             end
             test_num = test_num + 1;
@@ -391,8 +399,8 @@ module tb_fpu_unit;
             // Drive second op inputs before asserting result_got
             fpu_funct = FPU_FADD;
             fpu_rm    = RNE;
-            src1      = TWO;
-            src2      = ONE;
+            src1      = {32'hFFFFFFFF, TWO};
+            src2      = {32'hFFFFFFFF, ONE};
             // Assert result_got and req_valid simultaneously for 2 cycles
             result_got = 1'b1;
             req_valid  = 1'b1;   // back-to-back: no gap
@@ -407,11 +415,11 @@ module tb_fpu_unit;
                 @(posedge clk);
                 timeout = timeout + 1;
             end
-            if (result !== THREE) begin
-                $display("[FAIL] B2B op2: result=%08X (exp=%08X)", result, THREE);
+            if (result !== {32'hFFFFFFFF, THREE}) begin
+                $display("[FAIL] B2B op2: result=%016X (exp=%016X)", result, {32'hFFFFFFFF, THREE});
                 fail_count = fail_count + 1;
             end else begin
-                $display("[PASS] B2B op2: result=%08X", result);
+                $display("[PASS] B2B op2: result=%016X", result);
                 pass_count = pass_count + 1;
             end
             test_num = test_num + 1;
@@ -442,8 +450,8 @@ module tb_fpu_unit;
             // Issue FDIV: 3.0 / 2.0 (takes multiple cycles)
             fpu_funct = FPU_FDIV;
             fpu_rm    = RNE;
-            src1      = THREE;
-            src2      = TWO;
+            src1      = {32'hFFFFFFFF, THREE};
+            src2      = {32'hFFFFFFFF, TWO};
             req_valid = 1'b1;
             @(posedge clk);
             @(posedge clk);

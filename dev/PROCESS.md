@@ -1,5 +1,27 @@
 # Process Log
 
+## 2026-06-30: Create fpu_cvt_d.sv — double-precision FPU conversion unit
+
+### Summary
+Created `dev/rtl/FPU/fpu_cvt_d.sv` (483 lines), a double-precision IEEE 754 conversion unit following the same 3-state FSM pattern as `fpu_cvt.sv`. Supports all 6 RISC-V D-extension conversion instructions.
+
+### Changes
+- `dev/rtl/FPU/fpu_cvt_d.sv` (new file):
+  - `FCVT.W.D`  (double → signed int32): saturate on overflow, GRS rounding
+  - `FCVT.WU.D` (double → unsigned int32): saturate on overflow, GRS rounding
+  - `FCVT.D.W`  (signed int32 → double): exact, `exp = (31-lz)+1023`
+  - `FCVT.D.WU` (unsigned int32 → double): exact
+  - `FCVT.S.D`  (double → single): 52→23-bit rounding, overflow→Inf, underflow→zero, result = `{32'hFFFFFFFF, single}`
+  - `FCVT.D.S`  (single → double): exact widening, `exp_d = exp_s + 896`
+  - Special cases: NaN (canonical/propagated), Inf, Zero, subnormal (normalized via CLZ)
+  - Result packing: int results → `{32'b0, int32}`, single result → `{32'hFFFFFFFF, single}`, double results → 64-bit
+  - fflags: NV / OF / UF / NX
+  - Active-low async reset `resetn`, `always_ff` FSM (IDLE→COMPUTE→DONE)
+
+### Verification
+- File written (483 lines, under 500-line limit)
+- No SV LSP available in environment; structural review only
+
 ## 2026-06-29: Pipeline PLIC find_highest to eliminate remaining timing violations
 
 ### Summary

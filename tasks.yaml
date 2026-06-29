@@ -138,6 +138,18 @@ tasks:
     phex: test/isa/d_smoke.hex
     runtime: 10ms
 
+  isa_d_ext:
+    tb: tb_isa_d_ext
+    blhex: boot/bootloader_phase1.hex
+    phex: test/isa/d_ext.hex
+    runtime: 20ms
+
+  isa_d_ext_special:
+    tb: tb_isa_d_ext_special
+    blhex: boot/bootloader_phase1.hex
+    phex: test/isa/d_ext_special.hex
+    runtime: 20ms
+
   # ── 异常仿真 ──
 
   exception_ecall:

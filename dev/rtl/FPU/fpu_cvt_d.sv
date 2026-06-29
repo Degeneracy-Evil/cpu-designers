@@ -238,12 +238,14 @@ module fpu_cvt_d(
     wire [31:0] d_signed_res = d_sign ? d_neg_int : d_pos_int;
 
     // Overflow detection for signed int32
+    // Use full 65-bit d_abs_rounded (not just [31:0]) so values >= 2^32
+    // are correctly detected as overflow even when lower 32 bits are 0.
     wire d_ovf_w  = d_lshift_of | d_rnd_overflow |
-                    (d_sign ? (d_abs_rounded[31:0] > 32'h80000000) :
-                              (d_abs_rounded[31:0] > 32'h7FFFFFFF));
+                    (d_sign ? (d_abs_rounded > 65'h80000000) :
+                              (d_abs_rounded > 65'h7FFFFFFF));
     // Overflow detection for unsigned int32
     wire d_ovf_wu = d_lshift_of | d_rnd_overflow |
-                    (d_abs_rounded[31:0] > 32'hFFFFFFFF) | d_sign;
+                    (d_abs_rounded > 65'hFFFFFFFF) | d_sign;
 
     // Saturated results
     wire [31:0] sat_w  = d_sign ? 32'h80000000 : 32'h7FFFFFFF;
@@ -292,24 +294,33 @@ module fpu_cvt_d(
     // ====================================================================
     // Single -> Double conversion (FCVT.D.S)
     // ====================================================================
-    // Exact conversion: exp_d = exp_s + (1023 - 127) = exp_s + 896
+    // Exact conversion for normal: exp_d = exp_s + (1023 - 127) = exp_s + 896
     // frac_d = {frac_s, 29'b0}
     wire [10:0] sd_exp_d  = {3'b0, s_exp} + 11'd896;
     wire [51:0] sd_frac_d = {s_frac, 29'b0};
+
+    // Subnormal single -> normal double normalization.
+    // S subnormal value = 0.s_frac × 2^-126 = s_frac × 2^-149.
+    // Find leading 1 in s_frac (23-bit). lz = clz of {s_frac, 9'b0} (32-bit).
+    // Leading 1 at bit k = 22 - lz. Normalized: 1.xxx × 2^(k-149).
+    // D exp = (k - 149) + 1023 = (22 - lz) + 874 = 896 - lz.
+    // D frac = {(s_frac << lz)[21:0], 30'b0} (22 fraction bits + 30 zeros = 52).
+    wire [5:0]  s_sub_lz    = clz32({s_frac, 9'b0});
+    wire [22:0] s_frac_nrm  = s_frac << s_sub_lz;        // leading 1 now at bit 22
+    wire [10:0] sd_sub_exp  = 11'd896 - {5'd0, s_sub_lz};
+    wire [51:0] sd_sub_frac = {s_frac_nrm[21:0], 30'b0};
 
     // Handle special cases for single
     wire [63:0] sd_result =
         s_is_nan  ? {s_sign, 11'h7FF, 1'b1, s_frac[21:0], 29'b0} :  // propagate NaN
         s_is_inf  ? {s_sign, 11'h7FF, 52'b0} :                      // Inf
         s_is_zero ? {s_sign, 63'b0} :                               // Zero
-        s_is_sub  ? {s_sign, 11'd0, sd_frac_d} :                    // subnormal -> subnormal (still zero exp)
+        s_is_sub  ? {s_sign, sd_sub_exp, sd_sub_frac} :             // subnormal S -> normal D
                    {s_sign, sd_exp_d, sd_frac_d};                   // normal
 
-    // FCVT.D.S is always exact (no rounding needed for widening)
-    // For subnormal single, the result is subnormal double only if exp_d < 1,
-    // but since single subnormal exp_s=0 maps to double exp=0, it stays
-    // subnormal. The value is preserved exactly because 23-bit frac fits
-    // in 52-bit frac.
+    // FCVT.D.S is always exact (no rounding needed for widening).
+    // S subnormals (2^-149 .. 2^-127) all map to D normals (exp 874..896),
+    // well above D subnormal range (exp < 1).
 
     // ====================================================================
     // Double -> Single conversion (FCVT.S.D)
@@ -364,12 +375,12 @@ module fpu_cvt_d(
     wire [31:0] ds_single_ovf = {d_sign, 8'hFF, 23'b0};
 
     // Underflow: return zero (simplified; could produce subnormal single)
-    wire [31:0] ds_single_unf = {d_sign, 32'b0};
+    wire [31:0] ds_single_unf = {d_sign, 31'b0};
 
     wire [31:0] ds_single_res =
         d_is_nan ? {d_sign, 8'hFF, 1'b1, d_frac[50:29]} :   // propagate NaN
         d_is_inf ? {d_sign, 8'hFF, 23'b0} :                 // Inf
-        d_is_zero ? {d_sign, 32'b0} :                       // Zero
+        d_is_zero ? {d_sign, 31'b0} :                       // Zero (preserve sign)
         ds_ovf_s  ? ds_single_ovf :
         ds_unf_s  ? ds_single_unf :
                     ds_single_normal;

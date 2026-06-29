@@ -489,3 +489,11 @@ avoiding bus struct changes that would break cpu_mem.sv (Task 25 boundary).
 - Updated cpu_execute.sv, core_top.sv, cpu_csr_interface.sv, cpu_trap_csr.sv for new bus width
 - Extended fpu_rd_is_int, valid_inst, wb_we, alu_src2, alu_control for FLD/FSD
 - Verification: python tools/run_regression.py --category isa_f — ALL 3 PASS
+
+## Task 30 — FCVT.S.D/FCVT.D.S Bug Fix (2026-06-30)
+Fixed 3 bugs causing D ISA test failures (d_ext: 48→51/51, d_ext_special: 23→28/28):
+- fpu_cvt_d.sv: FCVT.D.S subnormal normalization (S subnormal → D normal, not D subnormal)
+- cpu_decode.sv: FCVT.S.D funct7 0x21 → 0x20 (RISC-V spec: fmt=00 for S destination)
+- fpu_cvt_d.sv: FCVT.W.D/WU.D overflow detection (use full 65-bit d_abs_rounded, not [31:0])
+- fpu_cvt_d.sv: FCVT.S.D zero sign preservation ({d_sign, 31'b0} not {d_sign, 32'b0})
+- Verification: isa_d_ext 51/51, isa_d_ext_special 28/28, isa_f 3/3, isa_d_smoke 2/2 — ALL PASS

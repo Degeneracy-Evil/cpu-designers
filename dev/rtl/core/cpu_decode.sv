@@ -243,7 +243,7 @@ module cpu_decode(
   wire inst_fcvt_wu_d  = (opcode == OPCODE_OP_FP) && (funct7 == 7'b1100001) && (rs2 == 5'd1);
   wire inst_fcvt_d_w   = (opcode == OPCODE_OP_FP) && (funct7 == 7'b1101001) && (rs2 == 5'd0);
   wire inst_fcvt_d_wu  = (opcode == OPCODE_OP_FP) && (funct7 == 7'b1101001) && (rs2 == 5'd1);
-  wire inst_fcvt_s_d   = (opcode == OPCODE_OP_FP) && (funct7 == 7'b0100001) && (rs2 == 5'd1);
+  wire inst_fcvt_s_d   = (opcode == OPCODE_OP_FP) && (funct7 == 7'b0100000) && (rs2 == 5'd1);
   wire inst_fcvt_d_s   = (opcode == OPCODE_OP_FP) && (funct7 == 7'b0100001) && (rs2 == 5'd0);
 
   // FMA instructions (R4 format): fmt must be S (00) for single-precision

@@ -419,3 +419,73 @@ lower 32 bits; D ops (fpu_funct 24..43) use NaN-box-checked 64-bit value.
 - `python3 -m tools.vivado_cli -batch "fpu_unit" -create -sim` — ALL PASS (24/24)
 - Evidence: `.omo/evidence/task-23-f-regression.txt`, `.omo/evidence/task-23-fpu-unit-test.txt`
 - Learnings: `.omo/notepads/d-extension-fpu-refactor/learnings.md`
+
+## Task 26 — 64-bit FP Register Writeback (2026-06-30)
+
+**Goal**: Support 64-bit FP register writeback for D extension. F results
+NaN-boxed, D results direct 64-bit, FLD 64-bit direct, FLW NaN-boxed.
+
+**Approach**: Added a parallel 64-bit datapath alongside the 32-bit wb_bus_t,
+avoiding bus struct changes that would break cpu_mem.sv (Task 25 boundary).
+
+**Files modified**:
+- `dev/rtl/core/cpu_execute.sv` — Added `fpu_result_64[63:0]` output port +
+  `fpu_result_64_reg` register. Latches full 64-bit fpu_result when
+  fpu_result_valid. Cleared on reset and flush.
+- `dev/rtl/core/core_top.sv` — Added `exe_fpu_result_64` wire +
+  `fp_wdata_64_wb` pipeline register (aligned with mem_wb_bus_r in the same
+  always_ff). Connected cpu_execute.fpu_result_64 → cpu_wb.fpu_result_64.
+- `dev/rtl/core/cpu_wb.sv` — Added `fpu_result_64[63:0]` input port. Updated
+  fp_wdata mux: FPU compute uses 64-bit fpu_result_64 (F NaN-boxed by
+  fpu_unit, D direct); FLW uses {32'hFFFFFFFF, actual_wb_data[31:0]}.
+
+**Key decisions**:
+- Did NOT widen wb_bus_t (would break cpu_mem.sv assignment pattern).
+- FPU compute ops use exe_to_wb bypass; 64-bit result latched in
+  fp_wdata_64_wb at same edge as mem_wb_bus_r.
+- FLD placeholder: not yet functional (Tasks 24/25 pending). cpu_wb logic
+  prepared for future 64-bit FLD data path.
+- rd_is_int path (FEQ.D, FCLASS.D, FCVT.W.D) unchanged — uses 32-bit bus.
+
+**Verification**:
+- `python3 tools/run_regression.py --category isa_f` — ALL PASS (3/3):
+  isa_f_ext, isa_f_ext_special, isa_f_f0_writable
+- Evidence: `.omo/evidence/task-26-f-regression.txt`
+- Learnings: `.omo/notepads/d-extension-fpu-refactor/learnings.md`
+
+### Task 25: FLD/FSD Two-Transaction Load/Store (cpu_mem.sv)
+
+**What changed**:
+- `dev/rtl/core/cpu_mem.sv` — Widened `mem_state` 3→4 bit. Added 4 FSM states:
+  MEM_FLD_LO(6), MEM_FLD_HI(7), MEM_FSD_LO(8), MEM_FSD_HI(9). FLD: two 32-bit
+  reads combined to 64-bit `{high, low}` in `fld_result_reg`, atomic writeback
+  (only after both words read). FSD: two 32-bit writes from `frs2_value[63:0]`.
+  8-byte alignment check (`addr[2:0]!=000`). `mem_en` stays 1 across both
+  transactions (MMU auto-retranslates). Each transaction uses AXI_SIZE_WORD.
+- `dev/rtl/core/core_bus_types.svh` — Added `is_fld`, `is_fsd`, `fp_wdata64[63:0]`
+  to `wb_bus_t` for 64-bit FLD result passing to cpu_wb.
+- `dev/rtl/core/core_top.sv` — Updated `exe_wb_bus` assign for new wb_bus_t fields.
+- `dev/rtl/core/cpu_csr_interface.sv` — Updated `csr_wb_bus` assign for new fields.
+
+**Key decisions**:
+- Local inst-based decode for is_fld/is_fsd in cpu_mem.sv (fallback if Task 24
+  bus type fields absent; produces identical results to pipeline decode).
+- FLD partial result discarded on trap (trap_enter → MEM_IDLE, no wb_data set).
+- FSD partial write irreversible on trap (spec-compliant for RV32, XLEN<64).
+- Second transaction addr: `{addr_reg[31:2], 2'b00} + 32'd4` (defensive alignment).
+
+**Verification**:
+- `python3 tools/run_regression.py --category isa_f` — ALL PASS (3/3):
+  isa_f_ext, isa_f_ext_special, isa_f_f0_writable
+- Evidence: `.omo/evidence/task-25-f-regression.txt`
+- Learnings: `.omo/notepads/d-extension-fpu-refactor/learnings.md`
+
+## Task 24: D Extension Decode (cpu_decode.sv)
+- Added FLD/FSD decode (opcode=LOAD-FP/STORE-FP, funct3=011) to cpu_decode.sv
+- Added D OP-FP instruction decode (fmt=01, funct7 with bit 0 set): FADD.D/FSUB.D/FMUL.D/FDIV.D/FSQRT.D/FMIN.D/FMAX.D/FSGNJ[N/X].D/FEQ.D/FLT.D/FLE.D/FCLASS.D/FCVT.W[D].D/FCVT.D.W[U]/FCVT.S.D/FCVT.D.S
+- Extended fpu_funct mapping to localparams 24-45 (matching fpu_unit.sv)
+- Added is_fld/is_fsd to exe_mem_bus_t in core_bus_types.svh
+- Extended id_exe_bus from 349 to 351 bits (new fields at MSB end to preserve cpu_csr_interface.sv hardcoded bit positions)
+- Updated cpu_execute.sv, core_top.sv, cpu_csr_interface.sv, cpu_trap_csr.sv for new bus width
+- Extended fpu_rd_is_int, valid_inst, wb_we, alu_src2, alu_control for FLD/FSD
+- Verification: python tools/run_regression.py --category isa_f — ALL 3 PASS

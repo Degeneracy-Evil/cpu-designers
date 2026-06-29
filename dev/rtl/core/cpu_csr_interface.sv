@@ -5,7 +5,7 @@ module cpu_csr_interface(
     input         clk,
     input         resetn,
 
-    input  [348:0] id_exe_bus_r,
+    input  [350:0] id_exe_bus_r,
     input  [11:0]  dec_csr_addr,
     input          csr_valid,
 
@@ -145,7 +145,10 @@ module cpu_csr_interface(
         fpu_fflags:    5'b0,
         is_amo:        1'b0,
         is_lr:         1'b0,
-        is_sc:         1'b0
+        is_sc:         1'b0,
+        is_fld:        1'b0,
+        is_fsd:        1'b0,
+        fp_wdata64:    64'b0
     };
 
     wire [31:0] csr_mscratch;

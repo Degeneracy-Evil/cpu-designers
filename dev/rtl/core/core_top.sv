@@ -279,12 +279,12 @@ module core_top(
     wire [31:0] exe_misalign_target;
 
     wire [95:0]  if_id_bus;
-    wire [348:0] id_exe_bus;
+    wire [350:0] id_exe_bus;
     exe_mem_bus_t exe_mem_bus;
     wb_bus_t      mem_wb_bus;
 
     reg [95:0]  if_id_bus_r;
-    reg [348:0] id_exe_bus_r;
+    reg [350:0] id_exe_bus_r;
     exe_mem_bus_t exe_mem_bus_r;
     wb_bus_t      mem_wb_bus_r;
 
@@ -442,7 +442,10 @@ module core_top(
         fpu_fflags:    exe_mem_bus.fpu_fflags,
         is_amo:        exe_mem_bus.is_amo,
         is_lr:         exe_mem_bus.is_lr,
-        is_sc:         exe_mem_bus.is_sc
+        is_sc:         exe_mem_bus.is_sc,
+        is_fld:        exe_mem_bus.is_fld,
+        is_fsd:        exe_mem_bus.is_fsd,
+        fp_wdata64:    64'b0
     };
 
     wire mem_misalign_load;
@@ -627,7 +630,7 @@ module core_top(
             pc <= 32'hFC000000;  // Boot ROM @ 0xFC00_0000 (both sim and FPGA)
             priv_mode <= PRIV_M;
             if_id_bus_r <= 96'b0;
-            id_exe_bus_r <= 349'b0;
+            id_exe_bus_r <= 351'b0;
             exe_mem_bus_r <= '0;
             mem_wb_bus_r <= '0;
         end else begin
@@ -650,12 +653,12 @@ module core_top(
 
             if (trap_enter_valid) begin
                 if_id_bus_r <= 96'b0;
-                id_exe_bus_r <= 349'b0;
+                id_exe_bus_r <= 351'b0;
                 pc <= trap_csr_pc;
                 priv_mode <= target_priv;
             end else if (trap_return_valid) begin
                 if_id_bus_r <= 96'b0;
-                id_exe_bus_r <= 349'b0;
+                id_exe_bus_r <= 351'b0;
                 pc <= trap_csr_pc;
                 if (priv_mode == PRIV_M) begin
                     priv_mode <= mpp_field;
@@ -665,7 +668,7 @@ module core_top(
             end else if (exe_valid && exe_done) begin
                 if (exe_is_ctrl_flow && exe_branch_taken) begin
                     if_id_bus_r <= 96'b0;
-                    id_exe_bus_r <= 349'b0;
+                    id_exe_bus_r <= 351'b0;
                     pc <= exe_branch_target;
                 end else begin
                     pc <= exe_pc_plus4;

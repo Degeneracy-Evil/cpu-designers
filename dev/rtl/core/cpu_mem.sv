@@ -69,12 +69,17 @@ module cpu_mem(
     //
     // trap_enter forces MEM_IDLE from any state (clears LR reservation, drops
     // stale dcache requests that never set cpu_req_ready).
-    localparam MEM_IDLE      = 3'd0;
-    localparam MEM_READ      = 3'd1;
-    localparam MEM_WRITE     = 3'd2;
-    localparam MEM_AMO_READ  = 3'd3;   // A extension: AMO/LR/SC read phase
-    localparam MEM_AMO_WRITE = 3'd4;   // A extension: AMO/SC write phase
-    localparam MEM_AMO_FENCE = 3'd5;   // Ordered AMO/LR/SC completion bubble
+    localparam MEM_IDLE      = 4'd0;
+    localparam MEM_READ      = 4'd1;
+    localparam MEM_WRITE     = 4'd2;
+    localparam MEM_AMO_READ  = 4'd3;   // A extension: AMO/LR/SC read phase
+    localparam MEM_AMO_WRITE = 4'd4;   // A extension: AMO/SC write phase
+    localparam MEM_AMO_FENCE = 4'd5;   // Ordered AMO/LR/SC completion bubble
+    // D extension: FLD/FSD two-transaction 64-bit load/store (Task 25)
+    localparam MEM_FLD_LO    = 4'd6;   // FLD low word read (addr)
+    localparam MEM_FLD_HI    = 4'd7;   // FLD high word read (addr+4), combine
+    localparam MEM_FSD_LO    = 4'd8;   // FSD low word write (addr)
+    localparam MEM_FSD_HI    = 4'd9;   // FSD high word write (addr+4)
 
     wire valid_inst;
     wire is_jal_like;
@@ -94,6 +99,8 @@ module cpu_mem(
     wire        is_fpu;
     wire        is_flw;
     wire        is_fsw;
+    wire        is_fld;   // D extension: FLD (double-precision FP load)
+    wire        is_fsd;   // D extension: FSD (double-precision FP store)
     wire        fpu_rd_is_int;
     wire [4:0]  fpu_fflags;
     // A extension signals
@@ -123,6 +130,11 @@ module cpu_mem(
     assign is_flw        = exe_mem_bus_r.is_flw;
     assign is_fsw        = exe_mem_bus_r.is_fsw;
     assign fpu_rd_is_int = exe_mem_bus_r.fpu_rd_is_int;
+    // D extension: FLD/FSD decoded locally from inst (Task 24 may add to bus later)
+    //   FLD: opcode=LOAD-FP (0000111), funct3=011 (double-precision width)
+    //   FSD: opcode=STORE-FP (0100111), funct3=011 (double-precision width)
+    assign is_fld        = (inst[6:0] == 7'b0000111) && (inst[14:12] == 3'b011);
+    assign is_fsd        = (inst[6:0] == 7'b0100111) && (inst[14:12] == 3'b011);
     assign fpu_fflags    = exe_mem_bus_r.fpu_fflags;
     assign is_amo        = exe_mem_bus_r.is_amo;
     assign is_lr         = exe_mem_bus_r.is_lr;
@@ -131,7 +143,7 @@ module cpu_mem(
     assign amo_aq        = exe_mem_bus_r.amo_aq;
     assign amo_rl        = exe_mem_bus_r.amo_rl;
 
-    reg [2:0] mem_state;
+    reg [3:0] mem_state;
     reg [31:0] addr_reg;
     reg [2:0] mem_size_reg;
     reg mem_unsigned_reg;
@@ -146,6 +158,10 @@ module cpu_mem(
     reg [31:0] dataAddr_32_reg;
     reg [31:0] writeData_32_reg;
     reg        mem_en_reg;
+
+    // ── D extension: FLD low word temporary storage ──
+    reg [31:0] fld_lo_reg;     // FLD low word (read from addr) latched before high word read
+    reg [63:0] fld_result_reg; // FLD combined 64-bit result {high_word, low_word}
 
     // ── A extension: Reservation Set ──
     reg [31:0] lr_reservation_addr;
@@ -182,11 +198,12 @@ module cpu_mem(
 
     wire misalign_addr;
     assign misalign_addr = (mem_size == 3'b001 && alu_result[0]) ||
-           (mem_size == 3'b010 && alu_result[1:0] != 2'b00);
+           (mem_size == 3'b010 && alu_result[1:0] != 2'b00) ||
+           ((is_fld || is_fsd) && (alu_result[2:0] != 3'b000));
     wire misalign_load;
     wire misalign_store;
-    assign misalign_load  = (is_load | is_flw)  && misalign_addr;
-    assign misalign_store = (is_store | is_fsw) && misalign_addr;
+    assign misalign_load  = (is_load | is_flw | is_fld)  && misalign_addr;
+    assign misalign_store = (is_store | is_fsw | is_fsd) && misalign_addr;
 
     // ── A extension: AMO misalign detection ──
     // LR.W/SC.W/AMO require word-aligned address (addr[1:0]==00)
@@ -244,6 +261,9 @@ module cpu_mem(
             is_sc_reg <= 1'b0;
             is_amo_op_reg <= 1'b0;
             amo_ordered_reg <= 1'b0;
+            // D extension reset
+            fld_lo_reg <= 32'b0;
+            fld_result_reg <= 64'b0;
         end
         else begin
             done_reg <= 1'b0;
@@ -307,7 +327,7 @@ module cpu_mem(
                             end
                         end
                         // ── Original non-AMO path ──
-                        else if (!valid_inst || (!is_load && !is_store && !is_flw && !is_fsw)) begin
+                        else if (!valid_inst || (!is_load && !is_store && !is_flw && !is_fsw && !is_fld && !is_fsd)) begin
                             wb_data_reg <= alu_result;
                             hwrite_reg <= 1'b0;
                             hsize_reg <= `AXI_SIZE_WORD;
@@ -319,6 +339,24 @@ module cpu_mem(
                             hwrite_reg <= 1'b0;
                             hsize_reg <= `AXI_SIZE_WORD;
                             done_reg <= 1'b1;
+                        end
+                        // ── D extension: FLD two-transaction load ──
+                        else if (is_fld) begin
+                            dataAddr_32_reg <= alu_result;
+                            hwrite_reg <= 1'b0;
+                            hsize_reg <= `AXI_SIZE_WORD;
+                            writeData_32_reg <= 32'b0;
+                            mem_en_reg <= 1'b1;
+                            mem_state <= MEM_FLD_LO;
+                        end
+                        // ── D extension: FSD two-transaction store ──
+                        else if (is_fsd) begin
+                            dataAddr_32_reg <= alu_result;
+                            hwrite_reg <= 1'b1;
+                            hsize_reg <= `AXI_SIZE_WORD;
+                            writeData_32_reg <= frs2_value[31:0];
+                            mem_en_reg <= 1'b1;
+                            mem_state <= MEM_FSD_LO;
                         end
                         else if (is_load || is_flw) begin
                             dataAddr_32_reg <= alu_result;
@@ -482,6 +520,68 @@ module cpu_mem(
                     mem_state <= MEM_IDLE;
                 end
 
+                // ── D extension: FLD low word read (first transaction) ──
+                // Read 32-bit word at addr. On data_valid, latch into fld_lo_reg,
+                // advance addr to addr+4, keep mem_en=1 (MMU auto-retranslates).
+                MEM_FLD_LO: begin
+                    if (data_valid) begin
+                        fld_lo_reg <= readData_32;
+                        dataAddr_32_reg <= {addr_reg[31:2], 2'b00} + 32'd4;
+                        // mem_en stays 1 — do not pulse off (MMU retranslates new addr)
+                        mem_state <= MEM_FLD_HI;
+                    end
+                end
+
+                // ── D extension: FLD high word read (second transaction) ──
+                // Read 32-bit word at addr+4. On data_valid, combine with
+                // fld_lo_reg into 64-bit result. Only set done/wb_data here
+                // (atomic writeback — prevents partial FP regfile write on trap).
+                MEM_FLD_HI: begin
+                    if (data_valid) begin
+                        fld_result_reg <= {readData_32, fld_lo_reg};
+                        wb_data_reg <= readData_32;  // lower 32 bits in wb_data (compat)
+                        wb_we_reg <= 1'b1;
+                        done_reg <= 1'b1;
+                        mem_en_reg <= 1'b0;
+                        hwrite_reg <= 1'b0;
+                        hsize_reg <= `AXI_SIZE_WORD;
+                        mem_state <= MEM_IDLE;
+                    end
+                end
+
+                // ── D extension: FSD low word write (first transaction) ──
+                // Write 32-bit word (frs2_value[31:0]) at addr. On data_valid,
+                // advance addr to addr+4, set up high word write. Keep mem_en=1.
+                // Note: partial write after first word is irreversible on trap
+                // (spec-compliant for RV32 — XLEN<64 does not guarantee atomicity).
+                MEM_FSD_LO: begin
+                    if (data_valid) begin
+                        dataAddr_32_reg <= {addr_reg[31:2], 2'b00} + 32'd4;
+                        writeData_32_reg <= frs2_value[63:32];
+                        hwrite_reg <= 1'b1;
+                        hsize_reg <= `AXI_SIZE_WORD;
+                        // mem_en stays 1 — MMU retranslates new addr
+                        mem_state <= MEM_FSD_HI;
+                    end
+                end
+
+                // ── D extension: FSD high word write (second transaction) ──
+                // Write 32-bit word (frs2_value[63:32]) at addr+4. On data_valid,
+                // complete. FSD does not write back to any register.
+                MEM_FSD_HI: begin
+                    if (data_valid) begin
+                        done_reg <= 1'b1;
+                        wb_we_reg <= 1'b0;
+                        wb_data_reg <= 32'b0;
+                        hwrite_reg <= 1'b0;
+                        hsize_reg <= `AXI_SIZE_WORD;
+                        mem_en_reg <= 1'b0;
+                        mem_state <= MEM_IDLE;
+                        // Any store invalidates LR reservation
+                        lr_reservation_valid <= 1'b0;
+                    end
+                end
+
                 default: begin
                     mem_state <= MEM_IDLE;
                 end
@@ -513,17 +613,21 @@ module cpu_mem(
         fpu_fflags:    fpu_fflags,
         is_amo:        is_amo,
         is_lr:         is_lr,
-        is_sc:         is_sc
+        is_sc:         is_sc,
+        is_fld:        is_fld,
+        is_fsd:        is_fsd,
+        fp_wdata64:    fld_result_reg
     };
     assign mem_pc = pc;
     assign mem_inst = inst;
 
     // LR.W misalign is a Load-type misalign (exception code 4)
     // SC.W/AMO misalign is a Store/AMO-type misalign (exception code 6)
-    assign mem_misalign_load  = (is_load | is_flw | is_lr)  && misalign_addr;
-    assign mem_misalign_store = (is_store | is_fsw | is_sc | (is_amo & ~is_lr)) && misalign_addr;
+    // FLD misalign is Load-type (exception code 4); FSD misalign is Store-type (exception code 6)
+    assign mem_misalign_load  = (is_load | is_flw | is_lr | is_fld)  && misalign_addr;
+    assign mem_misalign_store = (is_store | is_fsw | is_sc | (is_amo & ~is_lr) | is_fsd) && misalign_addr;
     assign mem_misalign_addr  = alu_result;
-    assign mem_data_access    = is_load || is_store || is_flw || is_fsw || is_amo;
+    assign mem_data_access    = is_load || is_store || is_flw || is_fsw || is_amo || is_fld || is_fsd;
     assign dbg_load_mem_size     = mem_size_reg;
     assign dbg_load_mem_unsigned = mem_unsigned_reg;
     assign dbg_load_addr         = addr_reg;

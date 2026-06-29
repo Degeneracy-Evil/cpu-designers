@@ -5,8 +5,8 @@
 // self-documenting and immune to silent breakage when fields are reordered.
 //
 // Size verification:
-//   exe_mem_bus_t : 32+1+1+1+1+1+1+5+32+3+1+32+32+32+32+1+1+1+1+5 + 1+1+1+5+1+1 = 226
-//   wb_bus_t      : 32+1+1+1+5+32+32+32+32+1+1+1+1+5 + 1+1+1 = 180
+//   exe_mem_bus_t : 32+1+1+1+1+1+1+5+32+3+1+32+32+32+32+1+1+1+1+5 + 1+1+1+5+1+1 + 1+1 = 228
+//   wb_bus_t      : 32+1+1+1+5+32+32+32+32+1+1+1+1+5 + 1+1+1 + 1+1+64 = 246
 // =============================================================================
 
 `ifndef CORE_BUS_TYPES_SVH
@@ -32,6 +32,10 @@ typedef struct packed {
     logic        is_amo;    // AMO instruction (including LR/SC)
     logic        is_lr;     // LR.W
     logic        is_sc;     // SC.W
+    // --- D extension (FLD/FSD 64-bit load/store — Task 25) ---
+    logic        is_fld;    // FLD (double-precision FP load)
+    logic        is_fsd;    // FSD (double-precision FP store)
+    logic [63:0] fp_wdata64;// 64-bit FP writeback data (FLD result; D arithmetic via Task 26)
 } wb_bus_t;
 
 // EXE→MEM bus struct
@@ -63,6 +67,9 @@ typedef struct packed {
     logic [4:0]  amo_funct5;  // AMO operation code (inst[31:27])
     logic        amo_aq;      // acquire ordering bit
     logic        amo_rl;      // release ordering bit
+    // --- D extension ---
+    logic        is_fld;      // FLD (double-precision FP load)
+    logic        is_fsd;      // FSD (double-precision FP store)
 } exe_mem_bus_t;
 
 `endif // CORE_BUS_TYPES_SVH

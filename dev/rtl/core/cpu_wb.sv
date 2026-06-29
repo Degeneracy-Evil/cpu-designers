@@ -63,7 +63,7 @@ module cpu_wb(
     wire fpu_writes_int = is_fpu && fpu_rd_is_int;
     wire fpu_writes_fp  = is_fpu && !fpu_rd_is_int;
 
-    assign rf_wen = wb_valid && wb_we && (fpu_writes_int || (!is_fpu && !is_flw));
+    assign rf_wen = wb_valid && wb_we && (fpu_writes_int || (!is_fpu && !is_flw && !is_fld));
     assign rf_waddr = wb_rd;
     assign rf_wdata = actual_wb_data;
     assign wb_done = wb_valid;

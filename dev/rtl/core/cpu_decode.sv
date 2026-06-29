@@ -456,7 +456,7 @@ wire inst_amomaxu  = (opcode == OPCODE_AMO) && (funct3 == 3'b010) && (funct5 == 
            rs2_value;
 
   wire [15:0] alu_control;
-   assign alu_control = inst_lui ? 16'b0000_0000_0000_0010 :
+  assign alu_control = inst_lui ? 16'b0000_0000_0000_0010 :
           (inst_add | inst_addi | inst_auipc | is_load | is_store | inst_jal | inst_jalr | is_branch | is_flw | is_fsw | is_fld | is_fsd | is_amo) ? 16'b0001_0000_0000_0000 :
          inst_sub ? 16'b0000_1000_0000_0000 :
          (inst_slt | inst_slti) ? 16'b0000_0100_0000_0000 :

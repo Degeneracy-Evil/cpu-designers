@@ -213,33 +213,6 @@ module cpu_execute(
                           (fpu_funct == 7'd40) ||  // FCVT.D.W
                           (fpu_funct == 7'd41);    // FCVT.D.WU
 
-    // D operation? (fpu_funct 24..43 are D arithmetic ops; 44/45 are FLD/FSD
-    // handled by LSU and never reach the FPU). D ops need NaN-box-checked
-    // operands; F ops read the raw lower 32 bits regardless of upper bits.
-    wire fpu_is_d_op = (fpu_funct >= 7'd24) && (fpu_funct <= 7'd43);
-
-    // ===================================================================
-    // NaN-box check for D operations (Task 13 wiring — Task 23 dispatch)
-    //   Per RISC-V NaN-boxing spec (IS §22): when a D operation reads a
-    //   64-bit FP register, the upper 32 bits must be all 1s. If not, the
-    //   value is not a valid NaN-boxed float and is treated as a canonical
-    //   NaN (F=0x7fc00000, D=0x7ff8000000000000).
-    //   F operations always read the lower 32 bits regardless of upper
-    //   bits, so the F path is unaffected.
-    // ===================================================================
-    wire nanobox_valid_src1 = (frs1_value[63:32] == 32'hFFFFFFFF);
-    wire nanobox_valid_src2 = (frs2_value[63:32] == 32'hFFFFFFFF);
-    wire nanobox_valid_src3 = (frs3_value[63:32] == 32'hFFFFFFFF);
-    // Canonical NaN-boxed values: upper=0xFFFFFFFF, lower=canonical NaN
-    //   F canonical NaN: 0x7fc00000
-    //   D canonical NaN: 0x7ff8000000000000 (NaN-boxed: 0xFFFFFFFF7ff80000)
-    wire [63:0] src1_d_checked = nanobox_valid_src1 ? frs1_value :
-                                                     {32'hFFFFFFFF, 32'h7fc00000};
-    wire [63:0] src2_d_checked = nanobox_valid_src2 ? frs2_value :
-                                                     {32'hFFFFFFFF, 32'h7fc00000};
-    wire [63:0] src3_d_checked = nanobox_valid_src3 ? frs3_value :
-                                                     {32'hFFFFFFFF, 32'h7fc00000};
-
     // src1 mux:
     //   int→float ops: integer rs1 zero-extended to 64 bits
     //   D ops: raw 64-bit FP register value (NO NaN-box check — D values use

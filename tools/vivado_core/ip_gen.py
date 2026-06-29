@@ -329,15 +329,21 @@ def generate_clkwiz_create_ip_tcl(cfg: ClkWizIpConfig, ip_dir: str) -> str:
     causes the IP to auto-compute NUM_OUT_CLKS = 2.
     """
     # Build CLKOUT_USED + frequency entries for each output clock
+    # Explicitly set MMCM_CLKOUTx_DIVIDE to avoid Vivado auto-calculation
+    # bugs where the divide value doesn't match the requested frequency.
+    vco = cfg.prim_in_freq * cfg.mmcm_clkfbout_mult_f / cfg.mmcm_divclk_divide
     clkout_props: list[str] = []
     clkout_props.append(f"CONFIG.CLKOUT1_USED {{true}}")
     clkout_props.append(f"CONFIG.CLKOUT1_REQUESTED_OUT_FREQ {{{cfg.clk_out1_freq:.3f}}}")
+    clkout_props.append(f"CONFIG.MMCM_CLKOUT1_DIVIDE {{{int(round(vco / cfg.clk_out1_freq))}}}")
     if cfg.num_out_clks >= 2:
         clkout_props.append(f"CONFIG.CLKOUT2_USED {{true}}")
         clkout_props.append(f"CONFIG.CLKOUT2_REQUESTED_OUT_FREQ {{{cfg.clk_out2_freq:.3f}}}")
+        clkout_props.append(f"CONFIG.MMCM_CLKOUT2_DIVIDE {{{int(round(vco / cfg.clk_out2_freq))}}}")
     if cfg.num_out_clks >= 3:
         clkout_props.append(f"CONFIG.CLKOUT3_USED {{true}}")
         clkout_props.append(f"CONFIG.CLKOUT3_REQUESTED_OUT_FREQ {{{cfg.clk_out3_freq:.3f}}}")
+        clkout_props.append(f"CONFIG.MMCM_CLKOUT3_DIVIDE {{{int(round(vco / cfg.clk_out3_freq))}}}")
     clkout_str = " \\\n    ".join(clkout_props)
 
     return f"""\

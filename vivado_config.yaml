@@ -89,7 +89,7 @@ memory:
     mmcm_clkfbout_mult_f: 10.0   # VCO = 1000MHz
     mmcm_divclk_divide: 1
     num_out_clks: 3
-    clk_out1_freq: 50.0          # MHz, cpu_clk (CPU core — must meet timing)
+    clk_out1_freq: 50.0          # MHz, cpu_clk (CPU core)
     clk_out2_freq: 100.0         # MHz, sys_clk (AXI interconnect + MIG sys_clk_i)
     clk_out3_freq: 200.0         # MHz, ddr_clk_ref → MIG clk_ref_i
     reset_type: ACTIVE_LOW

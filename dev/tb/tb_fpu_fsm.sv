@@ -57,13 +57,13 @@ module tb_fpu_fsm;
     // ===================================================================
     reg  [6:0]  fpu_funct;
     reg  [2:0]  fpu_rm;
-    reg  [31:0] src1;
-    reg  [31:0] src2;
-    reg  [31:0] src3;
+    reg  [63:0] src1;
+    reg  [63:0] src2;
+    reg  [63:0] src3;
     reg         req_valid;
     reg         flush;
     reg         result_got;
-    wire [31:0] result;
+    wire [63:0] result;
     wire        fpu_busy;
     wire        fpu_ready;
     wire        result_valid;
@@ -111,9 +111,9 @@ module tb_fpu_fsm;
         result_got = 1'b0;
         fpu_funct  = 7'b0;
         fpu_rm     = RNE;
-        src1       = 32'b0;
-        src2       = 32'b0;
-        src3       = 32'b0;
+        src1       = 64'b0;
+        src2       = 64'b0;
+        src3       = 64'b0;
     end
     endtask
 
@@ -141,9 +141,9 @@ module tb_fpu_fsm;
     begin
         fpu_funct = t_funct;
         fpu_rm    = RNE;
-        src1      = t_src1;
-        src2      = t_src2;
-        src3      = 32'b0;
+        src1      = {32'hFFFFFFFF, t_src1};
+        src2      = {32'hFFFFFFFF, t_src2};
+        src3      = 64'b0;
         req_valid = 1'b1;
         @(posedge clk);
         @(posedge clk);
@@ -202,8 +202,8 @@ module tb_fpu_fsm;
 
         // Assert a second request while busy
         fpu_funct = FPU_FADD;
-        src1      = ONE;
-        src2      = TWO;
+        src1      = {32'hFFFFFFFF, ONE};
+        src2      = {32'hFFFFFFFF, TWO};
         req_valid = 1'b1;
         @(posedge clk);
         @(posedge clk);
@@ -222,7 +222,7 @@ module tb_fpu_fsm;
         if (timeout >= 500) begin
             check(1'b0, "FDIV completed (no timeout)");
         end else begin
-            check(result === ONE_DOT_FIVE && fflags === F_NONE,
+            check(result === {32'hFFFFFFFF, ONE_DOT_FIVE} && fflags === F_NONE,
                   "FDIV result correct after reentrancy attempt");
         end
 
@@ -442,14 +442,14 @@ module tb_fpu_fsm;
             return;
         end
 
-        check(result === THREE, "B2B op A: FADD 1.0+2.0=3.0");
+        check(result === {32'hFFFFFFFF, THREE}, "B2B op A: FADD 1.0+2.0=3.0");
 
         // Acknowledge and immediately issue next request (back-to-back)
         fpu_funct = FPU_FMUL;
         fpu_rm    = RNE;
-        src1      = ONE_DOT_FIVE;
-        src2      = TWO;
-        src3      = 32'b0;
+        src1      = {32'hFFFFFFFF, ONE_DOT_FIVE};
+        src2      = {32'hFFFFFFFF, TWO};
+        src3      = 64'b0;
         result_got = 1'b1;
         req_valid  = 1'b1;
         @(posedge clk);
@@ -471,7 +471,7 @@ module tb_fpu_fsm;
         end
 
         // FMUL 1.5 * 2.0 = 3.0
-        check(result === THREE, "B2B op B: FMUL 1.5*2.0=3.0");
+        check(result === {32'hFFFFFFFF, THREE}, "B2B op B: FMUL 1.5*2.0=3.0");
 
         ack_result;
         @(posedge clk);

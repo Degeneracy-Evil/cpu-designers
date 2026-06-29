@@ -43,6 +43,11 @@ module cpu_controller(
     output       sfence_vma_req,
     input        sfence_vma_done,
 
+    // Done handshake inputs (1-cycle delayed valid strobes)
+    input        csr_done,
+    input        trap_enter_done,
+    input        trap_return_done,
+
     output [3:0] state
 );
     localparam STATE_IDLE       = 4'd0;
@@ -133,7 +138,7 @@ module cpu_controller(
                     end
                 end
                 STATE_CSR_ACCESS: begin
-                    next_state = STATE_WB;
+                    next_state = csr_done ? STATE_WB : STATE_CSR_ACCESS;
                 end
                 STATE_TRAP_ENTER: begin
                     next_state = STATE_FETCH;
@@ -169,7 +174,7 @@ module cpu_controller(
     assign exe_valid        = (state_r == STATE_EXEC) && !init_sig;
     assign mem_valid        = (state_r == STATE_MEM) && !init_sig;
     assign wb_valid         = (state_r == STATE_WB) && !init_sig;
-    assign csr_valid        = (state_r == STATE_CSR_ACCESS) && !init_sig;
+    assign csr_valid        = (state_r == STATE_CSR_ACCESS) && !init_sig && !csr_done;
     assign trap_enter_valid = (state_r == STATE_TRAP_ENTER) && !init_sig;
     assign trap_return_valid= (state_r == STATE_TRAP_RETURN) && !init_sig;
     assign exe_to_wb        = (state_r == STATE_EXEC) && exe_done && !exe_is_branch && !exe_need_mem && !init_sig;

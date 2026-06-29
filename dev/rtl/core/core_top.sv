@@ -226,13 +226,31 @@ module core_top(
     wire csr_valid;
     wire trap_enter_valid;
     wire trap_return_valid;
+    reg  csr_done;
+    reg  trap_enter_done;
+    reg  trap_return_done;
     wire exe_to_wb;
     wire [3:0] fsm_state;
-
     wire        fencei_req;
     wire        fencei_done;
     wire        sfence_vma_req;
     wire        sfence_vma_done;
+
+    // Done handshake: 1-cycle delayed copies of the valid strobes.
+    // The valid signals fire in cycle 1 (triggering CSR writes, icache flush,
+    // lr_reservation clear). The done signals fire in cycle 2 (triggering
+    // state transition in the controller).
+    always_ff @(posedge clk or negedge resetn) begin
+        if (!resetn) begin
+            csr_done         <= 1'b0;
+            trap_enter_done  <= 1'b0;
+            trap_return_done <= 1'b0;
+        end else begin
+            csr_done         <= csr_valid;
+            trap_enter_done  <= trap_enter_valid;
+            trap_return_done <= trap_return_valid;
+        end
+    end
 
     wire dec_is_branch;
     wire dec_need_exe;
@@ -626,7 +644,7 @@ module core_top(
                 mem_wb_bus_r <= exe_wb_bus;
             end else if (mem_done) begin
                 mem_wb_bus_r <= mem_wb_bus;
-            end else if (csr_valid) begin
+            end else if (csr_valid && !csr_done) begin
                 mem_wb_bus_r <= csr_wb_bus;
             end
 
@@ -652,7 +670,7 @@ module core_top(
                 end else begin
                     pc <= exe_pc_plus4;
                 end
-            end else if (csr_valid) begin
+            end else if (csr_valid && !csr_done) begin
                 pc <= csr_pc_plus4_out;
             end else if (id_valid && id_done && (dec_is_nop_like || dec_is_fencei || dec_is_sfence_vma)) begin
                 pc <= id_pc_plus4;
@@ -702,6 +720,9 @@ module core_top(
         .exe_to_wb(exe_to_wb),
         .fencei_req(fencei_req),
         .sfence_vma_req(sfence_vma_req),
+        .csr_done(csr_done),
+        .trap_enter_done(trap_enter_done),
+        .trap_return_done(trap_return_done),
         .state(fsm_state)
     );
 

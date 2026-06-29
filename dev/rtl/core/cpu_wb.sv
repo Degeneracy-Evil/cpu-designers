@@ -14,7 +14,7 @@ module cpu_wb(
     output     [31:0]  wb_inst,
     output             fp_wen,
     output     [4:0]   fp_waddr,
-    output     [31:0]  fp_wdata,
+    output     [63:0]  fp_wdata,
     output     [4:0]   wb_fflags
 );
 
@@ -64,9 +64,13 @@ module cpu_wb(
     assign wb_done = wb_valid;
 
     // Float register write: FPU compute results (rd_is_int=0) and FLW
+    // F operations and FLW produce 32-bit results; NaN-box them to 64-bit
+    // for the widened regfile (upper 32=0xFFFFFFFF) per RISC-V NaN-boxing
+    // spec (IS §22). This allows D operations to detect invalid F-in-D
+    // reads by checking the upper 32 bits (Task 23).
     assign fp_wen   = wb_valid && (fpu_writes_fp || is_flw);
     assign fp_waddr = wb_rd;
-    assign fp_wdata = actual_wb_data;
+    assign fp_wdata = {32'hFFFFFFFF, actual_wb_data[31:0]};
 
     // FPU exception flags for CSR accumulation
     assign wb_fflags = is_fpu ? fpu_fflags : 5'b0;

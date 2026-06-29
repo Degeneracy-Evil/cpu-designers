@@ -8,9 +8,9 @@ module cpu_execute(
     input      [348:0] id_exe_bus_r,
     input      [31:0]  csr_rdata,
     input      [2:0]   csr_frm,        // CSR frm for DYN rounding mode
-    input      [31:0]  frs1_value,     // float register rs1 value
-    input      [31:0]  frs2_value,     // float register rs2 value
-    input      [31:0]  frs3_value,     // float register rs3 value (FMA)
+    input      [63:0]  frs1_value,     // float register rs1 value (64-bit regfile, lower 32 used by F)
+    input      [63:0]  frs2_value,     // float register rs2 value (64-bit regfile, lower 32 used by F)
+    input      [63:0]  frs3_value,     // float register rs3 value (FMA, 64-bit regfile, lower 32 used by F)
     input              trap_pending,   // BUG-16: flush MU/FPU on pending trap
     output             exe_done,
     output     exe_mem_bus_t exe_mem_bus,
@@ -204,7 +204,32 @@ module cpu_execute(
     wire fpu_src_is_int = (fpu_funct == 7'd15) ||  // FMV.W.X
                           (fpu_funct == 7'd18) ||  // FCVT.S.W
                           (fpu_funct == 7'd19);    // FCVT.S.WU
-    wire [31:0] fpu_src1_mux = fpu_src_is_int ? rs1_value : frs1_value;
+    // fpu_unit.sv still has 32-bit src ports (updated in Task 23). Use lower
+    // 32 bits of the 64-bit regfile outputs for F operations.
+    wire [31:0] fpu_src1_mux = fpu_src_is_int ? rs1_value : frs1_value[31:0];
+
+    // ===================================================================
+    // NaN-box check for D operations (Task 13 wiring — Task 23 dispatch)
+    //   Per RISC-V NaN-boxing spec (IS §22): when a D operation reads a
+    //   64-bit FP register, the upper 32 bits must be all 1s. If not, the
+    //   value is not a valid NaN-boxed float and is treated as a canonical
+    //   NaN (F=0x7fc00000, D=0x7ff8000000000000).
+    //   These wires are NOT yet connected to the FPU (Task 23 will wire
+    //   them to D dispatch). F operations always read the lower 32 bits
+    //   regardless of upper bits, so the F path is unaffected.
+    // ===================================================================
+    wire nanobox_valid_src1 = (frs1_value[63:32] == 32'hFFFFFFFF);
+    wire nanobox_valid_src2 = (frs2_value[63:32] == 32'hFFFFFFFF);
+    wire nanobox_valid_src3 = (frs3_value[63:32] == 32'hFFFFFFFF);
+    // Canonical NaN-boxed values: upper=0xFFFFFFFF, lower=canonical NaN
+    //   F canonical NaN: 0x7fc00000
+    //   D canonical NaN: 0x7ff8000000000000 (NaN-boxed: 0xFFFFFFFF7ff80000)
+    wire [63:0] src1_d_checked = nanobox_valid_src1 ? frs1_value :
+                                                     {32'hFFFFFFFF, 32'h7fc00000};
+    wire [63:0] src2_d_checked = nanobox_valid_src2 ? frs2_value :
+                                                     {32'hFFFFFFFF, 32'h7fc00000};
+    wire [63:0] src3_d_checked = nanobox_valid_src3 ? frs3_value :
+                                                     {32'hFFFFFFFF, 32'h7fc00000};
 
     fpu_unit u_fpu(
         .clk(clk),
@@ -212,8 +237,8 @@ module cpu_execute(
         .fpu_funct(fpu_funct),
         .fpu_rm(fpu_rm_resolved),
         .src1(fpu_src1_mux),
-        .src2(frs2_value),
-        .src3(frs3_value),          // rs3 for FMA instructions
+        .src2(frs2_value[31:0]),
+        .src3(frs3_value[31:0]),          // rs3 for FMA instructions
         .req_valid(fpu_req_valid),
         .flush(exe_flush),
         .result_got(fpu_result_got),

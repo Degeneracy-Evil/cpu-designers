@@ -7,7 +7,7 @@ module cpu_mem(
         input              resetn,
         input              mem_valid,
         input      exe_mem_bus_t exe_mem_bus_r,
-        input      [31:0]  frs2_value,    // float register rs2 for FSW
+        input      [63:0]  frs2_value,    // float register rs2 for FSW (64-bit regfile, lower 32 used by FSW)
         input              trap_enter,    // trap entry: invalidate LR reservation
         output             mem_en,
         output             mem_hwrite,
@@ -340,10 +340,10 @@ module cpu_mem(
                             dataAddr_32_reg <= alu_result;
                             hwrite_reg <= 1'b1;
                             mem_en_reg <= 1'b1;
-                            // For FSW: use frs2_value as store data, always word size
+                            // For FSW: use lower 32 bits of frs2_value as store data, always word size
                             if (is_fsw) begin
                                 hsize_reg <= `AXI_SIZE_WORD;
-                                writeData_32_reg <= frs2_value;
+                                writeData_32_reg <= frs2_value[31:0];
                             end
                             else begin
                                 case (mem_size)

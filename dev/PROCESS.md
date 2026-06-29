@@ -304,3 +304,47 @@ RISC-V F-extension spec does NOT require f0=0 (unlike x0 in integer regfile).
   isa_f_ext_special, isa_f_f0_writable)
 - Evidence: `.omo/evidence/task-10-f0-writable.txt`, `.omo/evidence/task-10-f-regression.txt`
 - No regression in existing FPU tests (confirms Task 9: zero f0 dependencies)
+
+## Task 12 — Widen fpu_regfile to 64-bit storage (2026-06-30)
+
+Widened the FPU register file datapath from 32-bit to 64-bit as the foundation
+for D extension. The regfile now stores 64-bit raw values; NaN-boxing logic
+(Task 13) and D extension dispatch (Task 23) are separate.
+
+**Files modified**:
+- `dev/rtl/FPU/fpu_regfile.sv` — `rf[0:31]` 32→64-bit; `wdata`, `rdata1/2/3`,
+  `dbg_fdata` ports 32→64-bit; reset `64'b0`
+- `dev/rtl/core/core_top.sv` — wires `frs1/2/3_value`, `fp_wdata`,
+  `fp_dbg_data` widened 32→64-bit
+- `dev/rtl/core/cpu_execute.sv` — inputs `frs1/2/3_value` 64-bit; fpu_unit
+  connects via `[31:0]` (fpu_unit stays 32-bit until Task 23)
+- `dev/rtl/core/cpu_mem.sv` — input `frs2_value` 64-bit; FSW uses `[31:0]`
+- `dev/rtl/core/cpu_wb.sv` — output `fp_wdata` 64-bit; F results zero-extended
+  `{32'b0, result[31:0]}` (Task 13 will change to NaN-box)
+
+**Verification**:
+- `python3 tools/run_regression.py --category isa_f` — 3/3 PASS
+  (isa_f_ext, isa_f_ext_special, isa_f_f0_writable)
+- Evidence: `.omo/evidence/task-12-f-regression.txt`
+- Learnings: `.omo/notepads/d-extension-fpu-refactor/learnings.md`
+
+## Task 13 — NaN-boxing for F/D Coexistence (2026-06-30)
+
+Added NaN-boxing logic for F/D coexistence in the 64-bit register file. F
+operations and FLW now NaN-box their 32-bit results (upper 32 bits =
+0xFFFFFFFF) when writing to the 64-bit regfile. D operation read-side NaN-box
+check wires are added in cpu_execute.sv (not yet connected — Task 23 will wire
+them to D dispatch).
+
+**Files modified**:
+- `dev/rtl/core/cpu_wb.sv` — F result + FLW writeback changed from zero-extend
+  `{32'b0, ...}` to NaN-box `{32'hFFFFFFFF, actual_wb_data[31:0]}`
+- `dev/rtl/core/cpu_execute.sv` — added `nanobox_valid_src{1,2,3}` and
+  `src{1,2,3}_d_checked` wires (64-bit, canonical NaN fallback 0x7fc00000);
+  not yet connected to FPU (Task 23)
+
+**Verification**:
+- `python3 tools/run_regression.py --category isa_f` — 3/3 PASS
+  (isa_f_ext, isa_f_ext_special, isa_f_f0_writable)
+- Evidence: `.omo/evidence/task-13-nanbox-check.txt`
+- Learnings: `.omo/notepads/d-extension-fpu-refactor/learnings.md`

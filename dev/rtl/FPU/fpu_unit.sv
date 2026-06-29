@@ -47,6 +47,30 @@ module fpu_unit(
   localparam [6:0] FPU_FNMSUB    = 7'd22;
   localparam [6:0] FPU_FNMADD    = 7'd23;
 
+  // D extension operations (double-precision)
+  localparam [6:0] FPU_FADD_D      = 7'd24;
+  localparam [6:0] FPU_FSUB_D      = 7'd25;
+  localparam [6:0] FPU_FMUL_D      = 7'd26;
+  localparam [6:0] FPU_FDIV_D      = 7'd27;
+  localparam [6:0] FPU_FSQRT_D     = 7'd28;
+  localparam [6:0] FPU_FMIN_D      = 7'd29;
+  localparam [6:0] FPU_FMAX_D      = 7'd30;
+  localparam [6:0] FPU_FSGNJ_D     = 7'd31;
+  localparam [6:0] FPU_FSGNJN_D    = 7'd32;
+  localparam [6:0] FPU_FSGNJX_D    = 7'd33;
+  localparam [6:0] FPU_FEQ_D       = 7'd34;
+  localparam [6:0] FPU_FLT_D       = 7'd35;
+  localparam [6:0] FPU_FLE_D       = 7'd36;
+  localparam [6:0] FPU_FCLASS_D    = 7'd37;
+  localparam [6:0] FPU_FCVT_W_D    = 7'd38;
+  localparam [6:0] FPU_FCVT_WU_D   = 7'd39;
+  localparam [6:0] FPU_FCVT_D_W    = 7'd40;
+  localparam [6:0] FPU_FCVT_D_WU   = 7'd41;
+  localparam [6:0] FPU_FCVT_S_D    = 7'd42;
+  localparam [6:0] FPU_FCVT_D_S    = 7'd43;
+  localparam [6:0] FPU_FLD         = 7'd44;
+  localparam [6:0] FPU_FSD         = 7'd45;
+
   // ===================================================================
   // FSM state register (MMU-style explicit state enum)
   // ===================================================================

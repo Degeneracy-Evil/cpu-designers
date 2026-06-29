@@ -401,13 +401,13 @@ module core_top(
   wire [4:0]  frs1_addr;
   wire [4:0]  frs2_addr;
   wire [4:0]  frs3_addr;
-  wire [31:0] frs1_value;
-  wire [31:0] frs2_value;
-  wire [31:0] frs3_value;
+  wire [63:0] frs1_value;
+  wire [63:0] frs2_value;
+  wire [63:0] frs3_value;
     wire        fp_wen;
     wire [4:0]  fp_waddr;
-    wire [31:0] fp_wdata;
-    wire [31:0] fp_dbg_data;
+    wire [63:0] fp_wdata;
+    wire [63:0] fp_dbg_data;
 
     // FPU CSR signals
     wire [4:0]  wb_fflags;

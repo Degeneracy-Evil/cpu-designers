@@ -36,6 +36,8 @@ dtc -I dts -O dtb \
 # 内核基础配置生成
 cd $KERNEL_HOME
 
+make ARCH=riscv mrproper
+
 make ARCH=riscv \
   CROSS_COMPILE=riscv64-linux-gnu- \
   O="$KERNEL_BUILD" \
@@ -181,6 +183,11 @@ scripts/config --file "$KERNEL_BUILD/.config" \
   -d EFI \
   -d ACPI \
   -d RISCV_ISA_C
+
+scripts/config --file "$KERNEL_BUILD/.config" \
+  -e BLK_DEV_INITRD \
+  -e RD_GZIP \
+  --set-str INITRAMFS_SOURCE "${CPU_HOME}/kernel/initramfs-rv32.cpio.gz"
 
 # 自动补充生成内核配置
 make ARCH=riscv \

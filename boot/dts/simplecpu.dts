@@ -19,7 +19,7 @@
          * 没有 initramfs 时，kernel 能打印日志后 panic 也算阶段性成功。
          */
 
-        bootargs = "console=ttyS0,230400 earlycon=uart8250,mmio32,0x10008000,230400n8,100000000 ignore_loglevel loglevel=8 initcall_debug rdinit=/init";
+        bootargs = "console=ttyS0,230400 earlycon=uart8250,mmio32,0x10008000,230400n8,100000000 keep_bootcon ignore_loglevel loglevel=8 initcall_debug rdinit=/init";
 
     };
 
@@ -127,7 +127,9 @@
 
         /*
          * UART base = 0x1000_8000
-         * PLIC source ID = 2
+         * Linux earlycon is currently the reliable console path on FPGA.
+         * Keep this node conservative until the full 8250 IRQ/FIFO path is
+         * validated in RTL.
          *
          * 你们的 uart_16550a 使用 PADDR[4:2] 选择 8 个标准寄存器，
          * 即寄存器间隔 4 字节，所以需要 reg-shift = <2>。
@@ -142,10 +144,6 @@
             clock-frequency = <100000000>;
             current-speed = <230400>;
 
-            interrupt-parent = <&plic>;
-            interrupts = <2>;
-
-            fifo-size = <16>;
             status = "okay";
         };
 

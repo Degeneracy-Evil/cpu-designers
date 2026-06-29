@@ -67,6 +67,7 @@ categories:
     tests:
       - isa/d_smoke
       - isa/d_ext
+      - isa/d_ext_special
 
   exception:
     framework: common

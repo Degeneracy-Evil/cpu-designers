@@ -66,6 +66,7 @@ categories:
     abi: ilp32d
     tests:
       - isa/d_smoke
+      - isa/d_ext
 
   exception:
     framework: common

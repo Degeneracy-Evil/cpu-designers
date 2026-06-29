@@ -172,8 +172,10 @@ module axi4lite_plic #(
     // Stage 1 registered priority matrix:
     //   r_prio_pe[ci][j] = r_prio[j] if (r_pending[j] && r_enable[ci][j]), else 0
     // Pre-computed every cycle to break the r_enable -> find_highest -> r_highest_id
-    // combinational path (21 logic levels). Adds 1 cycle of latency to interrupt
-    // delivery (r_pending -> r_prio_pe -> r_highest_id -> o_eip = 4 cycles).
+    // combinational path. The priority encoder is split into 2 half-range stages
+    // (Stage 1: find best in each half, Stage 2: compare the two half-winners),
+    // adding 2 pipeline registers total. Interrupt latency: r_pending ->
+    // r_prio_pe -> r_best_lower/upper -> r_highest_id -> o_eip = 5 cycles.
     reg  [31:0] r_prio_pe  [0:NUM_CTX-1][0:NUM_SRC-1];
 
     integer ii;
@@ -207,30 +209,44 @@ module axi4lite_plic #(
         end
     endfunction
 
-    // Pipelined variant: consumes the pre-computed registered priority matrix
-    // (r_prio_pe) instead of r_pending/r_enable. This removes Loop 1 (the
-    // pend+enbl AND-gate stage) from the r_enable -> r_highest_id timing path,
-    // leaving only the comparison chain (Loop 2) in the critical path.
-    function [7:0] find_highest_pipelined;
+    // Stage 1 half-encoder: finds the highest-priority source in a half-range.
+    // Returns {best_prio[31:0], best_id[7:0]} so Stage 2 can compare priorities
+    // without re-reading the r_prio_pe matrix.
+    function [39:0] find_best_half;
         input [31:0] prio_pe [0:NUM_SRC-1];  // registered pending+enabled priorities
         input [31:0] thresh;
+        input integer start_idx;
+        input integer end_idx;
         reg   [31:0] best;
         reg   [7:0]  id;
         integer      j;
         begin
             best = 32'd0;
             id   = 8'd0;
-            for (j = 1; j < NUM_SRC; j = j + 1) begin
+            for (j = start_idx; j <= end_idx; j = j + 1) begin
                 if (prio_pe[j] > thresh && prio_pe[j] > best) begin
                     best = prio_pe[j];
                     id   = j;
                 end
             end
-            find_highest_pipelined = id;
+            find_best_half = {best, id};
         end
     endfunction
 
-    // Per-context highest-priority computation (combinational find_highest, registered output)
+    // Split point: lower half = [1 .. HALF_MID], upper half = [HALF_MID+1 .. NUM_SRC-1]
+    localparam integer HALF_MID = (NUM_SRC - 1) / 2;
+
+    // Stage 1 combinational half-winners: {prio, id} per half per context
+    wire [39:0] best_lower [0:NUM_CTX-1];
+    wire [39:0] best_upper [0:NUM_CTX-1];
+
+    // Stage 1 registers: latch the two half-winners
+    reg  [7:0]  r_best_lower_id   [0:NUM_CTX-1];
+    reg  [7:0]  r_best_upper_id   [0:NUM_CTX-1];
+    reg  [31:0] r_best_lower_prio [0:NUM_CTX-1];
+    reg  [31:0] r_best_upper_prio [0:NUM_CTX-1];
+
+    // Stage 2 combinational: compare the two half-winners
     wire [7:0] highest_id [0:NUM_CTX-1];
     reg  [7:0] r_highest_id [0:NUM_CTX-1];
     wire       any_pending [0:NUM_CTX-1];
@@ -238,8 +254,20 @@ module axi4lite_plic #(
     genvar gi;
     generate
         for (gi = 0; gi < NUM_CTX; gi = gi + 1) begin : gen_ctx
-            assign highest_id[gi]  = find_highest_pipelined(r_prio_pe[gi], r_threshold[gi]);
-            assign any_pending[gi]  = (r_highest_id[gi] != 8'd0);
+            // Stage 1: find best in each half (combinational)
+            assign best_lower[gi] = find_best_half(r_prio_pe[gi], r_threshold[gi], 1, HALF_MID);
+            assign best_upper[gi] = find_best_half(r_prio_pe[gi], r_threshold[gi], HALF_MID + 1, NUM_SRC - 1);
+
+            // Stage 2: pick the overall winner from the two registered half-winners
+            wire lower_valid = (r_best_lower_id[gi]   != 8'd0) &&
+                               (r_best_lower_prio[gi] > r_threshold[gi]);
+            wire upper_valid = (r_best_upper_id[gi]   != 8'd0) &&
+                               (r_best_upper_prio[gi] > r_threshold[gi]);
+            assign highest_id[gi] = (!lower_valid && !upper_valid) ? 8'd0 :
+                                     (upper_valid && (!lower_valid ||
+                                      r_best_upper_prio[gi] > r_best_lower_prio[gi])) ?
+                                     r_best_upper_id[gi] : r_best_lower_id[gi];
+            assign any_pending[gi] = (r_highest_id[gi] != 8'd0);
         end
     endgenerate
 
@@ -294,6 +322,10 @@ module axi4lite_plic #(
                 r_enable[ci]    <= 32'd0;
                 r_threshold[ci] <= 32'd0;
                 r_highest_id[ci] <= 8'd0;
+                r_best_lower_id[ci]   <= 8'd0;
+                r_best_upper_id[ci]   <= 8'd0;
+                r_best_lower_prio[ci] <= 32'd0;
+                r_best_upper_prio[ci] <= 32'd0;
                 for (ii = 0; ii < NUM_SRC; ii = ii + 1)
                     r_prio_pe[ci][ii] <= 32'd0;
             end
@@ -323,12 +355,22 @@ module axi4lite_plic #(
                 end
             end
 
-            // 1b. Register highest_id to break combinational path
+            // 1b. Stage 1 register: latch the two half-winners (combinational
+            //     find_best_half results from r_prio_pe). This splits the
+            //     25-level priority encoder into two ~15-level halves.
+            for (ci = 0; ci < NUM_CTX; ci = ci + 1) begin
+                r_best_lower_id[ci]   <= best_lower[ci][7:0];
+                r_best_lower_prio[ci] <= best_lower[ci][39:8];
+                r_best_upper_id[ci]   <= best_upper[ci][7:0];
+                r_best_upper_prio[ci] <= best_upper[ci][39:8];
+            end
+
+            // 1c. Stage 2 register: latch the final highest_id (1 comparison)
             for (ci = 0; ci < NUM_CTX; ci = ci + 1) begin
                 r_highest_id[ci] <= highest_id[ci];
             end
 
-            // 1c. Register o_eip output
+            // 1d. Register o_eip output
             for (ci = 0; ci < NUM_CTX; ci = ci + 1) begin
                 o_eip[ci] <= any_pending[ci];
             end

@@ -126,6 +126,12 @@ tasks:
     phex: test/isa/f_ext_special.hex
     runtime: 10ms
 
+  isa_f_f0_writable:
+    tb: tb_isa_f_f0_writable
+    blhex: boot/bootloader_phase1.hex
+    phex: test/isa/f0_writable.hex
+    runtime: 10ms
+
   # ── 异常仿真 ──
 
   exception_ecall:

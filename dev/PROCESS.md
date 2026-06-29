@@ -280,3 +280,27 @@ and adjusted exponent from `10'sd1 - lz_c` to `10'sd0 - lz_c`.
 - `python3 -m tools.vivado_cli -task fpu_sqrt -create -sim` — 48/48 PASS
 - `python3 tools/run_regression.py --category isa_f` — 2/2 PASS (isa_f_ext, isa_f_ext_special)
 - Evidence: `.omo/evidence/task-7-sqrt-subnormal-fix.txt`, `.omo/evidence/task-7-f-regression.txt`
+
+## Task 10: f0 (ft0) writable register refactor (2026-06-30)
+
+**Change**: Made f0 a normal writable FP register (removed hardwire-0 logic).
+RISC-V F-extension spec does NOT require f0=0 (unlike x0 in integer regfile).
+
+**Files modified**:
+- `dev/rtl/FPU/fpu_regfile.sv` — removed `(waddr != 5'd0)` write guard and
+  `(raddr == 5'd0) ? 32'b0 :` read muxes on all 4 read ports. Reset still
+  initializes `rf[0] <= 32'b0` for determinism.
+- `dev/program_source/build.yaml` — added `isa/f0_writable` to isa_f category
+- `tasks.yaml` — added `isa_f_f0_writable` task entry (runtime 10ms)
+
+**Files created**:
+- `dev/program_source/test/isa/f0_writable.s` — 5 subtests (reset value=0,
+  write 1.0/2.0/0.0 readback, f0 as FADD source)
+- `dev/tb/tb_isa_f_f0_writable.sv` — testbench (EXPECTED_TOTAL=5)
+
+**Verification**:
+- `python3 -m tools.vivado_cli -task isa_f_f0_writable -create -sim` — 5/5 PASS
+- `python3 tools/run_regression.py --category isa_f` — 3/3 PASS (isa_f_ext,
+  isa_f_ext_special, isa_f_f0_writable)
+- Evidence: `.omo/evidence/task-10-f0-writable.txt`, `.omo/evidence/task-10-f-regression.txt`
+- No regression in existing FPU tests (confirms Task 9: zero f0 dependencies)

@@ -58,6 +58,7 @@ categories:
     tests:
       - isa/f_ext
       - isa/f_ext_special
+      - isa/f0_writable
 
   exception:
     framework: common

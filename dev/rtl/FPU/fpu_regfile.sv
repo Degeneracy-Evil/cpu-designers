@@ -16,23 +16,23 @@ module fpu_regfile(
     output [31:0] dbg_fdata
 );
 
-    // Design choice: f0 is hardwired to zero, matching the integer register file
-    // pattern. The RISC-V spec does NOT require f0=0 (unlike x0), but this
-    // simplifies the design and is a common implementation choice.
+    // f0 (ft0) is a normal writable scratch register per RISC-V F-extension
+    // spec. Unlike x0 in the integer register file, f0 has no hardwired value.
+    // Reset initializes all registers (including f0) to 0 for determinism.
 
     reg [31:0] rf[0:31];
 
     always_ff @(posedge clk or negedge resetn) begin
         if (!resetn) begin
             for (integer i = 0; i < 32; i = i + 1) rf[i] <= 32'b0;
-        end else if (wen && (waddr != 5'd0)) begin
+        end else if (wen) begin
             rf[waddr] <= wdata;
         end
     end
 
-    assign rdata1 = (raddr1 == 5'd0) ? 32'b0 : rf[raddr1];
-    assign rdata2 = (raddr2 == 5'd0) ? 32'b0 : rf[raddr2];
-    assign rdata3 = (raddr3 == 5'd0) ? 32'b0 : rf[raddr3];
-    assign dbg_fdata = (dbg_faddr == 5'd0) ? 32'b0 : rf[dbg_faddr];
+    assign rdata1 = rf[raddr1];
+    assign rdata2 = rf[raddr2];
+    assign rdata3 = rf[raddr3];
+    assign dbg_fdata = rf[dbg_faddr];
 
 endmodule

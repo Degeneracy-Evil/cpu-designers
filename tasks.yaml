@@ -549,6 +549,38 @@ tasks:
     blhex: boot/bootloader_phase1.hex
     runtime: 10us
 
+  # ── D extension 单元仿真 ──
+
+  fpu_adder_d:
+    tb: tb_fpu_adder_d
+    blhex: boot/bootloader_phase1.hex
+    runtime: 10us
+
+  fpu_multiplier_d:
+    tb: tb_fpu_multiplier_d
+    blhex: boot/bootloader_phase1.hex
+    runtime: 10us
+
+  fpu_divider_d:
+    tb: tb_fpu_divider_d
+    blhex: boot/bootloader_phase1.hex
+    runtime: 50us
+
+  fpu_sqrt_d:
+    tb: tb_fpu_sqrt_d
+    blhex: boot/bootloader_phase1.hex
+    runtime: 50us
+
+  fpu_cvt_d:
+    tb: tb_fpu_cvt_d
+    blhex: boot/bootloader_phase1.hex
+    runtime: 10us
+
+  fpu_compare_d:
+    tb: tb_fpu_compare_d
+    blhex: boot/bootloader_phase1.hex
+    runtime: 10us
+
   fpu_unit:
     tb: tb_fpu_unit
     blhex: boot/bootloader_phase1.hex

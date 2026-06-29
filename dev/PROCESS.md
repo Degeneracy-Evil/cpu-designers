@@ -370,3 +370,27 @@ them to D dispatch).
   (isa_f_ext, isa_f_ext_special, isa_f_f0_writable)
 - Evidence: `.omo/evidence/task-13-nanbox-check.txt`
 - Learnings: `.omo/notepads/d-extension-fpu-refactor/learnings.md`
+
+## Task 22 — D Extension Unit Tests (2026-06-30)
+
+Created 6 unit testbench files for all 9 D extension sub-modules (136 tests,
+0 failures). Sequential modules (adder, multiplier, divider, sqrt, cvt) use
+the run_op task pattern with done/timeout. Combinational modules (compare,
+minmax, classify, sign_inject) are combined in a single TB with drive-and-check
+tasks.
+
+**Files created**:
+- `dev/tb/tb_fpu_adder_d.sv` — 29 tests (FADD.D/FSUB.D)
+- `dev/tb/tb_fpu_multiplier_d.sv` — 21 tests (FMUL.D, underflow UF verification)
+- `dev/tb/tb_fpu_divider_d.sv` — 16 tests (FDIV.D, DZ/NV)
+- `dev/tb/tb_fpu_sqrt_d.sv` — 13 tests (FSQRT.D, negative/zero/Inf)
+- `dev/tb/tb_fpu_cvt_d.sv` — 17 tests (all 6 FCVT conversions)
+- `dev/tb/tb_fpu_compare_d.sv` — 40 tests (FEQ/FLT/FLE + FMIN/FMAX + FCLASS + FSGNJ)
+
+**Files modified**:
+- `tasks.yaml` — 6 new task entries under "D extension 单元仿真" section
+
+**Verification**:
+- 3 batches (2 tasks each, max-parallel=2), all PASS
+- Evidence: `.omo/evidence/task-22-d-unit-tests.txt`
+- Learnings: `.omo/notepads/d-extension-fpu-refactor/learnings.md`

@@ -78,8 +78,9 @@ module icache_ctrl(
     wire lookup_active = (state != S_IDLE);
     wire [31:0] req_addr_sel  = lookup_active ? active_req_addr_r  : cpu_req_addr;
     wire [31:0] req_vaddr_sel = lookup_active ? active_req_vaddr_r : cpu_req_vaddr;
+    wire req_paddr_changed = mmu_ready && (cpu_req_addr != active_req_addr_r);
     wire req_changed = lookup_active && cpu_req_valid &&
-                       ((cpu_req_addr != active_req_addr_r) || (cpu_req_vaddr != active_req_vaddr_r));
+                       (req_paddr_changed || (cpu_req_vaddr != active_req_vaddr_r));
 
     // VIPT: use vaddr for set index (bits within page offset), paddr for tag
     wire [TAG_WIDTH-1:0]   req_tag  = req_addr_sel[`ICACHE_TAG_HI:`ICACHE_TAG_LO];
@@ -188,9 +189,10 @@ module icache_ctrl(
     reg cpu_req_ready_r;
     reg  invalidate_done_r;
 
-    // Data BRAM Port A: enable in S_TAG_READ on hit (hit_way now known)
-    // Gated by mmu_ready to avoid reading with stale paddr
-    wire bram_ena = (state == S_TAG_READ) && cache_hit && mmu_ready;
+    // Data BRAM Port A: enable in S_TAG_READ on hit (hit_way now known).
+    // The physical address was latched when S_IDLE observed mmu_ready, so the
+    // lookup must not depend on live mmu_ready after entering S_TAG_READ.
+    wire bram_ena = (state == S_TAG_READ) && cache_hit;
     wire bram_enb = refill_valid && (state == S_REFILL);
 
     icached u_icached(
@@ -336,8 +338,6 @@ module icache_ctrl(
                     if (req_changed) begin
                         refill_req_r <= 1'b0;
                         state <= S_IDLE;
-                    end else if (!mmu_ready) begin
-                        // Stay in S_TAG_READ until paddr is valid
                     end else if (cache_hit) begin
                         // Data BRAM Port A enabled this cycle (bram_ena above)
                         // Data available next cycle in S_READ

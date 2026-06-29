@@ -35,7 +35,8 @@ module ptw(
     output      [31:0] ptw_bus_wdata,
     input       [31:0] ptw_bus_rdata,
     input              ptw_bus_done,
-    input              ptw_bus_error
+    input              ptw_bus_error,
+    input              ptw_bus_hold
 );
 
     localparam PRIV_U = 2'b00;
@@ -216,7 +217,7 @@ module ptw(
             if (state == S_L1_CHECK || state == S_L0_CHECK || state == S_AD_WAIT) begin
                 if (bus_resp_any) begin
                     timeout_cnt <= 16'd0;   // normal response — reset
-                end else begin
+                end else if (!ptw_bus_hold) begin
                     timeout_cnt <= timeout_cnt + 16'd1;
                 end
             end else begin
@@ -284,7 +285,7 @@ module ptw(
                                 state             <= S_L0_CHECK;
                             end
                         end
-                    end else if (timeout_cnt >= PTW_TIMEOUT) begin  // BUG-15: timeout
+                    end else if (!ptw_bus_hold && timeout_cnt >= PTW_TIMEOUT) begin  // BUG-15: timeout
                         fault_kind_r <= FAULT_ACCESS;
                         state <= S_FAULT;
                         bus_req_pending_r <= 1'b0;
@@ -322,7 +323,7 @@ module ptw(
                                 state <= S_FAULT;
                             end
                         end
-                    end else if (timeout_cnt >= PTW_TIMEOUT) begin  // BUG-15: timeout
+                    end else if (!ptw_bus_hold && timeout_cnt >= PTW_TIMEOUT) begin  // BUG-15: timeout
                         fault_kind_r <= FAULT_ACCESS;
                         state <= S_FAULT;
                         bus_req_pending_r <= 1'b0;
@@ -370,7 +371,7 @@ module ptw(
                                 pte_r[7] <= 1'b1;
                             state <= S_DONE;
                         end
-                    end else if (timeout_cnt >= PTW_TIMEOUT) begin  // BUG-15: timeout
+                    end else if (!ptw_bus_hold && timeout_cnt >= PTW_TIMEOUT) begin  // BUG-15: timeout
                         fault_kind_r <= FAULT_ACCESS;
                         state <= S_FAULT;
                         bus_req_pending_r <= 1'b0;

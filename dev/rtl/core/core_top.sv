@@ -315,6 +315,22 @@ module core_top(
     wire        ptw_bus_done;
     wire        ptw_bus_error;
 
+    // Conservative PTW/DCache coherency fix:
+    // before every PTW page-table read, write back and invalidate the whole
+    // DCache so page-table stores are visible to the AXI/SRAM PTW path.
+    wire        ptw_read_req = ptw_bus_req && !ptw_bus_we;
+    wire        ptw_read_flush_enable = csr_satp[31] && (priv_mode != PRIV_M);
+    wire        ptw_read_needs_flush = ptw_read_req && ptw_read_flush_enable;
+    localparam [1:0] PTW_RF_IDLE      = 2'd0;
+    localparam [1:0] PTW_RF_FLUSH     = 2'd1;
+    localparam [1:0] PTW_RF_WAIT_RESP = 2'd2;
+    reg [1:0]   ptw_read_flush_state_r;
+    wire        ptw_read_flush_req = (ptw_read_flush_state_r == PTW_RF_FLUSH);
+    wire        ptw_read_flush_released = (ptw_read_flush_state_r == PTW_RF_WAIT_RESP);
+    wire        ptw_req_to_bridge = ptw_bus_req &&
+                                    (ptw_bus_we || !ptw_read_flush_enable || ptw_read_flush_released);
+    wire        ptw_bus_hold = ptw_read_needs_flush && !ptw_read_flush_released;
+
     // PTW A/D bit writeback → dcache line invalidation
     // When PTW completes a write (ptw_bus_we && ptw_bus_done), the written
     // PTE address may have a stale copy in dcache. Invalidate that line.
@@ -737,10 +753,14 @@ module core_top(
     end
 
     // ── Combined cache maintenance requests ──
-    // fencei and sfence_vma are mutually exclusive (controller is in one state at a time),
-    // so OR-ing their requests is safe.
-    assign dcache_flush_req      = (fencei_req && !fencei_dcache_flush_sent_r) ||
-                                   (sfence_vma_req && !sfence_dcache_flush_sent_r);
+    // fencei/sfence/PTW-read flush all reuse the same DCache flush engine.
+    // PTW read is held off until its flush completion has been observed in a
+    // register, avoiding same-cycle <= ready/done skew.
+    wire fencei_dcache_flush_req = fencei_req && !fencei_dcache_flush_sent_r;
+    wire sfence_dcache_flush_req = sfence_vma_req && !sfence_dcache_flush_sent_r;
+    assign dcache_flush_req      = fencei_dcache_flush_req ||
+                                   sfence_dcache_flush_req ||
+                                   ptw_read_flush_req;
     assign icache_invalidate_req = (fencei_req && fencei_dcache_flush_sent_r && !fencei_icache_inv_sent_r) ||
                                    (sfence_vma_req && sfence_dcache_flush_sent_r && !sfence_icache_inv_sent_r);
     assign icache_flush_req      = trap_enter_valid ||
@@ -764,6 +784,41 @@ module core_top(
             sfence_tlb_pulse_sent_r <= 1'b1;
     end
     wire sfence_vma_to_mmu_pulse = sfence_vma_req && sfence_dcache_flush_sent_r && sfence_icache_inv_sent_r && !sfence_tlb_pulse_sent_r;
+
+    // ── PTW read → DCache flush sequencing ──
+    // Keep this as a small registered FSM. dcache_flush_done only advances the
+    // state; bridge-side PTW release happens in the following cycle, which cuts
+    // timing paths through the DCache flush engine.
+    always_ff @(posedge clk or negedge resetn) begin
+        if (!resetn) begin
+            ptw_read_flush_state_r <= PTW_RF_IDLE;
+        end else begin
+            if (!ptw_bus_req || !ptw_read_flush_enable) begin
+                ptw_read_flush_state_r <= PTW_RF_IDLE;
+            end else begin
+                case (ptw_read_flush_state_r)
+                    PTW_RF_IDLE: begin
+                        if (ptw_read_needs_flush)
+                            ptw_read_flush_state_r <= PTW_RF_FLUSH;
+                    end
+
+                    PTW_RF_FLUSH: begin
+                        if (dcache_flush_done)
+                            ptw_read_flush_state_r <= PTW_RF_WAIT_RESP;
+                    end
+
+                    PTW_RF_WAIT_RESP: begin
+                        if (ptw_bus_done || ptw_bus_error)
+                            ptw_read_flush_state_r <= PTW_RF_IDLE;
+                    end
+
+                    default: begin
+                        ptw_read_flush_state_r <= PTW_RF_IDLE;
+                    end
+                endcase
+            end
+        end
+    end
 
     // PTW A/D bit writeback → dcache line invalidation
     // When PTW completes a write to memory (setting A/D bits in a PTE),
@@ -1424,6 +1479,7 @@ module core_top(
         .ptw_bus_rdata(ptw_bus_rdata),
         .ptw_bus_done(ptw_bus_done),
         .ptw_bus_error(ptw_bus_error),
+        .ptw_bus_hold(ptw_bus_hold),
         // flush
         .sfence_vma(sfence_vma_to_mmu_pulse),
         // sfence completion
@@ -1491,7 +1547,7 @@ module core_top(
         .dcache_wb_valid    (dcache_wb_valid),
         .dcache_wb_done     (dcache_wb_done),
         .dcache_wb_error    (dcache_wb_error),
-        .ptw_req           (ptw_bus_req),
+        .ptw_req           (ptw_req_to_bridge),
         .ptw_addr          (ptw_bus_addr),
         .ptw_we            (ptw_bus_we),
         .ptw_wdata         (ptw_bus_wdata),

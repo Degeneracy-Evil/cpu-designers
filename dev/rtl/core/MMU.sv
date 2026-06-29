@@ -42,6 +42,7 @@ module MMU #(
     input       [31:0] ptw_bus_rdata,
     input              ptw_bus_done,
     input              ptw_bus_error,
+    input              ptw_bus_hold,
 
     // ── flush ──
     input              sfence_vma,
@@ -216,6 +217,19 @@ module MMU #(
     wire [3:0]  ptw_fault_cause_out;
     wire [31:0] ptw_fault_vaddr_out;
 
+    wire [31:0] i_ptw_direct_paddr = ptw_fill_is_megapage ?
+        {ptw_fill_ppn[21:10], i_latched_vaddr[21:0]} :
+        {ptw_fill_ppn, i_latched_vaddr[11:0]};
+
+    wire [31:0] d_ptw_direct_paddr = ptw_fill_is_megapage ?
+        {ptw_fill_ppn[21:10], d_latched_vaddr[21:0]} :
+        {ptw_fill_ppn, d_latched_vaddr[11:0]};
+
+    reg        i_ptw_direct_valid_r;
+    reg [31:0] i_ptw_direct_paddr_r;
+    reg        d_ptw_direct_valid_r;
+    reg [31:0] d_ptw_direct_paddr_r;
+
     // TLB fill request: only on PTW done (NOT fault — no valid PTE to fill on fault)
     wire tlb_fill_req = ptw_walk_done &&
                         (walk_state == W_D_WALK || walk_state == W_I_WALK);
@@ -313,7 +327,8 @@ module MMU #(
     wire i_tlb_miss       = i_latched_sv32 && i_tlb_valid && !i_tlb_hit;
     wire i_tlb_pf         = i_latched_sv32 && i_tlb_valid && i_tlb_hit && i_tlb_perm_fault;
 
-    assign i_paddr = !i_latched_sv32 ? i_latched_vaddr :
+    assign i_paddr = (i_state == I_FILL_WAIT && i_ptw_direct_valid_r) ? i_ptw_direct_paddr_r :
+                     !i_latched_sv32 ? i_latched_vaddr :
                      i_translation_ok ? i_translated_paddr[31:0] : i_latched_vaddr;
 
     wire [33:0] d_translated_paddr;
@@ -327,7 +342,8 @@ module MMU #(
     wire d_tlb_pf         = d_latched_sv32 && d_tlb_valid && d_tlb_hit &&
                             d_tlb_perm_fault && !d_tlb_need_ad_update;
 
-    assign d_paddr = !d_latched_sv32 ? d_latched_vaddr :
+    assign d_paddr = (d_state == D_FILL_WAIT && d_ptw_direct_valid_r) ? d_ptw_direct_paddr_r :
+                     !d_latched_sv32 ? d_latched_vaddr :
                      d_translation_ok ? d_translated_paddr[31:0] : d_latched_vaddr;
 
     // =========================================================================
@@ -336,14 +352,16 @@ module MMU #(
     // BUG-11 fix (symmetric): i_ready 仅在翻译真正完成且无 fault 时有效。
     // READ_FIRST BRAM: Port A returns old data during fill — still valid, no
     // need to gate i_ready/i_miss with !tlb_fill_req.
-    assign i_ready = (i_state == I_LOOKUP) && !i_input_changed
-                     && (!i_latched_sv32 || (i_tlb_valid && i_tlb_hit && !i_tlb_perm_fault));
+    assign i_ready = ((i_state == I_LOOKUP) && !i_input_changed
+                     && (!i_latched_sv32 || (i_tlb_valid && i_tlb_hit && !i_tlb_perm_fault))) ||
+                     ((i_state == I_FILL_WAIT) && i_ptw_direct_valid_r && !i_input_changed);
     assign i_miss  = (i_state == I_LOOKUP) && i_latched_sv32 && i_tlb_miss && !i_input_changed;
 
     // BUG-11 fix: d_ready 仅在翻译真正完成且无 fault 时有效。
     // bare 模式 (!d_latched_sv32) 无需翻译；Sv32 模式必须 hit 且无 perm fault。
-    assign d_ready = (d_state == D_LOOKUP) && !d_input_changed && !d_lookup_stalled
-                     && (!d_latched_sv32 || (d_tlb_valid && d_tlb_hit && !d_tlb_perm_fault));
+    assign d_ready = ((d_state == D_LOOKUP) && !d_input_changed && !d_lookup_stalled
+                     && (!d_latched_sv32 || (d_tlb_valid && d_tlb_hit && !d_tlb_perm_fault))) ||
+                     ((d_state == D_FILL_WAIT) && d_ptw_direct_valid_r && !d_input_changed);
     assign d_miss  = (d_state == D_LOOKUP) && d_latched_sv32 && d_tlb_miss && !d_input_changed && !d_lookup_stalled;
 
     // =========================================================================
@@ -442,9 +460,12 @@ module MMU #(
             i_latched_translate_en <= 1'b0;
             i_latched_mstatus_sum  <= 1'b0;
             i_latched_mstatus_mxr  <= 1'b0;
+            i_ptw_direct_valid_r   <= 1'b0;
+            i_ptw_direct_paddr_r   <= 32'b0;
         end else begin
             case (i_state)
                 I_IDLE: begin
+                    i_ptw_direct_valid_r <= 1'b0;
                     if (mmu_flush_req) begin
                         i_state <= I_FLUSH;
                     end else begin
@@ -472,22 +493,37 @@ module MMU #(
 
                 I_WALK_PENDING: begin
                     if (mmu_flush_req) begin
+                        i_ptw_direct_valid_r <= 1'b0;
                         i_state <= I_FLUSH;
                     end else if (ptw_done_for_i) begin
-                        // PTW completed for i-side, fill TLB, wait 1 cycle
+                        // PTW completed for i-side. Fill TLB, but also return
+                        // this translation directly in I_FILL_WAIT so progress
+                        // does not depend on immediate TLB BRAM visibility.
+                        i_ptw_direct_valid_r <= 1'b1;
+                        i_ptw_direct_paddr_r <= i_ptw_direct_paddr;
                         i_state <= I_FILL_WAIT;
                     end else if (ptw_fault_for_i) begin
                         // Page fault from PTW
+                        i_ptw_direct_valid_r <= 1'b0;
                         i_state <= I_IDLE;
                     end
                 end
 
                 I_FILL_WAIT: begin
-                    // TLB fill via Port B has completed. Re-initiate lookup.
-                    i_state <= I_IDLE;
+                    // Hold the direct PTW result as a level until fetch moves
+                    // to a different request. This avoids losing a one-cycle
+                    // ready pulse while the ICache is starting its lookup.
+                    if (mmu_flush_req) begin
+                        i_ptw_direct_valid_r <= 1'b0;
+                        i_state <= I_FLUSH;
+                    end else if (i_input_changed) begin
+                        i_ptw_direct_valid_r <= 1'b0;
+                        i_state <= I_IDLE;
+                    end
                 end
 
                 I_FLUSH: begin
+                    i_ptw_direct_valid_r <= 1'b0;
                     if (tlb_flush_done) begin
                         i_state <= I_IDLE;
                     end
@@ -511,9 +547,12 @@ module MMU #(
             d_latched_translate_en <= 1'b0;
             d_latched_mstatus_sum  <= 1'b0;
             d_latched_mstatus_mxr  <= 1'b0;
+            d_ptw_direct_valid_r   <= 1'b0;
+            d_ptw_direct_paddr_r   <= 32'b0;
         end else begin
             case (d_state)
                 D_IDLE: begin
+                    d_ptw_direct_valid_r <= 1'b0;
                     if (mmu_flush_req) begin
                         d_state <= D_FLUSH;
                     end else if (d_translate_en) begin    // BUG-13 fix: gate with d_translate_en
@@ -549,19 +588,30 @@ module MMU #(
 
                 D_WALK_PENDING: begin
                     if (mmu_flush_req) begin
+                        d_ptw_direct_valid_r <= 1'b0;
                         d_state <= D_FLUSH;
                     end else if (ptw_done_for_d) begin
+                        d_ptw_direct_valid_r <= 1'b1;
+                        d_ptw_direct_paddr_r <= d_ptw_direct_paddr;
                         d_state <= D_FILL_WAIT;
                     end else if (ptw_fault_for_d) begin
+                        d_ptw_direct_valid_r <= 1'b0;
                         d_state <= D_IDLE;
                     end
                 end
 
                 D_FILL_WAIT: begin
-                    d_state <= D_IDLE;
+                    if (mmu_flush_req) begin
+                        d_ptw_direct_valid_r <= 1'b0;
+                        d_state <= D_FLUSH;
+                    end else if (d_input_changed || !d_translate_en) begin
+                        d_ptw_direct_valid_r <= 1'b0;
+                        d_state <= D_IDLE;
+                    end
                 end
 
                 D_FLUSH: begin
+                    d_ptw_direct_valid_r <= 1'b0;
                     if (tlb_flush_done) begin
                         d_state <= D_IDLE;
                     end
@@ -736,7 +786,8 @@ module MMU #(
         .ptw_bus_wdata(ptw_bus_wdata),
         .ptw_bus_rdata(ptw_bus_rdata),
         .ptw_bus_done(ptw_bus_done),
-        .ptw_bus_error(ptw_bus_error)
+        .ptw_bus_error(ptw_bus_error),
+        .ptw_bus_hold(ptw_bus_hold)
     );
 
     assign dbg_i_walk_active  = (walk_state != W_IDLE);

@@ -633,6 +633,7 @@ module core_top(
             id_exe_bus_r <= 351'b0;
             exe_mem_bus_r <= '0;
             mem_wb_bus_r <= '0;
+            fp_wdata_64_wb <= 64'b0;
         end else begin
             if (if_done) begin
                 if_id_bus_r <= if_id_bus;
@@ -645,10 +646,13 @@ module core_top(
             end
             if (exe_to_wb) begin
                 mem_wb_bus_r <= exe_wb_bus;
+                fp_wdata_64_wb <= exe_fpu_result_64;  // FPU compute bypass (Task 26)
             end else if (mem_done) begin
                 mem_wb_bus_r <= mem_wb_bus;
+                fp_wdata_64_wb <= 64'b0;  // FLW uses 32-bit bus; FLD uses bus fp_wdata64
             end else if (csr_valid && !csr_done) begin
                 mem_wb_bus_r <= csr_wb_bus;
+                fp_wdata_64_wb <= 64'b0;
             end
 
             if (trap_enter_valid) begin
@@ -931,6 +935,8 @@ module core_top(
     wire        dbg_mu_result_valid_w;
     wire [2:0]  dbg_mu_funct3_w;
     wire        dbg_exe_is_mu_w;
+    wire [63:0] exe_fpu_result_64;   // 64-bit FPU result from execute (Task 26)
+    reg  [63:0] fp_wdata_64_wb;      // Pipeline register for 64-bit FP writeback (Task 26)
 
     cpu_execute u_execute(
         .clk(clk),
@@ -964,7 +970,8 @@ module core_top(
         .dbg_mu_busy(dbg_mu_busy_w),
         .dbg_mu_result_valid(dbg_mu_result_valid_w),
         .dbg_mu_funct3(dbg_mu_funct3_w),
-        .dbg_exe_is_mu(dbg_exe_is_mu_w)
+        .dbg_exe_is_mu(dbg_exe_is_mu_w),
+        .fpu_result_64(exe_fpu_result_64)
     );
 
     wire        mem_hwrite;
@@ -1279,6 +1286,7 @@ module core_top(
         .fp_wen(fp_wen),
         .fp_waddr(fp_waddr),
         .fp_wdata(fp_wdata),
+        .fpu_result_64(fp_wdata_64_wb),  // 64-bit FPU compute result (Task 26)
         .wb_fflags(wb_fflags)
     );
 

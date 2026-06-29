@@ -15,6 +15,7 @@ module cpu_wb(
     output             fp_wen,
     output     [4:0]   fp_waddr,
     output     [63:0]  fp_wdata,
+    input      [63:0]  fpu_result_64,   // 64-bit FPU compute result (Task 26)
     output     [4:0]   wb_fflags
 );
 
@@ -30,6 +31,8 @@ module cpu_wb(
     wire        is_fpu;
     wire        is_flw;
     wire        is_fsw;
+    wire        is_fld;
+    wire        is_fsd;
     wire        fpu_rd_is_int;
     wire [4:0]  fpu_fflags;
 
@@ -45,6 +48,8 @@ module cpu_wb(
     assign is_fpu        = mem_wb_bus_r.is_fpu;
     assign is_flw        = mem_wb_bus_r.is_flw;
     assign is_fsw        = mem_wb_bus_r.is_fsw;
+    assign is_fld        = mem_wb_bus_r.is_fld;
+    assign is_fsd        = mem_wb_bus_r.is_fsd;
     assign fpu_rd_is_int = mem_wb_bus_r.fpu_rd_is_int;
     assign fpu_fflags    = mem_wb_bus_r.fpu_fflags;
 
@@ -63,14 +68,17 @@ module cpu_wb(
     assign rf_wdata = actual_wb_data;
     assign wb_done = wb_valid;
 
-    // Float register write: FPU compute results (rd_is_int=0) and FLW
-    // F operations and FLW produce 32-bit results; NaN-box them to 64-bit
-    // for the widened regfile (upper 32=0xFFFFFFFF) per RISC-V NaN-boxing
-    // spec (IS §22). This allows D operations to detect invalid F-in-D
-    // reads by checking the upper 32 bits (Task 23).
-    assign fp_wen   = wb_valid && (fpu_writes_fp || is_flw);
+    // Float register write: FPU compute results (rd_is_int=0), FLW, and FLD
+    // F results NaN-boxed (upper 32=0xFFFFFFFF) per RISC-V NaN-boxing spec.
+    // D results use full 64-bit from fpu_result_64 (Task 26).
+    // FLD uses 64-bit data from cpu_mem via mem_wb_bus_r.fp_wdata64 (Task 25).
+    // FLW uses 32-bit bus data, NaN-boxed to 64-bit.
+    assign fp_wen   = wb_valid && (fpu_writes_fp || is_flw || is_fld);
     assign fp_waddr = wb_rd;
-    assign fp_wdata = {32'hFFFFFFFF, actual_wb_data[31:0]};
+    assign fp_wdata = fpu_writes_fp ? fpu_result_64 :                        // F/D compute: 64-bit from fpu_unit
+                     is_fld        ? mem_wb_bus_r.fp_wdata64 :               // FLD: 64-bit from cpu_mem
+                     is_flw        ? {32'hFFFFFFFF, actual_wb_data[31:0]} :  // FLW: NaN-boxed 32-bit
+                                    64'b0;                                    // no FP write
 
     // FPU exception flags for CSR accumulation
     assign wb_fflags = is_fpu ? fpu_fflags : 5'b0;

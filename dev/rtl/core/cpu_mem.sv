@@ -80,6 +80,8 @@ module cpu_mem(
     localparam MEM_FLD_HI    = 4'd7;   // FLD high word read (addr+4), combine
     localparam MEM_FSD_LO    = 4'd8;   // FSD low word write (addr)
     localparam MEM_FSD_HI    = 4'd9;   // FSD high word write (addr+4)
+    localparam MEM_FLD_GAP   = 4'd10;  // FLD gap: pulse mem_en=0 to force MMU re-translate
+    localparam MEM_FSD_GAP   = 4'd11;  // FSD gap: pulse mem_en=0 to force MMU re-translate
 
     wire valid_inst;
     wire is_jal_like;
@@ -527,9 +529,21 @@ module cpu_mem(
                     if (data_valid) begin
                         fld_lo_reg <= readData_32;
                         dataAddr_32_reg <= {addr_reg[31:2], 2'b00} + 32'd4;
-                        // mem_en stays 1 — do not pulse off (MMU retranslates new addr)
-                        mem_state <= MEM_FLD_HI;
+                        // Pulse mem_en off for 1 cycle to force MMU re-translate
+                        // the new address (addr+4). Without this, the MMU holds
+                        // the old translation and the dcache reads from addr.
+                        mem_en_reg <= 1'b0;
+                        mem_state <= MEM_FLD_GAP;
                     end
+                end
+
+                // ── D extension: FLD gap (mem_en=0 for 1 cycle) ──
+                // Re-enable mem_en with the new address; MMU re-translates.
+                MEM_FLD_GAP: begin
+                    mem_en_reg <= 1'b1;
+                    hwrite_reg <= 1'b0;
+                    hsize_reg <= `AXI_SIZE_WORD;
+                    mem_state <= MEM_FLD_HI;
                 end
 
                 // ── D extension: FLD high word read (second transaction) ──
@@ -560,9 +574,19 @@ module cpu_mem(
                         writeData_32_reg <= frs2_value[63:32];
                         hwrite_reg <= 1'b1;
                         hsize_reg <= `AXI_SIZE_WORD;
-                        // mem_en stays 1 — MMU retranslates new addr
-                        mem_state <= MEM_FSD_HI;
+                        // Pulse mem_en off for 1 cycle to force MMU re-translate
+                        mem_en_reg <= 1'b0;
+                        mem_state <= MEM_FSD_GAP;
                     end
+                end
+
+                // ── D extension: FSD gap (mem_en=0 for 1 cycle) ──
+                // Re-enable mem_en with the new address; MMU re-translates.
+                MEM_FSD_GAP: begin
+                    mem_en_reg <= 1'b1;
+                    hwrite_reg <= 1'b1;
+                    hsize_reg <= `AXI_SIZE_WORD;
+                    mem_state <= MEM_FSD_HI;
                 end
 
                 // ── D extension: FSD high word write (second transaction) ──

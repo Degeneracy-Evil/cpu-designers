@@ -132,6 +132,12 @@ tasks:
     phex: test/isa/f0_writable.hex
     runtime: 10ms
 
+  isa_d_smoke:
+    tb: tb_isa_d_smoke
+    blhex: boot/bootloader_phase1.hex
+    phex: test/isa/d_smoke.hex
+    runtime: 10ms
+
   # ── 异常仿真 ──
 
   exception_ecall:

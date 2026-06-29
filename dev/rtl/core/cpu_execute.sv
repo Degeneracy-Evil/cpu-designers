@@ -36,7 +36,8 @@ module cpu_execute(
     output             dbg_mu_busy,
     output             dbg_mu_result_valid,
     output     [2:0]   dbg_mu_funct3,
-    output             dbg_exe_is_mu
+    output             dbg_exe_is_mu,
+    output     [63:0]  fpu_result_64   // Full 64-bit FPU result (D compute; F NaN-boxed)
 );
 
     wire valid_inst;
@@ -241,14 +242,15 @@ module cpu_execute(
 
     // src1 mux:
     //   int→float ops: integer rs1 zero-extended to 64 bits
-    //   D ops: NaN-box-checked 64-bit FP register value
+    //   D ops: raw 64-bit FP register value (NO NaN-box check — D values use
+    //          full 64 bits; F values NaN-boxed as 0xFFFFFFFF_xxxxxxxx are
+    //          naturally NaN in double-precision, no explicit check needed)
     //   F ops: raw 64-bit FP register value (FPU uses lower 32 bits)
     wire [63:0] fpu_src1_mux = fpu_src_is_int ? {32'b0, rs1_value} :
-                              fpu_is_d_op    ? src1_d_checked :
-                                               frs1_value;
-    // src2/src3 mux: D ops use NaN-box-checked value; F ops use raw value
-    wire [63:0] fpu_src2_mux = fpu_is_d_op ? src2_d_checked : frs2_value;
-    wire [63:0] fpu_src3_mux = fpu_is_d_op ? src3_d_checked : frs3_value;
+                                                frs1_value;
+    // src2/src3: all ops use raw FP register value
+    wire [63:0] fpu_src2_mux = frs2_value;
+    wire [63:0] fpu_src3_mux = frs3_value;
 
     fpu_unit u_fpu(
         .clk(clk),
@@ -276,6 +278,7 @@ module cpu_execute(
     reg [31:0] branch_target_reg;
     reg        branch_taken_reg;
     reg        exe_seen_valid;
+    reg [63:0] fpu_result_64_reg;   // Full 64-bit FPU result for D writeback (Task 26)
 
     always_ff @(posedge clk or negedge resetn) begin
         if (!resetn) begin
@@ -291,6 +294,7 @@ module cpu_execute(
             done_reg <= 1'b0;
             branch_target_reg <= 32'b0;
             branch_taken_reg <= 1'b0;
+            fpu_result_64_reg <= 64'b0;
         end else begin
             done_reg <= 1'b0;
             mu_result_got <= 1'b0;
@@ -348,8 +352,9 @@ module cpu_execute(
                     fpu_result_got <= 1'b1;
                     // fpu_result is 64-bit (NaN-boxed F or full D). result_reg
                     // is 32-bit; lower 32 bits hold the F result. Full 64-bit
-                    // D writeback is handled by cpu_wb.sv (Task 26).
+                    // D writeback is via fpu_result_64_reg (Task 26).
                     result_reg <= fpu_result[31:0];
+                    fpu_result_64_reg <= fpu_result;  // latch full 64-bit for D writeback
                     result_ok <= valid_inst & ~fpu_error_w;  // suppress WB on FPU error
                     done_reg <= 1'b1;
                     fpu_active <= 1'b0;
@@ -371,6 +376,7 @@ module cpu_execute(
                 result_reg    <= 32'b0;
                 branch_target_reg <= 32'b0;
                 branch_taken_reg  <= 1'b0;
+                fpu_result_64_reg <= 64'b0;
             end
         end
     end
@@ -446,5 +452,6 @@ module cpu_execute(
 
     assign exe_pc = pc;
     assign exe_inst = inst;
+    assign fpu_result_64 = fpu_result_64_reg;
 
 endmodule

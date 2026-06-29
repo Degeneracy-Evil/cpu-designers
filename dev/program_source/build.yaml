@@ -60,6 +60,13 @@ categories:
       - isa/f_ext_special
       - isa/f0_writable
 
+  isa_d:
+    framework: common
+    arch: rv32imafd_zicsr_zifencei
+    abi: ilp32d
+    tests:
+      - isa/d_smoke
+
   exception:
     framework: common
     tests:

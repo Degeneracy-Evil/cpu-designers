@@ -151,9 +151,87 @@ module tb_simple_cpu_top;
     end
 `endif
 
+    // ========================================================================
+    // UART TX Capture (DEBUG_UART_TX)
+    // Captures characters transmitted on uart_tx line, mimicking a real
+    // UART receiver. Outputs to uart_tx.log as raw text.
+    // Ported from tb_kernel_boot.sv.
+    // ========================================================================
+`ifdef DEBUG_UART_TX
+    integer dbg_uart_fd;
+    integer dbg_uart_bits;
+    reg [7:0] dbg_uart_byte;
+    reg       dbg_uart_capturing;
+
+    initial begin
+        dbg_uart_fd = $fopen("uart_tx.log", "w");
+        if (dbg_uart_fd != 0) begin
+            $fwrite(dbg_uart_fd, "# UART TX Capture Log (OpenSBI/Linux console output)\n");
+        end
+        dbg_uart_bits = 0;
+        dbg_uart_capturing = 0;
+        dbg_uart_byte = 8'b0;
+    end
+
+    // UART receiver state machine — uses the UART's internal enable signal
+    // for accurate bit timing. The enable pulses once per dl clock cycles,
+    // and the transmitter counts 16 enable pulses per bit.
+    integer uart_rx_enable_cnt;
+
+    initial begin
+        uart_rx_enable_cnt = 0;
+        forever begin
+            @(posedge clk);
+            if (resetn) begin
+                if (u_soc.u_apb_perips.u_uart.regs.enable) begin
+                    if (!dbg_uart_capturing) begin
+                        if (uart_tx === 1'b0) begin
+                            dbg_uart_capturing = 1;
+                            dbg_uart_bits = 0;
+                            dbg_uart_byte = 8'b0;
+                            uart_rx_enable_cnt = 0;
+                        end
+                    end else begin
+                        uart_rx_enable_cnt = uart_rx_enable_cnt + 1;
+                        if (uart_rx_enable_cnt == 8 && dbg_uart_bits == 0) begin
+                            if (uart_tx !== 1'b0) begin
+                                dbg_uart_capturing = 0;
+                            end
+                        end else if (dbg_uart_bits < 8 &&
+                                    uart_rx_enable_cnt == 24 + dbg_uart_bits * 16) begin
+                            dbg_uart_byte[dbg_uart_bits] = uart_tx;
+                            dbg_uart_bits = dbg_uart_bits + 1;
+                        end else if (dbg_uart_bits == 8 &&
+                                    uart_rx_enable_cnt >= 24 + 8 * 16) begin
+                            if (dbg_uart_fd != 0) begin
+                                if (dbg_uart_byte == 8'h0A) begin
+                                    $fwrite(dbg_uart_fd, "\n");
+                                end else if (dbg_uart_byte >= 8'h20 && dbg_uart_byte < 8'h7F) begin
+                                    $fwrite(dbg_uart_fd, "%c", dbg_uart_byte);
+                                end else begin
+                                    $fwrite(dbg_uart_fd, "[0x%02h]", dbg_uart_byte);
+                                end
+                                $fflush(dbg_uart_fd);
+                            end
+                            dbg_uart_capturing = 0;
+                        end
+                    end
+                end
+            end
+        end
+    end
+    final begin
+        if (dbg_uart_fd != 0) begin
+            $fflush(dbg_uart_fd);
+            $fclose(dbg_uart_fd);
+            $display("[DEBUG-UART-TX] UART TX log closed");
+        end
+    end
+`endif
+
 `ifdef LINUX_BOOT
     // ========================================================================
-    // Store Access Fault watchdog — detect cause=7 or PC entering sbi_hart_hang
+    // Watchdog — detect Store Access Fault or PC entering sbi_hart_hang
     // ========================================================================
     integer wd_cause7_count;
     initial begin
@@ -161,7 +239,6 @@ module tb_simple_cpu_top;
         forever begin
             @(posedge clk);
             if (resetn && u_soc.cpu.trap_enter_valid) begin
-                // mcause bit[31]=0 (exception), bits[5:0]=7 → Store Access Fault
                 if (u_soc.cpu.csr_mcause[31:6] == 26'b0 && u_soc.cpu.csr_mcause[5:0] == 6'd7) begin
                     wd_cause7_count = wd_cause7_count + 1;
                     $display("[WATCHDOG-CAUSE7] %0t: Store Access Fault! count=%0d", $time, wd_cause7_count);
@@ -173,51 +250,106 @@ module tb_simple_cpu_top;
                     $fflush;
                     if (wd_cause7_count >= 3) begin
                         $display("[WATCHDOG-CAUSE7] Repeated Store Access Fault — stopping simulation");
-                        $display("========================================");
-                        $display("BUG REPRODUCED: Store Access Fault in Linux boot");
-                        $display("========================================");
                         $finish;
                     end
                 end
             end
-            // Detect PC entering sbi_hart_hang (0x80005358-0x8000536c)
             if (resetn && if_pc[31:8] == 24'h800053 && if_pc[7:0] >= 8'h58 && if_pc[7:0] <= 8'h6c) begin
                 $display("[WATCHDOG-HANG] %0t: PC in sbi_hart_hang! PC=0x%08h inst=0x%08h priv=%0d",
                          $time, if_pc, if_inst, u_soc.cpu.priv_mode);
                 $display("[WATCHDOG-HANG]   mepc=0x%08h mcause=0x%08h mtval=0x%08h",
                          u_soc.cpu.csr_mepc, u_soc.cpu.csr_mcause, u_soc.cpu.hw_trap_tval);
-                $display("========================================");
-                $display("BUG REPRODUCED: CPU entered sbi_hart_hang");
-                $display("========================================");
                 $finish;
             end
         end
     end
-`endif
 
     // ========================================================================
-    // Targeted probe: watch execution around uart8250_dev_init fault area
-    // Logs every cycle when if_pc is in 0x8001f790-0x8001f7e0
+    // Trap event tracker — every trap_enter/mret with full context
+    // Uses #1 delay to sample CSRs after NBA commit (fixes timing issue
+    // seen with DEBUG_TRAP in tb_soc_includes.svh).
     // ========================================================================
-`ifdef LINUX_BOOT
-    integer fault_probe_cnt;
+    integer trap_evt_count;
     initial begin
-        fault_probe_cnt = 0;
+        trap_evt_count = 0;
         forever begin
             @(posedge clk);
-            if (resetn && if_pc >= 32'h8001f790 && if_pc <= 32'h8001f7e0) begin
-                fault_probe_cnt = fault_probe_cnt + 1;
-                $display("[FAULT-PROBE] #%0d t=%0t PC=0x%08h inst=0x%08h fsm=%0d | ic: st=%0d rdy_r=%b req=%b ivmux=%b if_done=%b bp=0x%08h | id: PC=0x%08h inst=0x%08h",
-                    fault_probe_cnt, $time, if_pc, if_inst,
-                    u_soc.cpu.fsm_state,
-                    u_soc.cpu.u_icache_wrap.state,
-                    u_soc.cpu.u_icache_wrap.cpu_req_ready_r,
-                    u_soc.cpu.if_valid,
-                    u_soc.cpu.inst_valid_mux,
-                    u_soc.cpu.if_done,
-                    u_soc.cpu.u_icache_wrap.bypass_data,
-                    id_pc, id_inst);
+            #1;  // let NBA writes commit
+            if (resetn && u_soc.cpu.trap_enter_valid) begin
+                trap_evt_count = trap_evt_count + 1;
+                $display("[TRAP-EVT] #%0d t=%0t TRAP_IN pc=0x%08h mepc=0x%08h mcause=0x%08h priv=%0d→%0d satp=0x%08h mstatus=0x%08h",
+                    trap_evt_count, $time, if_pc,
+                    u_soc.cpu.csr_mepc, u_soc.cpu.csr_mcause,
+                    u_soc.cpu.priv_mode, u_soc.cpu.target_priv,
+                    u_soc.cpu.csr_satp, u_soc.cpu.csr_mstatus);
                 $fflush;
+            end
+            if (resetn && u_soc.cpu.trap_return_valid) begin
+                trap_evt_count = trap_evt_count + 1;
+                $display("[TRAP-EVT] #%0d t=%0t MRET    pc=0x%08h mepc=0x%08h mcause=0x%08h priv=%0d satp=0x%08h",
+                    trap_evt_count, $time, if_pc,
+                    u_soc.cpu.csr_mepc, u_soc.cpu.csr_mcause,
+                    u_soc.cpu.priv_mode, u_soc.cpu.csr_satp);
+                $fflush;
+            end
+        end
+    end
+
+    // ========================================================================
+    // Kernel progress probe — comprehensive snapshot every 2M cycles
+    // Starts after cycle 70M (post-OpenSBI, Linux kernel running).
+    // Logs: PC, priv, satp, mstatus, timer state, dcache/icache activity,
+    //        UART TX FIFO, trap count.
+    // ========================================================================
+    integer kprobe_cnt;
+    integer last_trap_count;
+    initial begin
+        kprobe_cnt = 0;
+        last_trap_count = 0;
+        forever begin
+            @(posedge clk);
+            kprobe_cnt = kprobe_cnt + 1;
+            if (kprobe_cnt >= 70000000 && (kprobe_cnt % 2000000 == 0)) begin
+                $display("[K-PROBE] cyc=%0dM t=%0t PC=0x%08h inst=0x%08h priv=%0d fsm=%0d | satp=0x%08h mstatus=0x%08h medeleg=0x%08h | mtime=0x%08h%08h mtimecmp=0x%08h%08h mtip=%b | traps=%0d(+%0d) | ic:st=%0d dc:st=%0d | uart_tf=%0d",
+                    kprobe_cnt/1000000, $time, if_pc, if_inst,
+                    u_soc.cpu.priv_mode, u_soc.cpu.fsm_state,
+                    u_soc.cpu.csr_satp, u_soc.cpu.csr_mstatus, u_soc.cpu.csr_medeleg,
+                    u_soc.clint_mtime[63:32], u_soc.clint_mtime[31:0],
+                    u_soc.clint_mtimecmp[63:32], u_soc.clint_mtimecmp[31:0],
+                    u_soc.clint_mtip,
+                    trap_evt_count, trap_evt_count - last_trap_count,
+                    u_soc.cpu.u_icache_wrap.state,
+                    u_soc.cpu.u_dcache_wrap.state,
+                    u_soc.u_apb_perips.u_uart.regs.tf_count);
+                last_trap_count = trap_evt_count;
+                $fflush;
+            end
+        end
+    end
+
+    // ========================================================================
+    // UART TX FIFO activity monitor — logs when kernel writes to UART TX
+    // (tf_count changes), to see if kernel is trying to output but failing.
+    // ========================================================================
+    integer last_tf_count;
+    integer tf_evt_count;
+    initial begin
+        last_tf_count = 0;
+        tf_evt_count = 0;
+        forever begin
+            @(posedge clk);
+            if (resetn) begin
+                if (u_soc.u_apb_perips.u_uart.regs.tf_count != last_tf_count) begin
+                    tf_evt_count = tf_evt_count + 1;
+                    if (tf_evt_count <= 500) begin  // limit output
+                        $display("[UART-TX-ACT] #%0d t=%0t tf=%0d→%0d PC=0x%08h priv=%0d",
+                            tf_evt_count, $time, last_tf_count,
+                            u_soc.u_apb_perips.u_uart.regs.tf_count,
+                            if_pc, u_soc.cpu.priv_mode);
+                        $fflush;
+                    end
+                    last_tf_count = u_soc.u_apb_perips.u_uart.regs.tf_count;
+                end
             end
         end
     end

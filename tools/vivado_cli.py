@@ -66,7 +66,7 @@ def _parse_debug_arg(debug_str: str) -> dict[str, str]:
     Supported features: trace, pipeline, trap, spike, wave[:LEVEL], all
     LEVEL: minimal, normal (default), full
     """
-    VALID_FEATURES = {"trace", "pipeline", "trap", "spike", "wave", "all"}
+    VALID_FEATURES = {"trace", "pipeline", "trap", "spike", "wave", "uart_tx", "all"}
     defines: dict[str, str] = {}
     parts = [p.strip().lower() for p in debug_str.split(",")]
 
@@ -83,6 +83,7 @@ def _parse_debug_arg(debug_str: str) -> dict[str, str]:
                 "DEBUG_TRAP": "1",
                 "DEBUG_SPIKE": "1",
                 "DEBUG_WAVE": "1",
+                "DEBUG_UART_TX": "1",
                 "WAVE_LEVEL": "full",
             })
         elif feature == "trace":
@@ -93,6 +94,8 @@ def _parse_debug_arg(debug_str: str) -> dict[str, str]:
             defines["DEBUG_TRAP"] = "1"
         elif feature == "spike":
             defines["DEBUG_SPIKE"] = "1"
+        elif feature == "uart_tx":
+            defines["DEBUG_UART_TX"] = "1"
         elif feature == "wave":
             defines["DEBUG_WAVE"] = "1"
             defines["WAVE_LEVEL"] = level or "normal"
@@ -470,7 +473,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--debug",
         metavar="FEATURES",
-        help="Enable debug features: trace,pipeline,trap,spike,wave[:LEVEL]. "
+        help="Enable debug features: trace,pipeline,trap,spike,uart_tx,wave[:LEVEL]. "
              'E.g. --debug trace,trap  --debug wave:full  --debug all',
     )
     parser.add_argument(

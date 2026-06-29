@@ -548,6 +548,11 @@ tasks:
     blhex: boot/bootloader_phase1.hex
     runtime: 50us
 
+  fpu_fsm:
+    tb: tb_fpu_fsm
+    blhex: boot/bootloader_phase1.hex
+    runtime: 500us
+
   calculator:
     tb: tb_calculator
     blhex: boot/bootloader_phase1.hex

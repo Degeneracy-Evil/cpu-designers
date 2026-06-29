@@ -15,8 +15,9 @@ module fpu_unit(
     output        fpu_ready,
     output        result_valid,
     output [4:0]  fflags,       // {NV, DZ, OF, UF, NX}
-    output        rd_is_int     // 1 = result writes integer register
-);
+    output        rd_is_int,    // 1 = result writes integer register
+    output        fpu_error     // 1 = timeout/error, result is invalid
+  );
 
   // ===================================================================
   // Operation encoding
@@ -47,7 +48,27 @@ module fpu_unit(
   localparam [6:0] FPU_FNMADD    = 7'd23;
 
   // ===================================================================
-  // Handshake registers (mirror mu_unit.sv exactly)
+  // FSM state register (MMU-style explicit state enum)
+  // ===================================================================
+  localparam F_IDLE     = 3'd0;
+  localparam F_DISPATCH = 3'd1;
+  localparam F_WAIT     = 3'd2;
+  localparam F_DONE     = 3'd3;
+  localparam F_COMPLETE = 3'd4;
+
+  reg [2:0] f_state;
+
+  // ===================================================================
+  // Timeout watchdog (F_WAIT state)
+  //   div/sqrt iterations take many cycles; threshold=1000 is safe margin.
+  //   On timeout: force completion with fpu_error=1 (invalid result).
+  // ===================================================================
+  reg [9:0] timeout_cnt;
+  localparam [9:0] TIMEOUT_MAX = 10'd1000;
+  reg fpu_error_reg;
+
+  // ===================================================================
+  // Handshake registers
   // ===================================================================
   reg adder_start;
   reg mul_start;
@@ -55,13 +76,6 @@ module fpu_unit(
   reg sqrt_start;
   reg cvt_start;
   reg fma_start;
-  reg adder_busy;
-  reg mul_busy;
-  reg div_busy;
-  reg sqrt_busy;
-  reg cvt_busy;
-  reg fma_busy;
-  reg req_hold;
   reg result_valid_reg;
   reg [31:0] result_hold_reg;
   reg [4:0]  fflags_reg;
@@ -73,13 +87,12 @@ module fpu_unit(
   reg [31:0] src3_reg;
 
   // ===================================================================
-  // Handshake logic (mirror mu_unit.sv)
+  // Handshake logic
+  //   fpu_ready: high ONLY in F_IDLE (prevents reentrancy)
+  //   fpu_busy:  high during active processing (not in IDLE/COMPLETE)
   // ===================================================================
-  assign fpu_busy  = adder_busy | mul_busy | div_busy | sqrt_busy | cvt_busy | fma_busy;
-  assign fpu_ready = (~fpu_busy) & (~req_hold) & (~result_valid_reg);
-
-  wire req_fire;
-  assign req_fire = req_valid & fpu_ready;
+  assign fpu_busy  = (f_state != F_IDLE) && (f_state != F_COMPLETE);
+  assign fpu_ready = (f_state == F_IDLE);
 
   // ===================================================================
   // Category wires from latched fpu_funct_reg
@@ -300,25 +313,57 @@ module fpu_unit(
                        /* FMV.X.W / FMV.W.X */          5'b0;
 
   // ===================================================================
-  // Main FSM (mirror mu_unit.sv pattern exactly)
+  // Sub-module done/result/fflags selection (from latched fpu_funct_reg)
+  // ===================================================================
+  wire is_adder_op = (fpu_funct_reg == FPU_FADD) || (fpu_funct_reg == FPU_FSUB);
+  wire is_mul_op   = (fpu_funct_reg == FPU_FMUL);
+  wire is_div_op   = (fpu_funct_reg == FPU_FDIV);
+  wire is_sqrt_op  = (fpu_funct_reg == FPU_FSQRT);
+  wire is_cvt_op   = (fpu_funct_reg == FPU_FCVT_W_S)  || (fpu_funct_reg == FPU_FCVT_WU_S) ||
+                     (fpu_funct_reg == FPU_FCVT_S_W)  || (fpu_funct_reg == FPU_FCVT_S_WU);
+  wire is_fma_op   = (fpu_funct_reg == FPU_FMADD) || (fpu_funct_reg == FPU_FMSUB) ||
+                     (fpu_funct_reg == FPU_FNMSUB) || (fpu_funct_reg == FPU_FNMADD);
+
+  wire done_sel = is_adder_op ? adder_done :
+                  is_mul_op   ? mul_done   :
+                  is_div_op   ? div_done   :
+                  is_sqrt_op  ? sqrt_done  :
+                  is_cvt_op   ? cvt_done   :
+                  is_fma_op   ? fma_done   :
+                  1'b0;
+
+  wire [31:0] result_sel = is_comb_op ? comb_result :
+                  is_adder_op ? adder_result :
+                  is_mul_op   ? mul_result   :
+                  is_div_op   ? div_result   :
+                  is_sqrt_op  ? sqrt_result  :
+                  is_cvt_op   ? cvt_result   :
+                  is_fma_op   ? fma_result   :
+                  32'b0;
+
+  wire [4:0] fflags_sel = is_comb_op ? comb_fflags :
+                  is_adder_op ? adder_fflags :
+                  is_mul_op   ? mul_fflags   :
+                  is_div_op   ? div_fflags   :
+                  is_sqrt_op  ? sqrt_fflags  :
+                  is_cvt_op   ? cvt_fflags   :
+                  is_fma_op   ? fma_fflags   :
+                  5'b0;
+
+  // ===================================================================
+  // Main FSM (MMU-style explicit state register)
   // ===================================================================
   always_ff @(posedge clk or negedge resetn)
   begin
     if (!resetn)
     begin
+      f_state           <= F_IDLE;
       adder_start       <= 1'b0;
       mul_start         <= 1'b0;
       div_start         <= 1'b0;
       sqrt_start        <= 1'b0;
       cvt_start         <= 1'b0;
       fma_start         <= 1'b0;
-      adder_busy        <= 1'b0;
-      mul_busy          <= 1'b0;
-      div_busy          <= 1'b0;
-      sqrt_busy         <= 1'b0;
-      cvt_busy          <= 1'b0;
-      fma_busy          <= 1'b0;
-      req_hold          <= 1'b0;
       result_valid_reg  <= 1'b0;
       result_hold_reg   <= 32'b0;
       fflags_reg        <= 5'b0;
@@ -328,10 +373,12 @@ module fpu_unit(
       src1_reg          <= 32'b0;
       src2_reg          <= 32'b0;
       src3_reg          <= 32'b0;
+      timeout_cnt       <= 10'b0;
+      fpu_error_reg     <= 1'b0;
     end
     else
     begin
-      // Default: clear start signals (mirror mu_unit pattern)
+      // Default: clear start signals (1-cycle pulses)
       adder_start <= 1'b0;
       mul_start   <= 1'b0;
       div_start   <= 1'b0;
@@ -341,145 +388,97 @@ module fpu_unit(
 
       if (flush)
       begin
-        adder_busy       <= 1'b0;
-        mul_busy         <= 1'b0;
-        div_busy         <= 1'b0;
-        sqrt_busy        <= 1'b0;
-        cvt_busy         <= 1'b0;
-        fma_busy         <= 1'b0;
-        req_hold         <= 1'b0;
+        // Flush: return to idle, clear all state (BUG-6 fix preserved:
+        // clear result_hold_reg to prevent stale data leakage)
+        f_state          <= F_IDLE;
         result_valid_reg <= 1'b0;
-        // BUG-6 fix: clear hold registers on flush to prevent stale data
-        // leakage after flush→idle transition
         result_hold_reg  <= 32'b0;
         fflags_reg       <= 5'b0;
         rd_is_int_reg    <= 1'b0;
+        timeout_cnt      <= 10'b0;
+        fpu_error_reg    <= 1'b0;
       end
       else
       begin
-        // req_hold management (mirror mu_unit)
-        if (!req_valid)
-        begin
-          req_hold <= 1'b0;
-        end
-        else if (req_fire)
-        begin
-          req_hold <= 1'b1;
-        end
-
-        // result_got clears result_valid (mirror mu_unit)
-        if (result_valid_reg && result_got)
-        begin
-          result_valid_reg <= 1'b0;
-        end
-
-        // Sequential sub-module done handling (mirror mu_unit)
-        if (adder_done && adder_busy)
-        begin
-          adder_busy       <= 1'b0;
-          result_hold_reg  <= adder_result;
-          fflags_reg       <= adder_fflags;
-          rd_is_int_reg    <= 1'b0;
-          result_valid_reg <= 1'b1;
-        end
-
-        if (mul_done && mul_busy)
-        begin
-          mul_busy         <= 1'b0;
-          result_hold_reg  <= mul_result;
-          fflags_reg       <= mul_fflags;
-          rd_is_int_reg    <= 1'b0;
-          result_valid_reg <= 1'b1;
-        end
-
-        if (div_done && div_busy)
-        begin
-          div_busy         <= 1'b0;
-          result_hold_reg  <= div_result;
-          fflags_reg       <= div_fflags;
-          rd_is_int_reg    <= 1'b0;
-          result_valid_reg <= 1'b1;
-        end
-
-        if (sqrt_done && sqrt_busy)
-        begin
-          sqrt_busy        <= 1'b0;
-          result_hold_reg  <= sqrt_result;
-          fflags_reg       <= sqrt_fflags;
-          rd_is_int_reg    <= 1'b0;
-          result_valid_reg <= 1'b1;
-        end
-
-        if (cvt_done && cvt_busy)
-        begin
-          cvt_busy         <= 1'b0;
-          result_hold_reg  <= cvt_result;
-          fflags_reg       <= cvt_fflags;
-          rd_is_int_reg    <= is_rd_int;
-          result_valid_reg <= 1'b1;
-        end
-
-        if (fma_done && fma_busy)
-        begin
-          fma_busy         <= 1'b0;
-          result_hold_reg  <= fma_result;
-          fflags_reg       <= fma_fflags;
-          rd_is_int_reg    <= 1'b0;
-          result_valid_reg <= 1'b1;
-        end
-
-        // Request dispatch on req_fire
-        if (req_fire)
-        begin
-          fpu_funct_reg <= fpu_funct;
-          fpu_rm_reg    <= fpu_rm;
-          src1_reg      <= src1;
-          src2_reg      <= src2;
-          src3_reg      <= src3;
-
-          case (fpu_funct)
-            FPU_FADD, FPU_FSUB: begin
-              adder_start <= 1'b1;
-              adder_busy  <= 1'b1;
+        case (f_state)
+          // ── F_IDLE: wait for req_valid, latch all inputs ──
+          F_IDLE: begin
+            if (req_valid) begin
+              fpu_funct_reg <= fpu_funct;
+              fpu_rm_reg    <= fpu_rm;
+              src1_reg      <= src1;
+              src2_reg      <= src2;
+              src3_reg      <= src3;
+              f_state       <= F_DISPATCH;
             end
-            FPU_FMUL: begin
-              mul_start <= 1'b1;
-              mul_busy  <= 1'b1;
-            end
-            FPU_FDIV: begin
-              div_start <= 1'b1;
-              div_busy  <= 1'b1;
-            end
-            FPU_FSQRT: begin
-              sqrt_start <= 1'b1;
-              sqrt_busy  <= 1'b1;
-            end
-            FPU_FCVT_W_S, FPU_FCVT_WU_S,
-            FPU_FCVT_S_W, FPU_FCVT_S_WU: begin
-              cvt_start <= 1'b1;
-              cvt_busy  <= 1'b1;
-            end
-            FPU_FMADD, FPU_FMSUB, FPU_FNMSUB, FPU_FNMADD: begin
-              fma_start <= 1'b1;
-              fma_busy  <= 1'b1;
-            end
-            // Combinational operations: inputs are latched above;
-            // result captured next cycle by comb_done logic below.
-            default: ; // no action needed
-          endcase
-        end
+          end
 
-        // Combinational result capture: one cycle after req_fire,
-        // src1_reg/src2_reg/fpu_funct_reg have the new values,
-        // and the combinational sub-modules compute the correct result.
-        if (req_hold && ~fpu_busy && ~result_valid_reg && is_comb_op)
-        begin
-          result_hold_reg  <= comb_result;
-          fflags_reg       <= comb_fflags;
-          rd_is_int_reg    <= is_rd_int;
-          result_valid_reg <= 1'b1;
-          req_hold         <= 1'b0;
-        end
+          // ── F_DISPATCH: start sub-module, or skip to F_DONE for comb ops ──
+          F_DISPATCH: begin
+            if (is_comb_op) begin
+              // Combinational op: result already available from comb mux
+              // (src1_reg/src2_reg/fpu_funct_reg settled after F_IDLE latch)
+              f_state <= F_DONE;
+            end
+            else begin
+              case (fpu_funct_reg)
+                FPU_FADD, FPU_FSUB: adder_start <= 1'b1;
+                FPU_FMUL:           mul_start   <= 1'b1;
+                FPU_FDIV:           div_start   <= 1'b1;
+                FPU_FSQRT:          sqrt_start  <= 1'b1;
+                FPU_FCVT_W_S, FPU_FCVT_WU_S,
+                FPU_FCVT_S_W, FPU_FCVT_S_WU: cvt_start <= 1'b1;
+                FPU_FMADD, FPU_FMSUB, FPU_FNMSUB, FPU_FNMADD: fma_start <= 1'b1;
+                default: ; // unreachable
+              endcase
+              timeout_cnt <= 10'b0;   // arm watchdog on entering F_WAIT
+              f_state <= F_WAIT;
+            end
+          end
+
+          // ── F_WAIT: wait for active sub-module done signal ──
+          //   Timeout watchdog: if sub-module done does not arrive within
+          //   TIMEOUT_MAX cycles, force completion with fpu_error=1 so the
+          //   caller handshake still completes (result_valid asserted) but
+          //   the result is marked invalid.
+          F_WAIT: begin
+            if (done_sel) begin
+              f_state <= F_DONE;
+            end else if (timeout_cnt >= TIMEOUT_MAX) begin
+              fpu_error_reg <= 1'b1;
+              f_state       <= F_DONE;
+            end else begin
+              timeout_cnt <= timeout_cnt + 10'd1;
+            end
+          end
+
+          // ── F_DONE: latch result/fflags/rd_is_int, set result_valid ──
+          F_DONE: begin
+            result_hold_reg  <= result_sel;
+            fflags_reg       <= fflags_sel;
+            rd_is_int_reg    <= is_rd_int;
+            result_valid_reg <= 1'b1;
+            f_state          <= F_COMPLETE;
+          end
+
+          // ── F_COMPLETE: hold result_valid until result_got ──
+          // NBA shadow cycle protection: only assign result_valid_reg
+          // conditionally (on result_got). When staying in F_COMPLETE, no
+          // unconditional assignment is made, so the default clear does NOT
+          // fire — result_valid_reg holds its value. When result_got arrives,
+          // the conditional clear takes effect next cycle in F_IDLE.
+          F_COMPLETE: begin
+            if (result_got) begin
+              result_valid_reg <= 1'b0;
+              fpu_error_reg    <= 1'b0;   // clear error after caller consumes result
+              f_state          <= F_IDLE;
+            end
+            // else: hold result_valid_reg/fpu_error_reg high (no assignment
+            // → retains value)
+          end
+
+          default: f_state <= F_IDLE;
+        endcase
       end
     end
   end
@@ -491,5 +490,6 @@ module fpu_unit(
   assign result_valid = result_valid_reg;
   assign fflags       = fflags_reg;
   assign rd_is_int    = rd_is_int_reg;
+  assign fpu_error    = fpu_error_reg;
 
 endmodule

@@ -190,6 +190,7 @@ module cpu_execute(
     wire        fpu_result_valid;
     wire [4:0]  fpu_fflags;
     wire        fpu_rd_is_int_result;
+    wire        fpu_error_w;
 
     reg fpu_req_valid;
     reg fpu_result_got;
@@ -221,7 +222,8 @@ module cpu_execute(
         .fpu_ready(fpu_ready_w),
         .result_valid(fpu_result_valid),
         .fflags(fpu_fflags),
-        .rd_is_int(fpu_rd_is_int_result)
+        .rd_is_int(fpu_rd_is_int_result),
+        .fpu_error(fpu_error_w)
     );
 
     reg [31:0] result_reg;
@@ -301,7 +303,7 @@ module cpu_execute(
                 if (fpu_result_valid) begin
                     fpu_result_got <= 1'b1;
                     result_reg <= fpu_result;
-                    result_ok <= valid_inst;
+                    result_ok <= valid_inst & ~fpu_error_w;  // suppress WB on FPU error
                     done_reg <= 1'b1;
                     fpu_active <= 1'b0;
                     fpu_req_valid <= 1'b0;

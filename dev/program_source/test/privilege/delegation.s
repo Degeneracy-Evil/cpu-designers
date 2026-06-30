@@ -79,10 +79,10 @@ test_01_medeleg_write_read:
 # Test 02: mideleg[5] write/read
 # ────────────────────────────────────────────
 test_02_mideleg_write_read:
-    li x10, 0x0020
+    li x10, 0x0080
     csrw mideleg, x10
     csrr x11, mideleg
-    li x12, 0x0020
+    li x12, 0x0080
     li x10, 1
     beq x11, x12, 1f
     li x10, 0

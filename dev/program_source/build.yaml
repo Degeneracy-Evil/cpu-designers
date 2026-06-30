@@ -85,6 +85,8 @@ categories:
       - privilege/priv_transition
       - privilege/delegation
       - privilege/csr_access_priv
+      - privilege/priv_exceptions
+      - privilege/sret_debug
 
   mmu:
     framework: mmu

@@ -231,7 +231,7 @@ module cpu_csr(
                         1'b0,
                         r_mstatus[1],
                         1'b0};
-    assign w_sip = {22'd0, (ext_seip | r_sip[9]), 3'b0, r_sip[5], 3'b0, r_sip[1], 1'b0};
+    assign w_sip = {22'd0, (ext_seip | r_sip[9]), 3'b0, ((ext_mtip & r_mideleg[7]) | r_sip[5]), 3'b0, r_sip[1], 1'b0};
 
     function is_s_csr;
         input [11:0] addr;
@@ -434,15 +434,18 @@ module cpu_csr(
     // looping back into the S-mode trap handler.
     assign medeleg_wmask = sw_csr_wdata & 32'h0000_B1FF;
 
-    // BUG-FIX (sub-issue ⑤): Per RISC-V Privileged Spec, M-mode interrupts
-    // (MSI=3, MTI=7, MEI=11) are NOT delegatable and must be hardwired to 0.
-    // Old mask 0xAAA allowed writing bits 3,7,11 — if set, M-mode interrupts
-    // would be incorrectly delegated to S-mode (e.g., PLIC MEI→S-mode).
+    // Per RISC-V Privileged Spec §3.1.10, mideleg delegates M-mode interrupts
+    // to S-mode. The delegatable M-mode interrupt bits are:
+    //   bit 3 = MSI (M-mode software interrupt) → becomes SSI in S-mode
+    //   bit 7 = MTI (M-mode timer interrupt)   → becomes STI in S-mode
+    //   bit 11 = MEI (M-mode external interrupt) → becomes SEI in S-mode
+    // Bits 1, 5, 9 (SSI/STI/SEI) are for S→U delegation which requires the
+    // deprecated N extension and are not implemented here.
     wire [31:0] mideleg_wmask;
-    assign mideleg_wmask = sw_csr_wdata & 32'h0000_0222;  // only SSI(1), STI(5), SEI(9)
+    assign mideleg_wmask = sw_csr_wdata & 32'h0000_0888;  // MSI(3), MTI(7), MEI(11)
 
     wire [31:0] sie_wmask;
-    assign sie_wmask = {20'd0, sw_csr_wdata[9], 3'd0, sw_csr_wdata[5], 3'd0, sw_csr_wdata[1], 3'd0};
+    assign sie_wmask = {22'd0, sw_csr_wdata[9], 3'd0, sw_csr_wdata[5], 3'd0, sw_csr_wdata[1], 1'b0};
 
     wire [31:0] stvec_wmask;
     assign stvec_wmask = {sw_csr_wdata[31:2], 2'b00};
@@ -520,10 +523,12 @@ module cpu_csr(
             //   bit 11 = MEIP (ext_meip, from PLIC context 0)
             //   bit  9 = SEIP (ext_seip | r_sip[9]), PLIC context 1 OR software write
             //   bit  7 = MTIP (ext_mtip, from CLINT)
-            //   bit  5 = STIP (r_sip[5]), software write only
+            //   bit  5 = STIP (ext_mtip & r_mideleg[7]) | r_sip[5]
+            //            When timer is delegated (mideleg[7]=1), STIP mirrors MTIP.
+            //            Software can also set/clear STIP via sip[5] for emulation.
             //   bit  3 = MSIP (ext_msip, from CLINT)
             //   bit  1 = SSIP (r_sip[1]), software write only
-            r_mip <= {w_mip_hw[31:10], (ext_seip | r_sip[9]), w_mip_hw[8:6], r_sip[5], w_mip_hw[4:2], r_sip[1], w_mip_hw[0]};
+            r_mip <= {w_mip_hw[31:10], (ext_seip | r_sip[9]), w_mip_hw[8:6], ((ext_mtip & r_mideleg[7]) | r_sip[5]), w_mip_hw[4:2], r_sip[1], w_mip_hw[0]};
 
             if (cycle_en)
                 r_mcycle <= r_mcycle + 64'd1;

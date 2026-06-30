@@ -1,5 +1,83 @@
 # Process Log
 
+## 2026-06-30: Add privilege/priv_exceptions.s — U/S/M privilege exception tests
+
+### Summary
+Created `dev/program_source/test/privilege/priv_exceptions.s` (8 sub-tests) to fill coverage gaps in U/S/M privilege-level exception testing. Tests cover S-mode and U-mode illegal instructions, EBREAK with MPP/SPP verification, and S-mode interrupt delegation.
+
+### Changes
+- `dev/program_source/test/priv_exceptions.s` (new file):
+  - Test 01: S-mode illegal instruction (non-CSR) → M trap, mcause=2
+  - Test 02: U-mode illegal instruction (non-CSR) delegated → S trap, scause=2
+  - Test 03: U-mode illegal instruction NOT delegated → M trap, mcause=2
+  - Test 04: S-mode EBREAK → M trap, mcause=3, verify MPP=01(S)
+  - Test 05: U-mode EBREAK delegated → S trap, scause=3, verify SPP=0(U)
+  - Test 06: U-mode EBREAK NOT delegated → M trap, mcause=3, verify MPP=00(U)
+  - Test 07: S-mode timer interrupt delegated (mideleg[7]=1) → expect S trap
+  - Test 08: S-mode software interrupt (SSIP via sip write) → expect S trap, scause=0x80000001
+- `dev/tb/tb_privilege_priv_exceptions.sv` (new testbench, EXPECTED_TOTAL=8)
+- `dev/program_source/build.yaml`: Added `privilege/priv_exceptions` to privilege category
+- `tasks.yaml`: Added `privilege_priv_exceptions` task entry
+
+### Simulation Results
+- **6/8 PASS** (tests 01-06 all pass)
+- **Test 07 FAIL**: Timer interrupt goes to M-mode instead of S-mode despite mideleg[7]=1.
+  - Root cause: CPU bug in `cpu_clint.sv` — `trap_to_s` should be 1 when `m_interrupt_pending && m_int_delegated && priv_mode != M`, but the timer interrupt is delivered to M-mode (mtvec) instead of S-mode (stvec).
+  - Additional issue: `s_interrupt_cause` uses `stip_bit = csr_mip[5]` (STIP, software-only) instead of `ext_mtip` (MTIP, hardware), so even if delegation worked, scause would be wrong (0x80000009 instead of 0x80000005).
+- **Test 08 FAIL**: S-mode software interrupt (via sip[1]=SSIP write) does not fire.
+  - Root cause: CPU bug — `s_interrupt_pending` is computed correctly (SIE=1, SSIE=1, SSIP=1) but the trap is not taken. The `s_int_taken` path in `cpu_clint.sv` does not trigger `trap_enter` for S-mode interrupts when running in S-mode.
+
+### Bugs Discovered (Root Cause Analysis Complete)
+
+#### Bug 1: mideleg write mask blocks M→S interrupt delegation
+- **File**: `cpu_csr.sv` line 441-442
+- **Root cause**: `mideleg_wmask = sw_csr_wdata & 32'h0000_0222` strips bits 3, 7, 11 (M-mode interrupt delegation bits)
+- **Comment claimed**: "M-mode interrupts (MSI=3, MTI=7, MEI=11) are NOT delegatable" — **this is WRONG per RISC-V spec §3.1.10**
+- **RISC-V spec**: M-mode interrupts ARE delegatable to S-mode via `mideleg`. Setting `mideleg[7]=1` delegates M-mode timer interrupt to S-mode (appears as S-mode timer, cause 5)
+- **Current mask `0x222`**: allows bits 1, 5, 9 (S→U delegation, requires N extension — deprecated, not implemented)
+- **Correct mask**: `32'h0000_0888` (bits 3=MSI, 7=MTI, 11=MEI for M→S delegation)
+- **Fix applied**: `mideleg_wmask = sw_csr_wdata & 32'h0000_0888`
+- **Impact**: Timer interrupt delegation (test 07) now works — `mideleg[7]` is writable, timer traps to S-mode
+
+#### Bug 2: STIP (mip[5]) not connected to MTIP (mip[7]) when timer is delegated
+- **File**: `cpu_csr.sv` line 526 (r_mip) and line 234 (w_sip)
+- **Root cause**: `mip[5]` (STIP) = `r_sip[5]` (software-writable only), NOT connected to `ext_mtip` (hardware MTIP)
+- **RISC-V spec**: When `mideleg[7]=1`, `mip[5]` (STIP) should reflect `mip[7]` (MTIP) — the hardware timer pending bit
+- **Fix applied**: 
+  - `r_mip[5]` = `(ext_mtip & r_mideleg[7]) | r_sip[5]`
+  - `w_sip[5]` = `(ext_mtip & r_mideleg[7]) | r_sip[5]`
+- **Impact**: Delegated timer interrupt now has correct scause (0x80000005 = S-mode timer). Without this fix, STIP stays 0 and s_interrupt_pending never fires.
+
+#### Bug 3: sie_wmask has 2-bit shift error — S-mode interrupt enable bits placed at M-mode positions
+- **File**: `cpu_csr.sv` line 445
+- **Root cause**: `sie_wmask = {20'd0, sw_csr_wdata[9], 3'd0, sw_csr_wdata[5], 3'd0, sw_csr_wdata[1], 3'd0}`
+- **Bit positions**: `sw_csr_wdata[1]` → bit [3] (MSIE), `sw_csr_wdata[5]` → bit [7] (MTIE), `sw_csr_wdata[9]` → bit [11] (MEIE)
+- **Should be**: `sw_csr_wdata[1]` → bit [1] (SSIE), `sw_csr_wdata[5]` → bit [5] (STIE), `sw_csr_wdata[9]` → bit [9] (SEIE)
+- **Fix applied**: `sie_wmask = {22'd0, sw_csr_wdata[9], 3'd0, sw_csr_wdata[5], 3'd0, sw_csr_wdata[1], 1'b0}`
+- **Note**: `sip_wmask` (line 458) was already CORRECT — uses `22'd0` and `1'b0`. Only `sie_wmask` had the bug.
+- **Debug evidence**: Writing `sie = 0x002` (SSIE=1) previously resulted in `csr_sie = 0x008` (bit 3=MSIE). After fix, `csr_sie = 0x002` (bit 1=SSIE).
+- **Impact**: S-mode software interrupt (test 08) now works — SSIE is correctly set, s_interrupt_pending fires.
+
+### Additional Fix: delegation.s test_02 updated for new mideleg mask
+- **File**: `dev/program_source/test/privilege/delegation.s` test_02
+- **Change**: `li x10, 0x0020` → `li x10, 0x0080` (test mideleg bit 7=MTI instead of bit 5=STI, since bit 5 is no longer writable with the new 0x888 mask)
+
+### Test Design Notes
+- **Test 07 (timer delegation)**: Uses `mstatus=0x802` (MIE=0, MPIE=0, SIE=1) to prevent M-mode timer re-triggering after delegation. The timer fires via `s_interrupt_pending` (STIP path), not `m_interrupt_pending` (MIE path). S-mode handler ecalls to M-mode (marker 0x43) to disarm the CLINT timer, since S-mode cannot access CLINT under Sv32.
+- **Test 08 (S-mode software interrupt)**: Pre-sets SSIP from M-mode (`csrw sip, 0x002`), enters S-mode with SIE=1. The interrupt fires immediately via `s_interrupt_pending = SIE && (SSIE && SSIP)`.
+
+### Regression Test Results
+All existing tests pass after the fix:
+- exception: ecall(4), ebreak(3), illegal_inst(3), access_fault(3), timer_irq(2), interrupt_basic(6) — ALL PASS
+- privilege: priv_transition(11), delegation(8), csr_access_priv(8), priv_exceptions(8) — ALL PASS
+- mmu: sv32_basic(6), permission(12), page_fault(4) — ALL PASS
+
+### Key Design Decisions
+- M-mode CSRs (mie, mideleg, mstatus) and CLINT registers must be configured from M-mode before entering S-mode — S-mode cannot access M-mode CSRs or unmapped CLINT addresses under Sv32.
+- M handler saves trap info only on FIRST trap to avoid overwrite by subsequent traps (e.g., marker ecall after exception).
+- M handler checks MPP: if S-mode, skip+mret back to S; if U-mode, jump to return_pc (never mret to User VA in bare mode).
+- Interrupt return uses MPIE=0 (mstatus=0x1800) to prevent re-triggering.
+
 ## 2026-06-30: Create fpu_cvt_d.sv — double-precision FPU conversion unit
 
 ### Summary

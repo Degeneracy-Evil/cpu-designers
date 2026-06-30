@@ -2,7 +2,7 @@
 
 limits:
   max_sessions: 15
-  max_concurrent: 2
+  max_concurrent: 4
   max_disk_gb: 20
   idle_timeout_min: 1200    # session idle timeout (minutes)
   # Operation timeouts (seconds)

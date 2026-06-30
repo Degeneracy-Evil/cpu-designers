@@ -214,7 +214,7 @@ module cpu_csr(
     wire [31:0] w_sip;
     assign w_sstatus = {sd_bit,
                         8'b0,
-                        3'b000,
+                        r_mstatus[22:20],  // TSR, TW, TVM
                         r_mstatus[19],
                         r_mstatus[18],
                         r_mstatus[17],
@@ -585,6 +585,9 @@ module cpu_csr(
                         r_mstatus[17]  <= sw_csr_wdata[17];
                         r_mstatus[18]  <= sw_csr_wdata[18];
                         r_mstatus[19]  <= sw_csr_wdata[19];
+                        r_mstatus[20]  <= sw_csr_wdata[20];  // TVM
+                        r_mstatus[21]  <= sw_csr_wdata[21];  // TW
+                        r_mstatus[22]  <= sw_csr_wdata[22];  // TSR
                     end
                     ADDR_SIE:        r_sie       <= sie_wmask;
                     ADDR_STVEC:      r_stvec     <= stvec_wmask;

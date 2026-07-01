@@ -28,6 +28,14 @@ tasks:
     verilog_defines:
       LINUX_BOOT: "TRUE"
 
+  os_boot:
+    tb: tb_simple_cpu_top
+    blhex: boot/bootloader_phase1.hex
+    phex: app/os.hex
+    runtime: 10s
+    verilog_defines:
+      LINUX_BOOT: "TRUE"
+
   # ── 集成仿真 ──
 
   cpu_full:

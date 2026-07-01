@@ -62,8 +62,6 @@ xsim_*_work/
 Reference/xv6/
 
 data/
-kernel
-kernel/
 build/
 log/
 

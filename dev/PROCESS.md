@@ -575,3 +575,21 @@ Fixed 3 bugs causing D ISA test failures (d_ext: 48→51/51, d_ext_special: 23�
 - fpu_cvt_d.sv: FCVT.W.D/WU.D overflow detection (use full 65-bit d_abs_rounded, not [31:0])
 - fpu_cvt_d.sv: FCVT.S.D zero sign preservation ({d_sign, 31'b0} not {d_sign, 32'b0})
 - Verification: isa_d_ext 51/51, isa_d_ext_special 28/28, isa_f 3/3, isa_d_smoke 2/2 — ALL PASS
+
+## 2026-06-30: Create OS header files under dev/os/include/
+
+### Summary
+Created the five foundation headers for the minimal M/S/U privilege OS with sv32 paging: types.h, riscv.h, syscall.h, memlayout.h, trap.h. All headers compile cleanly with riscv32 target (riscv64-unknown-elf-gcc -march=rv32imaf_zicsr_zifencei -mabi=ilp32), zero errors/warnings.
+
+### Changes
+- `dev/os/include/types.h` (new): basic scalar types (uint8_t..uint64_t, intptr_t, size_t, bool).
+- `dev/os/include/riscv.h` (new): CSR addresses (mstatus/sstatus/satp/stvec/sepc/scause/stval/sscratch/medeleg/mideleg/mtvec/mepc), Sv32 PTE bit definitions (V/R/W/X/U/G/A/D), PTE macros, satp mode/ASID/PPN extraction, inline asm helpers (csrr/csrw/sfence_vma/fence_i/mem_fence).
+- `dev/os/include/syscall.h` (new): syscall numbers (SYS_exit=2, SYS_read=7, SYS_write=8) and wrapper declarations.
+- `dev/os/include/memlayout.h` (new): physical/virtual memory layout constants (PA_KERNEL_BASE, PA_L1_PT, PA_USER_PROG, VA_USER_BASE, UART_BASE, etc.).
+- `dev/os/include/trap.h` (new): trapframe_t struct (gpr[31], sepc, sstatus, scause, stval) and trap cause constants (ECALL_U/S, PAGE_FAULT_I/L/S).
+
+### Verification
+- Compile test: riscv64-unknown-elf-gcc -march=rv32imaf_zicsr_zifencei -mabi=ilp32 -ffreestanding -nostdlib -Wall -Wextra → EXIT=0, zero warnings. Object: elf32-littleriscv/rv32.
+- PTE bits cross-checked against dev/rtl/core/ptw.sv lines 129-137 — exact match.
+- CSR addresses cross-checked against dev/rtl/core/cpu_csr.sv lines 95-118 — exact match.
+- Evidence: .omo/evidence/task-1-headers-compile.txt, .omo/evidence/task-1-pte-bits-match.txt

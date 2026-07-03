@@ -4,7 +4,7 @@ SimpleOS 是运行在自研 RISC-V CPU 上的最小化操作系统演示。它�
 
 - **M → S → U 三级特权转换**（mret / sret / ecall）
 - **Sv32 分页**（L1 + 2×L0 三级页表，内核恒等映射 + 用户映射）
-- **系统调用**（SYS_write / SYS_read / SYS_exit，ecall 陷入分发）
+- **系统调用**（SYS_write / SYS_read / SYS_report / SYS_exit，ecall 陷入分发）
 - **U-mode 浮点计算器**（RV32IMF，递归下降解析器，5 项自检测试）
 
 整个系统单核单进程，没有调度器、文件系统、IPC 或中断，但足以验证 CPU 的 MMU、PTW、CSR、特权切换、FPU 全栈功能。
@@ -27,6 +27,7 @@ SimpleOS 是运行在自研 RISC-V CPU 上的最小化操作系统演示。它�
 12. [调试技巧](#12-调试技巧)
 13. [设计约束](#13-设计约束)
 14. [关键设计决策](#14-关键设计决策)
+15. [FPGA 上板](#15-fpga-上板)
 
 ---
 
@@ -36,7 +37,7 @@ SimpleOS 是一个教学/验证用操作系统，目标是验证自研 RISC-V CP
 
 - **M-mode**：`entry.S` → `m_init.c`。建页表、配委托、开分页、`mret` 进 S-mode。
 - **S-mode**：`s_main.c` → `trap.S`/`trap.c`/`syscall.c`。装 stvec、开 FPU、打印 banner、`sret` 进 U-mode，之后作为 syscall 服务器。
-- **U-mode**：`user_start.S` → `calculator.c`。浮点计算器跑 5 项自检，通过 `ecall` 调 `SYS_write` 打印结果，最后 `SYS_exit` 把成绩写回内存并停机。
+- **U-mode**：`user_start.S` → `calculator.c`。浮点计算器先跑 5 项自检，通过 `SYS_report` 把成绩写回内存（不停机），然后进入交互模式，用户可通过 UART 输入表达式实时计算，输入 `exit` 退出。
 
 启动流程一图概览：
 
@@ -67,13 +68,21 @@ SimpleOS 是一个教学/验证用操作系统，目标是验证自研 RISC-V CP
                                   │    └─ run_tests()
                                   │         ├─ sys_write("1+2 = 3.000000\n")
                                   │         ├─ ... (5 项测试)
-                                  │         └─ sys_exit(5, 5, 0)
+                                  │         └─ sys_report(5, 5, 0)
                                   │              └─ ecall ▶ S-mode
-                                  │                   写 0x80007000
-                                  │                   打印 "Calculator exited: 5/5"
-                                  │                   wfi 停机
+                                  │                   写 0x80007000（不停机，返回 U-mode）
+                                  │
+                                  │  ── 交互模式 ──
+                                  │    printf("=== RISC-V FPU Calculator ===\n")
+                                  │    for (;;) {
+                                  │      printf("> ")
+                                  │      gets(input)           ← sys_read 阻塞等待 UART
+                                  │      if "exit": sys_exit() ← 停机
+                                  │      parse_expr() → print result
+                                  │    }
                                   ▼
-                            仿真结束
+                            （仿真：等 200M 周期后 TB $finish）
+                            （上板：用户交互，输入 exit 停机）
 ```
 
 ---
@@ -356,9 +365,10 @@ static inline uint32_t pte_make(uint32_t pa, uint32_t flags) {
 
 | 名称 | 编号 | 说明 |
 |------|------|------|
-| `SYS_exit` | 2 | 退出并写自检结果 |
+| `SYS_exit` | 2 | 退出并写自检结果，停机 |
 | `SYS_read` | 7 | 从 fd 读 |
 | `SYS_write` | 8 | 向 fd 写 |
+| `SYS_report` | 9 | 写自检结果到内存，不停机（返回调用者） |
 
 ### 6.2 调用约定
 
@@ -392,6 +402,12 @@ a2 (x12) = arg2
   - `sc[2] = first_fail`
 - 打印 `Calculator exited: <pass>/<total> tests passed`
 - `wfi` 死循环停机
+
+**SYS_report(pass, total, first_fail) → 无返回值（但继续执行）**
+
+- 写自检结果到 `PA_SELF_CHECK`（0x80007000），格式与 `SYS_exit` 相同。
+- **不停机**：写完内存后直接返回到 ecall 的下一条指令，U-mode 继续执行。
+- 用途：自检完成后需要继续运行（如进入交互模式）时使用。
 
 ### 6.4 陷入分发（`trap.c`）
 
@@ -569,7 +585,12 @@ SimpleOS booted
 8/2 = 4.000000
 sqrt(4) = 2.000000
 Tests: 5/5 passed
-Calculator exited: 5/5 tests passed
+
+=== RISC-V FPU Calculator ===
+Supports: + - * / () sqrt() neg()
+Type 'exit' to quit.
+
+>
 ```
 
 逐行来源：
@@ -579,7 +600,8 @@ Calculator exited: 5/5 tests passed
 | `SimpleOS booted` | `s_main.c` 的 `uart_puts` | 直接 MMIO（内核态） |
 | `1+2 = 3.000000` ... `sqrt(4) = 2.000000` | `calculator.c` 的 `run_tests` | `SYS_write` via `user_printf` |
 | `Tests: 5/5 passed` | `calculator.c` 的 `run_tests` | `SYS_write` |
-| `Calculator exited: 5/5 tests passed` | `syscall.c` 的 `SYS_exit` 处理 | 直接 MMIO（内核态） |
+| `=== RISC-V FPU Calculator ===` ... `Type 'exit' to quit.` | `calculator.c` 的 `main` | `SYS_write` via `user_printf` |
+| `> ` | `calculator.c` 的 `main` 交互循环 | `SYS_write`，之后阻塞在 `SYS_read` 等待输入 |
 
 ### 10.2 陷入追踪
 
@@ -591,10 +613,10 @@ Calculator exited: 5/5 tests passed
 #3   TRAP_IN PC=0x00000054  priv=0→1   (U→S ecall, sys_write)
 #4   MRET    PC=0x80004160  priv=1→0   (S→U sret)
 ...  (ecall/sret 交替，中间穿插 sys_write 调用)
-#149 TRAP_IN PC=0x0000006c  priv=0→1   (sys_exit ecall, 不再 sret)
+#149 TRAP_IN PC=0x0000006c  priv=0→1   (sys_report ecall, sret 返回 U-mode)
 ```
 
-> 注意：TB 的 `[TRAP-EVT]` 显示的是 `csr_mcause`，不是 `csr_scause`。S-mode 委托的陷入不更新 mcause，所以 U→S ecall 显示 mcause=0，实际 scause=8。
+> 注意：自检阶段约 149 个 trap 事件。进入交互模式后，程序阻塞在 `SYS_read`（S-mode `uart_getc` 轮询），仿真无 UART 输入，直到 200M 周期超时 `$finish`。
 
 ### 10.3 自检结果
 
@@ -618,7 +640,7 @@ Calculator exited: 5/5 tests passed
 
 ## 11. 自检协议
 
-SimpleOS 沿用项目的自检协议，但通过 `SYS_exit` 系统调用把结果写入内存，而非直接写寄存器。
+SimpleOS 沿用项目的自检协议，但通过 `SYS_report` 系统调用把结果写入内存，而非直接写寄存器。`SYS_report` 写完内存后返回调用者继续执行（不停机），`SYS_exit` 仅在用户输入 `exit` 命令时调用，用于停机。
 
 ### 11.1 测试用例
 
@@ -638,14 +660,17 @@ SimpleOS 沿用项目的自检协议，但通过 `SYS_exit` 系统调用把结�
 
 ```c
 // calculator.c
-sys_exit(pass, total, first_fail);  // a0=pass, a1=total, a2=first_fail
+sys_report(pass, total, first_fail);  // a0=pass, a1=total, a2=first_fail
 
-// syscall.c (SYS_exit handler)
+// syscall.c (SYS_report handler)
 volatile uint32_t *sc = (volatile uint32_t *)PA_SELF_CHECK;  // 0x80007000
 sc[0] = total_count;
 sc[1] = pass_count;
 sc[2] = first_fail_id;
+// 写完即返回，U-mode 继续执行（进入交互模式）
 ```
+
+`SYS_report` 与 `SYS_exit` 的区别：`SYS_report` 写完内存后返回调用者继续执行，`SYS_exit` 写完后 `wfi` 停机。交互模式下用户输入 `exit` 时才调用 `SYS_exit`。
 
 ### 11.3 TB 校验
 
@@ -816,6 +841,59 @@ $(BUILD_DIR)/user_bin_wrap.S: $(USER_BIN)
 
 ---
 
+## 15. FPGA 上板
+
+SimpleOS 已具备 FPGA 上板运行能力。上板流程：
+
+### 15.1 前提条件
+
+- FPGA 已烧录 bitstream（`python3 -m tools.vivado_cli -task fpga -create -bitstream`）
+- UART 串口终端已连接（波特率 230400，8N1）
+- `dev/os/build/os.bin` 已编译
+
+### 15.2 加载流程
+
+1. FPGA 上电后，bootloader（`bootloader.coe`）运行：
+   - 等待 DDR3 MIG 校准完成
+   - DDR3 自检（写 0xDEADBEEF + 0xCAFEBABE 回读验证）
+   - 初始化 UART（230400 baud，8N1，FIFO）
+   - 等待 UART 接收程序镜像
+2. 使用 `tools/uart_load.py` 发送 `os.bin`：
+   ```bash
+   python3 tools/uart_load.py --port /dev/ttyUSB0 --file dev/os/build/os.bin \
+       --load-addr 0x80000000 --entry-addr 0x80000000
+   ```
+3. Bootloader 接收完毕后 `fence.i` + 跳转到 0x80000000
+4. SimpleOS 启动：M-mode 建页表 → S-mode 初始化 → U-mode 计算器
+
+### 15.3 交互使用
+
+启动后终端显示：
+
+```
+SimpleOS booted
+1+2 = 3.000000
+3*4 = 12.000000
+10-3 = 7.000000
+8/2 = 4.000000
+sqrt(4) = 2.000000
+Tests: 5/5 passed
+
+=== RISC-V FPU Calculator ===
+Supports: + - * / () sqrt() neg()
+Type 'exit' to quit.
+
+> 
+```
+
+在 `> ` 提示符后输入表达式（如 `(1+2)*3.5`），回车后显示结果。输入 `exit` 退出。
+
+### 15.4 UART 波特率
+
+UART 接在 `sys_clk`（100MHz）域，分频系数 = 100MHz / (16 × 230400) ≈ 27。内核 `s_main.c` 在启动时调用 `uart_init(UART_BAUD_230400)` 初始化 UART。
+
+---
+
 ## 附：快速验证清单
 
 ```bash
@@ -828,7 +906,7 @@ python -m tools.vivado_cli -task os_boot -create -sim --debug trap,uart_tx
 
 # 3. 检查 UART 输出
 cat .omo/evidence/task-9-uart-tx.log
-# 期望：7 行，以 "Calculator exited: 5/5 tests passed" 结尾
+# 期望：5 项测试结果 + "Tests: 5/5 passed" + 交互模式 banner + "> " 提示符
 
 # 4. 检查自检内存
 # TB 自动检查 0x80007000 处的 total/pass/first_fail

@@ -1281,7 +1281,7 @@ UART 外设已替换为 ns16550a 标准串口（`dev/rtl/APB/perips/uart16550/ua
 
 ### 8.1 应用层验证状态
 
-> 更新时间: 2026-06-16 | 基于 commit `bb4b3fb`（成功完成计算器、echo）
+> 更新时间: 2026-07-03 | 基于 SimpleOS 交互模式完成
 
 | 应用 | 程序 | 验证方式 | 结果 | 说明 |
 |------|------|----------|------|------|
@@ -1289,8 +1289,9 @@ UART 外设已替换为 ns16550a 标准串口（`dev/rtl/APB/perips/uart16550/ua
 | UART Echo | `uart_echo.hex` | 仿真 + 上板 | ✓ PASS | UART 回环收发，testbench 内嵌 TX 引擎 + RX 解码器 |
 | 浮点计算器 | `calculator.hex` | 仿真 + 上板 | ✓ PASS | UART IO 递归下降表达式解析，5 项算式全通过 |
 | Bootloader 仿真 | `bootloader_full.hex` | 仿真 | ✓ PASS | sp 初始化 → MIG 等待 → DDR3 自检 → UART 接收镜像 → fence.i → 跳转执行，全链路通过 |
+| SimpleOS | `os.hex` | 仿真 | ✓ PASS | M/S/U 三级特权转换 + Sv32 分页 + ecall 系统调用 + U-mode 浮点计算器，5/5 自检通过 + 交互模式 |
 
-**里程碑**：项目已从"ISA 单元测试通过"进入"系统集成应用验证"阶段，三个应用均成功上板运行，bootloader 全链路仿真通过。
+**里程碑**：项目已从"ISA 单元测试通过"进入"系统集成应用验证"阶段，三个应用均成功上板运行，bootloader 全链路仿真通过。SimpleOS 进一步验证了 M/S/U 特权级 + Sv32 分页 + 系统调用的全栈功能。
 
 ### 8.2 测试平台
 
@@ -1352,6 +1353,7 @@ UART 外设已替换为 ns16550a 标准串口（`dev/rtl/APB/perips/uart16550/ua
 | `tb_uart_hello` | `uart_hello.hex` | UART 输出测试 | 12 PASS, 0 FAIL |
 | `tb_uart_echo` | `uart_echo_test.hex` | UART 回环测试 | — |
 | `tb_calculator` | `calculator.hex` | 浮点计算器应用测试 | 5 PASS, 0 FAIL |
+| `tb_simple_cpu_top` | `os.hex` | SimpleOS M/S/U + Sv32 + syscall 仿真 | 5/5 PASS（交互模式） |
 | `tb_ahb_bus` | — | AXI4 总线功能测试（原 AHB 总线测试已适配） | — |
 | `tb_apb_perips` | — | APB 外设功能测试 | — |
 | `tb_non_restoring_divider` | — | 除法器单元测试 | — |
@@ -1601,6 +1603,7 @@ UART 外设已替换为 ns16550a 标准串口（`dev/rtl/APB/perips/uart16550/ua
 |------|------|
 | `dev/program_source/boot/` | Bootloader（DDR3 启动引导：sp 初始化 → MIG 等待 → DDR3 自检 → UART 接收程序镜像 → fence.i → 跳转执行） |
 | `dev/program_source/app/` | 应用程序（calculator, led_marquee, uart_hello, uart_echo, ddr3_test） |
+| `dev/os/` | SimpleOS 操作系统（M/S/U 特权级 + Sv32 分页 + ecall 系统调用 + U-mode 交互式浮点计算器） |
 | `dev/program_source/test/isa/` | ISA 测试（alu, branch, jump, memory, upper_imm, m_ext, csr, f_ext, f_ext_special, d_smoke, d_ext, d_ext_special, f0_writable） |
 | `dev/program_source/test/integration/` | 集成测试（cpu_full, cpu_compute, cpu_trap） |
 | `dev/program_source/test/exception/` | 异常测试（illegal_inst, ecall, ebreak, access_fault, interrupt_basic, timer_irq） |
@@ -1694,3 +1697,12 @@ UART 外设已替换为 ns16550a 标准串口（`dev/rtl/APB/perips/uart16550/ua
 68. **F 扩展平方根次正规数修复**（2026-06-30）：`fpu_sqrt.sv` 次正规数尾数规格化修复，24-bit 拼接确保 [1.0,2.0) 范围
 69. **FPU FSM 边界测试**（2026-06-30）：tb_fpu_fsm 15 子测试覆盖 F_IDLE/F_DISPATCH/F_WAIT/F_DONE/F_COMPLETE 状态转换、flush 时序、result_got 握手、超时看门狗等边界场景
 70. **D 扩展回归验证**（2026-06-30）：F 回归 3/3 PASS（isa_f_ext 30 子测试、isa_f_ext_special 24 子测试、isa_f_f0_writable 5 子测试），D 回归 3/3 PASS（isa_d_smoke 2、isa_d_ext 51、isa_d_ext_special 28），FPU 单元测试 13/13 PASS（F 136 子测试、D 136 子测试、FSM 15 子测试），全回归 55 测试 ALL PASS（54 PASS + 1 XFAIL），时序 WNS=0.288ns（MET）
+71. **SimpleOS 操作系统**（2026-07-03）：约 1500 行 C/汇编代码实现的最小化 OS，验证 M/S/U 三级特权转换 + Sv32 分页 + ecall 系统调用全栈功能：
+    - M-mode：建页表（L1 + 2×L0 三级页表）、配委托（medeleg）、开分页、mret 进 S-mode
+    - S-mode：装 stvec、开 FPU、UART 初始化（230400 baud）、sret 进 U-mode、syscall 服务器（SYS_write/SYS_read/SYS_report/SYS_exit）
+    - U-mode：浮点计算器（RV32IMF），5 项自检 + 交互模式（UART 输入表达式实时计算，输入 exit 退出）
+    - 单页表设计（S/U 共用 satp，陷入时不切换），VA 转换代替 SUM（内核走恒等映射访问用户内存）
+    - A/D 位预置（硬件不自动置位），.incbin 嵌入用户镜像（单一 hex 文件）
+72. **SimpleOS 系统调用**（2026-07-03）：4 个系统调用（SYS_write=8 / SYS_read=7 / SYS_report=9 / SYS_exit=2），ecall 陷入 S-mode 分发。SYS_report 写自检结果到内存后返回（不停机），SYS_exit 写结果后 wfi 停机。交互模式通过 SYS_read 阻塞等待 UART 输入
+73. **SimpleOS 交互模式**（2026-07-03）：自检完成后不退出，进入交互式计算器循环。用户通过 UART 输入表达式（支持 +,-,*,/,(),sqrt(),neg()），实时计算并输出结果。输入 `exit` 调用 SYS_exit 停机。仿真中程序阻塞在 SYS_read（S-mode uart_getc 轮询），200M 周期后 TB $finish
+74. **SimpleOS FPGA 上板就绪**（2026-07-03）：UART 波特率 230400（sys_clk=100MHz，分频系数 27），内核启动时 uart_init 初始化。上板流程：bootloader.coe 等待 DDR3 校准 → UART 接收 os.bin → fence.i → 跳转执行 → SimpleOS 启动 → 交互模式

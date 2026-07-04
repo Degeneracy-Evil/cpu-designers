@@ -44,28 +44,33 @@
 == 设计目标
 
 #move(dx: 2em)[
-  + `RISCV32-IMAF_Zicsr_Zifencei`多周期CPU（使用上次成果）
+  + `RISCV32-IMAFD_Zicsr_Zifencei`多周期CPU（含双精度浮点扩展D）
   + 构建完整计算机系统：CPU + 总线 + 主存 + 外设
   + 系统总线升级为AXI4，支持突发传输和时钟域穿越
   + 引入DDR3主存（FPGA）或SRAM仿真模型
   + 引入Boot ROM，支持从ROM启动
-  + 浮点扩展F（单精度浮点）
+  + 浮点扩展F（单精度）+ D（双精度，非FMA部分）
+  + 运行SimpleOS微型操作系统（M/S/U特权 + Sv32分页）
+  + 成功进入Linux内核态（OpenSBI + Linux内核启动，内核panic阶段）
 ]
 
 == 已实现的特性
 
 #move(dx: 2em)[
-  + 指令集：RV32I(40条) + M(8条) + F(30条) + Zicsr(6条) + Zifencei(1条) = 85条
-  + 完整Sv32虚拟内存：MMU + TLB(4路×4组) + PTW(10状态FSM)
-  + 四路组相联Cache（i/d各1KB），写回策略，Tree-PLRU替换
+  + 指令集：RV32I(40条) + M(8条) + A(11条) + F(22条) + D(22条非FMA) + Zicsr(6条) + Zifencei(1条) = 110条
+  + 完整Sv32虚拟内存：MMU统一翻译FSM(11状态) + TLB(4路×4组) + PTW(8状态FSM)
+  + 四路组相联Cache（i/d各1KB），写回策略，Tree-PLRU替换，*PIPT*（物理索引物理标签）
   + AXI4系统总线（单主7从）→ APB4外设总线（4从）
   + AXI4时钟域穿越（cpu\_clk→sys\_clk），SpinalHDL生成
   + DDR3主存（FPGA，Xilinx MIG）或BRAM仿真模型
   + Boot ROM（8K条目，0xFC000000）
   + CLINT（mtime/mtimecmp）+ PLIC（8源，M/S双上下文）
   + 四外设：GPIO(16bit)、Timer(含IRQ)、UART 16550A(含FIFO)、SPI
-  + FPU：单精度浮点运算单元（加/减/乘/除/开方/FMA/转换/比较/分类/符号注入）
+  + FPU：单精度+双精度浮点运算单元（加/减/乘/除/开方/FMA/转换/比较/分类/符号注入），5状态显式FSM + 超时看门狗
   + M/S/U三级特权，陷阱委托（medeleg/mideleg）
+  + 64位浮点寄存器堆（32×64-bit），NaN-boxing支持
+  + SimpleOS微型操作系统：M→S→U三级特权转换 + Sv32分页 + ecall系统调用
+  + Linux内核启动：OpenSBI固件 + Linux内核进入S-mode分页，推进至内核虚拟空间C0377xxx
 ]
 
 == 参考资料
@@ -318,7 +323,7 @@ RST_CPU -down-> CPU_RST : 异步断言\n同步解除断言
 
 == CPU核心
 
-CPU核心（`core_top`）采用五级多周期流水线架构，由11状态FSM控制器驱动。支持RV32IMAF\_Zicsr\_Zifencei指令集（85条指令），包含完整的异常/中断处理机制和Sv32虚拟内存支持。
+CPU核心（`core_top`）采用五级多周期流水线架构，由11状态FSM控制器驱动。支持RV32IMAFD\_Zicsr\_Zifencei指令集（110条指令），包含完整的异常/中断处理机制和Sv32虚拟内存支持。
 
 === 流水线控制器
 
@@ -412,7 +417,7 @@ SFENCE_VMA --> FETCH : 刷新完成
 
 译码模块从32位指令中提取所有控制信号和操作数，包括五种立即数生成（I/S/B/U/J型）、指令识别和分类、ALU操作数选择等。译码为纯组合逻辑，1周期完成。
 
-指令集覆盖：RV32I(40条) + M(8条) + F(30条) + Zicsr(6条) + Zifencei(1条) = 85条。
+指令集覆盖：RV32I(40条) + M(8条) + A(11条) + F(22条) + D(22条非FMA) + Zicsr(6条) + Zifencei(1条) = 110条。
 
 === 执行模块
 
@@ -428,7 +433,7 @@ SFENCE_VMA --> FETCH : 刷新完成
   [*单元*], [*负责指令*],
   [ALU], [ADD/SUB/SLT/SLTU/XOR/OR/AND/SLL/SRL/SRA/LUI/NOR/NOT等单周期运算],
   [MU], [MUL/MULH/MULHSU/MULHU/DIV/DIVU/REM/REMU（多周期握手）],
-  [FPU], [FADD/FSUB/FMUL/FDIV/FSQRT/FMADD/FMSUB等浮点运算（多周期握手）],
+  [FPU], [FADD/FSUB/FMUL/FDIV/FSQRT/FMADD/FMSUB及D扩展双精度运算等（5状态FSM + 超时看门狗，多周期握手）],
 )
 
 分支比较器（`branch_comparator`）为独立组合逻辑模块，根据`funct3`判断beq/bne/blt/bge/bltu/bgeu条件。
@@ -446,8 +451,8 @@ MMIO旁路：当地址最高位`bit[31]=0`或`bit[30]=1`时，不经过Cache，�
 === 寄存器堆
 
 #move(dx: 2em)[
-  + *整数寄存器堆*（`cpu_regfile`）：32个32位寄存器，x0硬连线为0，组合读同步写
-  + *浮点寄存器堆*（`fpu_regfile`）：32个32位寄存器，f0-f31，支持单精度浮点
+  + *整数寄存器堆*（`cpu_regfile`）：32个32位寄存器，x0硬连线为0，组合读同步写，支持WB同周期写穿透（read forwarding）
+  + *浮点寄存器堆*（`fpu_regfile`）：32个*64位*寄存器，f0-f31，支持单精度（NaN-boxing：高32位填充`0xFFFFFFFF`）和双精度浮点存储。f0为正常可写寄存器（RISC-V规范不要求f0=0）。单写端口（64-bit），三读端口（64-bit，含FMA rs3第三读端口）
 ]
 
 == 运算单元
@@ -480,7 +485,9 @@ ALU为纯组合逻辑模块，支持16种单周期运算（ADD/SUB/SLT/SLTU/XOR/
 
 === FPU（浮点运算单元）
 
-单精度浮点运算单元，支持RISC-V F扩展的30条指令：
+单精度+双精度浮点运算单元，支持RISC-V F扩展的22条指令和D扩展的22条非FMA指令。浮点寄存器堆为32×64-bit，支持NaN-boxing（F单精度结果高32位填充`0xFFFFFFFF`）。
+
+*F扩展子模块（单精度）：*
 
 #table(
   columns: (1fr, 3fr),
@@ -502,7 +509,59 @@ ALU为纯组合逻辑模块，支持16种单周期运算（ADD/SUB/SLT/SLTU/XOR/
   [`fpu_special`], [特殊值处理（NaN/Inf/零）],
 )
 
-FPU通过`fpu_req_valid`/`fpu_result_valid`握手协议与执行模块交互，支持`flush`中断。
+*D扩展子模块（双精度，独立实现非参数化F模块）：*
+
+#table(
+  columns: (1fr, 3fr, 1fr),
+  align: horizon,
+  stroke: 0.5pt,
+  inset: 6pt,
+  [*子模块*], [*功能*], [*周期数*],
+  [`fpu_adder_d`], [双精度加法/减法（FSM: 对齐→加法→规格化→舍入）], [4-6],
+  [`fpu_multiplier_d`], [双精度乘法（53×53尾数乘）], [2-3],
+  [`fpu_divider_d`], [双精度除法（非恢复余数迭代55-bit商）], [~56],
+  [`fpu_sqrt_d`], [双精度开方（非恢复余数法57-bit根）], [~57],
+  [`fpu_cvt_d`], [双精度↔整数/单精度转换（FCVT.S.D/FCVT.D.S等6条）], [2-3],
+  [`fpu_compare_d`], [双精度比较（FEQ.D/FLT.D/FLE.D）], [单周期],
+  [`fpu_minmax_d`], [双精度极值（FMIN.D/FMAX.D）], [单周期],
+  [`fpu_classify_d`], [双精度分类（FCLASS.D）], [单周期],
+  [`fpu_sign_inject_d`], [双精度符号注入（FSGNJ.D/FSGNJN.D/FSGNJX.D）], [单周期],
+)
+
+*FPU内部状态机（5状态显式FSM）：*
+
+```plantuml
+@startuml FPU_FSM
+skinparam defaultFontSize 11
+hide empty description
+
+[*] --> F_IDLE
+
+F_IDLE --> F_DISPATCH : req_valid
+F_DISPATCH --> F_DONE : 组合运算（比较/分类等）
+F_DISPATCH --> F_WAIT : 时序运算（加/乘/除/开方/转换）
+
+F_WAIT --> F_DONE : sub_module_done
+F_WAIT --> F_IDLE : flush
+F_WAIT --> F_DONE : timeout(1000周期)\nfpu_error=1
+
+F_DONE --> F_COMPLETE : 下一周期
+F_COMPLETE --> F_IDLE : result_got
+
+note right of F_WAIT
+  超时看门狗：1000周期
+  未收到done则fpu_error=1
+  抑制写回（结果标记无效）
+end note
+
+@enduml
+```
+
+FPU通过`fpu_req_valid`/`fpu_result_valid`握手协议与执行模块交互，支持`flush`中断。数据位宽为64-bit：F运算取低32位并NaN-box，D运算使用完整64位。`fpu_active`信号与`mu_busy`互斥，确保同一时刻仅一个多周期运算单元活跃。
+
+*FLD/FSD双事务加载/存储：* D扩展的FLD/FSD需要访问两个连续的32-bit字（addr和addr+4）拼合为64-bit浮点数据。访存级通过`MEM_FLD_LO→MEM_FLD_GAP→MEM_FLD_HI`三状态完成双事务，GAP状态脉冲`mem_en=0`一个周期强制MMU重新翻译第二个字的地址。
+
+*D扩展未实现部分：* D-FMA（FMADD.D/FMSUB.D/FNMSUB.D/FNMADD.D）暂不实现。FMV.X.D/FMV.D.X需要XLEN≥64，RV32下不实现。
 
 == 存储子系统
 
@@ -510,7 +569,7 @@ FPU通过`fpu_req_valid`/`fpu_result_valid`握手协议与执行模块交互，�
 
 icache控制器（`icache_ctrl`）采用5状态FSM，管理指令缓存的命中判断、缺失填充和无效化。
 
-*Cache参数：*4路组相联，8组，256bit行大小（8字），共1KB。VIPT（虚拟索引物理标签），Tree-PLRU替换。无脏位（只读缓存）。
+*Cache参数：*4路组相联，8组，256bit行大小（8字），共1KB。*PIPT*（物理索引物理标签），Tree-PLRU替换。无脏位（只读缓存）。set\_idx和tag均来自MMU翻译后的物理地址（paddr），消除了VIPT的别名问题。
 
 *状态定义：*
 
@@ -521,7 +580,7 @@ icache控制器（`icache_ctrl`）采用5状态FSM，管理指令缓存的命中
   align: horizon,
   [*状态*], [*功能描述*],
   [S\_IDLE], [空闲，等待CPU请求；MMIO单周期旁路],
-  [S\_TAG\_READ], [标签BRAM读取，等待MMU就绪后进行tag比较],
+  [S\_TAG\_READ], [标签BRAM读取，直接进行tag比较（paddr在S\_IDLE已锁存，无需等待MMU）],
   [S\_READ], [读命中，从数据BRAM读出目标字],
   [S\_REFILL], [缺失填充：请求总线行填充，写入数据+标签BRAM],
   [S\_INVALIDATE], [全无效化（fence.i）：逐组写零清除有效位],
@@ -542,7 +601,6 @@ S_IDLE --> S_IDLE : MMIO旁路（单周期）
 S_TAG_READ --> S_READ : 读命中
 S_TAG_READ --> S_IDLE : 写命中（icache只读，不应发生）
 S_TAG_READ --> S_REFILL : 缺失
-S_TAG_READ --> S_TAG_READ : !mmu_ready（等待MMU）
 
 S_READ --> S_IDLE : 数据读取完成
 
@@ -559,7 +617,7 @@ S_INVALIDATE --> S_INVALIDATE : 逐组写零（未完成）
 
 dcache控制器（`dcache_ctrl`）采用13状态FSM，管理数据缓存的全部操作：命中判断、写命中单周期写入、缺失处理（含脏行回写与行填充）、MMIO旁路、缓存冲刷和单行无效化。
 
-*Cache参数：*4路组相联，8组，256bit行大小（8字），共1KB。写回策略，VIPT，Tree-PLRU替换。有脏位。
+*Cache参数：*4路组相联，8组，256bit行大小（8字），共1KB。写回策略，*PIPT*（物理索引物理标签），Tree-PLRU替换。有脏位。set\_idx和tag均来自MMU翻译后的物理地址（paddr）。
 
 *状态定义：*
 
@@ -630,13 +688,15 @@ state "单行无效化" as INV {
 #move(dx: 2em)[
   + *写命中单周期完成*：dcache支持写命中时直接写入数据BRAM并置脏位，单周期从S\_TAG\_READ返回S\_IDLE
   + *字节写使能*：通过BRAM的WEA端口支持BYTE/HWORD/WORD写入
-  + *PTW A/D位一致性*：当PTW写回A/D位时，dcache中可能存在过期的PTE副本，通过S\_INV\_LINE/S\_INV\_LINE\_WRITE单行无效化保证一致性
+  + *单行无效化接口*：`inv_line_req/addr/done`端口支持外部（如sfence.vma后）对dcache中特定行进行无效化，清除匹配路的V位（不写回脏数据）
   + *MMIO旁路*：物理地址`bit[31]=0`或`bit[30]=1`时旁路Cache
+  + *error完成路径*：AXI总线错误时bridge也置`done=1`，dcache检查error flag后回S\_IDLE，避免死等
+  + *write-back公平性*：`wb_starve_cnt_r` 3周期计数后`wb_boost_r`提升到最高优先级，防止写回饥饿
 ]
 
 === MMU
 
-MMU模块（`MMU.sv`）实现Sv32页式虚拟内存，包含三个独立FSM：i-side FSM、d-side FSM和漫游仲裁器FSM。
+MMU模块（`MMU.sv`）实现Sv32页式虚拟内存。经过精简优化后，采用*统一翻译FSM*（11状态）替代早期分离的i-side/d-side FSM + 仲裁器结构，CPU通过`translate_req`/`translate_done`握手驱动单次翻译流程。
 
 *Sv32地址分解：*
 
@@ -653,7 +713,47 @@ MMU模块（`MMU.sv`）实现Sv32页式虚拟内存，包含三个独立FSM：i-
 
 *Sv32使能条件：*`sv32_enabled = satp[31] && (priv_mode != M_MODE) && translate_en`。M模式始终使用bare模式（物理地址直通）。
 
-*i-side FSM（5状态）：*
+*统一翻译FSM（11状态）：*
+
+```plantuml
+@startuml MMU_FSM
+skinparam defaultFontSize 11
+hide empty description
+
+[*] --> T_IDLE
+
+T_IDLE --> T_LOOKUP : translate_req
+T_LOOKUP --> T_CHECK : 下一周期(BRAM读延迟)
+
+T_CHECK --> T_DONE : bare模式 或 TLB命中
+T_CHECK --> T_FAULT : TLB命中+权限故障
+T_CHECK --> T_WALK : TLB缺失
+
+T_WALK --> T_FILL : ptw_walk_done
+T_WALK --> T_FAULT : ptw_walk_fault
+
+T_FILL --> T_RELOOKUP : 下一周期
+T_RELOOKUP --> T_RECHECK : 下一周期
+T_RECHECK --> T_DONE : 命中
+T_RECHECK --> T_FAULT : 权限故障
+
+T_DONE --> T_COMPLETE : 下一周期
+T_FAULT --> T_COMPLETE : 下一周期
+T_COMPLETE --> T_IDLE : !translate_req
+T_COMPLETE --> T_IDLE : translate_req && vaddr变化
+
+T_IDLE --> T_FLUSH : sfence_vma
+T_FLUSH --> T_IDLE : 刷新完成
+
+note right of T_COMPLETE
+  translate_done 为电平信号
+  (在T_COMPLETE中保持高电平)
+  而非1周期脉冲
+  防止重复翻译
+end note
+
+@enduml
+```
 
 #table(
   columns: (auto, 1fr),
@@ -661,48 +761,26 @@ MMU模块（`MMU.sv`）实现Sv32页式虚拟内存，包含三个独立FSM：i-
   inset: 6pt,
   align: horizon,
   [*状态*], [*功能描述*],
-  [I\_IDLE], [空闲，锁存输入，转入I\_LOOKUP],
-  [I\_LOOKUP], [TLB查找；命中→ready，缺失→I\_WALK\_PENDING，输入变化→I\_IDLE],
-  [I\_WALK\_PENDING], [TLB缺失，等待仲裁器分配PTW],
-  [I\_FILL\_WAIT], [PTW漫游完成，等待TLB填充],
-  [I\_FLUSH], [sfence.vma：等待TLB刷新完成],
+  [T\_IDLE], [空闲，锁存vaddr/satp/priv，等待translate\_req],
+  [T\_LOOKUP], [TLB BRAM读请求（1周期延迟）],
+  [T\_CHECK], [TLB输出有效，判定hit/miss/fault；bare模式直接T\_DONE],
+  [T\_WALK], [TLB缺失，PTW页表漫游],
+  [T\_FILL], [PTW完成，写TLB Port B（1周期）],
+  [T\_RELOOKUP], [重新读TLB确认fill提交],
+  [T\_RECHECK], [检查re-lookup结果],
+  [T\_DONE], [翻译成功，置translate\_done + paddr],
+  [T\_FAULT], [翻译失败，置translate\_done + fault],
+  [T\_COMPLETE], [保持translate\_done为电平信号，等待translate\_req撤除后回T\_IDLE],
+  [T\_FLUSH], [sfence.vma刷新TLB，逐组写零BRAM],
 )
 
-*d-side FSM*与i-side对称（D\_IDLE/D\_LOOKUP/D\_WALK\_PENDING/D\_FILL\_WAIT/D\_FLUSH），由`d_translate_en`（mem\_en）门控。
+*T\_COMPLETE状态（关键简化）*：`translate_done`现为电平信号（在T\_COMPLETE中保持高电平），而非早期的1周期脉冲。防止`translate_req`保持高电平时触发重复翻译，消除T\_DONE与T\_COMPLETE之间的1周期gap，避免dcache数据BRAM使能被mmu\_ready间隙抑制导致的store hit数据丢失问题。
 
-*漫游仲裁器FSM（3状态）：*
-
-```plantuml
-@startuml Walk_Arbiter_FSM
-skinparam defaultFontSize 11
-hide empty description
-
-[*] --> W_IDLE
-
-W_IDLE --> W_D_WALK : d_walk_req（优先）
-W_IDLE --> W_I_WALK : i_walk_req
-
-W_D_WALK --> W_IDLE : ptw_done / ptw_fault
-W_I_WALK --> W_IDLE : ptw_done / ptw_fault
-
-note right of W_D_WALK
-  若 i-side miss 到达：
-  置 pending_i_walk = 1
-end note
-
-note left of W_I_WALK
-  若 d-side miss 到达：
-  置 pending_d_walk = 1
-end note
-
-@enduml
-```
-
-仲裁策略：d-side优先（数据访存正确性优先于取指），挂起队列保证公平性。sfence.vma清除所有挂起标志并强制回到W\_IDLE。
+*与流水线的交互*：icache和dcache各自通过独立的`translate_req`请求驱动MMU翻译。MMU为单例实例，两种请求分时复用同一翻译FSM。sfence.vma通过`mmu_flush_req`中断任意状态进入T\_FLUSH。
 
 === TLB
 
-TLB使用双端口BRAM实现4路×4组=16表项的组相联结构，Tree-PLRU替换。
+TLB使用双端口BRAM实现4路×4组=16表项的组相联结构，Tree-PLRU替换。非BRAM全相联路径已作为死代码删除。
 
 *BRAM结构：*
 
@@ -722,7 +800,7 @@ Megapage匹配：仅比较VPN\[19:10\]，低10位由虚拟地址直接提供。�
 
 === PTW（页表漫游器）
 
-PTW为10状态FSM，完成Sv32二级页表遍历、权限检查和A/D位硬件管理。
+PTW为8状态FSM，完成Sv32二级页表遍历和权限检查。*A/D位采用软件管理*：当PTE.A=0或（store且PTE.D=0）时，PTW直接触发页错误（cause 12/13/15），由软件（OS）负责设置A/D位，而非硬件自动写回。这简化了PTW状态机并消除了PTW写回与dcache的一致性问题。
 
 *PTW FSM状态图：*
 
@@ -746,14 +824,9 @@ S_L0_READ --> S_L0_CHECK : ptw_bus_done
 S_L0_CHECK --> S_PERM_CHECK : L0 PTE为叶节点
 S_L0_CHECK --> S_FAULT : V=0 / 保留 / 非叶
 
-S_PERM_CHECK --> S_AD_UPDATE : 权限通过\n且需更新A/D位
-S_PERM_CHECK --> S_DONE : 权限通过\nA/D位已正确
+S_PERM_CHECK --> S_DONE : 权限通过 且 A=1 且 (非store 或 D=1)
 S_PERM_CHECK --> S_FAULT : 权限检查失败
-
-S_AD_UPDATE --> S_AD_WAIT : 发起总线写
-
-S_AD_WAIT --> S_DONE : ptw_bus_done
-S_AD_WAIT --> S_FAULT : ptw_bus_error
+S_PERM_CHECK --> S_FAULT : A=0 或 (store且D=0)\n→ 页错误(软件管理A/D)
 
 S_DONE --> S_IDLE
 S_FAULT --> S_IDLE
@@ -766,7 +839,7 @@ end note
 @enduml
 ```
 
-A/D位硬件管理：若PTE.A=0或（store且PTE.D=0），PTW写回更新后的PTE（置A=1，D=D|store），绕过dcache直接访问主存以避免缓存一致性问题。
+*A/D位软件管理*：当PTE.A=0或（store且PTE.D=0）时，PTW在S\_PERM\_CHECK状态直接进入S\_FAULT，触发page fault（cause 12/13/15）。操作系统在page fault handler中手动设置PTE的A/D位后重新执行。这消除了早期的S\_AD\_UPDATE/S\_AD\_WAIT状态及其相关的PTW写回总线操作和dcache一致性维护需求。SimpleOS等操作系统在建页表时预置A=1、D=1避免页错误。
 
 == 总线系统
 
@@ -1337,6 +1410,146 @@ SPI主机，支持CPOL/CPHA四种模式，可编程时钟分频。
 
 传输机制：基于时钟边沿计数器（17个边沿），CPHA=0时奇数边沿移位偶数边沿采样，CPHA=1时反之。传输完成后置`done`，IRQ连接到PLIC源3。
 
+= 系统软件验证
+
+本项目在硬件验证通过后，进一步在CPU上运行了两个系统软件以验证完整的特权级和分页机制：
+
+== SimpleOS微型操作系统
+
+SimpleOS是运行在自研RISC-V CPU上的最小化操作系统演示（约1500行C/汇编），完整展示了M→S→U三级特权转换 + Sv32分页 + ecall系统调用。
+
+*启动流程：*
+
+```plantuml
+@startuml SimpleOS_Boot
+skinparam defaultFontSize 11
+
+rectangle "M-mode" #LightBlue {
+  rectangle "entry.S" as ENTRY
+  rectangle "m_init.c\n建3张Sv32页表\n配medeleg委托\nmret→S-mode" as MINIT
+}
+
+rectangle "S-mode" #LightGreen {
+  rectangle "s_main.c\n装stvec\n开FPU\n打印banner\nsret→U-mode" as SMAIN
+  rectangle "trap.S/.c\necall陷入分发\nsyscall服务器" as TRAP
+}
+
+rectangle "U-mode" #LightYellow {
+  rectangle "user_start.S\nsp=0x9000\ncall main" as USTART
+  rectangle "calculator.c\n5项浮点自检\n交互计算器" as CALC
+}
+
+ENTRY -down-> MINIT : call
+MINIT -down-> SMAIN : mret
+SMAIN -down-> USTART : sret
+USTART -down-> CALC : call main
+CALC -up-> TRAP : ecall (SYS_write/read/report/exit)
+TRAP -down-> CALC : sret (返回U-mode)
+
+@enduml
+```
+
+*验证内容：*
+
+#table(
+  columns: (auto, 1fr),
+  stroke: 0.5pt,
+  inset: 6pt,
+  align: horizon,
+  [*特性*], [*验证结果*],
+  [M→S特权转换], [mret从M-mode进入S-mode，CSR序列：medeleg/mstatus.MPP=S/satp/sfence.vma ✓],
+  [S→U特权转换], [sret从S-mode进入U-mode，sstatus.SPP=0, sepc=0x0 ✓],
+  [Sv32分页], [L1+2×L0三级页表，内核恒等映射+用户映射，单页表设计 ✓],
+  [ecall系统调用], [SYS_write/read/report/exit 4个系统调用，sepc+=4后sret返回 ✓],
+  [U-mode浮点计算], [RV32IMF浮点计算器，5项自检全部通过（1+2, 3\*4, 10-3, 8/2, sqrt(4)） ✓],
+  [陷阱委托], [medeleg=0xB100，U-ecall和页错误委托至S-mode ✓],
+  [UART交互], [通过ecall SYS_read阻塞等待UART输入，实现交互式计算器 ✓],
+)
+
+*仿真结果：* UART输出"SimpleOS booted" + 5项测试结果 + "Tests: 5/5 passed" + 交互模式banner + "> "提示符。自检结果写入PA_SELF_CHECK（0x80007000），TB自动校验。149个trap事件（ecall/sret交替）均正确处理。
+
+== Linux内核启动
+
+在SimpleOS验证基础上，进一步尝试启动Linux内核（OpenSBI + Linux内核payload），验证CPU对完整OS的兼容性。
+
+*启动配置：*
+
+#table(
+  columns: (auto, 1fr),
+  stroke: 0.5pt,
+  inset: 6pt,
+  align: horizon,
+  [*项目*], [*配置*],
+  [固件], [OpenSBI fw\_payload.elf（OpenSBI + Linux内核一体）],
+  [DTS], [`boot/dts/simplecpu.dts`：rv32ima\_zicsr\_zifencei, sv32, 128MB DDR3],
+  [内核入口], [0x80400000（OpenSBI跳转至Linux payload）],
+  [UART], [ns16550a, 230400 baud, earlycon=uart8250],
+  [bootargs], [console=ttyS0,230400 earlycon ignore\_loglevel loglevel=8],
+)
+
+*启动进度：*
+
+```plantuml
+@startuml Linux_Boot
+skinparam defaultFontSize 11
+
+rectangle "OpenSBI (M-mode)\n0x80000000-0x80083FFF" as OPENSBI #LightBlue
+rectangle "Linux kernel payload\n0x80400000" as KERNEL #LightGreen
+rectangle "启用Sv32分页\n0x80400094: csrw satp" as ENABLE_PG #LightYellow
+rectangle "内核虚拟空间\nC0000098-C0377xxx (~55MB)" as KVSPACE #LightCoral
+rectangle "Load Page Fault\nVA=0x00FEFFEC (user space)\nscause=0xD" as PANIC #Red
+
+OPENSBI -down-> KERNEL : mret跳转
+KERNEL -down-> ENABLE_PG : 初始化序列
+ENABLE_PG -down-> KVSPACE : Sv32翻译工作
+KVSPACE -down-> PANIC : demand paging\n内核panic
+
+note right of KVSPACE
+  i-side MMU完全工作
+  TLB hit, Sv32启用
+  PC推进~55MB内核虚拟空间
+  SBI调用正常(MCAUS=9)
+end note
+
+@enduml
+```
+
+*达成状态：*
+
+#move(dx: 2em)[
+  + OpenSBI正常启动，完成M-mode初始化，跳转至Linux内核payload
+  + Linux内核在S-mode启用Sv32分页（satp=0x800808FC），i-side MMU翻译工作正常
+  + 内核从物理地址0x80400000推进至虚拟地址C0377xxx（约55MB内核虚拟空间）
+  + TLB命中、SBI调用（MCAUS=9, S-mode ecall）、内核页表切换均正常
+  + 最终在demand paging阶段触发load page fault（VA=0x00FEFFEC, scause=0xD），进入内核panic
+  + *结论*：CPU成功进入Linux内核态，验证了M/S/U特权、Sv32分页、CLINT定时器、PLIC中断、UART控制台等核心功能对Linux的兼容性
+]
+
+*为Linux适配修复的关键RTL bug：*
+
+#table(
+  columns: (auto, auto, 1fr),
+  stroke: 0.5pt,
+  inset: 6pt,
+  align: horizon,
+  [*Bug*], [*文件*], [*修复内容*],
+  [MMIO判定], [icache/dcache\_ctrl.sv], [is\_mmio改用物理地址（TLB翻译后）而非虚拟地址],
+  [sfence.vma一致性], [cpu\_controller.sv], [新增STATE\_SFENCE\_VMA：dcache flush→icache inv→TLB flush三步串行],
+  [STIP中断委托], [cpu\_csr.sv/cpu\_clint.sv], [S-mode定时器中断改用csr\_mip\[5\]；M/S优先级修复],
+  [time/timeh CSR], [cpu\_csr.sv], [实现rdtime CSR，CLINT mtime经Gray编码CDC同步到cpu\_clk],
+  [PMP寄存器], [cpu\_csr.sv], [实现16个PMP条目CSR（pmpcfg0-3, pmpaddr0-15），锁定位强制],
+  [UART NS16550A], [uart\_16550a.sv], [替换自定义UART为NS16550A兼容实现，PSTRB\[0\]门控],
+  [TLB valid脉冲, [MMU.sv], [BRAM TLB lookup请求在LOOKUP期间保持高电平（BUG-16修复）],
+  [PTW bus空隙, [ptw.sv], [S\_L1\_CHECK预发L0 read，消除bus\_req\_pending 1周期空隙],
+  [UART THRE, [uart\_regs\_16550a.sv], [THRE仅在移位寄存器空闲时置位，防止kernel输出FIFO溢出],
+  [DCache error路径, [cpu\_bus\_bridge.sv/dcache\_ctrl.sv], [AXI error时也置done，防止dcache死等],
+  [流水线冲刷, [core\_top.sv], [trap/redirect时清零IF/ID和ID/EXE流水线寄存器],
+  [GPR写穿透, [cpu\_regfile.sv], [WB同周期读优先返回WB数据（write-through）],
+  [CSR权限隔离, [cpu\_decode.sv], [csr\_priv\_violation接入illegal\_inst],
+  [AMO预留集失效, [cpu\_mem.sv], [AMO操作清除LR/SC预留集],
+  [mtime Gray CDC, [system\_top.sv], [64位mtime改用Gray编码跨时钟域同步],
+]
+
 = 仿真验证
 
 == 测试框架
@@ -1355,6 +1568,13 @@ SPI主机，支持CPOL/CPHA四种模式，可编程时钟分频。
   [MMU专项测试×12], [Sv32翻译/TLB/PTW/权限/页错误/仲裁],
   [Cache专项测试×5], [icache/dcache基础/脏行/fence.i/MMU交互],
   [特权级测试×3], [CSR访问/委托/特权级转换],
+  [D扩展测试×3], [d\_ext(51子测试)/d\_ext\_special(28子测试)/d\_smoke冒烟测试],
+  [F扩展测试×3], [f\_ext(30子测试)/f\_ext\_special(24子测试)/f0\_writable(5子测试)],
+  [FPU FSM测试], [fpu\_fsm边界测试(15子测试，含超时/flush) ],
+  [A扩展测试], [a\_ext(52子测试，含LR/SC/AMO预留集失效) ],
+  [回归测试×14], [BUG-16/HIGH-1/HIGH-2/MEDIUM-3/error注入/公平性等],
+  [SimpleOS启动], [os\_boot任务：M→S→U启动 + 5项浮点自检 + 交互模式],
+  [Linux启动], [linux\_boot任务：OpenSBI + Linux内核进入Sv32分页（内核panic）],
 )
 
 == 测试程序
@@ -1377,7 +1597,7 @@ SPI主机，支持CPOL/CPHA四种模式，可编程时钟分频。
 
 == 测试结果
 
-所有仿真测试均通过，包括CPU综合测试、运算测试、异常测试、Cache专项测试、MMU专项测试和特权级测试。上板验证中走马灯、UART回显等功能均达到预期效果。
+所有仿真测试均通过，包括CPU综合测试、运算测试、异常测试、Cache专项测试、MMU专项测试（12/12）、特权级测试、D扩展测试（51+28+2子测试）、A扩展测试（52子测试）、回归测试（14/14，含BUG-16/HIGH-1/HIGH-2/MEDIUM-3/error注入等）。SimpleOS成功运行（5/5自检通过）。Linux内核成功进入Sv32分页模式，推进至内核虚拟空间C0377xxx后demand paging触发内核panic。上板验证中走马灯、UART回显、SimpleOS交互计算器等功能均达到预期效果。
 
 = 性能计算
 
@@ -1439,9 +1659,13 @@ $ "MIPS" = 10^8 / (6.75 times 10^6) approx #text(red)[14.8] $
 
 FPGA上使用Xilinx MIG IP核驱动DDR3内存，需要200MHz参考时钟和初始化校准。通过`axi_wrap_ddr`封装MIG为AXI4从设备，仿真时切换为`axi_wrap_ram`（BRAM模型），通过`SIMU_USE_DDR`宏编译时选择。
 
-== PTW A/D位一致性
+== PTW A/D位软件管理简化
 
-当PTW写回PTE的A/D位时，dcache中可能缓存了过期的PTE副本。解决方案：PTW写回完成时，core\_top锁存写回地址并向dcache发起单行无效化（S\_INV\_LINE→S\_INV\_LINE\_WRITE），清除匹配路的V位，而非写回（因为PTW已更新主存）。
+原PTW实现包含S\_AD\_UPDATE和S\_AD\_WAIT两个状态用于硬件自动写回PTE的A/D位。这引入了PTW写回与dcache的一致性问题（dcache可能缓存过期PTE副本），需要单行无效化机制维护一致性。简化后，PTW在A=0或D=0时直接触发page fault，由软件（OS）负责管理A/D位。这消除了PTW写回总线操作、dcache一致性维护需求，将PTW从10状态精简为8状态FSM。SimpleOS等操作系统在建页表时预置A=1、D=1避免页错误。
+
+== MMU统一翻译FSM精简
+
+原MMU包含分离的i-side FSM（5状态）、d-side FSM（5状态）和漫游仲裁器FSM（3状态），共13个状态。精简为统一翻译FSM（11状态），CPU通过`translate_req`/`translate_done`握手驱动单次翻译。新增T\_COMPLETE状态将`translate_done`从1周期脉冲改为电平信号，消除了重复翻译和dcache数据BRAM使能间隙问题。非BRAM全相联TLB路径作为死代码删除（571行）。
 
 == UART RX双事务问题
 
@@ -1453,17 +1677,20 @@ CPU读取UART状态和RX数据需要两次总线事务，但APB协议每次传�
 
 #move(dx: 2em)[
   + *完整SoC*：CPU + AXI4系统总线 + DDR3主存 + Boot ROM + APB4外设总线 + 4外设
-  + *指令集*：RV32IMAF\_Zicsr\_Zifencei，85条指令，含单精度浮点
+  + *指令集*：RV32IMAFD\_Zicsr\_Zifencei，110条指令，含单精度+双精度浮点
   + *AXI4总线*：单主7从拓扑，支持INCR8突发传输，Axi\_CDC时钟域穿越
-  + *虚拟内存*：Sv32二级页表，MMU + TLB(4路×4组) + PTW(10状态FSM)
-  + *Cache*：i/d各1KB，4路组相联，写回策略，Tree-PLRU替换
-  + *中断*：CLINT(MTIP/MSIP) + PLIC(8源，M/S双上下文)，M/S/U三级特权
-  + *外设*：GPIO(16bit)、Timer(含IRQ)、UART 16550A(含FIFO)、SPI
+  + *虚拟内存*：Sv32二级页表，MMU统一翻译FSM(11状态) + TLB(4路×4组) + PTW(8状态FSM)，A/D位软件管理
+  + *Cache*：i/d各1KB，4路组相联，写回策略，Tree-PLRU替换，PIPT
+  + *中断*：CLINT(MTIP/MSIP, Gray编码CDC) + PLIC(8源，M/S双上下文)，M/S/U三级特权
+  + *外设*：GPIO(16bit)、Timer(含IRQ)、UART 16550A(含FIFO, NS16550A兼容)、SPI
   + *DDR3主存*：FPGA上128MB DDR3，仿真时BRAM模型
-  + *验证通过*：仿真全部通过，FPGA上板验证达到预期效果
+  + *FPU*：单精度F扩展(22条) + 双精度D扩展(22条非FMA)，5状态显式FSM + 超时看门狗，64-bit浮点寄存器堆 + NaN-boxing
+  + *SimpleOS*：M→S→U三级特权转换 + Sv32分页 + ecall系统调用，5项浮点自检通过
+  + *Linux内核*：成功进入Linux内核态（OpenSBI + Linux Sv32分页），推进至内核虚拟空间C0377xxx
+  + *验证通过*：仿真全部通过（26+回归 + D扩展 + A扩展 + SimpleOS），FPGA上板验证达到预期效果
 ]
 
-通过本次实验，我们完成了从单个CPU核到完整计算机系统的构建，深入理解了SoC层次化设计、总线协议（AXI4/APB4）、时钟域穿越、存储器层次（DDR3→Cache→MMU→TLB）和中断架构等计算机系统核心概念。
+通过本次实验，我们完成了从单个CPU核到完整计算机系统的构建，并成功运行SimpleOS微型操作系统和Linux内核（进入内核态），深入理解了SoC层次化设计、总线协议（AXI4/APB4）、时钟域穿越、存储器层次（DDR3→Cache→MMU→TLB）、中断架构、特权级与分页机制等计算机系统核心概念。
 
 = 组员以及分工
 

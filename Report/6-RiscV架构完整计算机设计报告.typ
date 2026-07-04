@@ -22,7 +22,7 @@
   align(center)[#text(40pt)[设\ 计\ 报\ 告]]
   v(4em)
   align(center)[#text(size: 18pt)[负责人：王之翼#h(1em)18996388318\    张潘妍    张之恒    陈海攀]]
-  align(center)[#text(size: 18pt)[2024级计算机一班#h(1em)课序3第4组#h(1em)2026年6月20日]]
+  align(center)[#text(size: 18pt)[2024级计算机一班#h(1em)课序3第4组#h(1em)2026年7月4日]]
 })
 #pagebreak()
 //普通文本
@@ -111,9 +111,9 @@ dev/rtl/
 │   ├── icache_ctrl.sv             #   ICache控制器（5状态FSM）
 │   ├── dcache_ctrl.sv             #   DCache控制器（13状态FSM）
 │   ├── tree_plru.sv               #   Tree-PLRU替换策略
-│   ├── MMU.sv                     #   内存管理单元
+│   ├── MMU.sv                     #   内存管理单元（统一翻译FSM 11状态）
 │   ├── tlb.sv                     #   TLB（4路×4组）
-│   ├── ptw.sv                     #   页表漫游器（10状态FSM）
+│   ├── ptw.sv                     #   页表漫游器（8状态FSM）
 │   ├── branch_comparator.sv       #   分支比较器
 │   └── op_regroup.sv              #   指令字段拆分
 │
@@ -145,7 +145,7 @@ dev/rtl/
 
 == 总体架构
 
-本系统是一个基于RISC-V 32位多周期CPU的完整计算机，采用层次化总线架构，从内到外依次为CPU核心→AXI4系统总线→APB4外设总线。系统支持两个时钟域：CPU核心运行在`cpu_clk`（50MHz），总线及外设运行在`sys_clk`（100MHz），通过AXI4时钟域穿越模块（Axi\_CDC）安全跨越。
+本系统是一个基于RISC-V 32位多周期CPU的完整计算机，采用层次化总线架构，系统总线为AXI4，外设总线为APB4。系统使用两个时钟域降低时序风险：CPU核心运行在`cpu_clk`（50MHz），总线及外设运行在`sys_clk`（100MHz），通过AXI4时钟域穿越模块（Axi\_CDC）安全跨越。
 
 === 总架构图
 
@@ -173,9 +173,9 @@ package "cpu_clk 域" #LightBlue {
     component "MU\n(Booth/NonRestoring)" as MU
     component "FPU" as FPU
     component "Trap/CSR" as TRAP
-    component "MMU\n(i/d FSM + Arbiter)" as MMU
+    component "MMU\n(Unified FSM 11-state)" as MMU
     component "TLB\n(4way×4set)" as TLB
-    component "PTW\n(10-state FSM)" as PTW
+    component "PTW\n(8-state FSM)" as PTW
     component "ICache Ctrl\n(5-state FSM)" as IC
     component "DCache Ctrl\n(13-state FSM)" as DC
     component "cpu_bus_bridge\n(16-state FSM)" as BRIDGE
@@ -260,46 +260,48 @@ end note
 === 时钟域
 
 #table(
-  columns: (1fr, 1fr, 1fr, 3fr),
+  columns: (auto, auto, auto, 1fr),
   align: horizon,
   stroke: 0.5pt,
   inset: 6pt,
   [*时钟域*], [*信号*], [*频率*], [*用途*],
-  [CPU域], [`cpu_clk`], [50MHz], [CPU核心、流水线、Cache、MMU、cpu\_bus\_bridge],
+  [CPU域], [`cpu_clk`], [50MHz], [CPU核心、Cache、MMU、cpu\_bus\_bridge],
   [系统域], [`sys_clk`], [100MHz], [AXI互连、所有AXI4-Lite从设备、APB桥、外设],
   [DDR参考], [`ddr_clk_ref`], [200MHz], [DDR3 MIG参考时钟],
 )
 
-时钟生成有三种编译时分支：
+仿真和上FPGA使用两套配置：
 #move(dx: 2em)[
-  + `sim_clk`（仿真，无PLL）：测试台直接驱动时钟
-  + `sim_pll_clk`（仿真，有PLL）：使用clk\_wiz\_0 IP
-  + `fpga_clk`（FPGA）：使用clk\_wiz\_0 MMCM，可选DDR3\_BYPASS\_CLK\_WIZ
+  + 仿真：使用主存行为模型（内部是reg数组）、绕过`Axi_CDC`，CPU域时钟~91 MHz（5.5ns 半周期），tb直接直接驱动时钟
+  + `fpga_clk`（FPGA）：DDR3（MIG IP）、`Axi_CDC`以及标准时钟配置
 ]
+使用这种配置的主要是为了加快仿真速度，避免DDR、PLL、CDC严重拖慢时钟速度。
 
 === 复位链
 
-```plantuml
-@startuml Reset_Chain
-skinparam defaultFontSize 11
+// ```plantuml
+// @startuml Reset_Chain
+// skinparam defaultFontSize 11
 
-rectangle "resetn\n(板载按钮，低有效)" as BTN
-rectangle "clk_wiz_locked\n(MMCM锁定)" as LOCK
-rectangle "ddr_aresetn\n(MIG init_calib)" as DDR
-rectangle "reset_sync\nu_rst_sys" as RST_SYS
-rectangle "reset_sync\nu_rst_cpu" as RST_CPU
-rectangle "sys_resetn\n(sys_clk域)" as SYS_RST
-rectangle "cpu_resetn\n(cpu_clk域)" as CPU_RST
+// rectangle "resetn\n(板载按钮，低有效)" as BTN
+// rectangle "clk_wiz_locked\n(MMCM锁定)" as LOCK
+// rectangle "ddr_aresetn\n(MIG init_calib)" as DDR
+// rectangle "reset_sync\nu_rst_sys" as RST_SYS
+// rectangle "reset_sync\nu_rst_cpu" as RST_CPU
+// rectangle "sys_resetn\n(sys_clk域)" as SYS_RST
+// rectangle "cpu_resetn\n(cpu_clk域)" as CPU_RST
 
-BTN -down-> RST_SYS : AND
-LOCK -down-> RST_SYS : AND
-DDR -down-> RST_SYS : AND
-RST_SYS -down-> SYS_RST : 异步断言\n同步解除断言
-RST_SYS -down-> RST_CPU
-RST_CPU -down-> CPU_RST : 异步断言\n同步解除断言
+// BTN -down-> RST_SYS : AND
+// LOCK -down-> RST_SYS : AND
+// DDR -down-> RST_SYS : AND
+// RST_SYS -down-> SYS_RST : 异步断言\n同步解除断言
+// RST_SYS -down-> RST_CPU
+// RST_CPU -down-> CPU_RST : 异步断言\n同步解除断言
 
-@enduml
-```
+// @enduml
+// ```
+
+#align(center,image("media/复位链.svg"))
 
 === 内存映射
 
@@ -309,7 +311,7 @@ RST_CPU -down-> CPU_RST : 异步断言\n同步解除断言
   stroke: 0.5pt,
   inset: 6pt,
   [*地址范围*], [*大小*], [*设备*], [*说明*],
-  [0x0200\_0000 - 0x02FF\_FFFF], [16 MB], [CLINT], [核心本地中断器，mtime/msip/mtip],
+  [0x0200\_0000 - 0x02FF\_FFFF], [16 MB], [CLINT], [核心本地中断器的mtime/msip/mtip],
   [0x0400\_0000 - 0x04FF\_FFFF], [16 MB], [Sys Status], [MIG/MMCM状态寄存器],
   [0x0C00\_0000 - 0x0CFF\_FFFF], [16 MB], [PLIC], [平台级中断控制器，8源双上下文],
   [0x1000\_0000 - 0x1000\_3FFF], [16 KB], [GPIO], [GPIO，16bit双向],
@@ -323,7 +325,7 @@ RST_CPU -down-> CPU_RST : 异步断言\n同步解除断言
 
 == CPU核心
 
-CPU核心（`core_top`）采用五级多周期流水线架构，由11状态FSM控制器驱动。支持RV32IMAFD\_Zicsr\_Zifencei指令集（110条指令），包含完整的异常/中断处理机制和Sv32虚拟内存支持。
+CPU核心（`core_top`）采用五级多周期流水线架构（没有流水线填充），由11状态FSM控制器驱动。支持RV32IMAFD\*\_Zicsr\_Zifencei指令集（\*110条指令，D的融合指令不支持），包含完整的异常/中断处理机制和Sv32虚拟内存支持。
 
 === 流水线控制器
 
@@ -350,52 +352,54 @@ CPU核心（`core_top`）采用五级多周期流水线架构，由11状态FSM�
 
 控制器FSM状态转移图：
 
-```plantuml
-@startuml Controller_FSM
-skinparam defaultFontSize 11
-hide empty description
+// ```plantuml
+// @startuml Controller_FSM
+// skinparam defaultFontSize 11
+// hide empty description
 
-[*] --> IDLE
+// [*] --> IDLE
 
-IDLE --> FETCH : reset完成
-FETCH --> DECODE : if_done
-DECODE --> EXEC : need_exe
-DECODE --> CSR : csr指令
-DECODE --> TRAP_ENTER : trap/中断
-DECODE --> TRAP_RETURN : mret/sret
-DECODE --> FENCEI : fence.i
-DECODE --> SFENCE_VMA : sfence.vma
+// IDLE --> FETCH : reset完成
+// FETCH --> DECODE : if_done
+// DECODE --> EXEC : need_exe
+// DECODE --> CSR : csr指令
+// DECODE --> TRAP_ENTER : trap/中断
+// DECODE --> TRAP_RETURN : mret/sret
+// DECODE --> FENCEI : fence.i
+// DECODE --> SFENCE_VMA : sfence.vma
 
-EXEC --> FETCH : branch跳转
-EXEC --> MEM : ld/st
-EXEC --> WB : R/I快速路径
-EXEC --> TRAP_ENTER : 分支+trap
+// EXEC --> FETCH : branch跳转
+// EXEC --> MEM : ld/st
+// EXEC --> WB : R/I快速路径
+// EXEC --> TRAP_ENTER : 分支+trap
 
-MEM --> WB : mem_done
-MEM --> TRAP_ENTER : trap
+// MEM --> WB : mem_done
+// MEM --> TRAP_ENTER : trap
 
-WB --> FETCH : next
-CSR --> WB : csr_done
+// WB --> FETCH : next
+// CSR --> WB : csr_done
 
-TRAP_ENTER --> FETCH : 跳转mtvec/stvec
-TRAP_RETURN --> FETCH : 跳转mepc/sepc
-FENCEI --> FETCH : 冲刷完成
-SFENCE_VMA --> FETCH : 刷新完成
+// TRAP_ENTER --> FETCH : 跳转mtvec/stvec
+// TRAP_RETURN --> FETCH : 跳转mepc/sepc
+// FENCEI --> FETCH : 冲刷完成
+// SFENCE_VMA --> FETCH : 刷新完成
 
-@enduml
-```
+// @enduml
+// ```
+
+#align(center,image("media/CPU_CTRL_FSM.svg"))
 
 关键设计：
 #move(dx: 2em)[
-  + *exe→wb快速路径*：R/I-type运算指令执行后跳过MEM阶段直接进入WB，减少2周期
-  + *FETCH停顿*：当MMU指令侧缺失（TLB miss）或icache缺失时，FETCH阶段停顿
-  + *MEM停顿*：当MMU数据侧缺失或dcache缺失时，MEM阶段停顿
-  + *页错误检测*：MMU检测到页错误时，重定向到TRAP\_ENTER
+  + *完全步进化*：CPU严格步进化，各个模块只有被调用才能执行，且调用模块阻塞等待，避免时序错误。 
+  + *exe→wb快速路径*：细化R/I-type运算指令执行路径，跳过MEM阶段直接进入WB，减少2周期。
+  + *分层状态机和握手处理*：有可能出现多周期才能完成执行的阶段通过握手协议确定完成时间点，通过内部状态机完成执行，主要包含FETCH,EXEC,MEM阶段和异常处理。
+  + *页错误检测*：MMU检测到页错误时，重定向到TRAP\_ENTER。
 ]
 
 === 取指模块
 
-取指模块负责从icache中读取当前PC对应的指令字。通过MMU将虚拟地址翻译为物理地址后，icache控制器进行tag比较和数据读取。
+取指模块（`cpu_fetch`）为纯组合逻辑，负责将当前PC与取回的指令打包传递给译码级。MMU地址翻译和icache查找在`core_top`顶层完成，不在本模块内。
 
 *接口信号：*
 
@@ -405,19 +409,59 @@ SFENCE_VMA --> FETCH : 刷新完成
   stroke: 0.5pt,
   inset: 6pt,
   [*方向*], [*信号*], [*说明*],
-  [输入], [`pc`], [当前程序计数器，32位],
-  [输入], [`mmu_inst_paddr`], [MMU翻译后的物理地址],
-  [输入], [`mmu_inst_ready`], [MMU取指侧翻译就绪],
-  [输出], [`icache_en`], [icache使能],
-  [输出], [`if_done`], [取指完成标志],
-  [输出], [`if_id_bus`], [取指→译码总线，96位],
+  [输入], [`pc`], [当前程序计数器（虚拟地址），32位],
+  [输入], [`instData_32`], [icache取回的指令字（由core\_top从icache获取）],
+  [输入], [`inst_valid`], [icache指令有效信号],
+  [输入], [`if_valid`], [取指级有效（流水线控制器驱动）],
+  [输出], [`instAddr_32`], [输出PC给icache（通过core\_top连线），32位],
+  [输出], [`if_done`], [取指完成标志 = `if_valid && inst_valid`],
+  [输出], [`if_id_bus`], [取指→译码总线，96位 = `{pc+4, pc, inst}`],
+  [输出], [`if_pc`], [当前PC（调试用）],
+  [输出], [`if_inst`], [当前指令（调试用）],
 )
+
+*地址翻译与取指流程（core\_top层面）：*
+
+`cpu_fetch`输出虚拟地址PC → `core_top`将其送入MMU的`translate_vaddr` → MMU统一翻译FSM输出物理地址`translate_paddr` → `core_top`将其作为`mmu_inst_paddr`送入`icache_ctrl`的`cpu_req_addr`端口 → icache用物理地址做PIPT命中判断/缺失填充/MMIO旁路 → 取回指令通过`instData_32`回传给`cpu_fetch`。
 
 === 译码模块
 
 译码模块从32位指令中提取所有控制信号和操作数，包括五种立即数生成（I/S/B/U/J型）、指令识别和分类、ALU操作数选择等。译码为纯组合逻辑，1周期完成。
 
 指令集覆盖：RV32I(40条) + M(8条) + A(11条) + F(22条) + D(22条非FMA) + Zicsr(6条) + Zifencei(1条) = 110条。
+
+*浮点指令译码（F + D扩展）：*
+
+#table(
+  columns: (auto, auto, 1fr),
+  align: horizon,
+  stroke: 0.5pt,
+  inset: 6pt,
+  [*opcode*], [*名称*], [*指令*],
+  [0x07], [LOAD-FP], [`FLW`(funct3=010) / `FLD`(funct3=011)],
+  [0x27], [STORE-FP], [`FSW`(funct3=010) / `FSD`(funct3=011)],
+  [0x43/47/4B/4F], [MADD/MSUB/NMSUB/NMADD], [`FMADD.S`/`FMSUB.S`/`FNMSUB.S`/`FNMADD.S`（R4格式）],
+  [0x53], [OP-FP], [FADD/FSUB/FMUL/FDIV/FSQRT/FMIN/FMAX/FSGNJ\*/FCVT/FEQ/FLT/FLE/FCLASS/FMV.X.W/FMV.W.X 及D扩展对应指令],
+)
+
+*浮点控制信号（ID/EX总线新增）：*
+
+#table(
+  columns: (auto, auto, 1fr),
+  align: horizon,
+  stroke: 0.5pt,
+  inset: 6pt,
+  [*信号*], [*位宽*], [*说明*],
+  [`is_fpu`], [1], [当前指令为浮点运算指令],
+  [`is_flw`/`is_fsw`], [1+1], [FLW/FSW（单精度加载/存储）],
+  [`is_fld`/`is_fsd`], [1+1], [FLD/FSD（D扩展双精度加载/存储）],
+  [`fpu_funct`], [7], [浮点操作码（46种：F 0-23 + D 24-45）],
+  [`fpu_rm`], [3], [舍入模式（来自funct3，DYN=111在执行级用CSR frm替换）],
+  [`fpu_rd_is_int`], [1], [结果写整数寄存器（FEQ/FLT/FLE/FCLASS/FMV.X.W/FCVT.W.\*及D扩展对应）],
+  [`frs3_value`], [32], [FMA第三操作数（R4格式rs3）],
+)
+
+浮点操作数选择：浮点计算指令读取浮点寄存器frs1/frs2（FMA额外读取frs3）；整数→浮点指令（`FMV.W.X`/`FCVT.S.W`/`FCVT.D.W`等）读取整数寄存器rs1；浮点→整数指令（`FMV.X.W`/`FCVT.W.S`/`FCVT.W.D`等）结果写整数寄存器。
 
 === 执行模块
 
@@ -426,7 +470,7 @@ SFENCE_VMA --> FETCH : 刷新完成
 *运算单元选择：*
 
 #table(
-  columns: (1fr, 3fr),
+  columns: (1fr, 4fr),
   align: horizon,
   stroke: 0.5pt,
   inset: 6pt,
@@ -436,17 +480,50 @@ SFENCE_VMA --> FETCH : 刷新完成
   [FPU], [FADD/FSUB/FMUL/FDIV/FSQRT/FMADD/FMSUB及D扩展双精度运算等（5状态FSM + 超时看门狗，多周期握手）],
 )
 
-分支比较器（`branch_comparator`）为独立组合逻辑模块，根据`funct3`判断beq/bne/blt/bge/bltu/bgeu条件。
+分支比较器（`branch_comparator`）为独立组合逻辑模块，协处理分支命令的比较运算，根据`funct3`判断beq/bne/blt/bge/bltu/bgeu条件。
 
 === 访存模块
 
-访存模块负责与dcache交互，支持字节/半字/字的读写操作。通过MMU翻译虚拟地址后，dcache控制器进行命中判断和数据访问。
+访存模块负责与dcache交互，支持字节/半字/字的读写操作。通过MMU翻译虚拟地址后，dcache控制器进行命中判断和数据访问。内部状态机（`mem_state` 4-bit）管理单字访存和D扩展双事务访存：
 
-MMIO旁路：当地址最高位`bit[31]=0`或`bit[30]=1`时，不经过Cache，直接通过总线访问外设。
+```
+// 单字访存（LB/LH/LW/SB/SH/SW/FLW/FSW）
+MEM_IDLE → MEM_READ  (Load)  → 等待 data_valid → MEM_IDLE
+MEM_IDLE → MEM_WRITE (Store) → 等待 data_valid → MEM_IDLE
+
+// D扩展 FLD/FSD 双事务（两个32-bit字拼合为64-bit）
+MEM_IDLE → MEM_FLD_LO  (FLD 读低字 addr)   → MEM_FLD_GAP → MEM_FLD_HI (读高字 addr+4) → MEM_IDLE
+MEM_IDLE → MEM_FSD_LO  (FSD 写低字 addr)   → MEM_FSD_GAP → MEM_FSD_HI (写高字 addr+4) → MEM_IDLE
+```
+
+*FLD/FSD双事务与GAP状态：* D扩展的FLD/FSD需访问两个连续的32-bit字（addr和addr+4）拼合为64-bit浮点数据。由于两次访问地址不同，MMU需重新翻译第二个字的地址。GAP状态（`MEM_FLD_GAP`/`MEM_FSD_GAP`）在两次访问间脉冲`mem_en=0`一个周期，强制MMU重新翻译。
+
+MMIO旁路：当物理地址最高位`bit[31]=0`或`bit[30]=1`时，不经过Cache，直接通过总线访问外设（使用MMU翻译后的物理地址判断）。
+
+*对齐异常检测：* Byte访问`addr[0]!=0`不触发；Halfword访问`addr[0]!=0`→对齐异常；Word访问`addr[1:0]!=00`→对齐异常；FLD/FSD双精度访问`addr[2:0]!=000`→对齐异常（8字节对齐）。
 
 === 回写模块
 
 回写模块为纯组合逻辑，将访存/执行结果写回寄存器堆。JAL/JALR指令写回PC+4（返回地址）。
+
+*整数寄存器写回：* 写使能`wb_valid && wb_we && !is_fpu && !is_flw && !is_fld`（FLW/FLD/FPU结果不写整数寄存器）。写数据选择：CSR指令写回CSR读出值，其余写回ALU/MU/Load结果。
+
+*浮点寄存器写回（64-bit数据通路）：*
+
+#table(
+  columns: (auto, 1fr),
+  align: horizon,
+  stroke: 0.5pt,
+  inset: 6pt,
+  [*写回来源*], [*64-bit写数据*],
+  [F/D计算指令], [`fpu_result_64`（F结果已NaN-box为`{32'hFFFFFFFF, result[31:0]}`，D结果为完整64位）],
+  [FLD（双精度加载）], [`fp_wdata64`（由访存级双事务拼合的64-bit数据）],
+  [FLW（单精度加载）], [`{32'hFFFFFFFF, wb_data[31:0]}`（NaN-box 32-bit加载数据）],
+)
+
+浮点寄存器写使能：`wb_valid && (is_fpu || is_flw || is_fld)`。
+
+*fflags累积：* `wb_valid && (fpu_fflags != 0)`时，OR累积至CSR fflags（`fflags_wen`需`wb_valid`门控，防止残留总线数据误写）。
 
 === 寄存器堆
 
@@ -459,7 +536,7 @@ MMIO旁路：当地址最高位`bit[31]=0`或`bit[30]=1`时，不经过Cache，�
 
 === ALU
 
-ALU为纯组合逻辑模块，支持16种单周期运算（ADD/SUB/SLT/SLTU/XOR/OR/AND/SLL/SRL/SRA/LUI/NOR/NOT等）。使用超前进位加法器（CLA）和桶形移位器。
+ALU为纯组合逻辑模块，支持13种单周期运算（ADD/SUB/SLT/SLTU/XOR/OR/AND/SLL/SRL/SRA/LUI/NOR/NOT等）。使用超前进位加法器（CLA）和桶形移位器。
 
 控制编码（one-hot）：
 
@@ -559,7 +636,7 @@ end note
 
 FPU通过`fpu_req_valid`/`fpu_result_valid`握手协议与执行模块交互，支持`flush`中断。数据位宽为64-bit：F运算取低32位并NaN-box，D运算使用完整64位。`fpu_active`信号与`mu_busy`互斥，确保同一时刻仅一个多周期运算单元活跃。
 
-*FLD/FSD双事务加载/存储：* D扩展的FLD/FSD需要访问两个连续的32-bit字（addr和addr+4）拼合为64-bit浮点数据。访存级通过`MEM_FLD_LO→MEM_FLD_GAP→MEM_FLD_HI`三状态完成双事务，GAP状态脉冲`mem_en=0`一个周期强制MMU重新翻译第二个字的地址。
+*FLD/FSD双事务加载/存储：* 见访存模块章节。D扩展的FLD/FSD通过访存级三状态FSM（`MEM_FLD_LO→MEM_FLD_GAP→MEM_FLD_HI`）完成双事务，GAP状态强制MMU重新翻译第二个字的地址。
 
 *D扩展未实现部分：* D-FMA（FMADD.D/FMSUB.D/FNMSUB.D/FNMADD.D）暂不实现。FMV.X.D/FMV.D.X需要XLEN≥64，RV32下不实现。
 
@@ -569,7 +646,7 @@ FPU通过`fpu_req_valid`/`fpu_result_valid`握手协议与执行模块交互，�
 
 icache控制器（`icache_ctrl`）采用5状态FSM，管理指令缓存的命中判断、缺失填充和无效化。
 
-*Cache参数：*4路组相联，8组，256bit行大小（8字），共1KB。*PIPT*（物理索引物理标签），Tree-PLRU替换。无脏位（只读缓存）。set\_idx和tag均来自MMU翻译后的物理地址（paddr），消除了VIPT的别名问题。
+*Cache参数：**4路组相联，8组*，256bit行大小（8字），共1KB。*PIPT*（物理索引物理标签），Tree-PLRU替换。无脏位（只读缓存）。set\_idx和tag均来自MMU翻译后的物理地址（paddr），消除了VIPT的别名问题。
 
 *状态定义：*
 
@@ -595,8 +672,9 @@ hide empty description
 
 [*] --> S_IDLE
 
-S_IDLE --> S_TAG_READ : cpu_req && !is_mmio
+S_IDLE --> S_TAG_READ : cpu_req && !is_mmio && mmu_ready
 S_IDLE --> S_IDLE : MMIO旁路（单周期）
+S_IDLE --> S_IDLE : !mmu_ready（等待MMU翻译物理地址）
 
 S_TAG_READ --> S_READ : 读命中
 S_TAG_READ --> S_IDLE : 写命中（icache只读，不应发生）
@@ -607,8 +685,8 @@ S_READ --> S_IDLE : 数据读取完成
 S_REFILL --> S_IDLE : refill_valid（填充完成）
 
 S_IDLE --> S_INVALIDATE : flush_req (fence.i)
-S_INVALIDATE --> S_IDLE : 无效化完成
-S_INVALIDATE --> S_INVALIDATE : 逐组写零（未完成）
+S_INVALIDATE --> S_IDLE : 8组全部写零完成
+S_INVALIDATE --> S_INVALIDATE : invalidate_set < NUM_SETS-1\n（逐组写零，每周期1组）
 
 @enduml
 ```

@@ -277,7 +277,7 @@
 
 仿真和上FPGA使用两套配置：
 #move(dx: 2em)[
-  + 仿真：使用主存行为模型（内部是reg数组）、绕过`Axi_CDC`，CPU域时钟~91 MHz（5.5ns 半周期），tb直接直接驱动时钟
+  + 仿真：使用主存行为模型（内部是reg数组）、绕过`Axi_CDC`，CPU域时钟~91 MHz（5.5ns 半周期），tb直接驱动时钟
   + `fpga_clk`（FPGA）：DDR3（MIG IP）、`Axi_CDC`以及标准时钟配置
 ]
 使用这种配置的主要是为了加快仿真速度，避免DDR、PLL、CDC严重拖慢时钟速度。
@@ -330,7 +330,7 @@
 
 == CPU核心
 
-CPU核心（`core_top`）采用五级多周期流水线架构（没有流水线填充），由11状态FSM控制器驱动。支持RV32IMAFD\*\_Zicsr\_Zifencei指令集（\*110条指令，D的融合指令不支持），包含完整的异常/中断处理机制和Sv32虚拟内存支持。
+CPU核心（`core_top`）采用五级多周期流水线架构（没有流水线填充），由11状态FSM控制器驱动。支持RV32IMAFD\_Zicsr\_Zifencei指令集（110条指令，D扩展的FMA指令不支持），包含完整的异常/中断处理机制和Sv32虚拟内存支持。
 
 === 流水线控制器
 
@@ -543,7 +543,7 @@ MMIO旁路：当物理地址最高位`bit[31]=0`或`bit[30]=1`时，不经过Cac
 
 === ALU
 
-ALU为纯组合逻辑模块，支持13种单周期运算（ADD/SUB/SLT/SLTU/XOR/OR/AND/SLL/SRL/SRA/LUI/NOR/NOT等）。使用超前进位加法器（CLA）和桶形移位器。
+ALU为纯组合逻辑模块，支持14种单周期运算（ADD/SUB/SLT/SLTU/XOR/OR/AND/SLL/SRL/SRA/LUI/NOR/NOT等）。使用超前进位加法器（CLA）和桶形移位器。
 
 控制编码（one-hot）：
 
@@ -1641,7 +1641,7 @@ SimpleOS是运行在自研RISC-V CPU上的最小化操作系统演示（约1500�
   + 内核从物理地址0x80400000推进至虚拟地址C0377xxx（约55MB内核虚拟空间）
   + TLB命中、SBI调用（MCAUS=9, S-mode ecall）、内核页表切换均正常
   + 最终在demand paging阶段触发load page fault（VA=0x00FEFFEC, scause=0xD），进入内核panic
-  + *结论*：CPU成功运行Linux内核，验证了M/S特权、Sv32分页、核心基本功能等核心功能对Linux的兼容性，后续用户态不清楚是软件还是硬件问题。
+  + *结论*：CPU成功运行Linux内核，验证了M/S特权、Sv32分页、CLINT/PLIC中断等核心功能对Linux的兼容性，后续用户态panic阶段不清楚是软件还是硬件问题。
 ]
 
 *为Linux适配修复的关键RTL bug：*
@@ -1684,13 +1684,13 @@ SimpleOS是运行在自研RISC-V CPU上的最小化操作系统演示（约1500�
   [`tb_simple_cpu_trap`], [CPU异常/中断测试],
   [`tb_uart_hello`], [UART Hello World发送测试],
   [`tb_led_marquee`], [LED走马灯测试],
-  [MMU专项测试×12], [Sv32翻译/TLB/PTW/权限/页错误/仲裁],
+  [MMU专项测试×12], [Sv32翻译/TLB/PTW/权限/页错误/统一FSM],
   [Cache专项测试×5], [icache/dcache基础/脏行/fence.i/MMU交互],
   [特权级测试×3], [CSR访问/委托/特权级转换],
   [D扩展测试×3], [d\_ext(51子测试)/d\_ext\_special(28子测试)/d\_smoke冒烟测试],
   [F扩展测试×3], [f\_ext(30子测试)/f\_ext\_special(24子测试)/f0\_writable(5子测试)],
-  [FPU FSM测试], [fpu\_fsm边界测试(15子测试，含超时/flush) ],
-  [A扩展测试], [a\_ext(52子测试，含LR/SC/AMO预留集失效) ],
+  [FPU FSM测试], [fpu\_fsm边界测试(15子测试，含超时/flush)],
+  [A扩展测试], [a\_ext(52子测试，含LR/SC/AMO预留集失效)],
   [回归测试×14], [BUG-16/HIGH-1/HIGH-2/MEDIUM-3/error注入/公平性等],
   [SimpleOS启动], [os\_boot任务：M→S→U启动 + 5项浮点自检 + 交互模式],
   [Linux启动], [linux\_boot任务：OpenSBI + Linux内核进入Sv32分页（内核panic）],
@@ -1764,9 +1764,9 @@ $ "IPC" = 1 / "CPI" approx 0.148 $
 
 == MIPS
 
-系统时钟100MHz：
+CPU时钟50MHz（FPGA上板频率）：
 
-$ "MIPS" = 10^8 / (6.75 times 10^6) approx #text(red)[14.8] $
+$ "MIPS" = (5 times 10^7) / (6.75 times 10^6) approx #text(red)[7.4] $
 
 = 遇到的问题以及解决
 

@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>RISC-V SoC Architecture — dev/rtl</title>
+<style>
+:root{
+  --c-bg:#0d1117; --c-panel:#161b22; --c-edge:#30363d; --c-text:#c9d1d9;
+  --c-muted:#8b949e; --c-accent:#58a6ff; --c-cpu:#1f6feb; --c-bus:#da3633;
+  --c-mem:#238636; --c-perip:#8957e5; --c-fpu:#bf8700; --c-trap:#f0883e;
+  --c-mmu:#1f9b8e; --c-clk:#a371f7;
+}
+*{box-sizing:border-box; margin:0; padding:0}
+body{background:var(--c-bg); color:var(--c-text); font-family:'Segoe UI',system-ui,sans-serif; padding:20px; line-height:1.45}
+h1{color:#fff; font-size:24px; margin-bottom:6px}
+h2{color:var(--c-accent); font-size:18px; margin:18px 0 10px; border-bottom:1px solid var(--c-edge); padding-bottom:4px}
+h3{color:#fff; font-size:14px; margin:8px 0}
+.sub{color:var(--c-muted); font-size:12px; margin-bottom:14px}
+.legend{display:flex; flex-wrap:wrap; gap:10px; margin:10px 0 16px; font-size:12px}
+.legend span{display:inline-flex; align-items:center; gap:5px}
+.legend i{width:14px; height:14px; border-radius:3px; display:inline-block}
+.panel{background:var(--c-panel); border:1px solid var(--c-edge); border-radius:8px; padding:14px; margin-bottom:16px; overflow-x:auto}
+.box{border:2px solid; border-radius:6px; padding:8px; background:rgba(0,0,0,0.25); position:relative}
+.box-cpu{border-color:var(--c-cpu)} .box-bus{border-color:var(--c-bus)}
+.box-mem{border-color:var(--c-mem)} .box-perip{border-color:var(--c-perip)}
+.box-fpu{border-color:var(--c-fpu)} .box-trap{border-color:var(--c-trap)}
+.box-mmu{border-color:var(--c-mmu)} .box-clk{border-color:var(--c-clk)}
+.title{font-weight:700; font-size:13px; color:#fff; margin-bottom:4px; display:flex; justify-content:space-between; align-items:center}
+.tag{font-size:10px; background:rgba(255,255,255,0.1); padding:1px 6px; border-radius:8px; color:var(--c-muted)}
+.grid{display:grid; gap:8px}
+.flex{display:flex; gap:8px; flex-wrap:wrap}
+.col{display:flex; flex-direction:column; gap:8px}
+.center{text-align:center}
+.small{font-size:11px; color:var(--c-muted)}
+.kbd{font-family:'Consolas',monospace; font-size:11px; background:rgba(88,166,255,0.1); padding:1px 4px; border-radius:3px; color:var(--c-accent)}
+.row{display:flex; align-items:stretch; gap:10px; margin:6px 0}
+.arrow{color:var(--c-edge); font-size:18px; display:flex; align-items:center; user-select:none}
+.arrow-r::before{content:"→"} .arrow-l::before{content:"←"} .arrow-d::after{content:"↓"} .arrow-u::after{content:"↑"}
+.bus-arrow{color:var(--c-bus); font-weight:bold}
+table{border-collapse:collapse; width:100%; font-size:12px; margin-top:6px}
+th,td{border:1px solid var(--c-edge); padding:5px 8px; text-align:left}
+th{background:#21262d; color:#fff}
+td code{color:var(--c-accent); font-family:'Consolas',monospace}
+.stage{border:1.5px solid var(--c-accent); border-radius:6px; padding:8px; background:rgba(31,111,235,0.08); min-width:130px; text-align:center}
+.stage b{color:#fff; font-size:13px; display:block}
+.stage span{font-size:10px; color:var(--c-muted); display:block; margin-top:2px}
+.pbus{background:rgba(218,54,51,0.12); border:1px dashed var(--c-bus); border-radius:4px; padding:3px 6px; font-size:10px; color:var(--c-bus); font-family:monospace; margin:4px auto; width:fit-content}
+.sig{font-size:10px; font-family:monospace; color:var(--c-fpu); text-align:center; margin:2px 0}
+.fsm{display:inline-block; font-family:monospace; font-size:10px; background:#21262d; padding:3px 6px; border-radius:3px; margin:2px}
+.subbox{border:1px solid var(--c-edge); border-radius:4px; padding:5px; background:rgba(255,255,255,0.03); font-size:11px; text-align:center}
+.subbox b{color:#fff; font-size:11px}
+.details{font-size:11px; color:var(--c-muted); margin-top:4px}
+details summary{cursor:pointer; color:var(--c-accent); font-size:13px; padding:4px 0}
+details{margin-top:8px}
+ul{margin:4px 0 4px 18px; font-size:12px}
+li{margin:2px 0}
+.toc{position:sticky; top:0; background:var(--c-panel); border:1px solid var(--c-edge); border-radius:6px; padding:8px 14px; margin-bottom:16px; font-size:12px; z-index:10}
+.toc a{color:var(--c-accent); text-decoration:none; margin-right:14px}
+.toc a:hover{text-decoration:underline}
+.note{background:rgba(248,136,62,0.1); border-left:3px solid var(--c-trap); padding:6px 10px; font-size:12px; margin:6px 0; border-radius:0 4px 4px 0}
+.irq{color:var(--c-trap); font-size:10px; font-family:monospace}
+</style>
+</head>
+<body>
+
+<h1>RISC-V SoC 架构图 — <span class="small">dev/rtl/ 扫描结果</span></h1>
+<div class="sub">RV32IMAFD + SV32 MMU · 5级顺序FSM流水线 · AXI4/AHB/APB 总线 · 生成自 RTL 源码扫描</div>
+
+<div class="toc">
+  <a href="#soc">1. SoC 顶层</a>
+  <a href="#core">2. CPU Core 流水线</a>
+  <a href="#execute">3. Execute 单元 (ALU/FPU/MU)</a>
+  <a href="#mmu">4. MMU/Cache 子系统</a>
+  <a href="#trap">5. CSR/Trap 子系统</a>
+  <a href="#addr">6. 地址映射表</a>
+</div>
+
+<div class="legend">
+  <span><i style="background:var(--c-cpu)"></i>CPU Core</span>
+  <span><i style="background:var(--c-bus)"></i>总线 / 互连</span>
+  <span><i style="background:var(--c-mem)"></i>存储器</span>
+  <span><i style="background:var(--c-perip)"></i>外设</span>
+  <span><i style="background:var(--c-mmu)"></i>MMU/Cache</span>
+  <span><i style="background:var(--c-trap)"></i>Trap/CSR</span>
+  <span><i style="background:var(--c-fpu)"></i>FPU</span>
+  <span><i style="background:var(--c-clk)"></i>时钟域</span>
+</div>
+
+<!-- ===================== 1. SoC TOP ===================== -->
+<h2 id="soc">1. SoC 顶层 — system_top.sv</h2>
+<div class="panel">
+<div class="col">
+
+<!-- Clock + CPU row -->
+<div class="row">
+  <div class="box box-clk" style="min-width:150px">
+    <div class="title">时钟与复位 <span class="tag">clk_wiz_0</span></div>
+    <div class="small">
+      <b>cpu_clk</b> ~50MHz (FPGA) / ~91MHz (sim)<br>
+      <b>sys_clk</b> 100MHz<br>
+      <b>ddr_clk_ref</b> 200MHz<br>
+      <span class="small">resetn → clk_wiz_locked → ddr_aresetn → sys_resetn → cpu_resetn</span>
+    </div>
+  </div>
+  <div class="arrow bus-arrow">→</div>
+  <div class="box box-cpu" style="flex:1">
+    <div class="title">core_top <span class="tag">RV32IMAFD · cpu_clk 域</span></div>
+    <div class="small">
+      AXI4 Master (5通道: AW/W/B/AR/R) · 32位地址/数据<br>
+      IRQ 输入: <span class="irq">timer_irq</span> <span class="irq">ext_meip</span> <span class="irq">ext_seip</span> <span class="irq">ext_msip</span> <span class="irq">ext_mtime[63:0]</span><br>
+      输出: 大量调试信号 (PC/指令/CSR/MMU/cache 状态)
+    </div>
+  </div>
+  <div class="arrow bus-arrow">→</div>
+  <div class="box box-bus" style="min-width:130px">
+    <div class="title">Axi_CDC <span class="tag">u_axi_cdc</span></div>
+    <div class="small">cpu_clk → sys_clk<br>5通道同步<br>QoS/Region=0</div>
+  </div>
+</div>
+
+<div class="sig" style="text-align:center">↓ cdc_awaddr / cdc_wdata / cdc_araddr / cdc_rdata  (sys_clk 域)</div>
+
+<!-- Address decoder -->
+<div class="row">
+  <div class="box box-bus" style="flex:1">
+    <div class="title">地址译码器 + 从机MUX <span class="tag">组合译码 · 寄存路由 · 单 outstanding</span></div>
+    <div class="small center" style="margin-top:4px">
+      <span class="kbd">addr[31:27]==0x10</span> → DDR &nbsp;|&nbsp;
+      <span class="kbd">addr[31:24]==0xFC</span> → ROM &nbsp;|&nbsp;
+      <span class="kbd">==0x0C</span> → PLIC &nbsp;|&nbsp;
+      <span class="kbd">==0x02</span> → CLINT &nbsp;|&nbsp;
+      <span class="kbd">==0x10</span> → APB* &nbsp;|&nbsp;
+      <span class="kbd">==0x04</span> → SysStatus &nbsp;|&nbsp; else → Default
+    </div>
+    <div class="small center" style="color:var(--c-trap)">* 0x10 被 DDR(0x8000_0000) 优先匹配, APB 实际窗口为 0x1000_0000 — 见地址映射表</div>
+  </div>
+</div>
+
+<div class="sig" style="text-align:center">↓ 7路独立 AXI4/AXI4-Lite 从机接口</div>
+
+<!-- Slaves row -->
+<div class="grid" style="grid-template-columns:1.4fr 1fr 1fr 1fr 1fr 0.8fr">
+  <div class="box box-mem">
+    <div class="title">DDR3 / RAM <span class="tag">Slave 0 · Full AXI4</span></div>
+    <h3>axi_wrap_ram (仿真)</h3>
+    <div class="small">16MB BRAM · INCR burst · 零延迟读<br>$readmemh("prog.hex")</div>
+    <h3 style="margin-top:6px">axi_wrap_ddr (FPGA)</h3>
+    <div class="small">mig_axi_32 · 内置 Axi_CDC<br>init_calib_complete → ddr_aresetn</div>
+    <div class="pbus">0x8000_0000 – 0x87FF_FFFF (128MB)</div>
+  </div>
+
+  <div class="box box-perip">
+    <div class="title">Boot ROM <span class="tag">axi4lite_bootrom</span></div>
+    <div class="small">只读 8K-word BRAM<br>sim: bootloader.hex<br>FPGA: ROM IP<br>写静默应答 OKAY</div>
+    <div class="pbus">0xFC00_0000 (16MB)</div>
+  </div>
+
+  <div class="box box-perip">
+    <div class="title">PLIC <span class="tag">axi4lite_plic</span></div>
+    <div class="small">8中断源 · 2上下文(M/S)<br>priority/pending/enable<br>threshold/claim<br>2级流水优先编码</div>
+    <div class="pbus">0x0C00_0000 (16MB)</div>
+  </div>
+
+  <div class="box box-perip">
+    <div class="title">CLINT <span class="tag">axi4lite_clint</span></div>
+    <div class="small">msip @0x0000<br>mtimecmp @0x4000<br>mtime @0xBFF8<br>64位自由计数器</div>
+    <div class="pbus">0x0200_0000 (16MB)</div>
+  </div>
+
+  <div class="box box-perip">
+    <div class="title">APB Bridge <span class="tag">axi4lite_to_apb</span></div>
+    <div class="small">7态FSM · 独立AW/W锁存<br>→ apb_decoder (PADDR[15:14])<br>→ 4个APB外设</div>
+    <div class="pbus">0x1000_0000 (16MB)</div>
+    <div class="sig" style="margin-top:4px">↓</div>
+    <div class="grid" style="grid-template-columns:1fr 1fr; gap:3px; margin-top:2px">
+      <div class="subbox"><b>GPIO</b><br><span class="small">PSELx[0] · 16位双向<br>irq→PLIC#4</span></div>
+      <div class="subbox"><b>Timer</b><br><span class="small">PSELx[1]<br>irq→PLIC#1</span></div>
+      <div class="subbox"><b>UART 16550A</b><br><span class="small">PSELx[2] · 16深FIFO<br>irq→PLIC#2</span></div>
+      <div class="subbox"><b>SPI Master</b><br><span class="small">PSELx[3]<br>irq→PLIC#3</span></div>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="box box-perip" style="flex:1">
+      <div class="title">Sys Status <span class="tag">axi4lite_sys_status</span></div>
+      <div class="small">只读: init_calib · mmcm_locked · clk_wiz_locked</div>
+      <div class="pbus">0x0400_0000</div>
+    </div>
+    <div class="box box-bus" style="flex:1">
+      <div class="title">Default Slave <span class="tag">axi4lite_default_slave</span></div>
+      <div class="small">未映射地址 → DECERR(2'b11)</div>
+    </div>
+  </div>
+</div>
+
+<!-- IRQ flow -->
+<div class="row" style="margin-top:10px">
+  <div class="box box-trap" style="flex:1">
+    <div class="title">中断流 <span class="tag">全部经 2级触发器同步 sys_clk→cpu_clk (mtime 用 Gray 码)</span></div>
+    <div class="small center">
+      GPIO/Timer/UART/SPI → PLIC → <span class="irq">plic_eip[0]=M</span> <span class="irq">plic_eip[1]=S</span> → core_top.ext_meip_in / ext_seip_in<br>
+      CLINT → <span class="irq">clint_mtip</span> → timer_irq &nbsp;|&nbsp; <span class="irq">clint_msip</span> → ext_msip_in &nbsp;|&nbsp; <span class="irq">clint_mtime[63:0]</span> → ext_mtime (Gray 同步)
+    </div>
+  </div>
+</div>
+
+</div>
+</div>
+
+<!-- ===================== 2. CPU CORE ===================== -->
+<h2 id="core">2. CPU Core 流水线 — core_top.sv</h2>
+<div class="panel">
+<div class="note">
+  <b>非经典并行流水线</b> — 采用 <b>11状态顺序FSM</b> (cpu_controller), 每级独占执行, if_valid 与 mem_valid 互斥, 使单一 MMU/TLB 端口可被取指与访存共享。
+</div>
+
+<div class="box box-cpu">
+<div class="title">core_top — 顶层集成 <span class="tag">cpu_clk · RV32IMAFDSU</span></div>
+
+<!-- FSM -->
+<div class="center" style="margin:8px 0">
+  <span class="fsm">IDLE</span>→<span class="fsm">FETCH</span>→<span class="fsm">DECODE</span>→<span class="fsm">EXEC</span>→<span class="fsm">MEM</span>→<span class="fsm">WB</span>
+  &nbsp;↔&nbsp;
+  <span class="fsm">CSR_ACCESS</span> · <span class="fsm">TRAP_ENTER</span> · <span class="fsm">TRAP_RETURN</span> · <span class="fsm">FENCEI</span> · <span class="fsm">SFENCE_VMA</span>
+</div>
+
+<!-- Pipeline stages -->
+<div class="grid" style="grid-template-columns:repeat(5,1fr); gap:8px; margin-top:8px">
+  <div class="stage">
+    <b>FETCH</b><span>cpu_fetch.sv</span>
+    <div class="small">PC→icache(经MMU)<br>输出 instAddr/inst</div>
+    <div class="pbus">if_id_bus (96b)</div>
+    <div class="small">{pc_plus4, pc, inst}</div>
+  </div>
+  <div class="stage">
+    <b>DECODE</b><span>cpu_decode.sv</span>
+    <div class="small">字段提取 op_regroup<br>读regfile · 分类<br>非法指令检测</div>
+    <div class="pbus">id_exe_bus (351b)</div>
+  </div>
+  <div class="stage">
+    <b>EXECUTE</b><span>cpu_execute.sv</span>
+    <div class="small">ALU 1周期<br>MU 多周期<br>FPU 多周期<br>分支解析 · CSR计算</div>
+    <div class="pbus">exe_mem_bus (228b)</div>
+  </div>
+  <div class="stage">
+    <b>MEM</b><span>cpu_mem.sv</span>
+    <div class="small">12态FSM<br>load/store/AMO<br>LR/SC · FLD/FSD<br>→dcache(经MMU)</div>
+    <div class="pbus">mem_wb_bus (246b)</div>
+  </div>
+  <div class="stage">
+    <b>WB</b><span>cpu_wb.sv</span>
+    <div class="small">整数regfile写<br>FP regfile写<br>CSR写回mux<br>fflags累积</div>
+  </div>
+</div>
+
+<!-- Regfiles + key signals -->
+<div class="row" style="margin-top:10px">
+  <div class="box" style="flex:1; border-color:var(--c-accent)">
+    <div class="title">寄存器堆</div>
+    <div class="flex">
+      <div class="subbox" style="flex:1"><b>cpu_regfile</b><br><span class="small">x0–x31 · 32位 · 2读1写</span></div>
+      <div class="subbox" style="flex:1"><b>fpu_regfile</b><br><span class="small">f0–f31 · 64位 · 3读1写</span></div>
+    </div>
+  </div>
+  <div class="box box-trap" style="flex:1.3">
+    <div class="title">关键控制信号</div>
+    <div class="small">
+      <span class="kbd">exe_branch_taken/target</span> → PC mux &nbsp;|&nbsp;
+      <span class="kbd">trap_pending</span> → flush MU/FPU &nbsp;|&nbsp;
+      <span class="kbd">exception_at_decode</span> → 跳过EXEC &nbsp;|&nbsp;
+      <span class="kbd">exe_need_mem</span> → 进入MEM态 &nbsp;|&nbsp;
+      <span class="kbd">csr_read_data</span> → EXEC ALU &nbsp;|&nbsp;
+      <span class="kbd">csr_wb_bus</span> → WB mux
+    </div>
+  </div>
+</div>
+
+</div>
+</div>
+
+<!-- ===================== 3. EXECUTE ===================== -->
+<h2 id="execute">3. Execute 单元 — ALU / FPU / MU</h2>
+<div class="panel">
+<div class="grid" style="grid-template-columns:1fr 1.3fr 1fr; gap:10px">
+
+<!-- ALU -->
+<div class="box box-cpu">
+  <div class="title">ALU <span class="tag">alu_32bit · 纯组合 · 1周期</span></div>
+  <div class="sig">in: alu_control[16], src1, src2</div>
+  <div class="col" style="margin-top:4px">
+    <div class="subbox"><b>cla_adder_32bit</b><br><span class="small">超前进位 add/sub</span></div>
+    <div class="subbox"><b>logic_unit</b><br><span class="small">AND/OR/XOR/NOR/NOT/SLT/SLTU</span></div>
+    <div class="subbox"><b>shifter</b><br><span class="small">桶形 SLL/SRL/SRA</span></div>
+    <div class="subbox"><b>lui</b><br><span class="small">立即数直传</span></div>
+    <div class="subbox"><b>alu_result_selector</b><br><span class="small">13选1 结果mux</span></div>
+  </div>
+  <div class="sig">out: result[32]</div>
+  <div class="small" style="margin-top:4px">子模块层级: cla_adder_16bit → cla_adder_4bit</div>
+</div>
+
+<!-- FPU -->
+<div class="box box-fpu">
+  <div class="title">FPU <span class="tag">fpu_unit · 多周期 FSM · F/D 扩展</span></div>
+  <div class="sig">in: fpu_funct[7], fpu_rm[3], src1/2/3[64], req_valid, flush</div>
+  <div class="center" style="margin:4px 0">
+    <span class="fsm">F_IDLE</span>→<span class="fsm">F_DISPATCH</span>→<span class="fsm">F_WAIT</span>→<span class="fsm">F_DONE</span>→<span class="fsm">F_COMPLETE</span>
+  </div>
+  <div class="small center" style="color:var(--c-fpu)">1000周期看门狗超时 → fpu_error</div>
+  <h3 style="margin-top:6px">顺序子模块 (多周期)</h3>
+  <div class="grid" style="grid-template-columns:1fr 1fr; gap:3px">
+    <div class="subbox"><b>fpu_adder</b> FADD/FSUB.S</div>
+    <div class="subbox"><b>fpu_adder_d</b> FADD.D</div>
+    <div class="subbox"><b>fpu_multiplier</b> FMUL.S</div>
+    <div class="subbox"><b>fpu_multiplier_d</b> FMUL.D</div>
+    <div class="subbox"><b>fpu_divider</b> FDIV.S</div>
+    <div class="subbox"><b>fpu_divider_d</b> FDIV.D</div>
+    <div class="subbox"><b>fpu_sqrt</b> FSQRT.S</div>
+    <div class="subbox"><b>fpu_sqrt_d</b> FSQRT.D</div>
+    <div class="subbox"><b>fpu_cvt</b> FCVT.S (4变体)</div>
+    <div class="subbox"><b>fpu_cvt_d</b> FCVT.D (6变体)</div>
+    <div class="subbox" style="grid-column:span 2"><b>fpu_fma</b> FMADD/FMSUB/FNMSUB/FNMADD.S (3操作数)</div>
+  </div>
+  <h3 style="margin-top:6px">组合子模块 (单周期)</h3>
+  <div class="grid" style="grid-template-columns:1fr 1fr; gap:3px">
+    <div class="subbox"><b>fpu_compare</b> FEQ/FLT/FLE.S</div>
+    <div class="subbox"><b>fpu_compare_d</b> FEQ.D</div>
+    <div class="subbox"><b>fpu_minmax</b> FMIN/FMAX.S</div>
+    <div class="subbox"><b>fpu_minmax_d</b> FMIN.D</div>
+    <div class="subbox"><b>fpu_classify</b> FCLASS.S</div>
+    <div class="subbox"><b>fpu_classify_d</b> FCLASS.D</div>
+    <div class="subbox"><b>fpu_sign_inject</b> FSGNJ.S</div>
+    <div class="subbox"><b>fpu_sign_inject_d</b> FSGNJ.D</div>
+  </div>
+  <div class="subbox" style="margin-top:4px"><b>fpu_round</b> + <b>fpu_special</b> (NaN-boxing: {32'hFFFFFFFF, 32位结果})</div>
+  <div class="sig">out: result[64], fflags[5], rd_is_int, result_valid</div>
+</div>
+
+<!-- MU -->
+<div class="box box-cpu">
+  <div class="title">MU <span class="tag">mu_unit · M扩展 · 多周期</span></div>
+  <div class="sig">in: mu_funct3[3], src1, src2, req_valid, flush</div>
+  <div class="col" style="margin-top:4px">
+    <div class="subbox"><b>booth_multiplier</b><br><span class="small">32×32→64 Booth · MUL/MULH/MULHSU/MULHU</span></div>
+    <div class="subbox"><b>non_restoring_divider</b><br><span class="small">32位非恢复除法 · DIV/DIVU/REM/REMU<br>除零检测 · 溢出处理</span></div>
+    <div class="subbox"><b>校正加法器 ×2</b><br><span class="small">cla_adder_32bit · MULHSU/MULHU 符号校正</span></div>
+    <div class="subbox"><b>结果mux</b><br><span class="small">funct3 选择 积低/积高/商/余数</span></div>
+  </div>
+  <div class="sig">out: result[32], result_valid, div_by_zero</div>
+  <div class="small" style="margin-top:4px">无显式FSM — 基于 mul_busy/div_busy 寄存器 + done 脉冲</div>
+</div>
+
+</div>
+
+<div class="box" style="margin-top:10px; border-color:var(--c-accent)">
+  <div class="title">cpu_execute 仲裁逻辑</div>
+  <div class="small">
+    <b>结果优先级</b>: use_fixed_wb (LUI/AUIPC/JAL立即数) &gt; is_mu (派发MU等待) &gt; is_fpu (派发FPU等待) &gt; default ALU(组合同周期)<br>
+    <b>flush</b>: trap_pending &amp; (mu_active|fpu_active) → 清active, done=1, result_ok=0<br>
+    <b>分支</b>: branch_comparator 组合评估 BEQ/BNE/BLT/BGE/BLTU/BGEU; JALR目标 = alu_result &amp; ~1<br>
+    <b>FPU rm</b>: DYN(111) → csr_frm; <b>FMV.W.X</b>: src1 取自整数rs1
+  </div>
+</div>
+</div>
+
+<!-- ===================== 4. MMU/CACHE ===================== -->
+<h2 id="mmu">4. MMU / Cache 子系统</h2>
+<div class="panel">
+<div class="note">
+  <b>统一MMU</b> — 单例 MMU.sv, 单 TLB Port A 供所有查找 (if_valid 与 mem_valid 互斥); Port B 仅用于TLB填充写. PTW 通过 dcache 的优先端口读取PTE.
+</div>
+
+<div class="grid" style="grid-template-columns:1fr 1fr 1fr; gap:10px">
+
+<!-- MMU -->
+<div class="box box-mmu">
+  <div class="title">MMU <span class="tag">MMU.sv · 11态FSM</span></div>
+  <div class="sig">translate_req (if_valid || (mem_valid&amp;&amp;mem_en))</div>
+  <div class="center" style="margin:4px 0; font-size:10px">
+    T_IDLE→T_LOOKUP→T_CHECK→T_WALK→T_FILL→T_RELOOKUP→T_RECHECK→T_DONE/FAULT→T_COMPLETE
+  </div>
+  <div class="small">
+    <b>Bare模式</b> (satp[31]=0 或 M模式): paddr=vaddr<br>
+    <b>Sv32模式</b>: TLB查找→命中/缺失→PTW遍历→TLB填充→重查<br>
+    <b>权限</b>: U/S模式 · fetch/load/store · MXR/SUM · A/D位<br>
+    <b>sfence.vma</b>: 扫描所有set清TLB
+  </div>
+  <div class="sig">out: translate_paddr[32], done, fault</div>
+</div>
+
+<!-- TLB -->
+<div class="box box-mmu">
+  <div class="title">TLB <span class="tag">tlb.sv · 4路组相联 · 16项</span></div>
+  <div class="grid" style="grid-template-columns:1fr 1fr; gap:3px">
+    <div class="subbox"><b>tlb_flag BRAM</b><br><span class="small">128×4 · {V,G,ASID[9],VPN[20],mega}</span></div>
+    <div class="subbox"><b>tlb_data BRAM</b><br><span class="small">128×4 · {PPN[22],R,W,X,U,A,D}</span></div>
+  </div>
+  <div class="subbox" style="margin-top:4px"><b>tree_plru</b><br><span class="small">树形伪LRU替换 · 每组一棵</span></div>
+  <div class="small" style="margin-top:4px">
+    <b>双端口</b>: Port A 查找 · Port B 填充写<br>
+    <b>大页</b>: VPN[9:0]归零, VPN[19:10]匹配<br>
+    <b>刷新</b>: S_FLUSH 扫描清BRAM+shadow valid+PLRU
+  </div>
+</div>
+
+<!-- PTW -->
+<div class="box box-mmu">
+  <div class="title">PTW <span class="tag">ptw.sv · 2级SV32遍历</span></div>
+  <div class="center" style="margin:4px 0; font-size:10px">
+    S_IDLE→S_L1_READ→S_L1_CHECK→S_L0_READ→S_L0_CHECK→S_PERM_CHECK→S_DONE/FAULT
+  </div>
+  <div class="small">
+    <b>PTE读取</b>: 经 dcache PTW优先端口 (ptw_cache_req/addr/ready/rdata/fault)<br>
+    <b>PMP检查</b>: pmp_grant/fault_type (当前占位: 永远grant)<br>
+    <b>超时</b>: 4096周期防御性超时 · dcache flush时暂停<br>
+    <b>abort</b>: sfence.vma 中止遍历中请求
+  </div>
+</div>
+
+</div>
+
+<!-- Caches -->
+<div class="grid" style="grid-template-columns:1fr 1fr; gap:10px; margin-top:10px">
+  <div class="box box-mem">
+    <div class="title">I-Cache <span class="tag">icache_ctrl.sv · 4路组相联 · PIPT</span></div>
+    <div class="small">
+      <b>几何</b>: 8组 × 4路 · 行32B(8字) · 共256B<br>
+      <b>状态</b>: RST_CLEAR→IDLE→TAG_READ→READ/REFILL→DONE / INVALIDATE<br>
+      <b>MMIO旁路</b>: addr[31]=0 或 addr[30]=1 绕过cache<br>
+      <b>填充</b>: 经 cpu_bus_bridge AXI burst 读<br>
+      <b>失效</b>: sfence.vma 时清tag BRAM (NUM_SETS周期)
+    </div>
+  </div>
+  <div class="box box-mem">
+    <div class="title">D-Cache <span class="tag">dcache_ctrl.sv · 4路组相联 · PIPT · 写回</span></div>
+    <div class="small">
+      <b>几何</b>: 8组 × 4路 · 行32B · dirty位在tag中<br>
+      <b>命中</b>: 读2周期(TAG→READ_HIT) · 写1周期(置dirty)<br>
+      <b>缺失</b>: 干净victim→refill · 脏victim→写回→refill<br>
+      <b>PTW优先端口</b>: ptw_req_* 读取PTE (高于CPU访存)<br>
+      <b>flush</b>: 扫描所有组/路写回脏行后失效<br>
+      <b>AMO abort</b>: trap_enter 取消进行中的AMO写回
+    </div>
+  </div>
+</div>
+
+<!-- Bus bridge -->
+<div class="box box-bus" style="margin-top:10px">
+  <div class="title">cpu_bus_bridge <span class="tag">u_bus_bridge · AXI4 Master 输出</span></div>
+  <div class="small">
+    汇聚 icache填充 · dcache填充/写回 · MMIO直通 → 单一 AXI4 Master 接口 (AW/W/B/AR/R 五通道)<br>
+    输出至 core_top 顶层 → Axi_CDC → sys_clk 域地址译码器
+  </div>
+</div>
+</div>
+
+<!-- ===================== 5. TRAP/CSR ===================== -->
+<h2 id="trap">5. CSR / Trap 子系统</h2>
+<div class="panel">
+<div class="box box-trap">
+<div class="title">cpu_trap_csr <span class="tag">编排器: cpu_trap_manager + cpu_csr_interface</span></div>
+
+<div class="grid" style="grid-template-columns:1fr 1fr 1fr; gap:10px; margin-top:6px">
+  <div class="box box-trap">
+    <div class="title">cpu_trap_manager</div>
+    <div class="small">
+      <b>异常源 (优先级)</b>:<br>
+      1. 指令访问错误 (bus/MMU)<br>
+      2. 指令页错误 (MMU)<br>
+      3. 非法指令 (decode)<br>
+      4. Ecall/Ebreak (decode)<br>
+      5. 访存对齐错误 (mem)<br>
+      6. load/store访问错误<br>
+      7. load/store页错误<br>
+      8. 分支目标对齐错误 (exec)<br>
+      <b>中断源</b>: timer_irq, meip, seip, msip<br>
+      <b>委派</b>: medeleg/mideleg → S模式<br>
+      <b>输出</b>: trap_pc(mtvec/stvec), target_priv, trap_pending
+    </div>
+  </div>
+
+  <div class="box box-trap">
+    <div class="title">cpu_csr_interface</div>
+    <div class="small">
+      路由软件CSR访问 (EXEC via id_exe_bus_r)<br>
+      + 硬件trap写入 → cpu_csr<br>
+      生成 csr_wb_bus → WB级<br>
+      <b>cpu_clint</b> (子模块): 中断原因编码<br>
+      m_interrupt_cause / s_interrupt_cause
+    </div>
+  </div>
+
+  <div class="box box-trap">
+    <div class="title">cpu_csr <span class="tag">寄存器文件</span></div>
+    <div class="small">
+      <b>M模式</b>: mstatus, misa(0x40141129), medeleg, mideleg, mie, mtvec, mscratch, mepc, mcause, mtval, mip, mcounteren, mcycle, minstret, mvendorid/marchid/mimpid/mhartid<br>
+      <b>S模式</b>: sstatus, sie, stvec, sscratch, sepc, scause, stval, sip, satp, scounteren<br>
+      <b>U计数器</b>: cycle/time/instret (+H高半)<br>
+      <b>PMP</b>: pmpcfg0-3, pmpaddr0-15<br>
+      <b>FPU</b>: fflags, frm, fcsr<br>
+      <b>pmp_checker</b>: 16项 TOR/NA4/NAPOT (当前禁用)
+    </div>
+  </div>
+</div>
+
+</div>
+</div>
+
+<!-- ===================== 6. ADDR MAP ===================== -->
+<h2 id="addr">6. 地址映射表</h2>
+<div class="panel">
+<table>
+<tr><th>区域</th><th>基址</th><th>结束</th><th>大小</th><th>总线</th><th>从机#</th><th>模块</th><th>译码条件</th></tr>
+<tr><td>DDR3 / RAM</td><td><code>0x8000_0000</code></td><td><code>0x87FF_FFFF</code></td><td>128MB</td><td>Full AXI4</td><td>0</td><td>axi_wrap_ram / axi_wrap_ddr</td><td><code>addr[31:27]==5'h10</code></td></tr>
+<tr><td>CLINT</td><td><code>0x0200_0000</code></td><td><code>0x02FF_FFFF</code></td><td>16MB</td><td>AXI4-Lite</td><td>3</td><td>axi4lite_clint</td><td><code>addr[31:24]==0x02</code></td></tr>
+<tr><td>Sys Status</td><td><code>0x0400_0000</code></td><td><code>0x04FF_FFFF</code></td><td>16MB</td><td>AXI4-Lite</td><td>5</td><td>axi4lite_sys_status</td><td><code>addr[31:24]==0x04</code></td></tr>
+<tr><td>PLIC</td><td><code>0x0C00_0000</code></td><td><code>0x0CFF_FFFF</code></td><td>16MB</td><td>AXI4-Lite</td><td>2</td><td>axi4lite_plic</td><td><code>addr[31:24]==0x0C</code></td></tr>
+<tr><td>APB Bridge</td><td><code>0x1000_0000</code></td><td><code>0x10FF_FFFF</code></td><td>16MB</td><td>AXI4-Lite</td><td>4</td><td>axi4lite_to_apb → apb_decoder → apb_perips</td><td><code>addr[31:24]==0x10</code>*</td></tr>
+<tr><td>Boot ROM</td><td><code>0xFC00_0000</code></td><td><code>0xFCFF_FFFF</code></td><td>16MB</td><td>AXI4-Lite</td><td>1</td><td>axi4lite_bootrom</td><td><code>addr[31:24]==0xFC</code></td></tr>
+<tr><td>Default</td><td>其他</td><td>—</td><td>—</td><td>AXI4-Lite</td><td>6</td><td>axi4lite_default_slave (DECERR)</td><td>fallthrough</td></tr>
+</table>
+
+<h3 style="margin-top:14px">APB 子地址映射 (0x1000_0000 窗口内, PADDR[15:14] 译码)</h3>
+<table>
+<tr><th>PSELx</th><th>偏移</th><th>外设</th><th>IRQ→PLIC</th></tr>
+<tr><td>PSELx[0]</td><td><code>0x0000–0x3FFF</code></td><td>GPIO (16位双向)</td><td>src 4</td></tr>
+<tr><td>PSELx[1]</td><td><code>0x4000–0x7FFF</code></td><td>Timer</td><td>src 1</td></tr>
+<tr><td>PSELx[2]</td><td><code>0x8000–0xBFFF</code></td><td>UART 16550A (16深FIFO)</td><td>src 2</td></tr>
+<tr><td>PSELx[3]</td><td><code>0xC000–0xFFFF</code></td><td>SPI Master</td><td>src 3</td></tr>
+</table>
+
+<h3 style="margin-top:14px">关键参数</h3>
+<div class="grid" style="grid-template-columns:1fr 1fr; gap:10px">
+<div class="small">
+  <b>ISA</b>: RV32IMAFDSU (misa=0x40141129)<br>
+  <b>启动PC</b>: 0xFC00_0000 (Boot ROM, 仿真与FPGA一致)<br>
+  <b>DDR3基址</b>: 0x8000_0000 · MIG地址宽度27位<br>
+  <b>I/D-Cache</b>: 4路组相联 · 8组 · 行32B · PIPT · D-Cache写回<br>
+  <b>TLB</b>: 4路组相联 · 4组 · 16项 · SV32 · PLRU<br>
+  <b>PMP</b>: 16项 TOR/NA4/NAPOT (当前禁用, 占位grant)
+</div>
+<div class="small">
+  <b>流水线</b>: 11态顺序FSM (非并行) · if/mem互斥<br>
+  <b>流水总线宽度</b>: if_id=96b · id_exe=351b · exe_mem=228b · mem_wb=246b<br>
+  <b>FPU</b>: F/D双精度 · 5态FSM · 1000周期看门狗 · 11顺序+8组合子模块<br>
+  <b>MU</b>: Booth乘法 + 非恢复除法 · MULH/MULHSU/MULHU校正加法器<br>
+  <b>时钟域</b>: cpu_clk(~50/91MHz) | sys_clk(100MHz) | ddr_clk_ref(200MHz)<br>
+  <b>CDC</b>: Axi_CDC (AXI4) + 2FF同步(中断) + Gray码(mtime)
+</div>
+</div>
+
+</div>
+
+<div class="sub" style="margin-top:20px; text-align:center">
+  扫描范围: dev/rtl/ (96个SystemVerilog文件) · 生成方式: parallel explore agents + direct grep<br>
+  数据来源: system_top.sv · core_top.sv · cpu_{fetch,decode,execute,mem,wb,controller,trap_csr,trap_manager,csr_interface,csr,clint,bus_bridge,regfile}.sv · MMU.sv · tlb.sv · ptw.sv · pmp_checker.sv · icache_ctrl.sv · dcache_ctrl.sv · alu_32bit.sv · fpu_unit.sv · mu_unit.sv · cache_def.svh · axi4_def.svh · soc_config.vh
+</div>
+
+</body>
+</html>

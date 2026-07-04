@@ -88,59 +88,60 @@
 
 == 项目文件夹结构
 
-```text
-dev/rtl/
-├── system_top.sv                  # SoC顶层
-├── soc_config.vh                  # SoC配置宏
-├── axi4_def.svh                   # AXI4总线定义
-├── clk_wiz_0_passthrough.sv       # 时钟直通（仿真用）
-│
-├── core/                          # CPU核心
-│   ├── core_top.sv                #   核心顶层
-│   ├── cpu_controller.sv          #   流水线控制器（11状态FSM）
-│   ├── cpu_fetch.sv               #   取指
-│   ├── cpu_decode.sv              #   译码
-│   ├── cpu_execute.sv             #   执行
-│   ├── cpu_mem.sv                 #   访存
-│   ├── cpu_wb.sv                  #   回写
-│   ├── cpu_regfile.sv             #   整数寄存器堆
-│   ├── cpu_trap_csr.sv            #   异常/CSR处理
-│   ├── cpu_trap_manager.sv        #   异常检测与优先级仲裁
-│   ├── cpu_clint.sv               #   中断判定逻辑
-│   ├── cpu_bus_bridge.sv          #   AXI4主设备桥（16状态FSM）
-│   ├── icache_ctrl.sv             #   ICache控制器（5状态FSM）
-│   ├── dcache_ctrl.sv             #   DCache控制器（13状态FSM）
-│   ├── tree_plru.sv               #   Tree-PLRU替换策略
-│   ├── MMU.sv                     #   内存管理单元（统一翻译FSM 11状态）
-│   ├── tlb.sv                     #   TLB（4路×4组）
-│   ├── ptw.sv                     #   页表漫游器（8状态FSM）
-│   ├── branch_comparator.sv       #   分支比较器
-│   └── op_regroup.sv              #   指令字段拆分
-│
-├── ALU/                           # 算术逻辑单元
-├── MU/                            # 乘除法单元
-├── FPU/                           # 浮点运算单元
-├── AMBA/Axi_CDC.v                 # AXI4时钟域穿越
-├── axi/                           # AXI4-Lite从设备
-│   ├── axi4lite_plic.sv           #   PLIC
-│   ├── axi4lite_clint.sv          #   CLINT
-│   ├── axi4lite_bootrom.sv        #   Boot ROM
-│   ├── axi4lite_default_slave.sv  #   默认从设备
-│   └── axi4lite_sys_status.sv     #   系统状态寄存器
-├── ram_wrap/                      # 存储器封装
-│   ├── axi_wrap_ram.sv            #   BRAM仿真模型
-│   └── axi_wrap_ddr.sv            #   DDR3封装（MIG）
-├── APB/                           # APB子系统
-│   ├── axi4lite_to_apb.sv         #   AXI4-Lite→APB4桥
-│   ├── apb_decoder.sv             #   APB地址译码
-│   └── perips/                    #   外设
-│       ├── gpio.sv, timer.sv, spi.sv
-│       └── uart16550/             #   UART 16550A
-└── common/                        # 公共模块
-    ├── reset_sync.sv              #   复位同步器
-    └── ila_stub.sv                #   ILA调试探针
-```
-
+#text(size: 10pt)[
+  ```text
+  dev/rtl/
+  ├── system_top.sv                  # SoC顶层
+  ├── soc_config.vh                  # SoC配置宏
+  ├── axi4_def.svh                   # AXI4总线定义
+  ├── clk_wiz_0_passthrough.sv       # 时钟直通（仿真用）
+  │
+  ├── core/                          # CPU核心
+  │   ├── core_top.sv                #   核心顶层
+  │   ├── cpu_controller.sv          #   流水线控制器（11状态FSM）
+  │   ├── cpu_fetch.sv               #   取指
+  │   ├── cpu_decode.sv              #   译码
+  │   ├── cpu_execute.sv             #   执行
+  │   ├── cpu_mem.sv                 #   访存
+  │   ├── cpu_wb.sv                  #   回写
+  │   ├── cpu_regfile.sv             #   整数寄存器堆
+  │   ├── cpu_trap_csr.sv            #   异常/CSR处理
+  │   ├── cpu_trap_manager.sv        #   异常检测与优先级仲裁
+  │   ├── cpu_clint.sv               #   中断判定逻辑
+  │   ├── cpu_bus_bridge.sv          #   AXI4主设备桥（16状态FSM）
+  │   ├── icache_ctrl.sv             #   ICache控制器（5状态FSM）
+  │   ├── dcache_ctrl.sv             #   DCache控制器（13状态FSM）
+  │   ├── tree_plru.sv               #   Tree-PLRU替换策略
+  │   ├── MMU.sv                     #   内存管理单元（统一翻译FSM 11状态）
+  │   ├── tlb.sv                     #   TLB（4路×4组）
+  │   ├── ptw.sv                     #   页表漫游器（8状态FSM）
+  │   ├── branch_comparator.sv       #   分支比较器
+  │   └── op_regroup.sv              #   指令字段拆分
+  │
+  ├── ALU/                           # 算术逻辑单元
+  ├── MU/                            # 乘除法单元
+  ├── FPU/                           # 浮点运算单元
+  ├── AMBA/Axi_CDC.v                 # AXI4时钟域穿越
+  ├── axi/                           # AXI4-Lite从设备
+  │   ├── axi4lite_plic.sv           #   PLIC
+  │   ├── axi4lite_clint.sv          #   CLINT
+  │   ├── axi4lite_bootrom.sv        #   Boot ROM
+  │   ├── axi4lite_default_slave.sv  #   默认从设备
+  │   └── axi4lite_sys_status.sv     #   系统状态寄存器
+  ├── ram_wrap/                      # 存储器封装
+  │   ├── axi_wrap_ram.sv            #   BRAM仿真模型
+  │   └── axi_wrap_ddr.sv            #   DDR3封装（MIG）
+  ├── APB/                           # APB子系统
+  │   ├── axi4lite_to_apb.sv         #   AXI4-Lite→APB4桥
+  │   ├── apb_decoder.sv             #   APB地址译码
+  │   └── perips/                    #   外设
+  │       ├── gpio.sv, timer.sv, spi.sv
+  │       └── uart16550/             #   UART 16550A
+  └── common/                        # 公共模块
+      ├── reset_sync.sv              #   复位同步器
+      └── ila_stub.sv                #   ILA调试探针
+  ```
+]
 = 实现细节
 
 == 总体架构
@@ -149,113 +150,117 @@ dev/rtl/
 
 === 总架构图
 
-以下PlantUML源码描述了系统的整体架构，包括CPU内部部件、总线层次、时钟域和中断连接：
+以下文件描述了系统的整体架构，包括CPU内部部件、总线层次、时钟域和中断连接：
 
-```plantuml
-@startuml System_Architecture
-skinparam componentStyle rectangle
-skinparam defaultFontSize 11
-skinparam packageStyle rectangle
+// ```plantuml
+// @startuml System_Architecture
+// skinparam componentStyle rectangle
+// skinparam defaultFontSize 11
+// skinparam packageStyle rectangle
 
-package "cpu_clk 域" #LightBlue {
-  package "core_top (RISC-V CPU)" as CPU {
-    package "五级流水线" {
-      component "Fetch" as IF
-      component "Decode" as ID
-      component "Execute" as EXE
-      component "Memory" as MEM
-      component "Writeback" as WB
-    }
-    component "Controller\n(11-state FSM)" as CTRL
-    component "RegFile\nx0-x31" as RF
-    component "FPU RegFile\nf0-f31" as FRF
-    component "ALU" as ALU
-    component "MU\n(Booth/NonRestoring)" as MU
-    component "FPU" as FPU
-    component "Trap/CSR" as TRAP
-    component "MMU\n(Unified FSM 11-state)" as MMU
-    component "TLB\n(4way×4set)" as TLB
-    component "PTW\n(8-state FSM)" as PTW
-    component "ICache Ctrl\n(5-state FSM)" as IC
-    component "DCache Ctrl\n(13-state FSM)" as DC
-    component "cpu_bus_bridge\n(16-state FSM)" as BRIDGE
-  }
-}
+// package "cpu_clk 域" #LightBlue {
+//   package "core_top (RISC-V CPU)" as CPU {
+//     package "五级流水线" {
+//       component "Fetch" as IF
+//       component "Decode" as ID
+//       component "Execute" as EXE
+//       component "Memory" as MEM
+//       component "Writeback" as WB
+//     }
+//     component "Controller\n(11-state FSM)" as CTRL
+//     component "RegFile\nx0-x31" as RF
+//     component "FPU RegFile\nf0-f31" as FRF
+//     component "ALU" as ALU
+//     component "MU\n(Booth/NonRestoring)" as MU
+//     component "FPU" as FPU
+//     component "Trap/CSR" as TRAP
+//     component "MMU\n(Unified FSM 11-state)" as MMU
+//     component "TLB\n(4way×4set)" as TLB
+//     component "PTW\n(8-state FSM)" as PTW
+//     component "ICache Ctrl\n(5-state FSM)" as IC
+//     component "DCache Ctrl\n(13-state FSM)" as DC
+//     component "cpu_bus_bridge\n(16-state FSM)" as BRIDGE
+//   }
+// }
 
-component "Axi_CDC\n(cpu_clk→sys_clk)" as CDC #LightGray
+// component "Axi_CDC\n(cpu_clk→sys_clk)" as CDC #LightGray
 
-package "sys_clk 域" #LightYellow {
-  package "AXI4 系统总线 (手动地址译码)" as AXI_BUS {
-    component "DDR3/RAM\n(Full AXI4)\n0x8000_0000" as DDR3 #Pink
-    component "Boot ROM\n0xFC00_0000" as BOOTROM
-    component "PLIC\n0x0C00_0000" as PLIC
-    component "CLINT\n0x0200_0000" as CLINT
-    component "Sys Status\n0x0400_0000" as SYSSTAT
-    component "Default Slave\n(DECERR)" as DEFSLV
-  }
-  package "APB4 外设总线" as APB_BUS {
-    component "AXI4-Lite\n→APB4 Bridge" as APB_BRIDGE
-    component "GPIO\n0x1000_0000" as GPIO
-    component "Timer\n0x1000_4000" as TIMER
-    component "UART 16550A\n0x1000_8000" as UART
-    component "SPI\n0x1000_C000" as SPI
-  }
-}
+// package "sys_clk 域" #LightYellow {
+//   package "AXI4 系统总线 (手动地址译码)" as AXI_BUS {
+//     component "DDR3/RAM\n(Full AXI4)\n0x8000_0000" as DDR3 #Pink
+//     component "Boot ROM\n0xFC00_0000" as BOOTROM
+//     component "PLIC\n0x0C00_0000" as PLIC
+//     component "CLINT\n0x0200_0000" as CLINT
+//     component "Sys Status\n0x0400_0000" as SYSSTAT
+//     component "Default Slave\n(DECERR)" as DEFSLV
+//   }
+//   package "APB4 外设总线" as APB_BUS {
+//     component "AXI4-Lite\n→APB4 Bridge" as APB_BRIDGE
+//     component "GPIO\n0x1000_0000" as GPIO
+//     component "Timer\n0x1000_4000" as TIMER
+//     component "UART 16550A\n0x1000_8000" as UART
+//     component "SPI\n0x1000_C000" as SPI
+//   }
+// }
 
-' CPU internal connections
-CTRL ..> IF : valid
-CTRL ..> ID : valid
-CTRL ..> EXE : valid
-CTRL ..> MEM : valid
-CTRL ..> WB : valid
-IF -right-> ID : if_id_bus\n(96bit)
-ID -right-> EXE : id_exe_bus\n(349bit)
-EXE -right-> MEM : exe_mem_bus
-MEM -right-> WB : mem_wb_bus
-WB -left-> RF : write
-EXE -down-> ALU
-EXE -down-> MU
-EXE -down-> FPU
-FPU -down-> FRF
-IF -down-> IC
-MEM -down-> DC
-IC -down-> MMU : i_vaddr→i_paddr
-DC -down-> MMU : d_vaddr→d_paddr
-MMU -down-> TLB
-TLB -down-> PTW : miss→walk
+// ' CPU internal connections
+// CTRL ..> IF : valid
+// CTRL ..> ID : valid
+// CTRL ..> EXE : valid
+// CTRL ..> MEM : valid
+// CTRL ..> WB : valid
+// IF -right-> ID : if_id_bus\n(96bit)
+// ID -right-> EXE : id_exe_bus\n(349bit)
+// EXE -right-> MEM : exe_mem_bus
+// MEM -right-> WB : mem_wb_bus
+// WB -left-> RF : write
+// EXE -down-> ALU
+// EXE -down-> MU
+// EXE -down-> FPU
+// FPU -down-> FRF
+// IF -down-> IC
+// MEM -down-> DC
+// IC -down-> MMU : i_vaddr→i_paddr
+// DC -down-> MMU : d_vaddr→d_paddr
+// MMU -down-> TLB
+// TLB -down-> PTW : miss→walk
 
-' Bus connections
-BRIDGE -down-> CDC : AXI4 Master\n(cpu_clk)
-CDC -down-> AXI_BUS : AXI Master\n(sys_clk)
+// ' Bus connections
+// BRIDGE -down-> CDC : AXI4 Master\n(cpu_clk)
+// CDC -down-> AXI_BUS : AXI Master\n(sys_clk)
 
-' APB hierarchy
-APB_BRIDGE -down-> GPIO : PSEL[0]
-APB_BRIDGE -down-> TIMER : PSEL[1]
-APB_BRIDGE -down-> UART : PSEL[2]
-APB_BRIDGE -down-> SPI : PSEL[3]
+// ' APB hierarchy
+// APB_BRIDGE -down-> GPIO : PSEL[0]
+// APB_BRIDGE -down-> TIMER : PSEL[1]
+// APB_BRIDGE -down-> UART : PSEL[2]
+// APB_BRIDGE -down-> SPI : PSEL[3]
 
-' Interrupt connections
-CLINT -up-> TRAP : MTIP, MSIP\n(直连)
-PLIC -up-> TRAP : MEIP, SEIP\n(2级同步)
-TIMER -up-> PLIC : src_irq[1]
-UART -up-> PLIC : src_irq[2]
-SPI -up-> PLIC : src_irq[3]
-GPIO -up-> PLIC : src_irq[4]
+// ' Interrupt connections
+// CLINT -up-> TRAP : MTIP, MSIP\n(直连)
+// PLIC -up-> TRAP : MEIP, SEIP\n(2级同步)
+// TIMER -up-> PLIC : src_irq[1]
+// UART -up-> PLIC : src_irq[2]
+// SPI -up-> PLIC : src_irq[3]
+// GPIO -up-> PLIC : src_irq[4]
 
-note right of CDC
-  SpinalHDL生成
-  5个异步FIFO
-  (AW/W/B/AR/R)
-end note
+// note right of CDC
+//   SpinalHDL生成
+//   5个异步FIFO
+//   (AW/W/B/AR/R)
+// end note
 
-note bottom of DDR3
-  FPGA: Xilinx MIG DDR3
-  SIM: BRAM模型
-  128MB地址空间
-end note
+// note bottom of DDR3
+//   FPGA: Xilinx MIG DDR3
+//   SIM: BRAM模型
+//   128MB地址空间
+// end note
 
-@enduml
-```
+// @enduml
+// ```
+
+（此图只是截图，表明SOC层面的架构，要看其他子系统和内存映射的架构，请转到原图——HTML文件：`架构图.html`）
+
+#align(center, image("media/架构图-缩略.png"))
 
 === 时钟域
 
@@ -301,7 +306,7 @@ end note
 // @enduml
 // ```
 
-#align(center,image("media/复位链.svg"))
+#align(center, image("media/复位链.svg"))
 
 === 内存映射
 
@@ -387,11 +392,11 @@ CPU核心（`core_top`）采用五级多周期流水线架构（没有流水线�
 // @enduml
 // ```
 
-#align(center,image("media/CPU_CTRL_FSM.svg"))
+#align(center, image("media/CPU_CTRL_FSM.svg"))
 
 关键设计：
 #move(dx: 2em)[
-  + *完全步进化*：CPU严格步进化，各个模块只有被调用才能执行，且调用模块阻塞等待，避免时序错误。 
+  + *完全步进化*：CPU严格步进化，各个模块只有被调用才能执行，且调用模块阻塞等待，避免时序错误。
   + *exe→wb快速路径*：细化R/I-type运算指令执行路径，跳过MEM阶段直接进入WB，减少2周期。
   + *分层状态机和握手处理*：有可能出现多周期才能完成执行的阶段通过握手协议确定完成时间点，通过内部状态机完成执行，主要包含FETCH,EXEC,MEM阶段和异常处理。
   + *页错误检测*：MMU检测到页错误时，重定向到TRAP\_ENTER。
@@ -404,7 +409,7 @@ CPU核心（`core_top`）采用五级多周期流水线架构（没有流水线�
 *接口信号：*
 
 #table(
-  columns: (1fr, 1fr, 3fr),
+  columns: (auto, 1fr, 3fr),
   align: horizon,
   stroke: 0.5pt,
   inset: 6pt,
@@ -433,7 +438,7 @@ CPU核心（`core_top`）采用五级多周期流水线架构（没有流水线�
 *浮点指令译码（F + D扩展）：*
 
 #table(
-  columns: (auto, auto, 1fr),
+  columns: (auto, 1fr, 2fr),
   align: horizon,
   stroke: 0.5pt,
   inset: 6pt,
@@ -441,7 +446,9 @@ CPU核心（`core_top`）采用五级多周期流水线架构（没有流水线�
   [0x07], [LOAD-FP], [`FLW`(funct3=010) / `FLD`(funct3=011)],
   [0x27], [STORE-FP], [`FSW`(funct3=010) / `FSD`(funct3=011)],
   [0x43/47/4B/4F], [MADD/MSUB/NMSUB/NMADD], [`FMADD.S`/`FMSUB.S`/`FNMSUB.S`/`FNMADD.S`（R4格式）],
-  [0x53], [OP-FP], [FADD/FSUB/FMUL/FDIV/FSQRT/FMIN/FMAX/FSGNJ\*/FCVT/FEQ/FLT/FLE/FCLASS/FMV.X.W/FMV.W.X 及D扩展对应指令],
+  [0x53],
+  [OP-FP],
+  [FADD/FSUB/FMUL/FDIV/FSQRT/FMIN/FMAX/FSGNJ\*/FCVT/FEQ/FLT/FLE/FCLASS/FMV.X.W/FMV.W.X 及D扩展对应指令],
 )
 
 *浮点控制信号（ID/EX总线新增）：*
@@ -589,7 +596,7 @@ ALU为纯组合逻辑模块，支持13种单周期运算（ADD/SUB/SLT/SLTU/XOR/
 *D扩展子模块（双精度，独立实现非参数化F模块）：*
 
 #table(
-  columns: (1fr, 3fr, 1fr),
+  columns: (auto, 5fr, 1fr),
   align: horizon,
   stroke: 0.5pt,
   inset: 6pt,
@@ -607,32 +614,34 @@ ALU为纯组合逻辑模块，支持13种单周期运算（ADD/SUB/SLT/SLTU/XOR/
 
 *FPU内部状态机（5状态显式FSM）：*
 
-```plantuml
-@startuml FPU_FSM
-skinparam defaultFontSize 11
-hide empty description
+// ```plantuml
+// @startuml FPU_FSM
+// skinparam defaultFontSize 11
+// hide empty description
 
-[*] --> F_IDLE
+// [*] --> F_IDLE
 
-F_IDLE --> F_DISPATCH : req_valid
-F_DISPATCH --> F_DONE : 组合运算（比较/分类等）
-F_DISPATCH --> F_WAIT : 时序运算（加/乘/除/开方/转换）
+// F_IDLE --> F_DISPATCH : req_valid
+// F_DISPATCH --> F_DONE : 组合运算（比较/分类等）
+// F_DISPATCH --> F_WAIT : 时序运算（加/乘/除/开方/转换）
 
-F_WAIT --> F_DONE : sub_module_done
-F_WAIT --> F_IDLE : flush
-F_WAIT --> F_DONE : timeout(1000周期)\nfpu_error=1
+// F_WAIT --> F_DONE : sub_module_done
+// F_WAIT --> F_IDLE : flush
+// F_WAIT --> F_DONE : timeout(1000周期)\nfpu_error=1
 
-F_DONE --> F_COMPLETE : 下一周期
-F_COMPLETE --> F_IDLE : result_got
+// F_DONE --> F_COMPLETE : 下一周期
+// F_COMPLETE --> F_IDLE : result_got
 
-note right of F_WAIT
-  超时看门狗：1000周期
-  未收到done则fpu_error=1
-  抑制写回（结果标记无效）
-end note
+// note right of F_WAIT
+//   超时看门狗：1000周期
+//   未收到done则fpu_error=1
+//   抑制写回（结果标记无效）
+// end note
 
-@enduml
-```
+// @enduml
+// ```
+
+#align(center, image("media/FPU_FSM.svg"))
 
 FPU通过`fpu_req_valid`/`fpu_result_valid`握手协议与执行模块交互，支持`flush`中断。数据位宽为64-bit：F运算取低32位并NaN-box，D运算使用完整64位。`fpu_active`信号与`mu_busy`互斥，确保同一时刻仅一个多周期运算单元活跃。
 
@@ -665,31 +674,33 @@ icache控制器（`icache_ctrl`）采用5状态FSM，管理指令缓存的命中
 
 *ICache FSM状态图：*
 
-```plantuml
-@startuml ICache_FSM
-skinparam defaultFontSize 11
-hide empty description
+// ```plantuml
+// @startuml ICache_FSM
+// skinparam defaultFontSize 11
+// hide empty description
 
-[*] --> S_IDLE
+// [*] --> S_IDLE
 
-S_IDLE --> S_TAG_READ : cpu_req && !is_mmio && mmu_ready
-S_IDLE --> S_IDLE : MMIO旁路（单周期）
-S_IDLE --> S_IDLE : !mmu_ready（等待MMU翻译物理地址）
+// S_IDLE --> S_TAG_READ : cpu_req && !is_mmio && mmu_ready
+// S_IDLE --> S_IDLE : MMIO旁路（单周期）
+// S_IDLE --> S_IDLE : !mmu_ready（等待MMU翻译物理地址）
 
-S_TAG_READ --> S_READ : 读命中
-S_TAG_READ --> S_IDLE : 写命中（icache只读，不应发生）
-S_TAG_READ --> S_REFILL : 缺失
+// S_TAG_READ --> S_READ : 读命中
+// S_TAG_READ --> S_IDLE : 写命中（icache只读，不应发生）
+// S_TAG_READ --> S_REFILL : 缺失
 
-S_READ --> S_IDLE : 数据读取完成
+// S_READ --> S_IDLE : 数据读取完成
 
-S_REFILL --> S_IDLE : refill_valid（填充完成）
+// S_REFILL --> S_IDLE : refill_valid（填充完成）
 
-S_IDLE --> S_INVALIDATE : flush_req (fence.i)
-S_INVALIDATE --> S_IDLE : 8组全部写零完成
-S_INVALIDATE --> S_INVALIDATE : invalidate_set < NUM_SETS-1\n（逐组写零，每周期1组）
+// S_IDLE --> S_INVALIDATE : flush_req (fence.i)
+// S_INVALIDATE --> S_IDLE : 8组全部写零完成
+// S_INVALIDATE --> S_INVALIDATE : invalidate_set < NUM_SETS-1\n（逐组写零，每周期1组）
 
-@enduml
-```
+// @enduml
+// ```
+
+#align(center, image("media/icache_fsm.svg"))
 
 === DCache控制器
 
@@ -722,45 +733,47 @@ dcache控制器（`dcache_ctrl`）采用13状态FSM，管理数据缓存的全�
 
 *DCache FSM状态图：*
 
-```plantuml
-@startuml DCache_FSM
-skinparam defaultFontSize 10
-hide empty description
+// ```plantuml
+// @startuml DCache_FSM
+// skinparam defaultFontSize 10
+// hide empty description
 
-[*] --> S_IDLE
+// [*] --> S_IDLE
 
-state "正常访存路径" as NORMAL {
-  S_IDLE --> S_TAG_READ : cpu_req && !is_mmio
-  S_IDLE --> S_IDLE : MMIO旁路
-  S_TAG_READ --> S_READ_HIT : 读命中
-  S_TAG_READ --> S_IDLE : 写命中（单周期）
-  S_TAG_READ --> S_WB_READ : 缺失且脏
-  S_TAG_READ --> S_REFILL : 缺失且干净
-  S_READ_HIT --> S_IDLE : 完成
-  S_WB_READ --> S_WB_SEND : 下一周期
-  S_WB_SEND --> S_REFILL : wb_valid
-  S_REFILL --> S_IDLE : refill_valid
-}
+// state "正常访存路径" as NORMAL {
+//   S_IDLE --> S_TAG_READ : cpu_req && !is_mmio
+//   S_IDLE --> S_IDLE : MMIO旁路
+//   S_TAG_READ --> S_READ_HIT : 读命中
+//   S_TAG_READ --> S_IDLE : 写命中（单周期）
+//   S_TAG_READ --> S_WB_READ : 缺失且脏
+//   S_TAG_READ --> S_REFILL : 缺失且干净
+//   S_READ_HIT --> S_IDLE : 完成
+//   S_WB_READ --> S_WB_SEND : 下一周期
+//   S_WB_SEND --> S_REFILL : wb_valid
+//   S_REFILL --> S_IDLE : refill_valid
+// }
 
-state "冲刷路径" as FLUSH {
-  S_IDLE --> S_FLUSH_SCAN : flush_req
-  S_FLUSH_SCAN --> S_FLUSH_CHECK : 下一周期
-  S_FLUSH_CHECK --> S_FLUSH_WB_RD : 有效且脏
-  S_FLUSH_CHECK --> S_FLUSH_SCAN : 不脏，下一组
-  S_FLUSH_WB_RD --> S_FLUSH_WB_SD : 下一周期
-  S_FLUSH_WB_SD --> S_FLUSH_SCAN : wb_valid
-  S_FLUSH_WB_SD --> S_FLUSH_INVALIDATE : 全部处理完
-  S_FLUSH_INVALIDATE --> S_IDLE : 无效化完成
-}
+// state "冲刷路径" as FLUSH {
+//   S_IDLE --> S_FLUSH_SCAN : flush_req
+//   S_FLUSH_SCAN --> S_FLUSH_CHECK : 下一周期
+//   S_FLUSH_CHECK --> S_FLUSH_WB_RD : 有效且脏
+//   S_FLUSH_CHECK --> S_FLUSH_SCAN : 不脏，下一组
+//   S_FLUSH_WB_RD --> S_FLUSH_WB_SD : 下一周期
+//   S_FLUSH_WB_SD --> S_FLUSH_SCAN : wb_valid
+//   S_FLUSH_WB_SD --> S_FLUSH_INVALIDATE : 全部处理完
+//   S_FLUSH_INVALIDATE --> S_IDLE : 无效化完成
+// }
 
-state "单行无效化" as INV {
-  S_IDLE --> S_INV_LINE : inv_line_req
-  S_INV_LINE --> S_INV_LINE_WRITE : tag读取完成
-  S_INV_LINE_WRITE --> S_IDLE : V位清除完成
-}
+// state "单行无效化" as INV {
+//   S_IDLE --> S_INV_LINE : inv_line_req
+//   S_INV_LINE --> S_INV_LINE_WRITE : tag读取完成
+//   S_INV_LINE_WRITE --> S_IDLE : V位清除完成
+// }
 
-@enduml
-```
+// @enduml
+// ```
+
+#align(center, image("media/dcache_FSM.svg", width: 100%))
 
 关键设计要点：
 #move(dx: 2em)[
@@ -793,45 +806,47 @@ MMU模块（`MMU.sv`）实现Sv32页式虚拟内存。经过精简优化后，�
 
 *统一翻译FSM（11状态）：*
 
-```plantuml
-@startuml MMU_FSM
-skinparam defaultFontSize 11
-hide empty description
+// ```plantuml
+// @startuml MMU_FSM
+// skinparam defaultFontSize 11
+// hide empty description
 
-[*] --> T_IDLE
+// [*] --> T_IDLE
 
-T_IDLE --> T_LOOKUP : translate_req
-T_LOOKUP --> T_CHECK : 下一周期(BRAM读延迟)
+// T_IDLE --> T_LOOKUP : translate_req
+// T_LOOKUP --> T_CHECK : 下一周期(BRAM读延迟)
 
-T_CHECK --> T_DONE : bare模式 或 TLB命中
-T_CHECK --> T_FAULT : TLB命中+权限故障
-T_CHECK --> T_WALK : TLB缺失
+// T_CHECK --> T_DONE : bare模式 或 TLB命中
+// T_CHECK --> T_FAULT : TLB命中+权限故障
+// T_CHECK --> T_WALK : TLB缺失
 
-T_WALK --> T_FILL : ptw_walk_done
-T_WALK --> T_FAULT : ptw_walk_fault
+// T_WALK --> T_FILL : ptw_walk_done
+// T_WALK --> T_FAULT : ptw_walk_fault
 
-T_FILL --> T_RELOOKUP : 下一周期
-T_RELOOKUP --> T_RECHECK : 下一周期
-T_RECHECK --> T_DONE : 命中
-T_RECHECK --> T_FAULT : 权限故障
+// T_FILL --> T_RELOOKUP : 下一周期
+// T_RELOOKUP --> T_RECHECK : 下一周期
+// T_RECHECK --> T_DONE : 命中
+// T_RECHECK --> T_FAULT : 权限故障
 
-T_DONE --> T_COMPLETE : 下一周期
-T_FAULT --> T_COMPLETE : 下一周期
-T_COMPLETE --> T_IDLE : !translate_req
-T_COMPLETE --> T_IDLE : translate_req && vaddr变化
+// T_DONE --> T_COMPLETE : 下一周期
+// T_FAULT --> T_COMPLETE : 下一周期
+// T_COMPLETE --> T_IDLE : !translate_req
+// T_COMPLETE --> T_IDLE : translate_req && vaddr变化
 
-T_IDLE --> T_FLUSH : sfence_vma
-T_FLUSH --> T_IDLE : 刷新完成
+// T_IDLE --> T_FLUSH : sfence_vma
+// T_FLUSH --> T_IDLE : 刷新完成
 
-note right of T_COMPLETE
-  translate_done 为电平信号
-  (在T_COMPLETE中保持高电平)
-  而非1周期脉冲
-  防止重复翻译
-end note
+// note right of T_COMPLETE
+//   translate_done 为电平信号
+//   (在T_COMPLETE中保持高电平)
+//   而非1周期脉冲
+//   防止重复翻译
+// end note
 
-@enduml
-```
+// @enduml
+// ```
+
+#align(center, image("media/MMU_FSM.svg", height: 80%))
 
 #table(
   columns: (auto, 1fr),
@@ -858,7 +873,7 @@ end note
 
 === TLB
 
-TLB使用双端口BRAM实现4路×4组=16表项的组相联结构，Tree-PLRU替换。非BRAM全相联路径已作为死代码删除。
+TLB使用双端口BRAM实现4路×4组=16表项的组相联结构，Tree-PLRU替换。
 
 *BRAM结构：*
 
@@ -882,46 +897,48 @@ PTW为8状态FSM，完成Sv32二级页表遍历和权限检查。*A/D位采用�
 
 *PTW FSM状态图：*
 
-```plantuml
-@startuml PTW_FSM
-skinparam defaultFontSize 11
-hide empty description
+// ```plantuml
+// @startuml PTW_FSM
+// skinparam defaultFontSize 11
+// hide empty description
 
-[*] --> S_IDLE
+// [*] --> S_IDLE
 
-S_IDLE --> S_L1_READ : walk_req
+// S_IDLE --> S_L1_READ : walk_req
 
-S_L1_READ --> S_L1_CHECK : ptw_bus_done
+// S_L1_READ --> S_L1_CHECK : ptw_bus_done
 
-S_L1_CHECK --> S_PERM_CHECK : L1 PTE为叶节点\n(megapage)
-S_L1_CHECK --> S_L0_READ : L1 PTE为非叶节点
-S_L1_CHECK --> S_FAULT : V=0 或保留编码
+// S_L1_CHECK --> S_PERM_CHECK : L1 PTE为叶节点\n(megapage)
+// S_L1_CHECK --> S_L0_READ : L1 PTE为非叶节点
+// S_L1_CHECK --> S_FAULT : V=0 或保留编码
 
-S_L0_READ --> S_L0_CHECK : ptw_bus_done
+// S_L0_READ --> S_L0_CHECK : ptw_bus_done
 
-S_L0_CHECK --> S_PERM_CHECK : L0 PTE为叶节点
-S_L0_CHECK --> S_FAULT : V=0 / 保留 / 非叶
+// S_L0_CHECK --> S_PERM_CHECK : L0 PTE为叶节点
+// S_L0_CHECK --> S_FAULT : V=0 / 保留 / 非叶
 
-S_PERM_CHECK --> S_DONE : 权限通过 且 A=1 且 (非store 或 D=1)
-S_PERM_CHECK --> S_FAULT : 权限检查失败
-S_PERM_CHECK --> S_FAULT : A=0 或 (store且D=0)\n→ 页错误(软件管理A/D)
+// S_PERM_CHECK --> S_DONE : 权限通过 且 A=1 且 (非store 或 D=1)
+// S_PERM_CHECK --> S_FAULT : 权限检查失败
+// S_PERM_CHECK --> S_FAULT : A=0 或 (store且D=0)\n→ 页错误(软件管理A/D)
 
-S_DONE --> S_IDLE
-S_FAULT --> S_IDLE
+// S_DONE --> S_IDLE
+// S_FAULT --> S_IDLE
 
-note right of S_FAULT
-  任意状态收到 walk_abort
-  (sfence_vma) 均强制回 S_IDLE
-end note
+// note right of S_FAULT
+//   任意状态收到 walk_abort
+//   (sfence_vma) 均强制回 S_IDLE
+// end note
 
-@enduml
-```
+// @enduml
+// ```
 
-*A/D位软件管理*：当PTE.A=0或（store且PTE.D=0）时，PTW在S\_PERM\_CHECK状态直接进入S\_FAULT，触发page fault（cause 12/13/15）。操作系统在page fault handler中手动设置PTE的A/D位后重新执行。这消除了早期的S\_AD\_UPDATE/S\_AD\_WAIT状态及其相关的PTW写回总线操作和dcache一致性维护需求。SimpleOS等操作系统在建页表时预置A=1、D=1避免页错误。
+#align(center, image("media/PTW_FSM.svg", height: 70%))
+
+*A/D位软件管理*：此实现较为普遍（香山处理器也是软件管理A/D位），当PTE.A=0或（store且PTE.D=0）时，PTW在S\_PERM\_CHECK状态直接进入S\_FAULT，触发page fault（cause 12/13/15）。操作系统在page fault handler中手动设置PTE的A/D位后重新执行。这消除了早期的S\_AD\_UPDATE/S\_AD\_WAIT状态及其相关的PTW写回总线操作和dcache一致性维护需求。SimpleOS等操作系统在建页表时预置A=1、D=1避免页错误。
 
 == 总线系统
 
-系统采用层次化总线架构：AXI4系统总线→AXI4-Lite→APB4外设总线。从之前的AHB-Lite总线全面升级为AXI4，支持突发传输和更完善的协议机制。
+系统采用层次化总线架构：AXI4系统总线→AXI4-Lite→APB4外设总线。从之前的AHB-Lite总线全面升级为AXI4，支持突发传输和更完善的协议机制，解决了AHB-Lite总线连不上MIG的AXI接口的问题。
 
 === AXI4总线协议
 
@@ -964,160 +981,168 @@ AXI4是ARM AMBA总线族中的高性能系统总线，本系统使用单主设�
   [`RLAST`], [S→M], [最后一拍标志],
 )
 
-*AXI4读传输时序图（单拍MMIO读）：*
+*AXI4读/INCR8突发读传输时序图：*
 
-```plantuml
-@startuml AXI4_Read_Timing
-robust "ARVALID" as ARV
-robust "ARREADY" as ARR
-robust "RVALID" as RV
-robust "RREADY" as RR
-concise "ARADDR" as ARA
-concise "RDATA" as RD
+（左侧AXI4读单拍MMIO读，右侧INCR8读Cache行填充）
+// ```plantuml
+// @startuml AXI4_Read_Timing
+// robust "ARVALID" as ARV
+// robust "ARREADY" as ARR
+// robust "RVALID" as RV
+// robust "RREADY" as RR
+// concise "ARADDR" as ARA
+// concise "RDATA" as RD
 
-@0
-ARV is low
-ARR is low
-RV is low
-RR is low
+// @0
+// ARV is low
+// ARR is low
+// RV is low
+// RR is low
 
-@50
-ARV is high
-ARA is "addr"
+// @50
+// ARV is high
+// ARA is "addr"
 
-@100
-ARR is high
+// @100
+// ARR is high
 
-@150
-ARV is low
-RV is high
-RD is "data"
-ARR is low
+// @150
+// ARV is low
+// RV is high
+// RD is "data"
+// ARR is low
 
-@200
-RR is high
+// @200
+// RR is high
 
-@250
-RV is low
-RR is low
+// @250
+// RV is low
+// RR is low
 
-@enduml
-```
+// @enduml
+// ```
 
-*AXI4 INCR8突发读时序（Cache行填充）：*
+// *AXI4 INCR8突发读时序（Cache行填充）：*
 
-```plantuml
-@startuml AXI4_Burst_Read_Timing
-robust "CLOCK" as CLK
-robust "ARVALID" as ARV
-robust "ARREADY" as ARR
-robust "RVALID" as RV
-robust "RREADY" as RR
-concise "ARADDR" as ARA
-concise "RDATA" as RD
-robust "RLAST" as RL
+// ```plantuml
+// @startuml AXI4_Burst_Read_Timing
+// robust "CLOCK" as CLK
+// robust "ARVALID" as ARV
+// robust "ARREADY" as ARR
+// robust "RVALID" as RV
+// robust "RREADY" as RR
+// concise "ARADDR" as ARA
+// concise "RDATA" as RD
+// robust "RLAST" as RL
 
-@0
-CLK is low
-ARV is low
-RV is low
-RL is low
+// @0
+// CLK is low
+// ARV is low
+// RV is low
+// RL is low
 
-@50
-CLK is high
-ARV is high
-ARA is "base_addr"
+// @50
+// CLK is high
+// ARV is high
+// ARA is "base_addr"
 
-@100
-CLK is low
-ARR is high
+// @100
+// CLK is low
+// ARR is high
 
-@150
-CLK is high
-ARV is low
-RV is high
-RD is "word0"
-ARR is low
+// @150
+// CLK is high
+// ARV is low
+// RV is high
+// RD is "word0"
+// ARR is low
 
-@200
-CLK is low
-RR is high
+// @200
+// CLK is low
+// RR is high
 
-@250
-CLK is high
-RD is "word1"
+// @250
+// CLK is high
+// RD is "word1"
 
-@300
-CLK is low
-RD is "word2"
+// @300
+// CLK is low
+// RD is "word2"
 
-@350
-CLK is high
-RD is "word3"
+// @350
+// CLK is high
+// RD is "word3"
 
-@400
-CLK is low
-RD is "word4"
+// @400
+// CLK is low
+// RD is "word4"
 
-@450
-CLK is high
-RD is "word5"
+// @450
+// CLK is high
+// RD is "word5"
 
-@500
-CLK is low
-RD is "word6"
+// @500
+// CLK is low
+// RD is "word6"
 
-@550
-CLK is high
-RD is "word7"
-RL is high
+// @550
+// CLK is high
+// RD is "word7"
+// RL is high
 
-@600
-CLK is low
-RV is low
-RL is low
+// @600
+// CLK is low
+// RV is low
+// RL is low
 
-@enduml
-```
+// @enduml
+// ```
 
+#grid(
+  columns: (2fr, 3fr),
+  gutter: 0em,
+  [#image("media/AXI4_Read_Timing.svg", height: 16em)], [#image("media/AXI4_Burst_Read_Timing.svg", height: 16em)],
+)
 === AXI4总线网络结构
 
-```plantuml
-@startuml AXI4_Network_Topology
-skinparam componentStyle rectangle
-skinparam defaultFontSize 11
+// ```plantuml
+// @startuml AXI4_Network_Topology
+// skinparam componentStyle rectangle
+// skinparam defaultFontSize 11
 
-component "core_top\n(RISC-V CPU)" as CPU #LightBlue
-component "cpu_bus_bridge\n(16-state FSM)" as BRIDGE
-component "Axi_CDC\n(cpu_clk→sys_clk)" as CDC #LightGray
+// component "core_top\n(RISC-V CPU)" as CPU #LightBlue
+// component "cpu_bus_bridge\n(16-state FSM)" as BRIDGE
+// component "Axi_CDC\n(cpu_clk→sys_clk)" as CDC #LightGray
 
-rectangle "AXI4 地址译码器 + 从设备MUX" as DECODER #LightYellow {
-  component "DDR3/RAM\n(Full AXI4)\nSlave 0\n0x8000_0000" as DDR3 #Pink
-  component "Boot ROM\nSlave 1\n0xFC00_0000" as BOOTROM
-  component "PLIC\nSlave 2\n0x0C00_0000" as PLIC
-  component "CLINT\nSlave 3\n0x0200_0000" as CLINT
-  component "AXI4-Lite→APB\nSlave 4\n0x1000_0000" as APB_BR
-  component "Sys Status\nSlave 5\n0x0400_0000" as SYSSTAT
-  component "Default\nSlave 6\n(DECERR)" as DEF
-}
+// rectangle "AXI4 地址译码器 + 从设备MUX" as DECODER #LightYellow {
+//   component "DDR3/RAM\n(Full AXI4)\nSlave 0\n0x8000_0000" as DDR3 #Pink
+//   component "Boot ROM\nSlave 1\n0xFC00_0000" as BOOTROM
+//   component "PLIC\nSlave 2\n0x0C00_0000" as PLIC
+//   component "CLINT\nSlave 3\n0x0200_0000" as CLINT
+//   component "AXI4-Lite→APB\nSlave 4\n0x1000_0000" as APB_BR
+//   component "Sys Status\nSlave 5\n0x0400_0000" as SYSSTAT
+//   component "Default\nSlave 6\n(DECERR)" as DEF
+// }
 
-CPU -down-> BRIDGE : 内部请求
-BRIDGE -down-> CDC : AXI4 Master\n(cpu_clk域)
-CDC -down-> DECODER : AXI Master\n(sys_clk域)
+// CPU -down-> BRIDGE : 内部请求
+// BRIDGE -down-> CDC : AXI4 Master\n(cpu_clk域)
+// CDC -down-> DECODER : AXI Master\n(sys_clk域)
 
-note right of DECODER
-  地址译码：
-  addr[31:27]==5'h10 → DDR3
-  addr[31:24]==8'hFC → BootROM
-  addr[31:24]==8'h0C → PLIC
-  addr[31:24]==8'h02 → CLINT
-  addr[31:24]==8'h10 → APB Bridge
-  addr[31:24]==8'h04 → SysStatus
-  其他 → Default (DECERR)
-end note
+// note right of DECODER
+//   地址译码：
+//   addr[31:27]==5'h10 → DDR3
+//   addr[31:24]==8'hFC → BootROM
+//   addr[31:24]==8'h0C → PLIC
+//   addr[31:24]==8'h02 → CLINT
+//   addr[31:24]==8'h10 → APB Bridge
+//   addr[31:24]==8'h04 → SysStatus
+//   其他 → Default (DECERR)
+// end note
 
-@enduml
-```
+// @enduml
+// ```
+
+#align(center, image("media/AXI4_Network_Topology.svg", width: 60%))
 
 === cpu\_bus\_bridge
 
@@ -1164,7 +1189,7 @@ APB4是AMBA总线族中的低功耗外设总线，本系统通过AXI4-Lite→APB
 *APB4关键信号：*
 
 #table(
-  columns: (1fr, 1fr, 3fr),
+  columns: (1fr, auto, 3fr),
   align: horizon,
   stroke: 0.5pt,
   inset: 6pt,
@@ -1182,121 +1207,131 @@ APB4是AMBA总线族中的低功耗外设总线，本系统通过AXI4-Lite→APB
   [`PSLVERR`], [S→M], [错误响应（本系统恒为0）],
 )
 
-*APB4写传输时序图：*
+*APB4写/读传输时序图：*
 
-```plantuml
-@startuml APB4_Write_Timing
-robust "PSEL" as SEL
-robust "PENABLE" as EN
-robust "PWRITE" as WR
-concise "PADDR" as ADDR
-concise "PWDATA" as WDATA
+// ```plantuml
+// @startuml APB4_Write_Timing
+// robust "PSEL" as SEL
+// robust "PENABLE" as EN
+// robust "PWRITE" as WR
+// concise "PADDR" as ADDR
+// concise "PWDATA" as WDATA
 
-@0
-SEL is low
-EN is low
-WR is low
+// @0
+// SEL is low
+// EN is low
+// WR is low
 
-@50
-SEL is high
-WR is high
-ADDR is "addr"
-WDATA is "wdata"
+// @50
+// SEL is high
+// WR is high
+// ADDR is "addr"
+// WDATA is "wdata"
 
-@100
-EN is high
+// @100
+// EN is high
 
-@150
-SEL is low
-EN is low
-WR is low
+// @150
+// SEL is low
+// EN is low
+// WR is low
 
-@enduml
-```
+// @enduml
+// ```
 
-*APB4读传输时序图：*
+// *APB4读传输时序图：*
 
-```plantuml
-@startuml APB4_Read_Timing
-robust "PSEL" as SEL
-robust "PENABLE" as EN
-robust "PWRITE" as WR
-concise "PADDR" as ADDR
-concise "PRDATA" as RDATA
+// ```plantuml
+// @startuml APB4_Read_Timing
+// robust "PSEL" as SEL
+// robust "PENABLE" as EN
+// robust "PWRITE" as WR
+// concise "PADDR" as ADDR
+// concise "PRDATA" as RDATA
 
-@0
-SEL is low
-EN is low
-WR is low
+// @0
+// SEL is low
+// EN is low
+// WR is low
 
-@50
-SEL is high
-WR is low
-ADDR is "addr"
+// @50
+// SEL is high
+// WR is low
+// ADDR is "addr"
 
-@100
-EN is high
-RDATA is "rdata"
+// @100
+// EN is high
+// RDATA is "rdata"
 
-@150
-SEL is low
-EN is low
+// @150
+// SEL is low
+// EN is low
 
-@enduml
-```
+// @enduml
+// ```
+
+#grid(
+  columns: (2fr, 3fr),
+  gutter: 0em,
+  [#image("media/APB4_Write_Timing.svg", height: 16em)], [#image("media/APB4_Read_Timing.svg", height: 16em)],
+)
 
 === APB4总线网络结构
 
-```plantuml
-@startuml APB4_Network_Topology
-skinparam componentStyle rectangle
-skinparam defaultFontSize 11
+// ```plantuml
+// @startuml APB4_Network_Topology
+// skinparam componentStyle rectangle
+// skinparam defaultFontSize 11
 
-component "AXI4-Lite\n→APB4 Bridge\n(7-state FSM)" as BRIDGE
-rectangle "APB4 地址译码器\n(PADDR[15:14])" as DECODER {
-  component "GPIO\nPSEL[0]\n0x1000_0000" as GPIO
-  component "Timer\nPSEL[1]\n0x1000_4000" as TIMER
-  component "UART 16550A\nPSEL[2]\n0x1000_8000" as UART
-  component "SPI\nPSEL[3]\n0x1000_C000" as SPI
-}
+// component "AXI4-Lite\n→APB4 Bridge\n(7-state FSM)" as BRIDGE
+// rectangle "APB4 地址译码器\n(PADDR[15:14])" as DECODER {
+//   component "GPIO\nPSEL[0]\n0x1000_0000" as GPIO
+//   component "Timer\nPSEL[1]\n0x1000_4000" as TIMER
+//   component "UART 16550A\nPSEL[2]\n0x1000_8000" as UART
+//   component "SPI\nPSEL[3]\n0x1000_C000" as SPI
+// }
 
-BRIDGE -down-> DECODER : APB4 Master
+// BRIDGE -down-> DECODER : APB4 Master
 
-note right of DECODER
-  PADDR[15:14] 译码：
-  2'b00 → GPIO
-  2'b01 → Timer
-  2'b10 → UART
-  2'b11 → SPI
-end note
+// note right of DECODER
+//   PADDR[15:14] 译码：
+//   2'b00 → GPIO
+//   2'b01 → Timer
+//   2'b10 → UART
+//   2'b11 → SPI
+// end note
 
-@enduml
-```
+// @enduml
+// ```
+
+#align(center, image("media/APB4_Network_Topology.svg", width: 60%))
 
 === AXI4-Lite→APB4桥
 
 `axi4lite_to_apb`实现AXI4-Lite到APB4的协议转换，采用7状态FSM：
 
-```plantuml
-@startuml AXI4Lite_to_APB4_FSM
-skinparam defaultFontSize 11
-hide empty description
+// ```plantuml
+// @startuml AXI4Lite_to_APB4_FSM
+// skinparam defaultFontSize 11
+// hide empty description
 
-[*] --> ST_IDLE
+// [*] --> ST_IDLE
 
-ST_IDLE --> ST_READ_SETUP : AR valid
-ST_IDLE --> ST_WRITE_SETUP : AW+W latched
+// ST_IDLE --> ST_READ_SETUP : AR valid
+// ST_IDLE --> ST_WRITE_SETUP : AW+W latched
 
-ST_READ_SETUP --> ST_READ_ACCESS : 下一周期
-ST_READ_ACCESS --> ST_READ_RESP : PREADY
-ST_READ_RESP --> ST_IDLE : RREADY
+// ST_READ_SETUP --> ST_READ_ACCESS : 下一周期
+// ST_READ_ACCESS --> ST_READ_RESP : PREADY
+// ST_READ_RESP --> ST_IDLE : RREADY
 
-ST_WRITE_SETUP --> ST_WRITE_ACCESS : 下一周期
-ST_WRITE_ACCESS --> ST_WRITE_RESP : PREADY
-ST_WRITE_RESP --> ST_IDLE : BREADY
+// ST_WRITE_SETUP --> ST_WRITE_ACCESS : 下一周期
+// ST_WRITE_ACCESS --> ST_WRITE_RESP : PREADY
+// ST_WRITE_RESP --> ST_IDLE : BREADY
 
-@enduml
-```
+// @enduml
+// ```
+
+#align(center, image("media/AXI4Lite_to_APB4_FSM.svg"))
 
 关键设计：
 #move(dx: 2em)[
@@ -1340,7 +1375,7 @@ PLIC（`axi4lite_plic`）为平台级中断控制器，管理8个外部中断源
 
 *中断源分配：*
 
-#table(
+#align(center)[#table(
   columns: (auto, auto),
   stroke: 0.5pt,
   inset: 6pt,
@@ -1352,7 +1387,7 @@ PLIC（`axi4lite_plic`）为平台级中断控制器，管理8个外部中断源
   [3], [SPI],
   [4], [GPIO],
   [5--7], [保留],
-)
+)]
 
 *寄存器映射（基址0x0C00\_0000）：*
 
@@ -1447,23 +1482,25 @@ NS16550A兼容UART，含16深度TX/RX FIFO，可配置波特率（默认115200�
 
 *TX FSM（6状态）：*
 
-```plantuml
-@startuml UART_TX_FSM
-skinparam defaultFontSize 11
-hide empty description
+// ```plantuml
+// @startuml UART_TX_FSM
+// skinparam defaultFontSize 11
+// hide empty description
 
-[*] --> S_IDLE
+// [*] --> S_IDLE
 
-S_IDLE --> S_POP_BYTE : FIFO非空
-S_POP_BYTE --> S_SEND_START : 下一周期
-S_SEND_START --> S_SEND_BYTE : start bit发送完成
-S_SEND_BYTE --> S_SEND_PARITY : 所有数据位发送完\n且校验使能
-S_SEND_BYTE --> S_SEND_STOP : 所有数据位发送完\n且无校验
-S_SEND_PARITY --> S_SEND_STOP : 校验位发送完
-S_SEND_STOP --> S_IDLE : stop bit发送完
+// S_IDLE --> S_POP_BYTE : FIFO非空
+// S_POP_BYTE --> S_SEND_START : 下一周期
+// S_SEND_START --> S_SEND_BYTE : start bit发送完成
+// S_SEND_BYTE --> S_SEND_PARITY : 所有数据位发送完\n且校验使能
+// S_SEND_BYTE --> S_SEND_STOP : 所有数据位发送完\n且无校验
+// S_SEND_PARITY --> S_SEND_STOP : 校验位发送完
+// S_SEND_STOP --> S_IDLE : stop bit发送完
 
-@enduml
-```
+// @enduml
+// ```
+
+#align(center, image("media/UART_TX_FSM.svg", height: 53%))
 
 *RX FSM（11状态）：*支持完整的帧错误、校验错误、间断中断和溢出检测。
 
@@ -1498,34 +1535,36 @@ SimpleOS是运行在自研RISC-V CPU上的最小化操作系统演示（约1500�
 
 *启动流程：*
 
-```plantuml
-@startuml SimpleOS_Boot
-skinparam defaultFontSize 11
+// ```plantuml
+// @startuml SimpleOS_Boot
+// skinparam defaultFontSize 11
 
-rectangle "M-mode" #LightBlue {
-  rectangle "entry.S" as ENTRY
-  rectangle "m_init.c\n建3张Sv32页表\n配medeleg委托\nmret→S-mode" as MINIT
-}
+// rectangle "M-mode" #LightBlue {
+//   rectangle "entry.S" as ENTRY
+//   rectangle "m_init.c\n建3张Sv32页表\n配medeleg委托\nmret→S-mode" as MINIT
+// }
 
-rectangle "S-mode" #LightGreen {
-  rectangle "s_main.c\n装stvec\n开FPU\n打印banner\nsret→U-mode" as SMAIN
-  rectangle "trap.S/.c\necall陷入分发\nsyscall服务器" as TRAP
-}
+// rectangle "S-mode" #LightGreen {
+//   rectangle "s_main.c\n装stvec\n开FPU\n打印banner\nsret→U-mode" as SMAIN
+//   rectangle "trap.S/.c\necall陷入分发\nsyscall服务器" as TRAP
+// }
 
-rectangle "U-mode" #LightYellow {
-  rectangle "user_start.S\nsp=0x9000\ncall main" as USTART
-  rectangle "calculator.c\n5项浮点自检\n交互计算器" as CALC
-}
+// rectangle "U-mode" #LightYellow {
+//   rectangle "user_start.S\nsp=0x9000\ncall main" as USTART
+//   rectangle "calculator.c\n5项浮点自检\n交互计算器" as CALC
+// }
 
-ENTRY -down-> MINIT : call
-MINIT -down-> SMAIN : mret
-SMAIN -down-> USTART : sret
-USTART -down-> CALC : call main
-CALC -up-> TRAP : ecall (SYS_write/read/report/exit)
-TRAP -down-> CALC : sret (返回U-mode)
+// ENTRY -down-> MINIT : call
+// MINIT -right-> SMAIN : mret
+// SMAIN -right-> USTART : sret
+// USTART -down-> CALC : call main
+// CALC -up-> TRAP : ecall (SYS_write/read/report/exit)
+// TRAP -down-> CALC : sret (返回U-mode)
 
-@enduml
-```
+// @enduml
+// ```
+
+#align(center, image("media/SimpleOS_Boot.svg", width: 80%))
 
 *验证内容：*
 
@@ -1567,30 +1606,32 @@ TRAP -down-> CALC : sret (返回U-mode)
 
 *启动进度：*
 
-```plantuml
-@startuml Linux_Boot
-skinparam defaultFontSize 11
+// ```plantuml
+// @startuml Linux_Boot
+// skinparam defaultFontSize 11
 
-rectangle "OpenSBI (M-mode)\n0x80000000-0x80083FFF" as OPENSBI #LightBlue
-rectangle "Linux kernel payload\n0x80400000" as KERNEL #LightGreen
-rectangle "启用Sv32分页\n0x80400094: csrw satp" as ENABLE_PG #LightYellow
-rectangle "内核虚拟空间\nC0000098-C0377xxx (~55MB)" as KVSPACE #LightCoral
-rectangle "Load Page Fault\nVA=0x00FEFFEC (user space)\nscause=0xD" as PANIC #Red
+// rectangle "OpenSBI (M-mode)\n0x80000000-0x80083FFF" as OPENSBI #LightBlue
+// rectangle "Linux kernel payload\n0x80400000" as KERNEL #LightGreen
+// rectangle "启用Sv32分页\n0x80400094: csrw satp" as ENABLE_PG #LightYellow
+// rectangle "内核虚拟空间\nC0000098-C0377xxx (~55MB)" as KVSPACE #LightCoral
+// rectangle "Load Page Fault\nVA=0x00FEFFEC (user space)\nscause=0xD" as PANIC #Red
 
-OPENSBI -down-> KERNEL : mret跳转
-KERNEL -down-> ENABLE_PG : 初始化序列
-ENABLE_PG -down-> KVSPACE : Sv32翻译工作
-KVSPACE -down-> PANIC : demand paging\n内核panic
+// OPENSBI -right-> KERNEL : mret跳转
+// KERNEL -down-> ENABLE_PG : 初始化序列
+// ENABLE_PG -right-> KVSPACE : Sv32翻译工作
+// KVSPACE -down-> PANIC : demand paging\n内核panic
 
-note right of KVSPACE
-  i-side MMU完全工作
-  TLB hit, Sv32启用
-  PC推进~55MB内核虚拟空间
-  SBI调用正常(MCAUS=9)
-end note
+// note right of KVSPACE
+//   i-side MMU完全工作
+//   TLB hit, Sv32启用
+//   PC推进~55MB内核虚拟空间
+//   SBI调用正常(MCAUS=9)
+// end note
 
-@enduml
-```
+// @enduml
+// ```
+
+#align(center, image("media/Linux_Boot.svg"))
 
 *达成状态：*
 
@@ -1600,13 +1641,13 @@ end note
   + 内核从物理地址0x80400000推进至虚拟地址C0377xxx（约55MB内核虚拟空间）
   + TLB命中、SBI调用（MCAUS=9, S-mode ecall）、内核页表切换均正常
   + 最终在demand paging阶段触发load page fault（VA=0x00FEFFEC, scause=0xD），进入内核panic
-  + *结论*：CPU成功进入Linux内核态，验证了M/S/U特权、Sv32分页、CLINT定时器、PLIC中断、UART控制台等核心功能对Linux的兼容性
+  + *结论*：CPU成功运行Linux内核，验证了M/S特权、Sv32分页、核心基本功能等核心功能对Linux的兼容性，后续用户态不清楚是软件还是硬件问题。
 ]
 
 *为Linux适配修复的关键RTL bug：*
 
 #table(
-  columns: (auto, auto, 1fr),
+  columns: (auto, 2fr, 3fr),
   stroke: 0.5pt,
   inset: 6pt,
   align: horizon,
@@ -1617,16 +1658,16 @@ end note
   [time/timeh CSR], [cpu\_csr.sv], [实现rdtime CSR，CLINT mtime经Gray编码CDC同步到cpu\_clk],
   [PMP寄存器], [cpu\_csr.sv], [实现16个PMP条目CSR（pmpcfg0-3, pmpaddr0-15），锁定位强制],
   [UART NS16550A], [uart\_16550a.sv], [替换自定义UART为NS16550A兼容实现，PSTRB\[0\]门控],
-  [TLB valid脉冲, [MMU.sv], [BRAM TLB lookup请求在LOOKUP期间保持高电平（BUG-16修复）],
-  [PTW bus空隙, [ptw.sv], [S\_L1\_CHECK预发L0 read，消除bus\_req\_pending 1周期空隙],
-  [UART THRE, [uart\_regs\_16550a.sv], [THRE仅在移位寄存器空闲时置位，防止kernel输出FIFO溢出],
-  [DCache error路径, [cpu\_bus\_bridge.sv/dcache\_ctrl.sv], [AXI error时也置done，防止dcache死等],
-  [流水线冲刷, [core\_top.sv], [trap/redirect时清零IF/ID和ID/EXE流水线寄存器],
-  [GPR写穿透, [cpu\_regfile.sv], [WB同周期读优先返回WB数据（write-through）],
-  [CSR权限隔离, [cpu\_decode.sv], [csr\_priv\_violation接入illegal\_inst],
-  [AMO预留集失效, [cpu\_mem.sv], [AMO操作清除LR/SC预留集],
-  [mtime Gray CDC, [system\_top.sv], [64位mtime改用Gray编码跨时钟域同步],
-]
+  [TLB valid脉冲], [MMU.sv], [BRAM TLB lookup请求在LOOKUP期间保持高电平（BUG-16修复）],
+  [PTW bus空隙], [ptw.sv], [S\_L1\_CHECK预发L0 read，消除bus\_req\_pending 1周期空隙],
+  [UART THRE], [uart\_regs\_16550a.sv], [THRE仅在移位寄存器空闲时置位，防止kernel输出FIFO溢出],
+  [DCache error路径], [cpu\_bus\_bridge.sv/dcache\_ctrl.sv], [AXI error时也置done，防止dcache死等],
+  [流水线冲刷], [core\_top.sv], [trap/redirect时清零IF/ID和ID/EXE流水线寄存器],
+  [GPR写穿透], [cpu\_regfile.sv], [WB同周期读优先返回WB数据（write-through）],
+  [CSR权限隔离], [cpu\_decode.sv], [csr\_priv\_violation接入illegal\_inst],
+  [AMO预留集失效], [cpu\_mem.sv], [AMO操作清除LR/SC预留集],
+  [mtime Gray CDC], [system\_top.sv], [64位mtime改用Gray编码跨时钟域同步],
+)
 
 = 仿真验证
 

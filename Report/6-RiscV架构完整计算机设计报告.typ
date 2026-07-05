@@ -88,7 +88,7 @@
 
 == 项目文件夹结构
 
-#text(size: 10pt)[
+#align(center,text(size: 8.5pt)[
   ```text
   dev/rtl/
   ├── system_top.sv                  # SoC顶层
@@ -141,7 +141,7 @@
       ├── reset_sync.sv              #   复位同步器
       └── ila_stub.sv                #   ILA调试探针
   ```
-]
+])
 = 实现细节
 
 == 总体架构
@@ -1533,6 +1533,8 @@ SPI主机，支持CPOL/CPHA四种模式，可编程时钟分频。
 
 SimpleOS是运行在自研RISC-V CPU上的最小化操作系统演示（约1500行C/汇编），完整展示了M→S→U三级特权转换 + Sv32分页 + ecall系统调用。
 
+SimpleOS源码见`dev\os`，编译结果为`build\os.hex`。
+
 *启动流程：*
 
 // ```plantuml
@@ -1564,7 +1566,7 @@ SimpleOS是运行在自研RISC-V CPU上的最小化操作系统演示（约1500�
 // @enduml
 // ```
 
-#align(center, image("media/SimpleOS_Boot.svg", width: 80%))
+#align(center, image("media/SimpleOS_Boot.svg", width: 70%))
 
 *验证内容：*
 
@@ -1585,9 +1587,18 @@ SimpleOS是运行在自研RISC-V CPU上的最小化操作系统演示（约1500�
 
 *仿真结果：* UART输出"SimpleOS booted" + 5项测试结果 + "Tests: 5/5 passed" + 交互模式banner + "> "提示符。自检结果写入PA_SELF_CHECK（0x80007000），TB自动校验。149个trap事件（ecall/sret交替）均正确处理。
 
+*fpga运行结果：*
+
+#align(center,image("media/simpleos_lcd.jpg"))
+这里显示系统正在内核中等待uart输入。
+
+*UART输出：*
+
+#align(center,image("media/simpleos_uart.png",width: 83%))
+
 == Linux内核启动
 
-在SimpleOS验证基础上，进一步尝试启动Linux内核（OpenSBI + Linux内核payload），验证CPU对完整OS的兼容性。
+我们尝试启动Linux内核（OpenSBI + Linux内核payload，编译结果为`build\fw_payload2-1.bin`），验证CPU对完整OS的兼容性。
 
 *启动配置：*
 
@@ -1643,6 +1654,16 @@ SimpleOS是运行在自研RISC-V CPU上的最小化操作系统演示（约1500�
   + 最终在demand paging阶段触发load page fault（VA=0x00FEFFEC, scause=0xD），进入内核panic
   + *结论*：CPU成功运行Linux内核，验证了M/S特权、Sv32分页、核心基本功能等核心功能对Linux的兼容性，后续用户态不清楚是软件还是硬件问题。
 ]
+
+*fpga运行结果：*
+
+#align(center,image("media/linux_lcd.jpg"))
+
+*UART输出：*
+
+#align(center,image("media/Linux-1.png"))
+#align(center,image("media/Linux-2.png"))
+#align(center,image("media/Linux-3.png"))
 
 *为Linux适配修复的关键RTL bug：*
 
@@ -1817,8 +1838,8 @@ CPU读取UART状态和RX数据需要两次总线事务，但APB协议每次传�
   columns: (1fr, 2fr, 2fr),
   align: horizon,
   [*姓名*], [*学号*], [*分工*],
-  [王之翼], [320240944621], [构建],
-  [陈海攀], [320230904051], [测试、DEBUG],
-  [张潘妍], [320240944910], [c程序、riscv汇编交叉编译],
+  [王之翼], [320240944621], [rtl构建、测试],
+  [陈海攀], [320230904051], [Linux内核构建，rtl测试],
+  [张潘妍], [320240944910], [SimpleOS编译],
   [张之恒], [320240944971], [资料查找、文档整理],
 )

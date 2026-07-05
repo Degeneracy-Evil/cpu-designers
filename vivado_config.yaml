@@ -14,7 +14,7 @@ limits:
   program_timeout: 120      # FPGA programming via JTAG
   archive_timeout: 300      # project archiving
 
-vivado_path: vivado
+vivado_path: vivado.bat
 proj_name: simplecpu_soc
 device_part: xc7a200tfbg676-2
 

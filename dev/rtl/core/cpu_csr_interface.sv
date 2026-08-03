@@ -5,7 +5,7 @@ module cpu_csr_interface(
     input         clk,
     input         resetn,
 
-    input  [348:0] id_exe_bus_r,
+    input  [329:0] id_exe_bus_r,
     input  [11:0]  dec_csr_addr,
     input          csr_valid,
 
@@ -32,9 +32,6 @@ module cpu_csr_interface(
     input         cycle_en,
     input         inst_retire,
 
-    input  [4:0]  fflags_wdata,
-    input         fflags_wen,
-
     output [31:0] csr_read_data,
     output wb_bus_t csr_wb_bus,
     output [31:0] csr_pc_plus4,
@@ -60,8 +57,6 @@ module cpu_csr_interface(
     output [31:0] csr_scounteren,
 
     output        csr_access_ok,
-    output [4:0]  csr_fflags,
-    output [2:0]  csr_frm,
 
     // PMP config outputs
     output [31:0] csr_pmpcfg0,
@@ -95,14 +90,14 @@ module cpu_csr_interface(
     wire [31:0] csr_pc_bus;
     wire [31:0] csr_inst_bus;
 
-    assign csr_funct3_bus   = id_exe_bus_r[100:98];
-    assign csr_uimm_bus    = id_exe_bus_r[97:93];
-    assign csr_rs1_bus     = id_exe_bus_r[48:44];
-    assign csr_rs1_val_bus = id_exe_bus_r[183:152];
-    assign csr_rd_bus      = id_exe_bus_r[308:304];
-    assign csr_pc_plus4_bus= id_exe_bus_r[348:317];
-    assign csr_pc_bus      = id_exe_bus_r[92:61];
-    assign csr_inst_bus    = id_exe_bus_r[60:29];
+    assign csr_funct3_bus   = id_exe_bus_r[81:79];
+    assign csr_uimm_bus    = id_exe_bus_r[78:74];
+    assign csr_rs1_bus     = id_exe_bus_r[29:25];
+    assign csr_rs1_val_bus = id_exe_bus_r[164:133];
+    assign csr_rd_bus      = id_exe_bus_r[289:285];
+    assign csr_pc_plus4_bus= id_exe_bus_r[329:298];
+    assign csr_pc_bus      = id_exe_bus_r[73:42];
+    assign csr_inst_bus    = id_exe_bus_r[41:10];
 
     assign csr_pc_plus4 = csr_pc_plus4_bus;
 
@@ -137,11 +132,6 @@ module cpu_csr_interface(
         csr_rdata:     csr_read_data,
         pc:            csr_pc_bus,
         inst:          csr_inst_bus,
-        is_fpu:        1'b0,
-        is_flw:        1'b0,
-        is_fsw:        1'b0,
-        fpu_rd_is_int: 1'b0,
-        fpu_fflags:    5'b0,
         is_amo:        1'b0,
         is_lr:         1'b0,
         is_sc:         1'b0
@@ -200,10 +190,6 @@ module cpu_csr_interface(
         .csr_satp(csr_satp),
         .csr_mcounteren(csr_mcounteren),
         .csr_scounteren(csr_scounteren),
-        .fflags_wdata(fflags_wdata),
-        .fflags_wen(fflags_wen),
-        .csr_fflags(csr_fflags),
-        .csr_frm(csr_frm),
         .csr_pmpcfg0(csr_pmpcfg0),
         .csr_pmpcfg1(csr_pmpcfg1),
         .csr_pmpcfg2(csr_pmpcfg2),

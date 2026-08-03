@@ -7,7 +7,6 @@ module cpu_mem(
         input              resetn,
         input              mem_valid,
         input      exe_mem_bus_t exe_mem_bus_r,
-        input      [31:0]  frs2_value,    // float register rs2 for FSW
         input              trap_enter,    // trap entry: invalidate LR reservation
         output             mem_en,
         output             mem_hwrite,
@@ -56,11 +55,6 @@ module cpu_mem(
     wire [31:0] pc_plus4;
     wire [31:0] pc;
     wire [31:0] inst;
-    wire        is_fpu;
-    wire        is_flw;
-    wire        is_fsw;
-    wire        fpu_rd_is_int;
-    wire [4:0]  fpu_fflags;
     // A extension signals
     wire        is_amo;
     wire        is_lr;
@@ -84,12 +78,7 @@ module cpu_mem(
     assign csr_rdata     = exe_mem_bus_r.csr_rdata;
     assign pc            = exe_mem_bus_r.pc;
     assign inst          = exe_mem_bus_r.inst;
-    assign is_fpu        = exe_mem_bus_r.is_fpu;
-    assign is_flw        = exe_mem_bus_r.is_flw;
-    assign is_fsw        = exe_mem_bus_r.is_fsw;
-    assign fpu_rd_is_int = exe_mem_bus_r.fpu_rd_is_int;
-    assign fpu_fflags    = exe_mem_bus_r.fpu_fflags;
-    assign is_amo        = exe_mem_bus_r.is_amo;
+    assign is_amo       = exe_mem_bus_r.is_amo;
     assign is_lr         = exe_mem_bus_r.is_lr;
     assign is_sc         = exe_mem_bus_r.is_sc;
     assign amo_funct5    = exe_mem_bus_r.amo_funct5;
@@ -150,8 +139,8 @@ module cpu_mem(
            (mem_size == 3'b010 && alu_result[1:0] != 2'b00);
     wire misalign_load;
     wire misalign_store;
-    assign misalign_load  = (is_load | is_flw)  && misalign_addr;
-    assign misalign_store = (is_store | is_fsw) && misalign_addr;
+    assign misalign_load  = is_load && misalign_addr;
+    assign misalign_store = is_store && misalign_addr;
 
     // ── A extension: AMO misalign detection ──
     // LR.W/SC.W/AMO require word-aligned address (addr[1:0]==00)
@@ -267,7 +256,7 @@ module cpu_mem(
                             end
                         end
                         // ── Original non-AMO path ──
-                        else if (!valid_inst || (!is_load && !is_store && !is_flw && !is_fsw)) begin
+                        else if (!valid_inst || (!is_load && !is_store)) begin
                             wb_data_reg <= alu_result;
                             hwrite_reg <= 1'b0;
                             hsize_reg <= `AXI_SIZE_WORD;
@@ -280,18 +269,14 @@ module cpu_mem(
                             hsize_reg <= `AXI_SIZE_WORD;
                             done_reg <= 1'b1;
                         end
-                        else if (is_load || is_flw) begin
+                        else if (is_load) begin
                             dataAddr_32_reg <= alu_result;
                             hwrite_reg <= 1'b0;
-                            if (is_flw) begin
-                                hsize_reg <= `AXI_SIZE_WORD;
-                            end else begin
-                                case (mem_size)
-                                    3'b000: hsize_reg <= `AXI_SIZE_BYTE;
-                                    3'b001: hsize_reg <= `AXI_SIZE_HWORD;
-                                    default: hsize_reg <= `AXI_SIZE_WORD;
-                                endcase
-                            end
+                            case (mem_size)
+                                3'b000: hsize_reg <= `AXI_SIZE_BYTE;
+                                3'b001: hsize_reg <= `AXI_SIZE_HWORD;
+                                default: hsize_reg <= `AXI_SIZE_WORD;
+                            endcase
                             writeData_32_reg <= 32'b0;
                             mem_en_reg <= 1'b1;
                             mem_state <= MEM_READ;
@@ -300,34 +285,27 @@ module cpu_mem(
                             dataAddr_32_reg <= alu_result;
                             hwrite_reg <= 1'b1;
                             mem_en_reg <= 1'b1;
-                            // For FSW: use frs2_value as store data, always word size
-                            if (is_fsw) begin
-                                hsize_reg <= `AXI_SIZE_WORD;
-                                writeData_32_reg <= frs2_value;
-                            end
-                            else begin
-                                case (mem_size)
-                                    3'b000: begin
-                                        hsize_reg <= `AXI_SIZE_BYTE;
-                                        writeData_32_reg <= {4{store_data[7:0]}};
-                                    end
-                                    3'b001: begin
-                                        hsize_reg <= `AXI_SIZE_HWORD;
-                                        case (alu_result[1:0])
-                                            2'b00: begin
-                                                writeData_32_reg <= {16'b0, store_data[15:0]};
-                                            end
-                                            default: begin
-                                                writeData_32_reg <= {store_data[15:0], 16'b0};
-                                            end
-                                        endcase
-                                    end
-                                    default: begin
-                                        hsize_reg <= `AXI_SIZE_WORD;
-                                        writeData_32_reg <= store_data;
-                                    end
-                                endcase
-                            end
+                            case (mem_size)
+                                3'b000: begin
+                                    hsize_reg <= `AXI_SIZE_BYTE;
+                                    writeData_32_reg <= {4{store_data[7:0]}};
+                                end
+                                3'b001: begin
+                                    hsize_reg <= `AXI_SIZE_HWORD;
+                                    case (alu_result[1:0])
+                                        2'b00: begin
+                                            writeData_32_reg <= {16'b0, store_data[15:0]};
+                                        end
+                                        default: begin
+                                            writeData_32_reg <= {store_data[15:0], 16'b0};
+                                        end
+                                    endcase
+                                end
+                                default: begin
+                                    hsize_reg <= `AXI_SIZE_WORD;
+                                    writeData_32_reg <= store_data;
+                                end
+                            endcase
                             mem_state <= MEM_WRITE;
                         end
                     end
@@ -466,11 +444,6 @@ module cpu_mem(
         csr_rdata:     csr_rdata,
         pc:            pc,
         inst:          inst,
-        is_fpu:        is_fpu,
-        is_flw:        is_flw,
-        is_fsw:        is_fsw,
-        fpu_rd_is_int: fpu_rd_is_int,
-        fpu_fflags:    fpu_fflags,
         is_amo:        is_amo,
         is_lr:         is_lr,
         is_sc:         is_sc
@@ -480,10 +453,10 @@ module cpu_mem(
 
     // LR.W misalign is a Load-type misalign (exception code 4)
     // SC.W/AMO misalign is a Store/AMO-type misalign (exception code 6)
-    assign mem_misalign_load  = (is_load | is_flw | is_lr)  && misalign_addr;
-    assign mem_misalign_store = (is_store | is_fsw | is_sc | (is_amo & ~is_lr)) && misalign_addr;
+    assign mem_misalign_load  = (is_load | is_lr)  && misalign_addr;
+    assign mem_misalign_store = (is_store | is_sc | (is_amo & ~is_lr)) && misalign_addr;
     assign mem_misalign_addr  = alu_result;
-    assign mem_data_access    = is_load || is_store || is_flw || is_fsw || is_amo;
+    assign mem_data_access    = is_load || is_store || is_amo;
     assign dbg_load_mem_size     = mem_size_reg;
     assign dbg_load_mem_unsigned = mem_unsigned_reg;
     assign dbg_load_addr         = addr_reg;

@@ -51,14 +51,6 @@ categories:
       - isa/m_ext
       - isa/a_ext
 
-  isa_f:
-    framework: common
-    arch: rv32imf_zicsr_zifencei
-    abi: ilp32
-    tests:
-      - isa/f_ext
-      - isa/f_ext_special
-
   exception:
     framework: common
     tests:
@@ -186,18 +178,6 @@ apps:
       - lib/ftoa.c
       - lib/math.c
       - app/calculator.c
-    arch: rv32imaf_zicsr_zifencei
-    include_dirs:
-      - lib/include
-
-  fpu_minimal_test:
-    src_files:
-      - lib/start.S
-      - lib/uart.c
-      - lib/stdio.c
-      - lib/atof.c
-      - lib/ftoa.c
-      - app/fpu_minimal_test.c
     arch: rv32imaf_zicsr_zifencei
     include_dirs:
       - lib/include

@@ -259,12 +259,12 @@ module core_top(
     wire [31:0] exe_misalign_target;
 
     wire [95:0]  if_id_bus;
-    wire [348:0] id_exe_bus;
+    wire [329:0] id_exe_bus;
     exe_mem_bus_t exe_mem_bus;
     wb_bus_t      mem_wb_bus;
 
     reg [95:0]  if_id_bus_r;
-    reg [348:0] id_exe_bus_r;
+    reg [329:0] id_exe_bus_r;
     exe_mem_bus_t exe_mem_bus_r;
     wb_bus_t      mem_wb_bus_r;
 
@@ -275,7 +275,7 @@ module core_top(
 
     wire        mmu_inst_miss;
     wire        mmu_data_miss;
-    wire        mem_data_access;   // Combinational: is_load||is_store||is_flw||is_fsw (consumed by cpu_controller)
+    wire        mem_data_access;   // Combinational: is_load||is_store||is_amo (consumed by cpu_controller)
     wire        mmu_inst_page_fault;
     wire        mmu_data_page_fault;
     wire [3:0]  mmu_inst_pf_cause;
@@ -352,28 +352,12 @@ module core_top(
     wire [31:0] rf_wdata;
     wire wb_is_jal_like;
 
-    // Float register file
-  wire [4:0]  frs1_addr;
-  wire [4:0]  frs2_addr;
-  wire [4:0]  frs3_addr;
-  wire [31:0] frs1_value;
-  wire [31:0] frs2_value;
-  wire [31:0] frs3_value;
-    wire        fp_wen;
-    wire [4:0]  fp_waddr;
-    wire [31:0] fp_wdata;
-    wire [31:0] fp_dbg_data;
-
-    // FPU CSR signals
-    wire [4:0]  wb_fflags;
-    wire [2:0]  csr_frm;
-
     wire [31:0] id_pc_plus4;
     wire [31:0] exe_pc_plus4;
     wire [31:0] wb_pc_plus4;
 
     assign id_pc_plus4  = if_id_bus_r[95:64];
-    assign exe_pc_plus4 = id_exe_bus_r[348:317];
+    assign exe_pc_plus4 = id_exe_bus_r[329:298];
     assign wb_pc_plus4  = mem_wb_bus_r.pc_plus4;
 
     wire [31:0] actual_rf_wdata;
@@ -390,11 +374,6 @@ module core_top(
         csr_rdata:     exe_mem_bus.csr_rdata,
         pc:            exe_mem_bus.pc,
         inst:          exe_mem_bus.inst,
-        is_fpu:        exe_mem_bus.is_fpu,
-        is_flw:        exe_mem_bus.is_flw,
-        is_fsw:        exe_mem_bus.is_fsw,
-        fpu_rd_is_int: exe_mem_bus.fpu_rd_is_int,
-        fpu_fflags:    exe_mem_bus.fpu_fflags,
         is_amo:        exe_mem_bus.is_amo,
         is_lr:         exe_mem_bus.is_lr,
         is_sc:         exe_mem_bus.is_sc
@@ -892,7 +871,6 @@ module core_top(
         .rs2_value(rs2_value),
         .rs1_addr(rs1_addr),
         .rs2_addr(rs2_addr),
-        .rs3_addr(frs3_addr),
         .id_done(id_done),
         .illegal_inst(dec_illegal),
         .dec_is_branch(dec_is_branch),
@@ -916,11 +894,6 @@ module core_top(
         .csr_mstatus(csr_mstatus)
     );
 
-    // Float register addresses: same as integer rs1/rs2 for FPU instructions
-    // frs3_addr comes from cpu_decode rs3 output (inst[31:27] for FMA R4 format)
-    assign frs1_addr = rs1_addr;
-    assign frs2_addr = rs2_addr;
-
     // dbg_mu wires must be declared before cpu_execute instantiation
     wire        dbg_mu_active_w;
     wire        dbg_mu_req_valid_w;
@@ -936,10 +909,6 @@ module core_top(
         .exe_valid(exe_valid),
         .id_exe_bus_r(id_exe_bus_r),
         .csr_rdata(csr_read_data),
-        .csr_frm(csr_frm),
-        .frs1_value(frs1_value),
-        .frs2_value(frs2_value),
-        .frs3_value(frs3_value),
         .trap_pending(trap_pending),
         .exe_done(exe_done),
         .exe_mem_bus(exe_mem_bus),
@@ -1238,7 +1207,6 @@ module core_top(
         .resetn(resetn),
         .mem_valid(mem_valid),
         .exe_mem_bus_r(exe_mem_bus_r),
-        .frs2_value(frs2_value),
         .trap_enter(trap_enter_valid),
         .mem_en(mem_en),
         .mem_hwrite(mem_hwrite),
@@ -1272,11 +1240,7 @@ module core_top(
         .wb_is_jal_like(wb_is_jal_like),
         .wb_pc_plus4(wb_pc_plus4),
         .wb_pc(wb_pc),
-        .wb_inst(wb_inst),
-        .fp_wen(fp_wen),
-        .fp_waddr(fp_waddr),
-        .fp_wdata(fp_wdata),
-        .wb_fflags(wb_fflags)
+        .wb_inst(wb_inst)
     );
 
     cpu_regfile u_regfile(
@@ -1307,22 +1271,6 @@ module core_top(
         .dbg_x17(gpr_a7_w),
         .dbg_x18(gpr_s2_w),
         .dbg_x19(gpr_s3_w)
-    );
-
-    fpu_regfile u_fregfile(
-        .clk(clk),
-        .resetn(resetn),
-        .wen(fp_wen),
-        .raddr1(frs1_addr),
-        .raddr2(frs2_addr),
-        .raddr3(frs3_addr),
-        .waddr(fp_waddr),
-        .wdata(fp_wdata),
-        .rdata1(frs1_value),
-        .rdata2(frs2_value),
-        .rdata3(frs3_value),
-        .dbg_faddr(rf_addr),
-        .dbg_fdata(fp_dbg_data)
     );
 
     cpu_trap_csr u_trap_csr(
@@ -1413,8 +1361,6 @@ module core_top(
         .csr_mcounteren   (csr_mcounteren),
         .csr_scounteren   (csr_scounteren),
         .csr_access_ok    (csr_access_ok),
-        .csr_fflags       (),
-        .csr_frm          (csr_frm),
         .csr_pmpcfg0      (csr_pmpcfg0),
         .csr_pmpcfg1      (csr_pmpcfg1),
         .csr_pmpcfg2      (csr_pmpcfg2),
@@ -1435,8 +1381,6 @@ module core_top(
         .csr_pmpaddr13    (csr_pmpaddr13),
         .csr_pmpaddr14    (csr_pmpaddr14),
         .csr_pmpaddr15    (csr_pmpaddr15),
-        .fflags_wdata     (wb_fflags),
-        .fflags_wen       (wb_valid && (wb_fflags != 5'b0)),
         // Extended debug outputs
         .hw_trap_epc      (hw_trap_epc_w),
         .hw_trap_cause    (hw_trap_cause_w),

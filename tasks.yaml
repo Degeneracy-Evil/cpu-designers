@@ -114,18 +114,6 @@ tasks:
     phex: test/isa/a_ext.hex
     runtime: 200ms
 
-  isa_f_ext:
-    tb: tb_isa_f_ext
-    blhex: boot/bootloader_phase1.hex
-    phex: test/isa/f_ext.hex
-    runtime: 10ms
-
-  isa_f_ext_special:
-    tb: tb_isa_f_ext_special
-    blhex: boot/bootloader_phase1.hex
-    phex: test/isa/f_ext_special.hex
-    runtime: 10ms
-
   # ── 异常仿真 ──
 
   exception_ecall:
@@ -448,12 +436,6 @@ tasks:
     phex: app/uart_echo.hex
     runtime: 50ms
 
-  fpu_minimal_test:
-    tb: tb_uart_echo
-    blhex: boot/bootloader_phase1.hex
-    phex: app/fpu_minimal_test.hex
-    runtime: 20ms
-
   led_marquee:
     tb: tb_led_marquee
     blhex: boot/bootloader_phase1.hex
@@ -508,36 +490,6 @@ tasks:
     tb: tb_non_restoring_divider
     blhex: boot/bootloader_phase1.hex
     runtime: 5000ns
-
-  fpu_adder:
-    tb: tb_fpu_adder
-    blhex: boot/bootloader_phase1.hex
-    runtime: 10us
-
-  fpu_multiplier:
-    tb: tb_fpu_multiplier
-    blhex: boot/bootloader_phase1.hex
-    runtime: 10us
-
-  fpu_divider:
-    tb: tb_fpu_divider
-    blhex: boot/bootloader_phase1.hex
-    runtime: 50us
-
-  fpu_sqrt:
-    tb: tb_fpu_sqrt
-    blhex: boot/bootloader_phase1.hex
-    runtime: 50us
-
-  fpu_cvt:
-    tb: tb_fpu_cvt
-    blhex: boot/bootloader_phase1.hex
-    runtime: 10us
-
-  fpu_unit:
-    tb: tb_fpu_unit
-    blhex: boot/bootloader_phase1.hex
-    runtime: 50us
 
   calculator:
     tb: tb_calculator

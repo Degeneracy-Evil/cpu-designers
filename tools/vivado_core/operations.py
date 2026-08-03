@@ -146,7 +146,9 @@ set_property simulator_language Mixed [current_project]
 # and update_compile_order can infer correct compile order.
 add_files -scan_for_includes "{alu_rtl_dir}"
 add_files -scan_for_includes "{mu_rtl_dir}"
-add_files -scan_for_includes "{fpu_rtl_dir}"
+if {{ [file exists "{fpu_rtl_dir}"] }} {{
+    add_files -scan_for_includes "{fpu_rtl_dir}"
+}}
 add_files -scan_for_includes "{cpu_core_dir}"
 add_files -scan_for_includes "{common_dir}"
 add_files -scan_for_includes "{ahb_dir}"
@@ -171,7 +173,6 @@ update_compile_order -fileset sources_1
 set_property include_dirs [list \\
     "{alu_rtl_dir}" \\
     "{mu_rtl_dir}" \\
-    "{fpu_rtl_dir}" \\
     "{cpu_core_dir}" \\
     "{common_dir}" \\
     "{ahb_dir}" \\

@@ -5,8 +5,8 @@
 // self-documenting and immune to silent breakage when fields are reordered.
 //
 // Size verification:
-//   exe_mem_bus_t : 32+1+1+1+1+1+1+5+32+3+1+32+32+32+32+1+1+1+1+5 + 1+1+1+5+1+1 = 226
-//   wb_bus_t      : 32+1+1+1+5+32+32+32+32+1+1+1+1+5 + 1+1+1 = 180
+//   exe_mem_bus_t : 32+1+1+1+1+1+1+5+32+3+1+32+32+32+32 + 1+1+5+1+1 = 225
+//   wb_bus_t      : 32+1+1+1+5+32+32+32+32 + 1+1+1 = 174
 // =============================================================================
 
 `ifndef CORE_BUS_TYPES_SVH
@@ -23,11 +23,6 @@ typedef struct packed {
     logic [31:0] csr_rdata;
     logic [31:0] pc;
     logic [31:0] inst;
-    logic        is_fpu;
-    logic        is_flw;
-    logic        is_fsw;
-    logic        fpu_rd_is_int;
-    logic [4:0]  fpu_fflags;
     // --- A extension ---
     logic        is_amo;    // AMO instruction (including LR/SC)
     logic        is_lr;     // LR.W
@@ -51,11 +46,6 @@ typedef struct packed {
     logic [31:0] csr_rdata;
     logic [31:0] pc;
     logic [31:0] inst;
-    logic        is_fpu;
-    logic        is_flw;
-    logic        is_fsw;
-    logic        fpu_rd_is_int;
-    logic [4:0]  fpu_fflags;
     // --- A extension ---
     logic        is_amo;      // AMO instruction (including LR/SC)
     logic        is_lr;       // LR.W

@@ -7,12 +7,11 @@ module cpu_decode(
     input      [31:0]  rs2_value,
     output     [4:0]   rs1_addr,
     output     [4:0]   rs2_addr,
-    output     [4:0]   rs3_addr,      // FMA rs3 address (inst[31:27])
     output             id_done,
     output             illegal_inst,
     output             dec_is_branch,
     output             dec_need_exe,
-    output     [348:0] id_exe_bus,
+    output     [329:0] id_exe_bus,
 
     output     [31:0]  id_pc,
     output     [31:0]  id_inst,
@@ -48,13 +47,6 @@ module cpu_decode(
   localparam OPCODE_OP     = 7'b0110011;
   localparam OPCODE_FENCE  = 7'b0001111;
   localparam OPCODE_SYSTEM = 7'b1110011;
-  localparam OPCODE_LOAD_FP  = 7'b0000111;  // FLW
-  localparam OPCODE_STORE_FP = 7'b0100111;  // FSW
-  localparam OPCODE_OP_FP    = 7'b1010011;  // FADD.S/FSUB.S/FMUL.S/FDIV.S/...
-  localparam OPCODE_MADD     = 7'b1000011;  // FMADD.S (R4 format)
-  localparam OPCODE_MSUB     = 7'b1000111;  // FMSUB.S  (R4 format)
-  localparam OPCODE_NMSUB    = 7'b1001011;  // FNMSUB.S (R4 format)
-  localparam OPCODE_NMADD    = 7'b1001111;  // FNMADD.S (R4 format)
   localparam OPCODE_AMO      = 7'b0101111;  // LR.W/SC.W/AMO*.W
 
   wire [31:0] pc_plus4;
@@ -68,8 +60,6 @@ module cpu_decode(
   wire [4:0] rs1;
   wire [4:0] rs2;
   wire [4:0] rd;
-  wire [4:0] rs3;        // R4 format: inst[31:27] for FMA instructions
-  wire [1:0] fmt;        // R4 format: inst[26:25] (00=S, 01=D)
   wire [31:0] imm_i;
   wire [31:0] imm_s;
   wire [31:0] imm_b;
@@ -90,10 +80,6 @@ module cpu_decode(
                .immU(imm_u),
                .immJ(imm_j)
              );
-
-  // R4 format fields for FMA instructions
-  assign rs3 = inst[31:27];   // top 5 bits = rs3 in R4 format
-  assign fmt = inst[26:25];   // fmt field: 00=S (single), 01=D (double)
 
   wire inst_lui;
   wire inst_auipc;
@@ -192,38 +178,7 @@ module cpu_decode(
   assign inst_div    = (opcode == OPCODE_OP) && (funct3 == 3'b100) && (funct7 == 7'b0000001);
   assign inst_divu   = (opcode == OPCODE_OP) && (funct3 == 3'b101) && (funct7 == 7'b0000001);
   assign inst_rem    = (opcode == OPCODE_OP) && (funct3 == 3'b110) && (funct7 == 7'b0000001);
-  assign inst_remu   = (opcode == OPCODE_OP) && (funct3 == 3'b111) && (funct7 == 7'b0000001);
-
-  // FPU instruction matches
-  wire inst_flw = (opcode == OPCODE_LOAD_FP) && (funct3 == 3'b010);
-  wire inst_fsw = (opcode == OPCODE_STORE_FP) && (funct3 == 3'b010);
-
-  wire inst_fadd_s  = (opcode == OPCODE_OP_FP) && (funct7 == 7'b0000000);
-  wire inst_fsub_s  = (opcode == OPCODE_OP_FP) && (funct7 == 7'b0000100);
-  wire inst_fmul_s  = (opcode == OPCODE_OP_FP) && (funct7 == 7'b0001000);
-  wire inst_fdiv_s  = (opcode == OPCODE_OP_FP) && (funct7 == 7'b0001100);
-  wire inst_fsqrt_s = (opcode == OPCODE_OP_FP) && (funct7 == 7'b0101100) && (rs2 == 5'd0);
-  wire inst_fsgnj_s  = (opcode == OPCODE_OP_FP) && (funct7 == 7'b0010000) && (funct3 == 3'b000);
-  wire inst_fsgnjn_s = (opcode == OPCODE_OP_FP) && (funct7 == 7'b0010000) && (funct3 == 3'b001);
-  wire inst_fsgnjx_s = (opcode == OPCODE_OP_FP) && (funct7 == 7'b0010000) && (funct3 == 3'b010);
-  wire inst_fmin_s   = (opcode == OPCODE_OP_FP) && (funct7 == 7'b0010100) && (funct3 == 3'b000);
-  wire inst_fmax_s   = (opcode == OPCODE_OP_FP) && (funct7 == 7'b0010100) && (funct3 == 3'b001);
-  wire inst_fcvt_w_s  = (opcode == OPCODE_OP_FP) && (funct7 == 7'b1100000) && (rs2 == 5'd0);
-  wire inst_fcvt_wu_s = (opcode == OPCODE_OP_FP) && (funct7 == 7'b1100000) && (rs2 == 5'd1);
-  wire inst_fcvt_s_w  = (opcode == OPCODE_OP_FP) && (funct7 == 7'b1101000) && (rs2 == 5'd0);
-  wire inst_fcvt_s_wu = (opcode == OPCODE_OP_FP) && (funct7 == 7'b1101000) && (rs2 == 5'd1);
-  wire inst_feq_s     = (opcode == OPCODE_OP_FP) && (funct7 == 7'b1010000) && (funct3 == 3'b010);
-  wire inst_flt_s     = (opcode == OPCODE_OP_FP) && (funct7 == 7'b1010000) && (funct3 == 3'b001);
-  wire inst_fle_s     = (opcode == OPCODE_OP_FP) && (funct7 == 7'b1010000) && (funct3 == 3'b000);
-  wire inst_fclass_s  = (opcode == OPCODE_OP_FP) && (funct7 == 7'b1110000) && (funct3 == 3'b001) && (rs2 == 5'd0);
-  wire inst_fmv_x_w   = (opcode == OPCODE_OP_FP) && (funct7 == 7'b1110000) && (funct3 == 3'b000) && (rs2 == 5'd0);
-  wire inst_fmv_w_x   = (opcode == OPCODE_OP_FP) && (funct7 == 7'b1111000) && (funct3 == 3'b000) && (rs2 == 5'd0);
-
-  // FMA instructions (R4 format): fmt must be S (00) for single-precision
-  wire inst_fmadd_s  = (opcode == OPCODE_MADD)  && (fmt == 2'b00);
-  wire inst_fmsub_s  = (opcode == OPCODE_MSUB)  && (fmt == 2'b00);
-  wire inst_fnmsub_s = (opcode == OPCODE_NMSUB) && (fmt == 2'b00);
-  wire inst_fnmadd_s = (opcode == OPCODE_NMADD) && (fmt == 2'b00);
+assign inst_remu   = (opcode == OPCODE_OP) && (funct3 == 3'b111) && (funct7 == 7'b0000001);
 
   // A extension instruction matches
   wire [4:0] funct5;
@@ -314,15 +269,6 @@ wire inst_amomaxu  = (opcode == OPCODE_AMO) && (funct3 == 3'b010) && (funct5 == 
   assign is_sfence_vma = inst_sfence_vma;
   assign is_system_trap = is_ecall | is_ebreak;
 
-  wire is_fpu = inst_fadd_s | inst_fsub_s | inst_fmul_s | inst_fdiv_s | inst_fsqrt_s |
-                inst_fmin_s | inst_fmax_s | inst_fsgnj_s | inst_fsgnjn_s | inst_fsgnjx_s |
-                inst_feq_s | inst_flt_s | inst_fle_s | inst_fclass_s |
-                inst_fmv_x_w | inst_fmv_w_x |
-                inst_fcvt_w_s | inst_fcvt_wu_s | inst_fcvt_s_w | inst_fcvt_s_wu |
-                inst_fmadd_s | inst_fmsub_s | inst_fnmsub_s | inst_fnmadd_s;
-  wire is_flw = inst_flw;
-  wire is_fsw = inst_fsw;
-
   // A extension classification
   wire is_amo_all = inst_amoswap | inst_amoadd | inst_amoand | inst_amoor |
                     inst_amoxor | inst_amomin | inst_amomax | inst_amominu | inst_amomaxu;
@@ -330,45 +276,12 @@ wire inst_amomaxu  = (opcode == OPCODE_AMO) && (funct3 == 3'b010) && (funct5 == 
   wire is_sc = inst_sc_w;
   wire is_amo = is_amo_all | is_lr | is_sc;  // All A extension instructions
 
-  wire [6:0] fpu_funct;
-  assign fpu_funct = inst_fadd_s   ? 7'd0  :
-                     inst_fsub_s   ? 7'd1  :
-                     inst_fmul_s   ? 7'd2  :
-                     inst_fdiv_s   ? 7'd3  :
-                     inst_fsqrt_s  ? 7'd4  :
-                     inst_fmin_s   ? 7'd5  :
-                     inst_fmax_s   ? 7'd6  :
-                     inst_fsgnj_s  ? 7'd7  :
-                     inst_fsgnjn_s ? 7'd8  :
-                     inst_fsgnjx_s ? 7'd9  :
-                     inst_feq_s    ? 7'd10 :
-                     inst_flt_s    ? 7'd11 :
-                     inst_fle_s    ? 7'd12 :
-                     inst_fclass_s ? 7'd13 :
-                     inst_fmv_x_w  ? 7'd14 :
-                     inst_fmv_w_x  ? 7'd15 :
-                     inst_fcvt_w_s ? 7'd16 :
-                     inst_fcvt_wu_s? 7'd17 :
-                     inst_fcvt_s_w ? 7'd18 :
-                     inst_fcvt_s_wu? 7'd19 :
-                     inst_fmadd_s  ? 7'd20 :
-                     inst_fmsub_s  ? 7'd21 :
-                     inst_fnmsub_s ? 7'd22 :
-                     inst_fnmadd_s ? 7'd23 :
-                     7'd0;
-
-  wire [2:0] fpu_rm = funct3;  // DYN (111) resolved in execute using CSR frm
-
-  wire fpu_rd_is_int = inst_feq_s | inst_flt_s | inst_fle_s | inst_fclass_s |
-                       inst_fmv_x_w | inst_fcvt_w_s | inst_fcvt_wu_s;
-
   wire use_fixed_wb;
   assign use_fixed_wb = inst_lui;
 
   wire valid_inst;
   assign valid_inst = is_branch | is_load | is_store | is_jal_like | is_alu | is_mu |
                        is_csr | is_system_trap | is_mret | is_sret | is_nop_like | is_fencei | is_sfence_vma |
-                       is_fpu | is_flw | is_fsw |
                        is_amo;
 
   wire [31:0] alu_src1;
@@ -386,15 +299,13 @@ wire inst_amomaxu  = (opcode == OPCODE_AMO) && (funct3 == 3'b010) && (funct5 == 
           (inst_addi | inst_slti | inst_sltiu | inst_xori | inst_ori | inst_andi) ? imm_i :
           shift_op_i ? {27'b0, inst[24:20]} :
            is_load ? imm_i :
-           is_flw ? imm_i :
            (is_store) ? imm_s :
-           is_fsw ? imm_s :
            is_amo ? 32'b0 :   // AMO/LR/SC: address = rs1 + 0
            rs2_value;
 
   wire [15:0] alu_control;
   assign alu_control = inst_lui ? 16'b0000_0000_0000_0010 :
-         (inst_add | inst_addi | inst_auipc | is_load | is_store | inst_jal | inst_jalr | is_branch | is_flw | is_fsw | is_amo) ? 16'b0001_0000_0000_0000 :
+         (inst_add | inst_addi | inst_auipc | is_load | is_store | inst_jal | inst_jalr | is_branch | is_amo) ? 16'b0001_0000_0000_0000 :
          inst_sub ? 16'b0000_1000_0000_0000 :
          (inst_slt | inst_slti) ? 16'b0000_0100_0000_0000 :
          (inst_sltu | inst_sltiu) ? 16'b0000_0010_0000_0000 :
@@ -407,7 +318,7 @@ wire inst_amomaxu  = (opcode == OPCODE_AMO) && (funct3 == 3'b010) && (funct5 == 
          16'b0;
 
   wire wb_we;
-   assign wb_we = valid_inst && (is_alu | is_jal_like | is_csr | is_mu | is_fpu | is_flw | is_amo);
+   assign wb_we = valid_inst && (is_alu | is_jal_like | is_csr | is_mu | is_amo);
 
   wire [2:0] mem_size;
   assign mem_size = (inst_lb | inst_lbu | inst_sb) ? 3'b000 :
@@ -434,10 +345,6 @@ wire inst_amomaxu  = (opcode == OPCODE_AMO) && (funct3 == 3'b010) && (funct5 == 
   assign csr_uimm   = inst[19:15];
 
   assign id_done = id_valid;
-
-   localparam CSR_FFLAGS     = 12'h001;
-   localparam CSR_FRM        = 12'h002;
-   localparam CSR_FCSR       = 12'h003;
 
    localparam CSR_SSTATUS    = 12'h100;
    localparam CSR_SIE        = 12'h104;
@@ -517,9 +424,7 @@ wire inst_amomaxu  = (opcode == OPCODE_AMO) && (funct3 == 3'b010) && (funct5 == 
     function is_m_csr;
         input [11:0] addr;
         begin
-            is_m_csr = (addr == CSR_FFLAGS)    || (addr == CSR_FRM)        ||
-                       (addr == CSR_FCSR)      ||
-                       (addr == CSR_MSTATUS)    || (addr == CSR_MISA)       ||
+            is_m_csr = (addr == CSR_MSTATUS)    || (addr == CSR_MISA)       ||
                        (addr == CSR_MEDELEG)   || (addr == CSR_MIDELEG)    ||
                        (addr == CSR_MIE)       || (addr == CSR_MTVEC)      ||
                        (addr == CSR_MCOUNTEREN)|| (addr == CSR_MSTATUSH)   ||
@@ -603,7 +508,6 @@ wire inst_amomaxu  = (opcode == OPCODE_AMO) && (funct3 == 3'b010) && (funct5 == 
                                       sfence_tvm_violation || satp_tvm_violation);
   assign rs1_addr = rs1;
   assign rs2_addr = rs2;
-  assign rs3_addr = rs3;
   assign dec_is_branch = id_valid && valid_inst && is_branch;
   assign dec_need_exe = id_valid && valid_inst && !is_nop_like && !is_fencei && !is_sfence_vma && !is_system_trap && !is_mret && !is_sret && !is_csr;
 
@@ -618,7 +522,7 @@ wire inst_amomaxu  = (opcode == OPCODE_AMO) && (funct3 == 3'b010) && (funct5 == 
   assign dec_csr_addr  = csr_addr;
   assign dec_csr_funct3 = csr_funct3;
 
-  assign id_exe_bus = {
+assign id_exe_bus = {
            pc_plus4,
            valid_inst,
            is_alu,
@@ -649,21 +553,13 @@ wire inst_amomaxu  = (opcode == OPCODE_AMO) && (funct3 == 3'b010) && (funct5 == 
            csr_uimm,
            pc,
            inst,
-           is_fpu,
-           is_flw,
-           is_fsw,
-           fpu_funct,
-           fpu_rm,
-           fpu_rd_is_int,
            // --- A extension ---
            is_amo,         // 1 bit
            is_lr,          // 1 bit
            is_sc,          // 1 bit
            funct5,         // 5 bits (amo_funct5)
            amo_aq,         // 1 bit
-           amo_rl,         // 1 bit
-           // --- FMA rs3 ---
-           rs3             // 5 bits (rs3 addr for FMA R4 format)
+           amo_rl          // 1 bit
          };
 
   assign id_pc = pc;

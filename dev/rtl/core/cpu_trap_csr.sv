@@ -21,7 +21,7 @@ module cpu_trap_csr(
     input  [31:0] mem_misalign_addr,
     input  [31:0] mem_pc,
 
-    input  [348:0] id_exe_bus_r,
+    input  [329:0] id_exe_bus_r,
 
     input         csr_valid,
     input         trap_enter_valid,
@@ -100,9 +100,6 @@ module cpu_trap_csr(
 
     output        csr_access_ok,
 
-    output [4:0]  csr_fflags,
-    output [2:0]  csr_frm,
-
     // PMP config outputs
     output [31:0] csr_pmpcfg0,
     output [31:0] csr_pmpcfg1,
@@ -123,10 +120,7 @@ module cpu_trap_csr(
     output [31:0] csr_pmpaddr12,
     output [31:0] csr_pmpaddr13,
     output [31:0] csr_pmpaddr14,
-    output [31:0] csr_pmpaddr15,
-
-    input  [4:0]  fflags_wdata,
-    input         fflags_wen
+    output [31:0] csr_pmpaddr15
 );
 
     wire        hw_csr_wen;
@@ -259,8 +253,6 @@ module cpu_trap_csr(
         .csr_mcounteren   (csr_mcounteren),
         .csr_scounteren   (csr_scounteren),
         .csr_access_ok    (csr_access_ok),
-        .csr_fflags       (csr_fflags),
-        .csr_frm          (csr_frm),
         .csr_pmpcfg0      (csr_pmpcfg0),
         .csr_pmpcfg1      (csr_pmpcfg1),
         .csr_pmpcfg2      (csr_pmpcfg2),
@@ -280,9 +272,7 @@ module cpu_trap_csr(
         .csr_pmpaddr12    (csr_pmpaddr12),
         .csr_pmpaddr13    (csr_pmpaddr13),
         .csr_pmpaddr14    (csr_pmpaddr14),
-        .csr_pmpaddr15    (csr_pmpaddr15),
-        .fflags_wdata     (fflags_wdata),
-        .fflags_wen       (fflags_wen)
+        .csr_pmpaddr15    (csr_pmpaddr15)
     );
 
     // Trap write-data outputs for debug latch

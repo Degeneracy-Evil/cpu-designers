@@ -5,13 +5,9 @@ module cpu_execute(
     input              clk,
     input              resetn,
     input              exe_valid,
-    input      [348:0] id_exe_bus_r,
+    input      [329:0] id_exe_bus_r,
     input      [31:0]  csr_rdata,
-    input      [2:0]   csr_frm,        // CSR frm for DYN rounding mode
-    input      [31:0]  frs1_value,     // float register rs1 value
-    input      [31:0]  frs2_value,     // float register rs2 value
-    input      [31:0]  frs3_value,     // float register rs3 value (FMA)
-    input              trap_pending,   // BUG-16: flush MU/FPU on pending trap
+    input              trap_pending,   // BUG-16: flush MU on pending trap
     output             exe_done,
     output     exe_mem_bus_t exe_mem_bus,
     output             exe_branch_taken,
@@ -69,12 +65,6 @@ module cpu_execute(
     wire [31:0] pc_plus4;
     wire [31:0] pc;
     wire [31:0] inst;
-    wire        is_fpu;
-    wire        is_flw;
-    wire        is_fsw;
-    wire [6:0]  fpu_funct;
-    wire [2:0]  fpu_rm;
-    wire        fpu_rd_is_int;
     // A extension signals
     wire        is_amo;
     wire        is_lr;
@@ -82,7 +72,6 @@ module cpu_execute(
     wire [4:0]  amo_funct5;
     wire        amo_aq;
     wire        amo_rl;
-    wire [4:0]  rs3_addr;      // FMA rs3 address
 
     assign {
         pc_plus4,
@@ -115,21 +104,13 @@ module cpu_execute(
         csr_uimm,
         pc,
         inst,
-        is_fpu,
-        is_flw,
-        is_fsw,
-        fpu_funct,
-        fpu_rm,
-        fpu_rd_is_int,
         // A extension
         is_amo,
         is_lr,
         is_sc,
         amo_funct5,
         amo_aq,
-        amo_rl,
-        // FMA rs3
-        rs3_addr
+        amo_rl
     } = id_exe_bus_r;
 
     wire is_jalr;
@@ -162,8 +143,8 @@ module cpu_execute(
     reg mu_result_got;
     reg mu_active;
 
-    // BUG-16: flush MU/FPU when trap is pending and either is active
-    wire exe_flush = trap_pending && (mu_active || fpu_active);
+    // BUG-16: flush MU when trap is pending and it is active
+    wire exe_flush = trap_pending && mu_active;
 
     mu_unit u_mu(
         .clk(clk),
@@ -181,49 +162,6 @@ module cpu_execute(
         .div_by_zero(mu_div_by_zero)
     );
 
-    // ===================================================================
-    // FPU unit (mirrors MU handshake pattern)
-    // ===================================================================
-    wire [31:0] fpu_result;
-    wire        fpu_busy_w;
-    wire        fpu_ready_w;
-    wire        fpu_result_valid;
-    wire [4:0]  fpu_fflags;
-    wire        fpu_rd_is_int_result;
-
-    reg fpu_req_valid;
-    reg fpu_result_got;
-    reg fpu_active;
-
-    // Resolve DYN rounding mode: if rm==3'b111, use CSR frm
-    wire [2:0] fpu_rm_resolved = (fpu_rm == 3'b111) ? csr_frm : fpu_rm;
-
-    // Int→float instructions (FMV.W.X, FCVT.S.W, FCVT.S.WU) read integer rs1
-    // instead of float frs1. fpu_funct encoding: 15=FMV.W.X, 18=FCVT.S.W, 19=FCVT.S.WU
-    wire fpu_src_is_int = (fpu_funct == 7'd15) ||  // FMV.W.X
-                          (fpu_funct == 7'd18) ||  // FCVT.S.W
-                          (fpu_funct == 7'd19);    // FCVT.S.WU
-    wire [31:0] fpu_src1_mux = fpu_src_is_int ? rs1_value : frs1_value;
-
-    fpu_unit u_fpu(
-        .clk(clk),
-        .resetn(resetn),
-        .fpu_funct(fpu_funct),
-        .fpu_rm(fpu_rm_resolved),
-        .src1(fpu_src1_mux),
-        .src2(frs2_value),
-        .src3(frs3_value),          // rs3 for FMA instructions
-        .req_valid(fpu_req_valid),
-        .flush(exe_flush),
-        .result_got(fpu_result_got),
-        .result(fpu_result),
-        .fpu_busy(fpu_busy_w),
-        .fpu_ready(fpu_ready_w),
-        .result_valid(fpu_result_valid),
-        .fflags(fpu_fflags),
-        .rd_is_int(fpu_rd_is_int_result)
-    );
-
     reg [31:0] result_reg;
     reg        result_ok;
     reg        done_reg;
@@ -236,9 +174,6 @@ module cpu_execute(
             mu_req_valid <= 1'b0;
             mu_result_got <= 1'b0;
             mu_active <= 1'b0;
-            fpu_req_valid <= 1'b0;
-            fpu_result_got <= 1'b0;
-            fpu_active <= 1'b0;
             exe_seen_valid <= 1'b0;
             result_reg <= 32'b0;
             result_ok <= 1'b0;
@@ -248,13 +183,12 @@ module cpu_execute(
         end else begin
             done_reg <= 1'b0;
             mu_result_got <= 1'b0;
-            fpu_result_got <= 1'b0;
 
             if (!exe_valid) begin
                 exe_seen_valid <= 1'b0;
             end
 
-            if (!mu_active && !fpu_active && exe_valid && !exe_seen_valid) begin
+            if (!mu_active && exe_valid && !exe_seen_valid) begin
                 exe_seen_valid <= 1'b1;
                 if (use_fixed_wb) begin
                     result_reg <= wb_fixed_data;
@@ -265,9 +199,6 @@ module cpu_execute(
                 end else if (is_mu) begin
                     mu_req_valid <= 1'b1;
                     mu_active <= 1'b1;
-                end else if (is_fpu) begin
-                    fpu_req_valid <= 1'b1;
-                    fpu_active <= 1'b1;
                 end else begin
                     result_reg <= alu_result;
                     result_ok <= valid_inst;
@@ -294,29 +225,11 @@ module cpu_execute(
                 end
             end
 
-            if (fpu_active) begin
-                if (fpu_req_valid && fpu_ready_w) begin
-                    fpu_req_valid <= 1'b0;
-                end
-                if (fpu_result_valid) begin
-                    fpu_result_got <= 1'b1;
-                    result_reg <= fpu_result;
-                    result_ok <= valid_inst;
-                    done_reg <= 1'b1;
-                    fpu_active <= 1'b0;
-                    fpu_req_valid <= 1'b0;
-                    branch_target_reg <= 32'b0;
-                    branch_taken_reg <= 1'b0;
-                end
-            end
-
-            // BUG-16: flush MU/FPU when trap is pending — clear active flags,
+            // BUG-16: flush MU when trap is pending — clear active flags,
             // signal done with result_ok=0 (suppress WB), unblock controller FSM
             if (exe_flush) begin
                 mu_active     <= 1'b0;
-                fpu_active    <= 1'b0;
                 mu_req_valid  <= 1'b0;
-                fpu_req_valid <= 1'b0;
                 done_reg      <= 1'b1;   // unblock STATE_EXEC
                 result_ok     <= 1'b0;   // suppress write-back
                 result_reg    <= 32'b0;
@@ -354,7 +267,7 @@ module cpu_execute(
     assign dbg_exe_is_mu = is_mu;
     assign exe_is_ctrl_flow = is_branch | is_jal_like;
     assign exe_is_branch = is_branch;
-    assign exe_need_mem  = is_load | is_store | is_flw | is_fsw | is_amo;
+    assign exe_need_mem  = is_load | is_store | is_amo;
 
     assign exe_csr_wen    = is_csr && !csr_no_write;
     assign exe_csr_waddr  = csr_addr;
@@ -380,11 +293,6 @@ module cpu_execute(
         csr_rdata:     csr_rdata,
         pc:            pc,
         inst:          inst,
-        is_fpu:        is_fpu,
-        is_flw:        is_flw,
-        is_fsw:        is_fsw,
-        fpu_rd_is_int: fpu_rd_is_int,
-        fpu_fflags:    fpu_fflags,
         is_amo:        is_amo,
         is_lr:         is_lr,
         is_sc:         is_sc,

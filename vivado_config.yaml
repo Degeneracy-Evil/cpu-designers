@@ -103,7 +103,6 @@ memory:
 rtl_path:
   alu: ALU
   mu: MU
-  fpu: FPU
   cpu_core: core
   common: common
   ahb: axi

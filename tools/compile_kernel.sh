@@ -11,13 +11,13 @@ set -euo pipefail
 
 # 准备环境变量
 export CPU_HOME=$(pwd)
-export DTS_HOME=${CPU_HOME}/boot/dts
+export DTS_HOME=${CPU_HOME}/linux/dts
 export DTB_BUILD=${CPU_HOME}/build/dtb
 export DTB_OUT=${CPU_HOME}/build/dtb/simplecpu.dtb
-export KERNEL_HOME=${CPU_HOME}/kernel/linux-7.1
+export KERNEL_HOME=${CPU_HOME}/linux/linux-7.1
 export KERNEL_BUILD=${CPU_HOME}/build/kernel
 export KERNEL_IMG=${CPU_HOME}/build/kernel/arch/riscv/boot/Image
-export OPENSBI_HOME=${CPU_HOME}/kernel/opensbi
+export OPENSBI_HOME=${CPU_HOME}/linux/opensbi
 export OPENSBI_BUILD=${CPU_HOME}/build/opensbi
 
 # 准备环境
@@ -187,7 +187,7 @@ scripts/config --file "$KERNEL_BUILD/.config" \
 scripts/config --file "$KERNEL_BUILD/.config" \
   -e BLK_DEV_INITRD \
   -e RD_GZIP \
-  --set-str INITRAMFS_SOURCE "${CPU_HOME}/kernel/initramfs-rv32.cpio.gz"
+  --set-str INITRAMFS_SOURCE "${CPU_HOME}/linux/initramfs-rv32.cpio.gz"
 
 # 自动补充生成内核配置
 make ARCH=riscv \

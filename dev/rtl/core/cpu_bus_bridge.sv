@@ -182,8 +182,6 @@ module cpu_bus_bridge(
     reg        dcache_error_r;
     reg        dcache_error_is_store_r;
     reg [31:0] bus_error_addr_r;
-    reg [2:0]  wb_starve_cnt_r;
-    reg        wb_boost_r;
 
     reg [31:0] ptw_rdata_r;
     reg        ptw_done_r;
@@ -301,8 +299,6 @@ module cpu_bus_bridge(
             dcache_error_r         <= 1'b0;
             dcache_error_is_store_r <= 1'b0;
             bus_error_addr_r       <= 32'b0;
-            wb_starve_cnt_r        <= 3'd0;
-            wb_boost_r             <= 1'b0;
             ptw_rdata_r            <= 32'b0;
             ptw_done_r             <= 1'b0;
             ptw_error_r            <= 1'b0;
@@ -350,47 +346,17 @@ module cpu_bus_bridge(
             icache_mmio_accept_r   <= 1'b0;
             dcache_mmio_accept_r   <= 1'b0;
 
-            if (state == S_IDLE) begin
-                if (dcache_wb_req) begin
-                    if ((icache_mmio_req || dcache_mmio_req || ptw_req) && !wb_boost_r) begin
-                        if (wb_starve_cnt_r == 3'd3) begin
-                            wb_boost_r      <= 1'b1;
-                            wb_starve_cnt_r <= 3'd0;
-                        end else begin
-                            wb_starve_cnt_r <= wb_starve_cnt_r + 3'd1;
-                        end
-                    end else if (!(icache_mmio_req || dcache_mmio_req || ptw_req)) begin
-                        wb_starve_cnt_r <= 3'd0;
-                    end
-                end else begin
-                    wb_starve_cnt_r <= 3'd0;
-                    wb_boost_r      <= 1'b0;
-                end
-            end
-
             case (state)
                 // =====================================================
                 // S_IDLE — Arbitrate among request sources
-                // Priority: icache_mmio > dcache_mmio > ptw > dcache_wb > icache_refill > dcache_refill
+                // Priority: icache_mmio > dcache_mmio > dcache_wb > ptw > icache_refill > dcache_refill
                 // =====================================================
                 S_IDLE: begin
                     awvalid <= 1'b0;
                     wvalid  <= 1'b0;
                     arvalid <= 1'b0;
 
-                    if (dcache_wb_req && wb_boost_r && !dcache_wb_valid_r && !dcache_wb_wait_drop_r) begin
-                        state           <= S_WB_AW;
-                        addr_r          <= dcache_wb_addr;
-                        write_r         <= 1'b1;
-                        burst_base_addr <= dcache_wb_addr;
-                        beat_cnt        <= 3'd0;
-                        wb_shift_reg    <= dcache_wb_data;
-                        aw_hs_done_r    <= 1'b0;
-                        w_hs_done_r     <= 1'b0;
-                        wb_boost_r      <= 1'b0;
-                        wb_starve_cnt_r <= 3'd0;
-                    end
-                    else if (icache_mmio_req && !ahb_inst_valid_r) begin
+                    if (icache_mmio_req && !ahb_inst_valid_r) begin
                         // MMIO instruction read → AR channel
                         state       <= S_MMIO_AR;
                         addr_r      <= icache_mmio_addr;
@@ -421,6 +387,17 @@ module cpu_bus_bridge(
                             dcache_mmio_accept_r <= 1'b1;
                         end
                     end
+                    else if (dcache_wb_req && !dcache_wb_valid_r && !dcache_wb_wait_drop_r) begin
+                        // Writeback burst → AW+W simultaneous (beat 0), then W beats 1-7, then B
+                        state           <= S_WB_AW;
+                        addr_r          <= dcache_wb_addr;
+                        write_r         <= 1'b1;
+                        burst_base_addr <= dcache_wb_addr;
+                        beat_cnt        <= 3'd0;
+                        wb_shift_reg    <= dcache_wb_data;
+                        aw_hs_done_r    <= 1'b0;
+                        w_hs_done_r     <= 1'b0;
+                    end
                     else if (ptw_req && !ptw_done_r) begin
                         if (ptw_we) begin
                             // PTW write → AW+W channels
@@ -440,19 +417,6 @@ module cpu_bus_bridge(
                             size_r      <= `AXI_SIZE_4B;
                             is_inst_r   <= 1'b0;
                         end
-                    end
-                    else if (dcache_wb_req && !dcache_wb_valid_r && !dcache_wb_wait_drop_r) begin
-                        // Writeback burst → AW+W simultaneous (beat 0), then W beats 1-7, then B
-                        state           <= S_WB_AW;
-                        addr_r          <= dcache_wb_addr;
-                        write_r         <= 1'b1;
-                        burst_base_addr <= dcache_wb_addr;
-                        beat_cnt        <= 3'd0;
-                        wb_shift_reg    <= dcache_wb_data;
-                        aw_hs_done_r    <= 1'b0;
-                        w_hs_done_r     <= 1'b0;
-                        wb_boost_r      <= 1'b0;
-                        wb_starve_cnt_r <= 3'd0;
                     end
                     else if (icache_refill_req && !icache_refill_valid_r) begin
                         // Icache refill burst → AR then R

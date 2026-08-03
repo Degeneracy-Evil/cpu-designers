@@ -357,10 +357,12 @@ module MMU #(
                      ((i_state == I_FILL_WAIT) && i_ptw_direct_valid_r && !i_input_changed);
     assign i_miss  = (i_state == I_LOOKUP) && i_latched_sv32 && i_tlb_miss && !i_input_changed;
 
-    // BUG-11 fix: d_ready 仅在翻译真正完成且无 fault 时有效。
-    // bare 模式 (!d_latched_sv32) 无需翻译；Sv32 模式必须 hit 且无 perm fault。
+// BUG-11 fix: d_ready 仅在翻译真正完成且无 fault 时有效。
+    // bare 模式 (!d_latched_sv32) 无需翻译；Sv32 模式必须 hit 且无 perm fault，
+    // 且 D=0 的 store 需先走 PTW 补 D 位（与 d_translation_ok 对齐），
+    // 否则 dcache 在 MMU 仍待 walk 填 D 位时误判就绪 → store 挂死。
     assign d_ready = ((d_state == D_LOOKUP) && !d_input_changed && !d_lookup_stalled
-                     && (!d_latched_sv32 || (d_tlb_valid && d_tlb_hit && !d_tlb_perm_fault))) ||
+                     && (!d_latched_sv32 || (d_tlb_valid && d_tlb_hit && !d_tlb_perm_fault && !d_tlb_need_ad_update))) ||
                      ((d_state == D_FILL_WAIT) && d_ptw_direct_valid_r && !d_input_changed);
     assign d_miss  = (d_state == D_LOOKUP) && d_latched_sv32 && d_tlb_miss && !d_input_changed && !d_lookup_stalled;
 

@@ -366,7 +366,6 @@ module system_top(
     wire [31:0] dbg_last_mmio_count;
 
     // IRQ wires
-    wire        timer_irq;
     wire [1:0]  plic_eip;
     wire        clint_mtip;
     wire        clint_msip;
@@ -1703,7 +1702,7 @@ module system_top(
     // ========================================================================
     wire [7:0] plic_src_irq;
     assign plic_src_irq[0] = 1'b0;
-    assign plic_src_irq[1] = timer_irq;   // from APB Timer
+    assign plic_src_irq[1] = 1'b0;   // APB Timer removed — source[1] unused
     assign plic_src_irq[2] = uart_irq;
     assign plic_src_irq[3] = spi_irq;
     assign plic_src_irq[4] = gpio_irq;
@@ -1975,7 +1974,6 @@ module system_top(
         .o_gpioCtrl     (gpio_ctrl_out_wire),
         .o_gpioData     (gpio_data_out_wire),
         .io_gpioPin     (gpio_io),
-        .o_timer_irq    (timer_irq),
         .o_gpio_irq     (gpio_irq),
         .i_uart_rx      (uart_rx),
         .o_uart_tx      (cpu_uart_tx),

@@ -32,7 +32,6 @@ module apb_perips #(
     output wire [DATA_WIDTH-1:0] o_gpioData,
     inout  wire [GPIO_NUM-1:0]   io_gpioPin,
 
-    output wire                   o_timer_irq,
     output wire                   o_gpio_irq,
 
     input  wire                   i_uart_rx,
@@ -67,21 +66,8 @@ module apb_perips #(
         .o_irq     (o_gpio_irq)
     );
 
-    timer u_timer (
-        .PCLK    (PCLK),
-        .PRESETn (PRESETn),
-        .PADDR   (PADDR),
-        .PPROT   (PPROT),
-        .PSEL    (PSELx[1]),
-        .PENABLE (PENABLE),
-        .PWRITE  (PWRITE),
-        .PWDATA  (PWDATA),
-        .PSTRB   (PSTRB),
-        .PREADY  (slave_PREADY[1]),
-        .PRDATA  (slave1_PRDATA),
-        .PSLVERR (slave_PSLVERR[1]),
-        .o_irq   (o_timer_irq)
-    );
+    // APB Timer (slot 1, 0x1000_4000) removed — Linux relies on CLINT mtime/mtimecmp.
+    // slot1 is left unmapped (returns OKAY/zero) so UART/SPI slot addresses stay intact.
 
     uart_16550a #(
         .FIFO_DEPTH (UART_FIFO_DEPTH)
@@ -122,5 +108,11 @@ module apb_perips #(
         .o_spiClk (o_spiClk),
         .o_irq    (o_spi_irq)
     );
+
+    // Slot 1 (0x1000_4000) is the removed APB Timer — benign OKAY/zero response
+    // for robustness if software ever touches the reserved address.
+    assign slave_PREADY [1] = 1'b1;
+    assign slave_PSLVERR[1] = 1'b0;
+    assign slave1_PRDATA    = 32'd0;
 
 endmodule

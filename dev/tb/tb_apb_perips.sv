@@ -303,20 +303,6 @@ module tb_apb_perips;
             check("GPIO_IRQ_STAT initial", rd_val, 32'h00000000);
         end
 
-        // Timer test
-        begin : timer_test
-            axi4_write(32'h10004000, 32'd200);
-            axi4_read(32'h10004000, rd_val);
-            check("Timer_EXPR write/read", rd_val, 32'd200);
-
-            axi4_write(32'h10004004, 32'h00000003);
-            axi4_read(32'h10004004, rd_val);
-            check("Timer_CTRL write/read", rd_val, 32'h00000003);
-
-            axi4_read(32'h10004008, rd_val);
-            check("Timer_IRQ initial", rd_val[0], 1'b0);
-        end
-
         // UART test
         begin : uart_test
             axi4_write_ex(32'h1000800C, 32'h00000080, 4'h1, 2); // LCR.DLAB = 1

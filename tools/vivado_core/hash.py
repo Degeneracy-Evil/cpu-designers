@@ -4,11 +4,11 @@ Computes per-layer SHA256 hashes over project source files so that
 stale sessions can be detected and incremental refreshes planned.
 
 Layers:
-- **rtl**:  dev/rtl/**/*.sv + dev/rtl/**/*.svh + Reference/**/*.xci
-- **tb**:   dev/tb/**/*.sv
-- **src**:  dev/program_source/**/*.{s,S,c,h,ld} + build.yaml + test_builder.py + rv2coe.py
-- **coe**:  dev/program_source/{test,app,boot}/**/*.{coe,hex}
-- **fpga**: dev/fpga/**/*.xdc + dev/fpga/**/*.dcp + tools/vivado_core/tcl/**/*.tcl
+- **rtl**:  src/rtl/**/*.sv + src/rtl/**/*.svh + Reference/**/*.xci
+- **tb**:   src/tb/**/*.sv
+- **src**:  src/program_source/**/*.{s,S,c,h,ld} + build.yaml + test_builder.py + rv2coe.py
+- **coe**:  src/program_source/{test,app,boot}/**/*.{coe,hex}
+- **fpga**: src/fpga/**/*.xdc + src/fpga/**/*.dcp + tools/vivado_core/tcl/**/*.tcl
 """
 from __future__ import annotations
 
@@ -33,39 +33,39 @@ class LayeredHash:
 
     HASH_GLOBS: dict[str, list[str]] = {
         "rtl": [
-            "dev/rtl/**/*.sv",
-            "dev/rtl/**/*.svh",
+            "src/rtl/**/*.sv",
+            "src/rtl/**/*.svh",
             "Reference/**/*.xci",
-            "vivado_config.yaml",
+            "config/vivado_config.yaml",
             "tools/vivado_core/**/*.py",
             "Reference/ddr3_sim/**/*.sv",
             "Reference/ddr3_sim/**/*.vh",
             "Reference/ddr3_sim/**/*.v",
         ],
         "tb": [
-            "dev/tb/**/*.sv",
+            "src/tb/**/*.sv",
         ],
         "src": [
-            "dev/program_source/**/*.s",
-            "dev/program_source/**/*.S",
-            "dev/program_source/**/*.c",
-            "dev/program_source/**/*.h",
-            "dev/program_source/**/*.ld",
-            "dev/program_source/build.yaml",
+            "src/program_source/**/*.s",
+            "src/program_source/**/*.S",
+            "src/program_source/**/*.c",
+            "src/program_source/**/*.h",
+            "src/program_source/**/*.ld",
+            "src/program_source/build.yaml",
             "tools/test_builder.py",
             "tools/rv2coe.py",
         ],
         "coe": [
-            "dev/program_source/test/**/*.coe",
-            "dev/program_source/test/**/*.hex",
-            "dev/program_source/app/**/*.coe",
-            "dev/program_source/app/**/*.hex",
-            "dev/program_source/boot/**/*.coe",
-            "dev/program_source/boot/**/*.hex",
+            "src/program_source/test/**/*.coe",
+            "src/program_source/test/**/*.hex",
+            "src/program_source/app/**/*.coe",
+            "src/program_source/app/**/*.hex",
+            "src/program_source/boot/**/*.coe",
+            "src/program_source/boot/**/*.hex",
         ],
         "fpga": [
-            "dev/fpga/**/*.xdc",
-            "dev/fpga/**/*.dcp",
+            "src/fpga/**/*.xdc",
+            "src/fpga/**/*.dcp",
             "tools/vivado_core/tcl/**/*.tcl",
         ],
     }

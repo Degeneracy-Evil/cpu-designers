@@ -56,7 +56,7 @@ def _find_tb_path(tb_dir: str, tb_name: str) -> str:
 
     Searches *tb_dir* first, then its immediate subdirectories, for
     ``{tb_name}.sv``.  This handles testbenches that live in sub-
-    directories (e.g. ``dev/tb/ALU/tb_alu_cpu_integration.sv``).
+    directories (e.g. ``src/tb/ALU/tb_alu_cpu_integration.sv``).
 
     Returns the absolute path if found, otherwise falls back to
     ``{tb_dir}/{tb_name}.sv`` (the old behaviour) so that Vivado
@@ -76,7 +76,7 @@ def _find_tb_path(tb_dir: str, tb_name: str) -> str:
 def _resolve_rtl_dirs(dev_dir: str, rtl: RtlPathsConfig) -> dict[str, str]:
     """Build a dict of named RTL directory paths from config.
 
-    Returns a mapping like ``{"alu": "dev/rtl/ALU", "mu": "dev/rtl/MU", ...}``
+    Returns a mapping like ``{"alu": "src/rtl/ALU", "mu": "src/rtl/MU", ...}``
     using the relative fragments from *rtl* combined with *dev_dir*.
     """
     rtl_base = f"{dev_dir}/rtl"
@@ -251,7 +251,7 @@ def _tcl_add_constrs(base_dir: str) -> str:
 
     Mirrors ``tools/vivado_core/tcl/_add_constrs.tcl``.
     """
-    fpga_dir = f"{base_dir}/dev/fpga"
+    fpga_dir = f"{base_dir}/src/fpga"
     return f"""\
 # --- add constraints ---
 import_files -norecurse "{fpga_dir}/lcd_module.dcp"
@@ -799,7 +799,7 @@ class Operations:
         """
         if not task.blcoe:
             return ""
-        return _tcl_path(self.session_mgr.base_dir / "dev" / "program_source" / task.blcoe)
+        return _tcl_path(self.session_mgr.base_dir / "src" / "program_source" / task.blcoe)
 
     def _resolve_blhex_path(self, task: TaskConfig) -> str:
         """Return the bootloader hex path for the bootROM $readmemh.
@@ -808,14 +808,14 @@ class Operations:
         For DDR3/FPGA tasks (blcoe set): returns the default bootloader.hex.
         """
         if task.blhex:
-            return _tcl_path(self.session_mgr.base_dir / "dev" / "program_source" / task.blhex)
-        return _tcl_path(self.session_mgr.base_dir / "dev" / "program_source" / "boot/bootloader.hex")
+            return _tcl_path(self.session_mgr.base_dir / "src" / "program_source" / task.blhex)
+        return _tcl_path(self.session_mgr.base_dir / "src" / "program_source" / "boot/bootloader.hex")
 
     def _resolve_phex_path(self, task: TaskConfig) -> str:
         """Return the program hex path for SRAM $readmemh, or empty string."""
         if not task.phex:
             return ""
-        return _tcl_path(self.session_mgr.base_dir / "dev" / "program_source" / task.phex)
+        return _tcl_path(self.session_mgr.base_dir / "src" / "program_source" / task.phex)
 
     def _check_required_files(self, task: TaskConfig) -> str:
         """Pre-check that blcoe/blhex/phex files referenced by the task exist on disk.
@@ -824,7 +824,7 @@ class Operations:
         if all files are present.  The message includes the task name, missing
         file path, and the command to generate it.
         """
-        base = self.session_mgr.base_dir / "dev" / "program_source"
+        base = self.session_mgr.base_dir / "src" / "program_source"
         missing = []
 
         if task.blcoe:
@@ -908,7 +908,7 @@ class Operations:
     def _regenerate_cache_header(self) -> None:
         """Regenerate ``cache_def.svh`` from the current memory config."""
         mem_config = self.session_mgr.config.memory
-        target = self.session_mgr.base_dir / "dev" / "rtl" / "core" / "cache_def.svh"
+        target = self.session_mgr.base_dir / "src" / "rtl" / "core" / "cache_def.svh"
         write_cache_header(mem_config, target)
         logger.info("Regenerated cache_def.svh from memory config")
 
@@ -961,7 +961,7 @@ class Operations:
         self._regenerate_cache_header()
 
         base = _tcl_path(self.session_mgr.base_dir)
-        dev = f"{base}/dev"
+        dev = f"{base}/src"
         proj_dir = _tcl_path(session.project_dir)
         proj_name = self.session_mgr.config.proj_name
         device_part = self.session_mgr.config.device_part
@@ -998,7 +998,7 @@ class Operations:
             Path to the generated file.
         """
         self._regenerate_cache_header()
-        target = self.session_mgr.base_dir / "dev" / "rtl" / "core" / "cache_def.svh"
+        target = self.session_mgr.base_dir / "src" / "rtl" / "core" / "cache_def.svh"
         return str(target)
 
     def refresh(
@@ -1042,7 +1042,7 @@ class Operations:
             return ExecuteResult(output="No stale layers", success=True, timed_out=False, duration=0.0)
 
         base = _tcl_path(self.session_mgr.base_dir)
-        dev = f"{base}/dev"
+        dev = f"{base}/src"
         proj_dir = _tcl_path(session.project_dir)
         proj_name = self.session_mgr.config.proj_name
         device_part = self.session_mgr.config.device_part
@@ -1189,7 +1189,7 @@ class Operations:
 
         sim_runtime = runtime or task.runtime or "100000ns"
         base = _tcl_path(self.session_mgr.base_dir)
-        dev = f"{base}/dev"
+        dev = f"{base}/src"
         proj_dir = _tcl_path(session.project_dir)
         proj_name = self.session_mgr.config.proj_name
         blcoe_file = self._resolve_blcoe_path(task)

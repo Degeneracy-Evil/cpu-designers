@@ -316,7 +316,7 @@ def write_cache_header(mem: MemoryConfig, target_path: Path) -> None:
     mem:
         Memory/cache configuration.
     target_path:
-        Full path to the output file (e.g. ``dev/rtl/core/cache_def.svh``).
+        Full path to the output file (e.g. ``src/rtl/core/cache_def.svh``).
     """
     content = generate_cache_header(mem)
     target_path.parent.mkdir(parents=True, exist_ok=True)

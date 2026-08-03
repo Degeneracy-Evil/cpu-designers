@@ -24,7 +24,7 @@ from pathlib import Path
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-BUILD_YAML = REPO_ROOT / "dev" / "program_source" / "build.yaml"
+BUILD_YAML = REPO_ROOT / "src" / "program_source" / "build.yaml"
 TEST_BUILDER = REPO_ROOT / "tools" / "test_builder.py"
 VIVADO_CLI = REPO_ROOT / "tools" / "vivado_cli.py"
 

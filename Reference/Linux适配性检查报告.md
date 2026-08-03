@@ -1,6 +1,6 @@
 # RISC-V RV32 CPU 启动 Linux 适配性检查报告
 
-> 生成日期: 2026-06-15 | 参照文档: `dev/docs/simpleCPU-design-report.md` | 检查清单: `Reference/RV32-CPU启动Linux的最小必要条件检查清单.md`
+> 生成日期: 2026-06-15 | 参照文档: `src/docs/simpleCPU-design-report.md` | 检查清单: `Reference/RV32-CPU启动Linux的最小必要条件检查清单.md`
 >
 > 本报告基于设计文档与 RTL 代码扫描，逐项标注当前 CPU/SoC 是否满足 Linux 启动最低硬件条件。**不涉及代码修改，仅扫描与标注。**
 >

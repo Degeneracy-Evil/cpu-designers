@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """test_builder.py — 测试程序构建管理
 
-读取 dev/program_source/build.yaml，调用 rv2coe.py 编译测试程序和应用。
+读取 src/program_source/build.yaml，调用 rv2coe.py 编译测试程序和应用。
 
  用法:
      python tools/test_builder.py                          # 构建全部
@@ -33,8 +33,8 @@ import yaml
 # 项目根目录 (repo checkout root)
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-# dev/program_source/ 基目录
-PROG_SRC = REPO_ROOT / "dev" / "program_source"
+# src/program_source/ 基目录
+PROG_SRC = REPO_ROOT / "src" / "program_source"
 
 # 测试源码基目录
 TEST_SRC = PROG_SRC / "test"
@@ -46,7 +46,7 @@ APP_SRC = PROG_SRC / "app"
 BUILD_YAML = PROG_SRC / "build.yaml"
 
 # tasks.yaml 路径
-TASKS_YAML = REPO_ROOT / "tasks.yaml"
+TASKS_YAML = REPO_ROOT / "config" / "tasks.yaml"
 
 # rv2coe.py 路径
 RV2COE = REPO_ROOT / "tools" / "rv2coe.py"
@@ -81,7 +81,7 @@ def load_build_config() -> dict[str, Any]:
 def _resolve_app_targets(config: dict) -> None:
     """从 build.yaml 的 apps 段填充 APP_TARGETS。
 
-    路径相对于 dev/program_source/ 解析；未指定字段继承 defaults。
+    路径相对于 src/program_source/ 解析；未指定字段继承 defaults。
     """
     global APP_TARGETS
 
@@ -117,7 +117,7 @@ def discover_all_tests(config: dict) -> list[dict]:
         list of dicts, each with keys:
             name: str         e.g. "isa/alu"
             category: str     e.g. "isa"
-            src_file: Path    e.g. dev/program_source/test/isa/alu.s
+            src_file: Path    e.g. src/program_source/test/isa/alu.s
             framework: list[str]  framework files to include
             arch: str
             abi: str

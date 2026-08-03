@@ -15,8 +15,8 @@ ILA 通过 `ENABLE_ILA` 宏条件编译：定义时实例化真实 ILA IP 核，
 
 | 文件 | 说明 |
 |------|------|
-| `dev/rtl/system_top.sv` | 顶层模块，含 `ifdef ENABLE_ILA` 条件编译的 ILA 实例化 |
-| `dev/rtl/common/ila_stub.sv` | ILA stub 模块（空壳），仿真/无 ILA 构建时使用 |
+| `src/rtl/system_top.sv` | 顶层模块，含 `ifdef ENABLE_ILA` 条件编译的 ILA 实例化 |
+| `src/rtl/common/ila_stub.sv` | ILA stub 模块（空壳），仿真/无 ILA 构建时使用 |
 | `tools/vivado_core/tcl/_add_ila.tcl` | 独立 TCL：在已打开的 Vivado 项目中创建 ILA IP 核 |
 | `tools/vivado_core/tcl/build_with_ila.tcl` | 一键构建脚本：创建 ILA + 综合 + 实现 + 生成 bitstream |
 | `system_top_ila.bit` | 带 ILA 的 bitstream（9.3 MB） |
@@ -92,7 +92,7 @@ vivado -mode batch -source tools/vivado_core/tcl/build_with_ila.tcl
 open_project project/fpga/simplecpu_soc.xpr
 
 # 2. 添加 stub 文件
-add_files -norecurse dev/rtl/common/ila_stub.sv
+add_files -norecurse src/rtl/common/ila_stub.sv
 
 # 3. 创建 ILA IP 核
 source tools/vivado_core/tcl/_add_ila.tcl

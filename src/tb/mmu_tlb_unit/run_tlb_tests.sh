@@ -11,8 +11,8 @@ XELAB=$VIVADO_BIN/xelab
 XSIM=$VIVADO_BIN/xsim
 
 # Project paths
-RTL_CORE=dev/rtl/core
-TB_DIR=dev/tb/mmu_tlb_unit
+RTL_CORE=src/rtl/core
+TB_DIR=src/tb/mmu_tlb_unit
 INCLUDE_DIR=$RTL_CORE
 
 # Output directory

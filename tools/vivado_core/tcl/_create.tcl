@@ -58,7 +58,7 @@ puts "工程已创建: $proj_dir (拷贝策略)"
 #   -自动推断编译顺序，解决 update_compile_order 依赖缺失问题
 #   -参考 chiplab 框架项目的 create_project.tcl
 #
-# 注意: sys_rtl_dir (dev/rtl/) 的顶层文件需单独添加，
+# 注意: sys_rtl_dir (src/rtl/) 的顶层文件需单独添加，
 #       因为 add_files -scan_for_includes 会递归包含 _archived/ 等不需要的子目录
 # ---------------------------------------------------------------------------
 puts "========== Step 2: 添加 RTL 源文件 =========="

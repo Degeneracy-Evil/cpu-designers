@@ -207,7 +207,7 @@ class MemoryConfig:
 
 @dataclass(frozen=True)
 class RtlPathsConfig:
-    """RTL sub-directory paths relative to ``dev/rtl/``.
+    """RTL sub-directory paths relative to ``src/rtl/``.
 
     Each field is a relative path fragment used to construct the full
     directory path as ``{dev_dir}/rtl/{fragment}``.  Override in
@@ -228,8 +228,8 @@ class RtlPathsConfig:
     apb_header: str = "APB/header"
     apb_perips: str = "APB/perips"
     apb_uart16550: str = "APB/perips/uart16550"
-    sys_rtl: str = ""  # dev/rtl itself (empty fragment → dev/rtl)
-    tb: str = ""  # relative to dev/ not dev/rtl/ → handled specially
+    sys_rtl: str = ""  # src/rtl itself (empty fragment → src/rtl)
+    tb: str = ""  # relative to src/ not src/rtl/ → handled specially
 
 
 @dataclass(frozen=True)
@@ -256,7 +256,7 @@ class GlobalConfig:
     """Memory and cache configuration."""
 
     rtl_path: RtlPathsConfig = field(default_factory=RtlPathsConfig)
-    """RTL sub-directory paths (relative to dev/rtl/)."""
+    """RTL sub-directory paths (relative to src/rtl/)."""
 
 
 # ---------------------------------------------------------------------------
@@ -283,7 +283,7 @@ def load_config(path: Path | str | None = None, base_dir: Path | str | None = No
     """
     if path is None:
         search_dir = Path(base_dir) if base_dir is not None else Path.cwd()
-        path = search_dir / "vivado_config.yaml"
+        path = search_dir / "config" / "vivado_config.yaml"
     else:
         path = Path(path)
 

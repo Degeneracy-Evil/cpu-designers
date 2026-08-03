@@ -28,7 +28,7 @@ class TaskConfig:
     tb:
         Testbench module name (empty for FPGA-only tasks).
     blcoe:
-        Bootloader COE filename relative to ``dev/program_source/``.
+        Bootloader COE filename relative to ``src/program_source/``.
         Used for FPGA bitstream generation and DDR3 simulation where the
         BRAM IP is initialised from COE.  Mutually exclusive with
         ``blhex`` — tasks must set one or the other, never both.
@@ -49,12 +49,12 @@ class TaskConfig:
         ``{"u_dut...u_mig.SIM_BYPASS_INIT_CAL": "FAST"}``.
         Passed as ``-g`` flags to xelab.
     blhex:
-        Bootloader HEX filename relative to ``dev/program_source/``.
+        Bootloader HEX filename relative to ``src/program_source/``.
         Used for normal (SRAM) simulation where the bootROM reads the
         hex file via ``$readmemh``.  Mutually exclusive with
         ``blcoe`` — tasks must set one or the other, never both.
     phex:
-        Program HEX filename relative to ``dev/program_source/``.
+        Program HEX filename relative to ``src/program_source/``.
         Specifies the program image loaded into SRAM via
         ``$readmemh("prog.hex")`` during simulation.  Only used in
         SRAM-mode simulation; DDR3 simulation loads the program via

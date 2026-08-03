@@ -5,7 +5,7 @@
 # 声明式定义所有测试程序和应用目标的依赖、构建参数。
 # test_builder.py 读取此文件驱动构建。
 #
-# 路径约定: 相对于 dev/program_source/
+# 路径约定: 相对于 src/program_source/
 #
 # ============================================================
 
@@ -143,7 +143,7 @@ categories:
 # ── 应用目标 ──
 #
 # 每个应用指定:
-#   src_files:       源文件列表（相对于 dev/program_source/）
+#   src_files:       源文件列表（相对于 src/program_source/）
 #   arch:            目标架构（缺省继承 defaults.arch）
 #   abi:             ABI（缺省继承 defaults.abi）
 #   linker_script:   链接脚本（缺省继承 defaults.linker_script；设为 null 显式禁用）

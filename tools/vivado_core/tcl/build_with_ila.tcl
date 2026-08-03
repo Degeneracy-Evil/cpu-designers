@@ -41,7 +41,7 @@ puts "==========================================================================
 puts "Step 2: Adding ila_stub.sv..."
 puts "============================================================================"
 
-set ila_stub_path "${base_dir}/dev/rtl/common/ila_stub.sv"
+set ila_stub_path "${base_dir}/src/rtl/common/ila_stub.sv"
 if { ![file exists $ila_stub_path] } {
     puts "ERROR: ila_stub.sv not found: $ila_stub_path"
     exit 1

@@ -2,7 +2,7 @@
 # run_ddr3_sim.tcl — Vivado XSim simulation script for DDR3 testbenches
 #
 # Usage:
-#   vivado -mode batch -source dev/tb/run_ddr3_sim.tcl -tclargs <tb_name> [hex_file]
+#   vivado -mode batch -source src/tb/run_ddr3_sim.tcl -tclargs <tb_name> [hex_file]
 #   where <tb_name> is one of: tb_ddr3_mig_ex, tb_ddr3_ahb_ex, tb_ddr3_system_v3
 #   and [hex_file] is optional hex file for tb_ddr3_system_v3 (copied to xsim dir)
 #

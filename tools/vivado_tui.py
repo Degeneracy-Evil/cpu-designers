@@ -611,8 +611,8 @@ class VivadoTUI(App):
             return
 
         try:
-            config_path = self._project_root / "vivado_config.yaml"
-            tasks_path = self._project_root / "tasks.yaml"
+            config_path = self._project_root / "config" / "vivado_config.yaml"
+            tasks_path = self._project_root / "config" / "tasks.yaml"
 
             self._config = load_config(config_path, self._project_root)
             self._task_registry = TaskRegistry(tasks_path)

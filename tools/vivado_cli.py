@@ -639,8 +639,8 @@ def main(argv: list[str] | None = None) -> int:
     # --- Resolve config / tasks paths ---
     project_root = Path(__file__).resolve().parent.parent
 
-    config_path = Path(args.config) if args.config else project_root / "vivado_config.yaml"
-    tasks_path = Path(args.tasks) if args.tasks else project_root / "tasks.yaml"
+    config_path = Path(args.config) if args.config else project_root / "config" / "vivado_config.yaml"
+    tasks_path = Path(args.tasks) if args.tasks else project_root / "config" / "tasks.yaml"
 
     # --- Load configuration ---
     try:

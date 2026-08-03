@@ -52,7 +52,7 @@
 #   - testbench 中的 $readmemh 使用相对路径，iverilog 可直接解析
 #   - xsim 工作目录为 ${proj_dir}/${proj_name}.sim/sim_1/behav/xsim/
 #     相对路径无法解析，需将 $readmemh 路径改为绝对路径
-#     例如: "<repo_root>/dev/program_source/test/cpu_test.hex"
+#     例如: "<repo_root>/src/program_source/test/cpu_test.hex"
 # =============================================================================
 
 # ---------------------------------------------------------------------------

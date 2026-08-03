@@ -258,7 +258,7 @@ PTE = 0x00000000
 
 ### 3.1 RTL 信号连接
 
-来源: `dev/rtl/core/core_top.sv`
+来源: `src/rtl/core/core_top.sv`
 
 ```
 MMU.ptw_bus_req  →  cpu_bus_bridge.ptw_req
@@ -273,7 +273,7 @@ PTW 的读请求直接连接到 `cpu_bus_bridge`，**不经过 DCache**。
 
 ### 3.2 cpu_bus_bridge 的 PTW 读路径
 
-来源: `dev/rtl/core/cpu_bus_bridge.sv` (line 424-438)
+来源: `src/rtl/core/cpu_bus_bridge.sv` (line 424-438)
 
 ```systemverilog
 else if (ptw_req && !ptw_done_r) begin
@@ -294,7 +294,7 @@ PTW 读请求直接转换为 AXI AR (Read Address) 通道事务，**直接读 SR
 
 ### 3.3 DCache 是 write-back
 
-来源: `dev/rtl/core/dcache_ctrl.sv`
+来源: `src/rtl/core/dcache_ctrl.sv`
 
 DCache 采用 write-back 策略:
 - Store hit: 数据写入 DCache cache line，标记 dirty=1，**不写 SRAM**
@@ -542,10 +542,10 @@ PTW 发起读请求时，先查询 DCache 是否有对应地址的 cache line:
   trap_deleg.log             — trap 委托日志
 
 RTL 文件:
-  dev/rtl/core/core_top.sv       — CPU 顶层，PTW bus 连接
-  dev/rtl/core/cpu_bus_bridge.sv — AXI 总线桥，PTW 读直接走 AXI
-  dev/rtl/core/dcache_ctrl.sv    — DCache 控制器 (write-back)
-  dev/rtl/core/MMU.sv            — MMU + TLB + PTW
+  src/rtl/core/core_top.sv       — CPU 顶层，PTW bus 连接
+  src/rtl/core/cpu_bus_bridge.sv — AXI 总线桥，PTW 读直接走 AXI
+  src/rtl/core/dcache_ctrl.sv    — DCache 控制器 (write-back)
+  src/rtl/core/MMU.sv            — MMU + TLB + PTW
 
 文档:
   docs/trap-loop-analysis3.md — 上一步分析 (store page fault 定位)

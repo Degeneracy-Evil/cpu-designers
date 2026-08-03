@@ -17,7 +17,7 @@
 ### 1.2 目录结构
 
 ```
-dev/program_source/
+src/program_source/
 ├── build.yaml                   # ★ 统一编译配置（测试 + 应用）
 ├── framework/                  # 测试框架 (公共)
 │   ├── test_framework.s        # 自检运行器 (test_init/test_run/test_report)
@@ -200,9 +200,9 @@ categories:
 
 | 字段 | 类型 | 默认 | 说明 |
 |------|------|------|------|
-| `blcoe` | str | `""` | Bootloader COE 文件，用于 FPGA bitstream 生成和 DDR3 仿真。初始化 BRAM IP。相对路径于 `dev/program_source/`。与 `blhex` 互斥。 |
+| `blcoe` | str | `""` | Bootloader COE 文件，用于 FPGA bitstream 生成和 DDR3 仿真。初始化 BRAM IP。相对路径于 `src/program_source/`。与 `blhex` 互斥。 |
 | `blhex` | str | `""` | Bootloader HEX 文件，用于 SRAM 模式仿真。bootROM 通过 `$readmemh` 加载。正常仿真任务为 `boot/bootloader_phase1.hex`（2 指令跳转桩），DDR3 任务为 `boot/bootloader.hex`（完整 DDR3 初始化 + UART 下载）。与 `blcoe` 互斥。 |
-| `phex` | str | `""` | 程序 HEX 文件，用于 SRAM 模式仿真。SRAM 通过 `$readmemh` 加载。相对路径于 `dev/program_source/`。 |
+| `phex` | str | `""` | 程序 HEX 文件，用于 SRAM 模式仿真。SRAM 通过 `$readmemh` 加载。相对路径于 `src/program_source/`。 |
 | `runtime` | str | `""` | 仿真时间字符串 |
 
 ### 5.4 Testbench

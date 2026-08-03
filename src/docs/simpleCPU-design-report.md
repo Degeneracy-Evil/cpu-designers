@@ -1,6 +1,6 @@
 # SimpleCPU 设计报告
 
-> 生成日期: 2026-06-19 | 项目路径: `dev/rtl/`
+> 生成日期: 2026-06-19 | 项目路径: `src/rtl/`
 
 ---
 
@@ -281,7 +281,7 @@ APB Bridge 基地址：`0x1000_0000`，4 个 APB 从设备按 `PADDR[15:14]` 译
 
 **UART 寄存器映射**（基址 `0x1000_8000`，ns16550a 标准）：
 
-文件：`dev/rtl/APB/perips/uart16550/uart_16550a.sv`，通过 APB4 接口封装在 `apb_perips.sv` 中。
+文件：`src/rtl/APB/perips/uart16550/uart_16550a.sv`，通过 APB4 接口封装在 `apb_perips.sv` 中。
 
 | 偏移 | 名称 | 说明 |
 |------|------|------|
@@ -1145,7 +1145,7 @@ vivado_config.yaml
 
 #### 6.2.1 ns16550a UART
 
-UART 外设已替换为 ns16550a 标准串口（`dev/rtl/APB/perips/uart16550/uart_16550a.sv`），通过 APB4 接口封装在 `apb_perips.sv` 中。ns16550a 提供 16-byte TX/RX FIFO、可配置波特率（Divisor Latch）、Modem 控制信号、标准中断生成，为 Linux 串口控制台提供标准兼容。原自定义 UART 的 STATUS-read auto-arm 机制不再需要。
+UART 外设已替换为 ns16550a 标准串口（`src/rtl/APB/perips/uart16550/uart_16550a.sv`），通过 APB4 接口封装在 `apb_perips.sv` 中。ns16550a 提供 16-byte TX/RX FIFO、可配置波特率（Divisor Latch）、Modem 控制信号、标准中断生成，为 Linux 串口控制台提供标准兼容。原自定义 UART 的 STATUS-read auto-arm 机制不再需要。
 
 #### 6.2.2 PLIC 中断路由
 
@@ -1307,77 +1307,77 @@ UART 外设已替换为 ns16550a 标准串口（`dev/rtl/APB/perips/uart16550/ua
 
 | 目录 | 文件 | 说明 |
 |------|------|------|
-| `dev/rtl/` | `system_top.sv` | 系统顶层（CPU + 总线 + LCD） |
-| `dev/rtl/core/` | `core_top.sv` | CPU 核心顶层 |
-| `dev/rtl/core/` | `cpu_controller.sv` | FSM 控制器 |
-| `dev/rtl/core/` | `cpu_fetch.sv` | 取指级 |
-| `dev/rtl/core/` | `cpu_decode.sv` | 译码级 |
-| `dev/rtl/core/` | `cpu_execute.sv` | 执行级 |
-| `dev/rtl/core/` | `cpu_mem.sv` | 访存级 |
-| `dev/rtl/core/` | `cpu_wb.sv` | 回写级 |
-| `dev/rtl/core/` | `cpu_regfile.sv` | 寄存器堆 |
-| `dev/rtl/core/` | `op_regroup.sv` | 指令重组/立即数解码 |
-| `dev/rtl/core/` | `branch_comparator.sv` | 分支条件比较器 |
-| `dev/rtl/core/` | `cpu_trap_csr.sv` | 陷阱/CSR 顶层 |
-| `dev/rtl/core/` | `cpu_trap_manager.sv` | 陷阱管理器 |
-| `dev/rtl/core/` | `cpu_clint.sv` | 核心本地中断控制器 |
-| `dev/rtl/core/` | `cpu_csr_interface.sv` | CSR 读写接口 |
-| `dev/rtl/core/` | `cpu_csr.sv` | CSR 寄存器文件 |
-| `dev/rtl/core/` | `cache_def.svh` | Cache/TLB 几何常量（**自动生成**，勿手动编辑） |
-| `dev/rtl/core/` | `icache_ctrl.sv` | 指令缓存控制器（4路组相联，VIPT，Tree-PLRU） |
-| `dev/rtl/core/` | `dcache_ctrl.sv` | 数据缓存控制器（4路组相联，写回+写分配，VIPT） |
-| `dev/rtl/core/` | `tree_plru.sv` | Tree-PLRU 替换策略（4路，3-bit 状态） |
-| `dev/rtl/core/` | `MMU.sv` | Sv32 虚拟内存（TLB + PTW） |
-| `dev/rtl/core/` | `tlb.sv` | TLB（4路×4组=16项，BRAM存储，ASID感知，Tree-PLRU） |
-| `dev/rtl/core/` | `ptw.sv` | Sv32 页表漫游器 |
-| `dev/rtl/core/` | `cpu_bus_bridge.sv` | AXI4 总线桥接（MMIO + INCR8 突发，AW/W/B/AR/R 五通道） |
-| `dev/rtl/ALU/` | `alu_32bit.sv` | 32-bit ALU 顶层 |
-| `dev/rtl/ALU/` | `cla_adder_4bit.sv` | 4-bit CLA |
-| `dev/rtl/ALU/` | `cla_adder_16bit.sv` | 16-bit CLA |
-| `dev/rtl/ALU/` | `cla_adder_32bit.sv` | 32-bit CLA |
-| `dev/rtl/ALU/` | `logic_unit.sv` | 逻辑/比较单元 |
-| `dev/rtl/ALU/` | `shifter.sv` | 桶形移位器 |
-| `dev/rtl/ALU/` | `lui.sv` | LUI 直通 |
-| `dev/rtl/ALU/` | `mux.sv` | 多路选择器 |
-| `dev/rtl/ALU/` | `alu_result_selector.sv` | ALU 结果选择器 |
-| `dev/rtl/MU/` | `mu_unit.sv` | 乘除法单元 |
-| `dev/rtl/MU/` | `booth_multiplier.sv` | Booth 乘法器 |
-| `dev/rtl/MU/` | `non_restoring_divider.sv` | 非恢复余数除法器 |
-| `dev/rtl/FPU/` | `fpu_regfile.sv` | 浮点寄存器堆（32×32-bit，f0 硬连线零） |
-| `dev/rtl/FPU/` | `fpu_unit.sv` | FPU 顶层（握手协议 + 结果选择） |
-| `dev/rtl/FPU/` | `fpu_adder.sv` | 浮点加法器（FADD.S / FSUB.S） |
-| `dev/rtl/FPU/` | `fpu_multiplier.sv` | 浮点乘法器（FMUL.S） |
-| `dev/rtl/FPU/` | `fpu_divider.sv` | 浮点除法器（FDIV.S，非恢复余数） |
-| `dev/rtl/FPU/` | `fpu_sqrt.sv` | 浮点平方根（FSQRT.S，非恢复余数法） |
-| `dev/rtl/FPU/` | `fpu_fma.sv` | 浮点融合乘加（FMADD.S / FMSUB.S / FNMSUB.S / FNMADD.S，R4 格式） |
-| `dev/rtl/FPU/` | `fpu_compare.sv` | 浮点比较器（FEQ.S / FLT.S / FLE.S） |
-| `dev/rtl/FPU/` | `fpu_minmax.sv` | 浮点最值（FMIN.S / FMAX.S） |
-| `dev/rtl/FPU/` | `fpu_classify.sv` | 浮点分类（FCLASS.S） |
-| `dev/rtl/FPU/` | `fpu_sign_inject.sv` | 符号注入（FSGNJ.S / FSGNJN.S / FSGNJX.S） |
-| `dev/rtl/FPU/` | `fpu_cvt.sv` | 浮点↔整数转换（FCVT.W.S / FCVT.S.W / FCVT.WU.S / FCVT.S.WU） |
-| `dev/rtl/FPU/` | `fpu_round.sv` | 舍入模式逻辑（RNE / RTZ / RDN / RUP / RMM，27-bit 尾数） |
-| `dev/rtl/FPU/` | `fpu_special.sv` | NaN/Inf/零/次正规数检测与特殊处理 |
-| `dev/rtl/` | `axi4_def.svh` | AXI4 常量定义（替代 ahb_def.svh） |
-| `dev/rtl/` | `soc_config.vh` | SoC 配置宏（SIMU_USE_PLL / SIMU_USE_DDR） |
-| `dev/rtl/` | `clk_wiz_0_passthrough.sv` | Clock Wizard 直通（仿真用） |
-| `dev/rtl/common/` | `reset_sync.sv` | 复位同步器（异步断言，同步释放） |
-| `dev/rtl/core/` | `core_bus_types.svh` | 流水线总线结构体定义（exe_mem_bus_t / wb_bus_t） |
-| `dev/rtl/axi/` | `axi4lite_bootrom.sv` | AXI4-Lite Boot ROM 从设备 |
-| `dev/rtl/axi/` | `axi4lite_clint.sv` | AXI4-Lite CLINT 从设备 |
-| `dev/rtl/axi/` | `axi4lite_default_slave.sv` | AXI4-Lite Default Slave（DECERR） |
-| `dev/rtl/axi/` | `axi4lite_plic.sv` | AXI4-Lite PLIC 从设备 |
-| `dev/rtl/axi/` | `axi4lite_sys_status.sv` | AXI4-Lite System Status 从设备 |
-| `dev/rtl/AMBA/` | `Axi_CDC.v` | AXI4 时钟域穿越 |
-| `dev/rtl/APB/` | `axi4lite_to_apb.sv` | AXI4-Lite → APB 桥 |
-| `dev/rtl/ram_wrap/` | `axi_wrap_ram.sv` | AXI4 BRAM 仿真模型（SRAM 替代） |
-| `dev/rtl/ram_wrap/` | `axi_wrap_ddr.sv` | AXI4 DDR3 包装器（MIG） |
-| `dev/rtl/APB/` | `apb_decoder.sv` | APB 地址译码 |
-| `dev/rtl/APB/perips/` | `apb_perips.sv` | 外设顶层 |
-| `dev/rtl/APB/perips/` | `gpio.sv` | GPIO（16-bit 双向 IO，引脚变化中断） |
-| `dev/rtl/APB/perips/uart16550/` | `uart_16550a.sv` | ns16550a 标准串口（16-byte TX/RX FIFO，APB4 封装） |
-| `dev/rtl/APB/perips/` | `timer.sv` | 定时器 |
-| `dev/rtl/APB/perips/` | `spi.sv` | SPI（主模式，传输完成中断） |
-| `dev/rtl/APB/perips/` | `sync_fifo.sv` | 参数化同步 FIFO |
+| `src/rtl/` | `system_top.sv` | 系统顶层（CPU + 总线 + LCD） |
+| `src/rtl/core/` | `core_top.sv` | CPU 核心顶层 |
+| `src/rtl/core/` | `cpu_controller.sv` | FSM 控制器 |
+| `src/rtl/core/` | `cpu_fetch.sv` | 取指级 |
+| `src/rtl/core/` | `cpu_decode.sv` | 译码级 |
+| `src/rtl/core/` | `cpu_execute.sv` | 执行级 |
+| `src/rtl/core/` | `cpu_mem.sv` | 访存级 |
+| `src/rtl/core/` | `cpu_wb.sv` | 回写级 |
+| `src/rtl/core/` | `cpu_regfile.sv` | 寄存器堆 |
+| `src/rtl/core/` | `op_regroup.sv` | 指令重组/立即数解码 |
+| `src/rtl/core/` | `branch_comparator.sv` | 分支条件比较器 |
+| `src/rtl/core/` | `cpu_trap_csr.sv` | 陷阱/CSR 顶层 |
+| `src/rtl/core/` | `cpu_trap_manager.sv` | 陷阱管理器 |
+| `src/rtl/core/` | `cpu_clint.sv` | 核心本地中断控制器 |
+| `src/rtl/core/` | `cpu_csr_interface.sv` | CSR 读写接口 |
+| `src/rtl/core/` | `cpu_csr.sv` | CSR 寄存器文件 |
+| `src/rtl/core/` | `cache_def.svh` | Cache/TLB 几何常量（**自动生成**，勿手动编辑） |
+| `src/rtl/core/` | `icache_ctrl.sv` | 指令缓存控制器（4路组相联，VIPT，Tree-PLRU） |
+| `src/rtl/core/` | `dcache_ctrl.sv` | 数据缓存控制器（4路组相联，写回+写分配，VIPT） |
+| `src/rtl/core/` | `tree_plru.sv` | Tree-PLRU 替换策略（4路，3-bit 状态） |
+| `src/rtl/core/` | `MMU.sv` | Sv32 虚拟内存（TLB + PTW） |
+| `src/rtl/core/` | `tlb.sv` | TLB（4路×4组=16项，BRAM存储，ASID感知，Tree-PLRU） |
+| `src/rtl/core/` | `ptw.sv` | Sv32 页表漫游器 |
+| `src/rtl/core/` | `cpu_bus_bridge.sv` | AXI4 总线桥接（MMIO + INCR8 突发，AW/W/B/AR/R 五通道） |
+| `src/rtl/ALU/` | `alu_32bit.sv` | 32-bit ALU 顶层 |
+| `src/rtl/ALU/` | `cla_adder_4bit.sv` | 4-bit CLA |
+| `src/rtl/ALU/` | `cla_adder_16bit.sv` | 16-bit CLA |
+| `src/rtl/ALU/` | `cla_adder_32bit.sv` | 32-bit CLA |
+| `src/rtl/ALU/` | `logic_unit.sv` | 逻辑/比较单元 |
+| `src/rtl/ALU/` | `shifter.sv` | 桶形移位器 |
+| `src/rtl/ALU/` | `lui.sv` | LUI 直通 |
+| `src/rtl/ALU/` | `mux.sv` | 多路选择器 |
+| `src/rtl/ALU/` | `alu_result_selector.sv` | ALU 结果选择器 |
+| `src/rtl/MU/` | `mu_unit.sv` | 乘除法单元 |
+| `src/rtl/MU/` | `booth_multiplier.sv` | Booth 乘法器 |
+| `src/rtl/MU/` | `non_restoring_divider.sv` | 非恢复余数除法器 |
+| `src/rtl/FPU/` | `fpu_regfile.sv` | 浮点寄存器堆（32×32-bit，f0 硬连线零） |
+| `src/rtl/FPU/` | `fpu_unit.sv` | FPU 顶层（握手协议 + 结果选择） |
+| `src/rtl/FPU/` | `fpu_adder.sv` | 浮点加法器（FADD.S / FSUB.S） |
+| `src/rtl/FPU/` | `fpu_multiplier.sv` | 浮点乘法器（FMUL.S） |
+| `src/rtl/FPU/` | `fpu_divider.sv` | 浮点除法器（FDIV.S，非恢复余数） |
+| `src/rtl/FPU/` | `fpu_sqrt.sv` | 浮点平方根（FSQRT.S，非恢复余数法） |
+| `src/rtl/FPU/` | `fpu_fma.sv` | 浮点融合乘加（FMADD.S / FMSUB.S / FNMSUB.S / FNMADD.S，R4 格式） |
+| `src/rtl/FPU/` | `fpu_compare.sv` | 浮点比较器（FEQ.S / FLT.S / FLE.S） |
+| `src/rtl/FPU/` | `fpu_minmax.sv` | 浮点最值（FMIN.S / FMAX.S） |
+| `src/rtl/FPU/` | `fpu_classify.sv` | 浮点分类（FCLASS.S） |
+| `src/rtl/FPU/` | `fpu_sign_inject.sv` | 符号注入（FSGNJ.S / FSGNJN.S / FSGNJX.S） |
+| `src/rtl/FPU/` | `fpu_cvt.sv` | 浮点↔整数转换（FCVT.W.S / FCVT.S.W / FCVT.WU.S / FCVT.S.WU） |
+| `src/rtl/FPU/` | `fpu_round.sv` | 舍入模式逻辑（RNE / RTZ / RDN / RUP / RMM，27-bit 尾数） |
+| `src/rtl/FPU/` | `fpu_special.sv` | NaN/Inf/零/次正规数检测与特殊处理 |
+| `src/rtl/` | `axi4_def.svh` | AXI4 常量定义（替代 ahb_def.svh） |
+| `src/rtl/` | `soc_config.vh` | SoC 配置宏（SIMU_USE_PLL / SIMU_USE_DDR） |
+| `src/rtl/` | `clk_wiz_0_passthrough.sv` | Clock Wizard 直通（仿真用） |
+| `src/rtl/common/` | `reset_sync.sv` | 复位同步器（异步断言，同步释放） |
+| `src/rtl/core/` | `core_bus_types.svh` | 流水线总线结构体定义（exe_mem_bus_t / wb_bus_t） |
+| `src/rtl/axi/` | `axi4lite_bootrom.sv` | AXI4-Lite Boot ROM 从设备 |
+| `src/rtl/axi/` | `axi4lite_clint.sv` | AXI4-Lite CLINT 从设备 |
+| `src/rtl/axi/` | `axi4lite_default_slave.sv` | AXI4-Lite Default Slave（DECERR） |
+| `src/rtl/axi/` | `axi4lite_plic.sv` | AXI4-Lite PLIC 从设备 |
+| `src/rtl/axi/` | `axi4lite_sys_status.sv` | AXI4-Lite System Status 从设备 |
+| `src/rtl/AMBA/` | `Axi_CDC.v` | AXI4 时钟域穿越 |
+| `src/rtl/APB/` | `axi4lite_to_apb.sv` | AXI4-Lite → APB 桥 |
+| `src/rtl/ram_wrap/` | `axi_wrap_ram.sv` | AXI4 BRAM 仿真模型（SRAM 替代） |
+| `src/rtl/ram_wrap/` | `axi_wrap_ddr.sv` | AXI4 DDR3 包装器（MIG） |
+| `src/rtl/APB/` | `apb_decoder.sv` | APB 地址译码 |
+| `src/rtl/APB/perips/` | `apb_perips.sv` | 外设顶层 |
+| `src/rtl/APB/perips/` | `gpio.sv` | GPIO（16-bit 双向 IO，引脚变化中断） |
+| `src/rtl/APB/perips/uart16550/` | `uart_16550a.sv` | ns16550a 标准串口（16-byte TX/RX FIFO，APB4 封装） |
+| `src/rtl/APB/perips/` | `timer.sv` | 定时器 |
+| `src/rtl/APB/perips/` | `spi.sv` | SPI（主模式，传输完成中断） |
+| `src/rtl/APB/perips/` | `sync_fifo.sv` | 参数化同步 FIFO |
 
 **BRAM IP 核**（由 `vivado_config.yaml` 配置驱动，`ip_gen.py` 动态生成 create_ip TCL）：
 
@@ -1394,88 +1394,88 @@ UART 外设已替换为 ns16550a 标准串口（`dev/rtl/APB/perips/uart16550/ua
 
 | 文件 | 说明 |
 |------|------|
-| `dev/tb/tb_soc_includes.svh` | 共享 testbench 框架（system_top 实例化 + DDR3 支持） |
-| `dev/tb/tb_simple_cpu_top.sv` | 完整指令集测试 |
-| `dev/tb/tb_simple_cpu_compute.sv` | 计算密集测试 |
-| `dev/tb/tb_simple_cpu_trap.sv` | 异常/中断测试 |
-| `dev/tb/tb_isa_alu.sv` | ALU ISA 测试 |
-| `dev/tb/tb_isa_branch.sv` | 分支 ISA 测试 |
-| `dev/tb/tb_isa_jump.sv` | 跳转 ISA 测试 |
-| `dev/tb/tb_isa_memory.sv` | 访存 ISA 测试 |
-| `dev/tb/tb_isa_upper_imm.sv` | 上位立即数 ISA 测试 |
-| `dev/tb/tb_isa_m_ext.sv` | M 扩展 ISA 测试 |
-| `dev/tb/tb_isa_csr.sv` | CSR ISA 测试 |
-| `dev/tb/tb_isa_f_ext.sv` | F 扩展 ISA 测试（26 子测试） |
-| `dev/tb/tb_isa_f_ext_special.sv` | F 扩展特殊值/舍入测试（24 子测试） |
-| `dev/tb/tb_isa_template.sv` | ISA 测试模板 |
-| `dev/tb/tb_exception_illegal_inst.sv` | 非法指令异常测试 |
-| `dev/tb/tb_exception_ecall.sv` | ECALL 异常测试 |
-| `dev/tb/tb_exception_ebreak.sv` | EBREAK 异常测试 |
-| `dev/tb/tb_exception_access_fault.sv` | 访问错误异常测试 |
-| `dev/tb/tb_exception_interrupt_basic.sv` | 基本中断测试 |
-| `dev/tb/tb_exception_timer_irq.sv` | 定时器中断测试 |
-| `dev/tb/tb_cache_icache_basic.sv` | ICache 基本测试 |
-| `dev/tb/tb_cache_dcache_basic.sv` | DCache 基本测试 |
-| `dev/tb/tb_cache_dcache_dirty.sv` | DCache 脏行测试 |
-| `dev/tb/tb_cache_fencei.sv` | FENCE.I 测试 |
-| `dev/tb/tb_cache_cache_mmu_interact.sv` | Cache/MMU 交互测试 |
-| `dev/tb/tb_mmu_sv32_basic.sv` | Sv32 基本测试 |
-| `dev/tb/tb_mmu_sv32_edge.sv` | Sv32 边界测试 |
-| `dev/tb/tb_mmu_ptw_walk.sv` | PTW 漫游测试 |
-| `dev/tb/tb_mmu_tlb_basic.sv` | TLB 基本测试 |
-| `dev/tb/tb_mmu_tlb_flush.sv` | TLB 刷新测试 |
-| `dev/tb/tb_mmu_tlb_asid.sv` | TLB ASID 测试 |
-| `dev/tb/tb_mmu_tlb_megapage.sv` | TLB 大页测试 |
-| `dev/tb/tb_mmu_tlb_replace.sv` | TLB 替换测试 |
-| `dev/tb/tb_mmu_tlb_stress.sv` | TLB 压力测试 |
-| `dev/tb/tb_mmu_permission.sv` | 页表权限测试 |
-| `dev/tb/tb_mmu_page_fault.sv` | 页错误测试 |
-| `dev/tb/tb_mmu_unified_mmu.sv` | 统一 MMU 测试 |
-| `dev/tb/tb_privilege_csr_access_priv.sv` | CSR 特权访问测试 |
-| `dev/tb/tb_privilege_delegation.sv` | 陷阱委托测试 |
-| `dev/tb/tb_privilege_priv_transition.sv` | 特权级转换测试 |
-| `dev/tb/tb_mmio_clint.sv` | CLINT MMIO 测试 |
-| `dev/tb/tb_mmio_plic.sv` | PLIC MMIO 测试 |
-| `dev/tb/tb_regression_reg_bare_no_miss.sv` | 回归：裸机无缺失 |
-| `dev/tb/tb_regression_reg_mmio_ready.sv` | 回归：MMIO ready |
-| `dev/tb/tb_regression_reg_pf_latch.sv` | 回归：页错误锁存 |
-| `dev/tb/tb_regression_reg_ptw_fault_latch.sv` | 回归：PTW 错误锁存 |
-| `dev/tb/tb_regression_reg_sfence_during_walk.sv` | 回归：漫游中 SFENCE |
-| `dev/tb/tb_regression_reg_stale_paddr.sv` | 回归：过期物理地址 |
-| `dev/tb/tb_regression_reg_tlb_fill_way.sv` | 回归：TLB 填充路 |
-| `dev/tb/tb_ahb_bus.sv` | AXI4 总线功能测试 |
-| `dev/tb/tb_apb_perips.sv` | APB 外设测试 |
-| `dev/tb/tb_uart_hello.sv` | UART 输出测试 |
-| `dev/tb/tb_uart_echo.sv` | UART 回环测试 |
-| `dev/tb/tb_led_marquee.sv` | LED 跑马灯测试 |
-| `dev/tb/tb_calculator.sv` | 浮点计算器应用测试（UART 交互） |
-| `dev/tb/ALU/tb_non_restoring_divider.sv` | 除法器单元测试 |
-| `dev/tb/ALU/tb_mu_unit.sv` | 乘除法单元测试 |
-| `dev/tb/ALU/tb_alu_cpu_integration.sv` | ALU 集成测试 |
-| `dev/tb/tb_fpu_adder.sv` | FPU 加法器单元测试（30 子测试） |
-| `dev/tb/tb_fpu_multiplier.sv` | FPU 乘法器单元测试（13 子测试） |
-| `dev/tb/tb_fpu_divider.sv` | FPU 除法器单元测试（12 子测试） |
-| `dev/tb/tb_fpu_sqrt.sv` | FPU 平方根单元测试（22 子测试） |
-| `dev/tb/tb_fpu_cvt.sv` | FPU 转换单元测试（20 子测试） |
-| `dev/tb/tb_fpu_unit.sv` | FPU 顶层集成测试（24 子测试） |
-| `dev/tb/run_ddr3_sim.tcl` | DDR3 仿真 TCL 脚本 |
+| `src/tb/tb_soc_includes.svh` | 共享 testbench 框架（system_top 实例化 + DDR3 支持） |
+| `src/tb/tb_simple_cpu_top.sv` | 完整指令集测试 |
+| `src/tb/tb_simple_cpu_compute.sv` | 计算密集测试 |
+| `src/tb/tb_simple_cpu_trap.sv` | 异常/中断测试 |
+| `src/tb/tb_isa_alu.sv` | ALU ISA 测试 |
+| `src/tb/tb_isa_branch.sv` | 分支 ISA 测试 |
+| `src/tb/tb_isa_jump.sv` | 跳转 ISA 测试 |
+| `src/tb/tb_isa_memory.sv` | 访存 ISA 测试 |
+| `src/tb/tb_isa_upper_imm.sv` | 上位立即数 ISA 测试 |
+| `src/tb/tb_isa_m_ext.sv` | M 扩展 ISA 测试 |
+| `src/tb/tb_isa_csr.sv` | CSR ISA 测试 |
+| `src/tb/tb_isa_f_ext.sv` | F 扩展 ISA 测试（26 子测试） |
+| `src/tb/tb_isa_f_ext_special.sv` | F 扩展特殊值/舍入测试（24 子测试） |
+| `src/tb/tb_isa_template.sv` | ISA 测试模板 |
+| `src/tb/tb_exception_illegal_inst.sv` | 非法指令异常测试 |
+| `src/tb/tb_exception_ecall.sv` | ECALL 异常测试 |
+| `src/tb/tb_exception_ebreak.sv` | EBREAK 异常测试 |
+| `src/tb/tb_exception_access_fault.sv` | 访问错误异常测试 |
+| `src/tb/tb_exception_interrupt_basic.sv` | 基本中断测试 |
+| `src/tb/tb_exception_timer_irq.sv` | 定时器中断测试 |
+| `src/tb/tb_cache_icache_basic.sv` | ICache 基本测试 |
+| `src/tb/tb_cache_dcache_basic.sv` | DCache 基本测试 |
+| `src/tb/tb_cache_dcache_dirty.sv` | DCache 脏行测试 |
+| `src/tb/tb_cache_fencei.sv` | FENCE.I 测试 |
+| `src/tb/tb_cache_cache_mmu_interact.sv` | Cache/MMU 交互测试 |
+| `src/tb/tb_mmu_sv32_basic.sv` | Sv32 基本测试 |
+| `src/tb/tb_mmu_sv32_edge.sv` | Sv32 边界测试 |
+| `src/tb/tb_mmu_ptw_walk.sv` | PTW 漫游测试 |
+| `src/tb/tb_mmu_tlb_basic.sv` | TLB 基本测试 |
+| `src/tb/tb_mmu_tlb_flush.sv` | TLB 刷新测试 |
+| `src/tb/tb_mmu_tlb_asid.sv` | TLB ASID 测试 |
+| `src/tb/tb_mmu_tlb_megapage.sv` | TLB 大页测试 |
+| `src/tb/tb_mmu_tlb_replace.sv` | TLB 替换测试 |
+| `src/tb/tb_mmu_tlb_stress.sv` | TLB 压力测试 |
+| `src/tb/tb_mmu_permission.sv` | 页表权限测试 |
+| `src/tb/tb_mmu_page_fault.sv` | 页错误测试 |
+| `src/tb/tb_mmu_unified_mmu.sv` | 统一 MMU 测试 |
+| `src/tb/tb_privilege_csr_access_priv.sv` | CSR 特权访问测试 |
+| `src/tb/tb_privilege_delegation.sv` | 陷阱委托测试 |
+| `src/tb/tb_privilege_priv_transition.sv` | 特权级转换测试 |
+| `src/tb/tb_mmio_clint.sv` | CLINT MMIO 测试 |
+| `src/tb/tb_mmio_plic.sv` | PLIC MMIO 测试 |
+| `src/tb/tb_regression_reg_bare_no_miss.sv` | 回归：裸机无缺失 |
+| `src/tb/tb_regression_reg_mmio_ready.sv` | 回归：MMIO ready |
+| `src/tb/tb_regression_reg_pf_latch.sv` | 回归：页错误锁存 |
+| `src/tb/tb_regression_reg_ptw_fault_latch.sv` | 回归：PTW 错误锁存 |
+| `src/tb/tb_regression_reg_sfence_during_walk.sv` | 回归：漫游中 SFENCE |
+| `src/tb/tb_regression_reg_stale_paddr.sv` | 回归：过期物理地址 |
+| `src/tb/tb_regression_reg_tlb_fill_way.sv` | 回归：TLB 填充路 |
+| `src/tb/tb_ahb_bus.sv` | AXI4 总线功能测试 |
+| `src/tb/tb_apb_perips.sv` | APB 外设测试 |
+| `src/tb/tb_uart_hello.sv` | UART 输出测试 |
+| `src/tb/tb_uart_echo.sv` | UART 回环测试 |
+| `src/tb/tb_led_marquee.sv` | LED 跑马灯测试 |
+| `src/tb/tb_calculator.sv` | 浮点计算器应用测试（UART 交互） |
+| `src/tb/ALU/tb_non_restoring_divider.sv` | 除法器单元测试 |
+| `src/tb/ALU/tb_mu_unit.sv` | 乘除法单元测试 |
+| `src/tb/ALU/tb_alu_cpu_integration.sv` | ALU 集成测试 |
+| `src/tb/tb_fpu_adder.sv` | FPU 加法器单元测试（30 子测试） |
+| `src/tb/tb_fpu_multiplier.sv` | FPU 乘法器单元测试（13 子测试） |
+| `src/tb/tb_fpu_divider.sv` | FPU 除法器单元测试（12 子测试） |
+| `src/tb/tb_fpu_sqrt.sv` | FPU 平方根单元测试（22 子测试） |
+| `src/tb/tb_fpu_cvt.sv` | FPU 转换单元测试（20 子测试） |
+| `src/tb/tb_fpu_unit.sv` | FPU 顶层集成测试（24 子测试） |
+| `src/tb/run_ddr3_sim.tcl` | DDR3 仿真 TCL 脚本 |
 
 ### 9.3 程序源文件
 
 | 目录 | 说明 |
 |------|------|
-| `dev/program_source/boot/` | Bootloader（DDR3 启动引导：sp 初始化 → MIG 等待 → DDR3 自检 → UART 接收程序镜像 → fence.i → 跳转执行） |
-| `dev/program_source/app/` | 应用程序（calculator, led_marquee, uart_hello, uart_echo, ddr3_test） |
-| `dev/program_source/test/isa/` | ISA 测试（alu, branch, jump, memory, upper_imm, m_ext, csr, f_ext, f_ext_special） |
-| `dev/program_source/test/integration/` | 集成测试（cpu_full, cpu_compute, cpu_trap） |
-| `dev/program_source/test/exception/` | 异常测试（illegal_inst, ecall, ebreak, access_fault, interrupt_basic, timer_irq） |
-| `dev/program_source/test/cache/` | 缓存测试（icache_basic, dcache_basic, dcache_dirty, fencei, cache_mmu_interact） |
-| `dev/program_source/test/mmu/` | MMU 测试（sv32_basic, sv32_edge, ptw_walk, tlb_*, permission, page_fault, unified_mmu） |
-| `dev/program_source/test/privilege/` | 特权测试（csr_access_priv, delegation, priv_transition） |
-| `dev/program_source/test/mmio/` | MMIO 测试（clint, plic） |
-| `dev/program_source/test/regression/` | 回归测试（7 项回归用例） |
-| `dev/program_source/framework/` | 测试框架代码 |
-| `dev/program_source/lib/` | 公共库（sys.h 等） |
+| `src/program_source/boot/` | Bootloader（DDR3 启动引导：sp 初始化 → MIG 等待 → DDR3 自检 → UART 接收程序镜像 → fence.i → 跳转执行） |
+| `src/program_source/app/` | 应用程序（calculator, led_marquee, uart_hello, uart_echo, ddr3_test） |
+| `src/program_source/test/isa/` | ISA 测试（alu, branch, jump, memory, upper_imm, m_ext, csr, f_ext, f_ext_special） |
+| `src/program_source/test/integration/` | 集成测试（cpu_full, cpu_compute, cpu_trap） |
+| `src/program_source/test/exception/` | 异常测试（illegal_inst, ecall, ebreak, access_fault, interrupt_basic, timer_irq） |
+| `src/program_source/test/cache/` | 缓存测试（icache_basic, dcache_basic, dcache_dirty, fencei, cache_mmu_interact） |
+| `src/program_source/test/mmu/` | MMU 测试（sv32_basic, sv32_edge, ptw_walk, tlb_*, permission, page_fault, unified_mmu） |
+| `src/program_source/test/privilege/` | 特权测试（csr_access_priv, delegation, priv_transition） |
+| `src/program_source/test/mmio/` | MMIO 测试（clint, plic） |
+| `src/program_source/test/regression/` | 回归测试（7 项回归用例） |
+| `src/program_source/framework/` | 测试框架代码 |
+| `src/program_source/lib/` | 公共库（sys.h 等） |
 
 ---
 

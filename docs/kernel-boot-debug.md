@@ -95,15 +95,15 @@ Kernel 打印 `sched_clock` 后，下一次 SBI ecall (`sbi_set_timer`) 触发 t
 
 | 文件 | 说明 |
 |------|------|
-| `dev/tb/tb_kernel_boot.sv` | Kernel boot 仿真 testbench |
-| `dev/tb/tb_soc_includes.svh` | 仿真共享 boilerplate |
-| `dev/rtl/ram_wrap/axi_wrap_ram.sv` | SRAM 仿真模型 (16MB) |
-| `dev/rtl/core/core_top.sv` | CPU 顶层 |
-| `dev/rtl/core/pmp_checker.sv` | PMP 检查器 (当前未使用) |
-| `tasks.yaml` | 仿真任务定义 |
+| `src/tb/tb_kernel_boot.sv` | Kernel boot 仿真 testbench |
+| `src/tb/tb_soc_includes.svh` | 仿真共享 boilerplate |
+| `src/rtl/ram_wrap/axi_wrap_ram.sv` | SRAM 仿真模型 (16MB) |
+| `src/rtl/core/core_top.sv` | CPU 顶层 |
+| `src/rtl/core/pmp_checker.sv` | PMP 检查器 (当前未使用) |
+| `config/tasks.yaml` | 仿真任务定义 |
 | `build/opensbi/fw_payload.bin` | OpenSBI+kernel 原始二进制 (128MB DTB) |
 | `build/opensbi/fw_payload_16mb.bin` | OpenSBI+kernel 16MB DTB 版本 |
-| `dev/program_source/firmware/fw_payload.hex` | 仿真用 hex 文件 (当前为 16MB DTB 版本) |
+| `src/program_source/firmware/fw_payload.hex` | 仿真用 hex 文件 (当前为 16MB DTB 版本) |
 
 ### 6.2 运行仿真
 
@@ -158,7 +158,7 @@ with open(dst, 'r+b') as f:
     f.write(bytes([0x80,0,0,0,0x01,0,0,0]))  # 128MB → 16MB
 import subprocess
 subprocess.run(['python3','tools/bin2hex.py',dst,
-    'dev/program_source/firmware/fw_payload.hex'], capture_output=True)
+    'src/program_source/firmware/fw_payload.hex'], capture_output=True)
 print("DTB patched to 16MB, hex regenerated")
 EOF
 ```
@@ -234,7 +234,7 @@ qemu-system-riscv32 -M virt -nographic -bios build/opensbi/fw_payload.bin \
 - core_top.sv: PMP CSR 端口已连接, pmp_data_violation=0 (禁用)
 - pmp_checker.sv: 新文件 (当前未实例化)
 - tb_kernel_boot.sv: 新 testbench, UART 接收器使用 enable 信号
-- tasks.yaml: 添加 kernel_boot_ddr3 任务
+- config/tasks.yaml: 添加 kernel_boot_ddr3 任务
 - 远程 icache/bus_bridge/dcache/MMU 改动已回退
 
 远程 commit e4f5cbb/2a7bffa 的改动已回退, 需要重新修复:

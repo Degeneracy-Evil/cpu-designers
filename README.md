@@ -65,7 +65,7 @@ Python 驱动的 Vivado 仿真/综合自动化系统，替代原有 `vivado_do.t
 
 ### test_builder.py — 测试程序构建
 
-声明式测试构建系统，读取 `dev/program_source/build.yaml` 批量编译测试程序和应用：
+声明式测试构建系统，读取 `src/program_source/build.yaml` 批量编译测试程序和应用：
 
 ```bash
 python tools/test_builder.py                # 构建全部
@@ -78,7 +78,7 @@ python tools/test_builder.py --clean        # 清理产物
 
 构建流程：`build.yaml → test_builder.py → rv2coe.py → .coe + .hex`
 
-测试体系采用自检协议：每个子测试独立返回 PASS/FAIL，通过 x28/x30 寄存器精确定位失败。详细规范见 `dev/program_source/test-system.md`。
+测试体系采用自检协议：每个子测试独立返回 PASS/FAIL，通过 x28/x30 寄存器精确定位失败。详细规范见 `src/program_source/test-system.md`。
 
 ### rv2coe.py — RISC-V 编译器
 

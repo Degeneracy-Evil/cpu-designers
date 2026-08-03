@@ -218,7 +218,7 @@ PTW 结果:
 
 ### 4.2 方案 A：扩大 SRAM 模型（推荐用于完整验证）
 
-修改 `dev/rtl/ram_wrap/axi_wrap_ram.sv`：
+修改 `src/rtl/ram_wrap/axi_wrap_ram.sv`：
 
 ```systemverilog
 // 从 256K words (1MB) 扩大到 4M words (16MB)
@@ -321,7 +321,7 @@ python -m tools.trace_analyzer find-fail instr_trace.log
 
 ### 4.4 方案 C：DDR3 仿真（最慢但最完整）
 
-修改 `dev/rtl/soc_config.vh`：
+修改 `src/rtl/soc_config.vh`：
 ```verilog
 `define SIMU_USE_DDR 1   // 启用 DDR3 模型
 ```
@@ -351,7 +351,7 @@ python -m tools.trace_analyzer find-fail instr_trace.log
 ### 5.1 第一步：聚焦测试验证硬件逻辑
 
 1. 编写 `reg_linux_trap_loop.S`（方案 B）
-2. 添加到 `dev/program_source/build.yaml`
+2. 添加到 `src/program_source/build.yaml`
 3. 构建：`python tools/test_builder.py --test regression/linux_trap_loop`
 4. 仿真：`python -m tools.vivado_cli -task reg_linux_trap_loop -create -sim --debug trace,trap,wave`
 5. 分析 `trap_trace.log` 和 `instr_trace.log`
@@ -407,16 +407,16 @@ python -m tools.trace_analyzer diff instr_trace.log spike_commit.log
 
 | 文件 | 作用 |
 |------|------|
-| `dev/rtl/core/icache_ctrl.sv` | icache 控制器（S_TAG_READ 状态等待 mmu_ready） |
-| `dev/rtl/core/MMU.sv` | MMU（TLB 查找 + PTW 仲裁 + page fault 生成） |
-| `dev/rtl/core/ptw.sv` | Page Table Walker（Sv32 两级页表遍历 + 256 周期超时） |
-| `dev/rtl/core/cpu_bus_bridge.sv` | AXI4 总线桥（PTW/icache/dcache 仲裁） |
-| `dev/rtl/core/cpu_trap_manager.sv` | 异常检测 + cause 编码 + CLINT 实例化 |
-| `dev/rtl/core/cpu_clint.sv` | Trap 派发（delegation + trap PC + CSR 写数据） |
-| `dev/rtl/core/cpu_csr.sv` | CSR 寄存器文件（stvec/sepc/scause/satp 等） |
-| `dev/rtl/core/cpu_controller.sv` | 流水线 FSM（TRAP_ENTER/TRAP_RETURN 状态） |
-| `dev/rtl/core/core_top.sv` | Core 顶层（priv_mode 切换 + PC 更新） |
-| `dev/rtl/system_top.sv` | SoC 顶层（AXI crossbar + DDR3/SRAM + LCD debug） |
+| `src/rtl/core/icache_ctrl.sv` | icache 控制器（S_TAG_READ 状态等待 mmu_ready） |
+| `src/rtl/core/MMU.sv` | MMU（TLB 查找 + PTW 仲裁 + page fault 生成） |
+| `src/rtl/core/ptw.sv` | Page Table Walker（Sv32 两级页表遍历 + 256 周期超时） |
+| `src/rtl/core/cpu_bus_bridge.sv` | AXI4 总线桥（PTW/icache/dcache 仲裁） |
+| `src/rtl/core/cpu_trap_manager.sv` | 异常检测 + cause 编码 + CLINT 实例化 |
+| `src/rtl/core/cpu_clint.sv` | Trap 派发（delegation + trap PC + CSR 写数据） |
+| `src/rtl/core/cpu_csr.sv` | CSR 寄存器文件（stvec/sepc/scause/satp 等） |
+| `src/rtl/core/cpu_controller.sv` | 流水线 FSM（TRAP_ENTER/TRAP_RETURN 状态） |
+| `src/rtl/core/core_top.sv` | Core 顶层（priv_mode 切换 + PC 更新） |
+| `src/rtl/system_top.sv` | SoC 顶层（AXI crossbar + DDR3/SRAM + LCD debug） |
 
 ### 6.2 关键信号
 
@@ -674,7 +674,7 @@ FPGA 上 Linux 启动时，console handover 后大量 kernel 输出丢失。只�
 
 ### 11.2 根因分析
 
-**文件**：`dev/rtl/APB/perips/uart16550/uart_regs_16550a.sv:347`
+**文件**：`src/rtl/APB/perips/uart16550/uart_regs_16550a.sv:347`
 
 ```systemverilog
 // 修复前：
@@ -1014,12 +1014,12 @@ SIM RAM write-error model 修改：注入的 BRESP fault 不仅返回 AXI 错误
 
 | 文件 | 修改内容 |
 |------|----------|
-| `dev/rtl/core/cpu_bus_bridge.sv` | WB reissue holdoff：接受 `dcache_wb_req` 后阻止重复接受直到信号撤回 |
-| `dev/rtl/core/dcache_ctrl.sv` | Maintenance fault 路径在 invalidate stale victim 后终止 |
-| `dev/rtl/ram_wrap/axi_wrap_ram.sv` | BRESP fault 抑制 backing-memory commit |
-| `dev/program_source/test/regression/reg_bug16_tlb_valid_pulse.s` | 移除 M-mode store（不再 self-mask 嵌套 trap） |
-| `dev/program_source/test/regression/reg_dcache_wb_error.s` | Preload backing RAM，暴露 reload 值 |
-| `dev/program_source/test/regression/reg_dcache_refill_error.s` | Preload backing RAM，暴露 reload 值 |
+| `src/rtl/core/cpu_bus_bridge.sv` | WB reissue holdoff：接受 `dcache_wb_req` 后阻止重复接受直到信号撤回 |
+| `src/rtl/core/dcache_ctrl.sv` | Maintenance fault 路径在 invalidate stale victim 后终止 |
+| `src/rtl/ram_wrap/axi_wrap_ram.sv` | BRESP fault 抑制 backing-memory commit |
+| `src/program_source/test/regression/reg_bug16_tlb_valid_pulse.s` | 移除 M-mode store（不再 self-mask 嵌套 trap） |
+| `src/program_source/test/regression/reg_dcache_wb_error.s` | Preload backing RAM，暴露 reload 值 |
+| `src/program_source/test/regression/reg_dcache_refill_error.s` | Preload backing RAM，暴露 reload 值 |
 
 ---
 
@@ -1040,7 +1040,7 @@ SIM RAM write-error model 修改：注入的 BRESP fault 不仅返回 AXI 错误
 | `undef`/`ifndef USE_TLB_BRAM` | 全项目无匹配 |
 | 非 BRAM 路径编译可行性 | **已损坏**：`MMU.sv:1098` 引用 `walk_state`，该寄存器仅在 BRAM 路径声明（第 109 行），非 BRAM 路径无法独立编译 |
 | `core_top.sv` debug 端口 | 两路径都赋值同一组 debug 输出，删除非 BRAM 不破坏连接 |
-| testbench 引用 | 无 — `dev/tb/` 下无任何 `nb_i_*`/`nb_d_*` 引用 |
+| testbench 引用 | 无 — `src/tb/` 下无任何 `nb_i_*`/`nb_d_*` 引用 |
 
 **结论**：非 BRAM 路径是死代码，且已损坏（无法编译），安全删除。
 
@@ -1048,8 +1048,8 @@ SIM RAM write-error model 修改：注入的 BRESP fault 不仅返回 AXI 错误
 
 | 文件 | 删除范围 | 删除行数 | 内容 |
 |------|----------|----------|------|
-| `dev/rtl/core/tlb.sv` | 原 482-650 行（`else` 分支） | 168 行 | 全相联寄存器阵列 TLB：`entries[]` 数组、`rr_ptr` 轮转指针、i/d 侧 hit vector、组合查找逻辑、`pack_entry` 函数、fill/flush 逻辑 |
-| `dev/rtl/core/MMU.sv` | 原 696-1099 行（`else` 分支） | 403 行 | 组合 TLB + latched input FSM（`nb_i_state`/`nb_d_state`）、独立 TLB 实例、独立 PTW 实例、walk 仲裁、page fault 逻辑 |
+| `src/rtl/core/tlb.sv` | 原 482-650 行（`else` 分支） | 168 行 | 全相联寄存器阵列 TLB：`entries[]` 数组、`rr_ptr` 轮转指针、i/d 侧 hit vector、组合查找逻辑、`pack_entry` 函数、fill/flush 逻辑 |
+| `src/rtl/core/MMU.sv` | 原 696-1099 行（`else` 分支） | 403 行 | 组合 TLB + latched input FSM（`nb_i_state`/`nb_d_state`）、独立 TLB 实例、独立 PTW 实例、walk 仲裁、page fault 逻辑 |
 | **合计** | | **571 行** | |
 
 ### 16.4 验证
@@ -1181,7 +1181,7 @@ CPU Pipeline (cpu_clk)
 
 ### 18.3 实现
 
-**文件**：`dev/rtl/system_top.sv`
+**文件**：`src/rtl/system_top.sv`
 
 **修改前**（多位 CDC 隐患）：
 ```verilog
@@ -1383,7 +1383,7 @@ assign d_tlb_perm_fault = (d_latched_priv_mode == 2'b00 && !d_tlb_u) ? 1'b1 :   
 
 **步骤**：
 
-1. 修改 `dev/rtl/ram_wrap/axi_wrap_ram.sv`：
+1. 修改 `src/rtl/ram_wrap/axi_wrap_ram.sv`：
 ```systemverilog
 localparam MEM_DEPTH = 4194304;  // 16MB / 4B = 4M words（从 262144 扩大）
 ```
@@ -1464,10 +1464,10 @@ spike --isa=rv32ima /tmp/fws/firmware/fw_payload.elf 2>&1 | tee spike.log
 
 | 文件 | 修改内容 | 优先级 |
 |------|----------|--------|
-| `dev/rtl/ram_wrap/axi_wrap_ram.sv` | MEM_DEPTH: 262144 → 4194304 | 高（方案 A） |
-| `dev/rtl/core/MMU.sv` | 添加 d-side debug 输出端口 | 高（方案 D） |
-| `dev/rtl/core/core_top.sv` | 连接 d-side debug 信号 | 高（方案 D） |
-| `dev/rtl/system_top.sv` | LCD 显示 d-side MMU 信号 | 高（方案 D） |
+| `src/rtl/ram_wrap/axi_wrap_ram.sv` | MEM_DEPTH: 262144 → 4194304 | 高（方案 A） |
+| `src/rtl/core/MMU.sv` | 添加 d-side debug 输出端口 | 高（方案 D） |
+| `src/rtl/core/core_top.sv` | 连接 d-side debug 信号 | 高（方案 D） |
+| `src/rtl/system_top.sv` | LCD 显示 d-side MMU 信号 | 高（方案 D） |
 | `tools/bin2hex.py` | 新建：bin → hex 转换脚本 | 中（方案 A） |
 | `tools/vivado_config.yaml` | 添加 linux_boot 任务 | 中（方案 A） |
 
@@ -1477,9 +1477,9 @@ spike --isa=rv32ima /tmp/fws/firmware/fw_payload.elf 2>&1 | tee spike.log
 
 | 文件 | 修改 |
 |------|------|
-| `dev/rtl/core/MMU.sv` | 新增 10 个 d-side debug 输出端口：`dbg_nb_d_state`, `dbg_d_tlb_hit`, `dbg_d_tlb_valid`, `dbg_d_tlb_perm_fault`, `dbg_d_input_changed`, `dbg_d_latched_vaddr`, `dbg_d_latched_sv32`, `dbg_pending_d_walk`, `dbg_d_pf_from_ptw`, `dbg_d_tlb_miss` |
-| `dev/rtl/core/core_top.sv` | 新增 10 个 wire + 端口声明 + MMU 实例连接 + assign 输出 |
-| `dev/rtl/system_top.sv` | 新增 10 个 wire + core_top 实例连接 + LCD Page 4 显示 9 个 d-side 信号（索引 31-39） |
+| `src/rtl/core/MMU.sv` | 新增 10 个 d-side debug 输出端口：`dbg_nb_d_state`, `dbg_d_tlb_hit`, `dbg_d_tlb_valid`, `dbg_d_tlb_perm_fault`, `dbg_d_input_changed`, `dbg_d_latched_vaddr`, `dbg_d_latched_sv32`, `dbg_pending_d_walk`, `dbg_d_pf_from_ptw`, `dbg_d_tlb_miss` |
+| `src/rtl/core/core_top.sv` | 新增 10 个 wire + 端口声明 + MMU 实例连接 + assign 输出 |
+| `src/rtl/system_top.sv` | 新增 10 个 wire + core_top 实例连接 + LCD Page 4 显示 9 个 d-side 信号（索引 31-39） |
 
 **LCD Page 4 新增信号**（sw[7:6]=11，索引 31-39）：
 
@@ -1499,10 +1499,10 @@ spike --isa=rv32ima /tmp/fws/firmware/fw_payload.elf 2>&1 | tee spike.log
 
 | 文件 | 修改 |
 |------|------|
-| `dev/rtl/ram_wrap/axi_wrap_ram.sv` | MEM_DEPTH: 262144 → 4194304 (16MB); r_word_addr: [17:0] → [21:0]; 所有地址索引 [19:2] → [23:2] |
+| `src/rtl/ram_wrap/axi_wrap_ram.sv` | MEM_DEPTH: 262144 → 4194304 (16MB); r_word_addr: [17:0] → [21:0]; 所有地址索引 [19:2] → [23:2] |
 | `tools/bin2hex.py` | 新建：bin → $readmemh hex 转换工具 |
-| `dev/program_source/firmware/fw_payload.hex` | 新建：9MB 固件 hex 文件（2352542 words） |
-| `dev/tb/tb_simple_cpu_top.sv` | 新增 `LINUX_BOOT` 模式：200M 周期等待，跳过 cpu_full 寄存器检查 |
+| `src/program_source/firmware/fw_payload.hex` | 新建：9MB 固件 hex 文件（2352542 words） |
+| `src/tb/tb_simple_cpu_top.sv` | 新增 `LINUX_BOOT` 模式：200M 周期等待，跳过 cpu_full 寄存器检查 |
 | `tasks.yaml` | 新增 `linux_boot` 任务：tb=tb_simple_cpu_top, phex=firmware/fw_payload.hex, runtime=60s, verilog_defines={LINUX_BOOT:TRUE} |
 
 #### 18.8.3 步骤 4：仿真运行 — 进行中
@@ -1651,7 +1651,7 @@ cpu_execute u_execute(
 
 总线/CDC 审计（§17）发现 AXI4-Lite 外设（PLIC、CLINT）的 AW/W 通道处理不正确：原实现假设 AW 和 W 总是同周期到达，但 AXI4-Lite 协议允许 AW 和 W 独立到达、任意顺序。UART 16550 wrapper 未检查 PSTRB，上半字节写会错误写入 8 位寄存器。
 
-### 21.2 PLIC 修复 (`dev/rtl/axi/axi4lite_plic.sv`)
+### 21.2 PLIC 修复 (`src/rtl/axi/axi4lite_plic.sv`)
 
 **AW/W 独立接收**：引入 `aw_latched`/`w_latched` 双锁存机制：
 
@@ -1677,7 +1677,7 @@ wire wr_fire = (wr_state == WR_IDLE) && ((aw_latched || aw_fire) && (w_latched |
 
 第一次 claim 响应正确，即使 `highest_id` 在 claim 和 response 之间变化。
 
-### 21.3 CLINT 修复 (`dev/rtl/axi/axi4lite_clint.sv`)
+### 21.3 CLINT 修复 (`src/rtl/axi/axi4lite_clint.sv`)
 
 **AW/W 独立接收**：与 PLIC 相同的双锁存模式。
 
@@ -1692,7 +1692,7 @@ if (!mtime_we) r_mtime <= r_mtime + 64'd1;
 
 **split 寄存器软件契约**：mtime/mtimecmp 暴露为 32 位半字，软件用 hi/lo 重试序列读、安全比较更新序列写。硬件保证写后 1 周期不自增。
 
-### 21.4 UART 修复 (`dev/rtl/APB/perips/uart16550/uart_16550a.sv`)
+### 21.4 UART 修复 (`src/rtl/APB/perips/uart16550/uart_16550a.sv`)
 
 **PSTRB[0] 门控**：
 ```verilog
@@ -1744,11 +1744,11 @@ axi4lite_clint_unit:    Vivado task completed successfully
 
 ### 22.1 背景
 
-原有 `dev/program_source/test/isa/a_ext.s` 仅 16 个子测试，覆盖不足：LR/SC 交互、AMO 对预留集的影响、rd=x0 特殊情况均未测试。需扩展到全面覆盖 RISC-V A 扩展指令。
+原有 `src/program_source/test/isa/a_ext.s` 仅 16 个子测试，覆盖不足：LR/SC 交互、AMO 对预留集的影响、rd=x0 特殊情况均未测试。需扩展到全面覆盖 RISC-V A 扩展指令。
 
 ### 22.2 测试扩展
 
-**文件**：`dev/program_source/test/isa/a_ext.s`、`dev/tb/tb_isa_a_ext.sv`
+**文件**：`src/program_source/test/isa/a_ext.s`、`src/tb/tb_isa_a_ext.sv`
 
 从 16→52 个子测试，覆盖 13 组：
 
@@ -1793,7 +1793,7 @@ pass=50, fail=2, first_fail_id=8
 
 即：AMO 操作必须使预留集失效，后续 SC 必须失败。
 
-**RTL Bug 位置**：`dev/rtl/core/cpu_mem.sv` MEM_AMO_WRITE 状态
+**RTL Bug 位置**：`src/rtl/core/cpu_mem.sv` MEM_AMO_WRITE 状态
 
 **根因**：AMO 执行 store 部分时，未清除 `lr_reservation_valid`。仅 SC 操作在 MEM_SC_WRITE 状态清除了预留标志。AMO 的 store 路径缺少 `lr_reservation_valid <= 1'b0`。
 
@@ -1912,7 +1912,7 @@ AMO 指令的 aq/rl 位要求有序完成。实现为 MEM_AMO_FENCE 单周期序
 
 ### 24.3 RTL Bug 详情：`csr_priv_violation` 未接入 `illegal_inst`
 
-**文件**：`dev/rtl/core/cpu_decode.sv`
+**文件**：`src/rtl/core/cpu_decode.sv`
 
 **问题**：
 - `dec_csr_access_ok` 逻辑（~L557-571）正确计算了当前特权级对 CSR 的访问权限
@@ -1939,7 +1939,7 @@ assign illegal_inst = id_valid && (!valid_inst || csr_addr_invalid || csr_priv_v
 
 ### 24.4 修复详情：ra save/restore（jal 覆盖 x1）
 
-**文件**：`dev/program_source/lib/page_table_utils.s`
+**文件**：`src/program_source/lib/page_table_utils.s`
 
 **问题**：`setup_dual_map` 和 `setup_user_map` 中使用 `jal` 指令跳转到子函数执行页表操作。`jal rd, imm` 中 rd=x1 保存返回地址，但子函数内再次使用 `jal` 覆盖 x1，导致 mret/sret 返回后跳到错误页面 → PTW bus error → 硬错误（access fault）。
 
@@ -1974,7 +1974,7 @@ write_pte_loop_ret:
 
 ### 24.5 修复详情：`m_hdl_ecall_s` 缺失 trap 记录
 
-**文件**：`dev/program_source/test/regression/delegation.s`
+**文件**：`src/program_source/test/regression/delegation.s`
 
 **问题**：M-mode ecall handler `m_hdl_ecall_s` 在 ecall（`mcause=9`）时执行：
 ```assembly
@@ -1999,7 +1999,7 @@ m_hdl_ecall_s:
 
 ### 24.6 U-mode dual mapping 架构
 
-**文件**：`dev/program_source/test/mmu/priv_transition.s`（重写）
+**文件**：`src/program_source/test/mmu/priv_transition.s`（重写）
 
 U-mode 执行环境架构：
 ```
@@ -2037,7 +2037,7 @@ L1[0x000] → L0 用户表 at 0x80020000  (VA 0x00000000-0x003FFFFF → 部分�
 
 ### 24.7 RTL Bug 详情：流水线冲刷缺失
 
-**文件**：`dev/rtl/core/core_top.sv`
+**文件**：`src/rtl/core/core_top.sv`
 
 **问题**：trap entry（mret/sret）、trap return、taken branch/jal 等控制流跳转时，IF/ID 和 ID/EXE 流水线寄存器未清零。跳转目标指令到达前，旧指令仍在流水线中执行，导致：
 - trap handler 前一条旧指令被执行（可能触发二次 trap）
@@ -2054,7 +2054,7 @@ end
 
 ### 24.8 RTL Bug 详情：GPR 同周期写穿透
 
-**文件**：`dev/rtl/core/cpu_regfile.sv`
+**文件**：`src/rtl/core/cpu_regfile.sv`
 
 **问题**：当 WB 阶段写回的寄存器地址与同一周期 ID 阶段读端口请求的地址相同时，读端口返回寄存器文件中的旧值（写入尚未完成），而非 WB 阶段正在写入的新值。这导致数据冒险（RAW hazard）在无前递（forwarding）路径时产生错误结果。
 
@@ -2068,7 +2068,7 @@ assign rd_data_1 = (wb_we && wb_addr == rd_addr_1) ? wb_wdata : regfile[rd_addr_
 
 ### 24.9 RTL Bug 详情：icache flush 请求缺失
 
-**文件**：`dev/rtl/core/icache_ctrl.sv`
+**文件**：`src/rtl/core/icache_ctrl.sv`
 
 **问题**：流水线冲刷时未通知 icache 刷新缓存行。冲刷后 icache 仍缓存跳转前的旧指令行，导致 fetch 阶段返回旧指令而非跳转目标处的新指令。
 
@@ -2139,7 +2139,7 @@ dcache_ctrl.sv Missing mmio_inflight_r Guard
 
 #### Fix 1: `set_property include_dirs` 顺序错误
 
-**问题**：`add_files -scan_for_includes` 在 `set_property include_dirs` 之前执行。扫描器解析 `axi4lite_clint.sv` 的 ``include "axi4_def.svh"` 时，`sys_rtl_dir`（dev/rtl/）不在 include path 中，因为 include_dirs 尚未设置。结果：`axi4_def.svh` 未被扫描器发现，prj 文件不完整，xvlog 编译失败。
+**问题**：`add_files -scan_for_includes` 在 `set_property include_dirs` 之前执行。扫描器解析 `axi4lite_clint.sv` 的 ``include "axi4_def.svh"` 时，`sys_rtl_dir`（src/rtl/）不在 include path 中，因为 include_dirs 尚未设置。结果：`axi4_def.svh` 未被扫描器发现，prj 文件不完整，xvlog 编译失败。
 
 **修复**：将 `set_property include_dirs` 移到 `add_files -scan_for_includes` 之前。
 

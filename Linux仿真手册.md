@@ -1,9 +1,9 @@
 # 完整操作方法
 步骤 1：生成 hex 文件（已完成）
 # bin → hex 转换（已生成，如需重新转换）
-python3 tools/bin2hex.py /tmp/fws/firmware/fw_payload.bin dev/program_source/firmware/fw_payload.hex
+python3 tools/bin2hex.py /tmp/fws/firmware/fw_payload.bin src/program_source/firmware/fw_payload.hex
 # 产出: 2352542 words (9.0 MB)
-hex 文件已在 dev/program_source/firmware/fw_payload.hex。
+hex 文件已在 src/program_source/firmware/fw_payload.hex。
 步骤 2：运行仿真
 # 快速模式（仅 trap 追踪，~10K cycles/s）
 python3 -m tools.vivado_cli -task linux_boot -create -sim --debug trap

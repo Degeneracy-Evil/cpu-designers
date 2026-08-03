@@ -51,10 +51,10 @@ project/
 
 | 层 | 文件范围 | 刷新代价 |
 |----|----------|----------|
-| `rtl` | `dev/rtl/**/*.sv/.svh` + `Reference/**/*.xci` | 全量重建（分钟级） |
-| `tb` | `dev/tb/**/*.sv` | 重加 testbench（秒级） |
-| `coe` | `dev/program_source/**/*.coe/.hex` | 更新 COE 配置（秒级） |
-| `fpga` | `dev/fpga/**/*.xdc/.dcp` + `tools/tcl/**/*.tcl` | 重加约束（秒级） |
+| `rtl` | `src/rtl/**/*.sv/.svh` + `Reference/**/*.xci` | 全量重建（分钟级） |
+| `tb` | `src/tb/**/*.sv` | 重加 testbench（秒级） |
+| `coe` | `src/program_source/**/*.coe/.hex` | 更新 COE 配置（秒级） |
+| `fpga` | `src/fpga/**/*.xdc/.dcp` + `tools/tcl/**/*.tcl` | 重加约束（秒级） |
 
 对比原 `vivado_do.tcl -refresh`（永远全量重建），增量刷新在仅 COE/TB 变更时快 **10x+**。
 
@@ -368,7 +368,7 @@ memory:
     line_words: 8
   use_tag_bram: false
 
-# RTL 子目录路径配置（相对于 dev/rtl/）
+# RTL 子目录路径配置（相对于 src/rtl/）
 # 修改后影响项目创建和 testbench 导入的源文件搜索路径
 rtl_path:
   alu: ALU
@@ -384,13 +384,13 @@ rtl_path:
   apb_header: APB/header
   apb_perips: APB/perips
   apb_uart16550: APB/perips/uart16550
-  sys_rtl: ""                   # dev/rtl 根目录
-  tb: ""                        # dev/tb（相对于 dev/ 而非 dev/rtl/）
+  sys_rtl: ""                   # src/rtl 根目录
+  tb: ""                        # src/tb（相对于 src/ 而非 src/rtl/）
 ```
 
 ## 配置驱动的 IP 生成
 
-BRAM IP（ROM、icached、dcached）通过 `vivado_config.yaml` 的 `memory` 段动态生成 `create_ip` TCL，替代静态 XCI 文件导入。同时自动生成 `dev/rtl/core/cache_def.svh`（`` `define`` 宏），使 IP 几何与 RTL 常量始终同步。
+BRAM IP（ROM、icached、dcached）通过 `vivado_config.yaml` 的 `memory` 段动态生成 `create_ip` TCL，替代静态 XCI 文件导入。同时自动生成 `src/rtl/core/cache_def.svh`（`` `define`` 宏），使 IP 几何与 RTL 常量始终同步。
 
 ### 工作流
 

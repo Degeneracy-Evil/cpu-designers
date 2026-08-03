@@ -59,5 +59,5 @@ module alu_32bit(
 ## 6. 调试入口
 
 ```bash
-python3 tools/mk.py --top dev/tb/ALU/tb_alu_cpu_integration.v
+python3 tools/mk.py --top src/tb/ALU/tb_alu_cpu_integration.v
 ```

@@ -23,13 +23,13 @@ project/kernel_boot_sram128_dtb16/simplecpu_soc.sim/sim_1/behav/xsim/
 ### RTL 源码
 
 ```
-dev/rtl/core/cpu_trap_manager.sv    # trap 生成逻辑（exception_valid, exception_cause）
-dev/rtl/core/cpu_clint.sv           # trap 委托 + cause 选择（hw_mcause_wdata）
-dev/rtl/core/cpu_decode.sv          # 译码（dec_is_ecall 生成）
-dev/rtl/core/cpu_fetch.sv           # 取指（if_inst = instData_32）
-dev/rtl/core/core_top.sv            # 顶层（if_id_bus_r 寄存器，id_inst_wire）
-dev/tb/tb_kernel_boot.sv            # TB（sanity checker 代码）
-dev/tb/tb_soc_includes.svh          # TB 共享（if_inst/id_inst 的 wire 定义）
+src/rtl/core/cpu_trap_manager.sv    # trap 生成逻辑（exception_valid, exception_cause）
+src/rtl/core/cpu_clint.sv           # trap 委托 + cause 选择（hw_mcause_wdata）
+src/rtl/core/cpu_decode.sv          # 译码（dec_is_ecall 生成）
+src/rtl/core/cpu_fetch.sv           # 取指（if_inst = instData_32）
+src/rtl/core/core_top.sv            # 顶层（if_id_bus_r 寄存器，id_inst_wire）
+src/tb/tb_kernel_boot.sv            # TB（sanity checker 代码）
+src/tb/tb_soc_includes.svh          # TB 共享（if_inst/id_inst 的 wire 定义）
 ```
 
 ### 参考

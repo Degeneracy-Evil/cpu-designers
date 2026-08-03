@@ -18,7 +18,7 @@
 ```bash
 python3 tools/rv2coe.py \
   -i tools/examples/phase1_prog.S \
-  -o dev/2-embedded_cpu/program_source/icache_init.coe
+  -o src/program_source/icache_init.coe
 ```
 
 ### 指令/数据分离输出（Harvard 架构 / bootloader 烧录）
@@ -96,14 +96,14 @@ python3 tools/rv2coe.py \
 ```bash
 # 多文件编译：start.S + uart.c + uart_echo.c → uart_echo.hex
 python3 tools/rv2coe.py \
-  -i dev/program_source/lib/start.S \
-  -i dev/program_source/lib/uart.c \
-  -i dev/program_source/uart_echo.c \
-  -I dev/program_source/lib/include \
-  --linker-script dev/program_source/link.ld \
+  -i src/program_source/lib/start.S \
+  -i src/program_source/lib/uart.c \
+  -i src/program_source/uart_echo.c \
+  -I src/program_source/lib/include \
+  --linker-script src/program_source/link.ld \
   --march rv32im_zicsr_zifencei \
-  --hex dev/program_source/uart_echo.hex \
-  -o dev/program_source/uart_echo.coe
+  --hex src/program_source/uart_echo.hex \
+  -o src/program_source/uart_echo.coe
 ```
 
 编译流程：

@@ -17,22 +17,22 @@
 ## 之前的历史: 已修复的 RTL Bug (4个仿真全PASS)
 
 ### BUG-MMU-1: D bit check (已修复, 保留)
-- 文件: `dev/rtl/core/MMU.sv:278`
+- 文件: `src/rtl/core/MMU.sv:278`
 - 问题: store 到 D=0 的页不产生 page fault
 - 修复: 添加 `(d_latched_access_type == ACCESS_STORE && !d_tlb_d)` 到 `d_tlb_perm_fault`
 
 ### BUG-CSR-5: MPIE writable (已修复, 保留)
-- 文件: `dev/rtl/core/cpu_csr.sv:409`
+- 文件: `src/rtl/core/cpu_csr.sv:409`
 - 问题: mstatus 的 MPIE bit (bit 5) 不可写
 - 修复: mstatus_wmask `3'b000` → `{1'b0, sw_csr_wdata[5], 1'b0}`
 
 ### BUG-CSR-3: sip ext_seip (已修复, 保留)
-- 文件: `dev/rtl/core/cpu_csr.sv:645`
+- 文件: `src/rtl/core/cpu_csr.sv:645`
 - 问题: sip 读取不包含外部 SEIP
 - 修复: `r_sip[9]` → `(ext_seip | r_sip[9])`
 
 ### BUG-MMU-3: PTW fault routing (已回退, 无效果)
-- 文件: `dev/rtl/core/core_top.sv:1285-1296`
+- 文件: `src/rtl/core/core_top.sv:1285-1296`
 - 问题: PTW access fault (cause 1/5/7) 被错误路由为 page fault (cause 12/13/15) 到 S-mode
 - 修复尝试: 改为正确的 access fault 路由到 M-mode
 - **回退原因**: MEDELEG 未委托 bit 1/5/7, access fault 去 M-mode 后 OpenSBI 不处理 → kernel 挂死
@@ -59,8 +59,8 @@
 
 ### 修改3: Debug UART TX 模块 (新增)
 - **目的**: 通过 UART 将 LCD 调试寄存器值发送到终端, 便于复制
-- **文件**: `dev/rtl/debug_uart_tx.sv` (新建)
-- **集成**: `dev/rtl/system_top.sv` 中 sw[5]=1 时 debug UART 接管 UART TX pin
+- **文件**: `src/rtl/debug_uart_tx.sv` (新建)
+- **集成**: `src/rtl/system_top.sv` 中 sw[5]=1 时 debug UART 接管 UART TX pin
 - **格式**: `NAME=HHHHHHHH\r\n`, 自动循环发送当前 LCD 显示值
 
 ## FPGA LCD 调试结果 (原版 kernel, 无 initcall_debug)
@@ -168,16 +168,16 @@ Spec 要求 `satp[31:30] == 2'b01` (MODE=1), 但 kernel 也用 `(mode << 31)` = 
 
 ## 关键文件
 
-- `dev/rtl/core/MMU.sv` — MMU + TLB + PTW (satp flush 修复)
-- `dev/rtl/core/core_top.sv` — CPU 顶层 (PTW fault routing, sfence sequencing)
-- `dev/rtl/core/cpu_csr.sv` — CSR 文件 (satp 写入, medeleg/mideleg)
-- `dev/rtl/core/cpu_execute.sv` — 执行单元 (MU/FPU handshake)
-- `dev/rtl/core/ptw.sv` — Page Table Walker
-- `dev/rtl/core/tlb.sv` — TLB (BRAM)
-- `dev/rtl/debug_uart_tx.sv` — 新建: debug UART TX 模块
-- `dev/rtl/system_top.sv` — SoC 顶层 (UART mux, LCD debug, ILA)
+- `src/rtl/core/MMU.sv` — MMU + TLB + PTW (satp flush 修复)
+- `src/rtl/core/core_top.sv` — CPU 顶层 (PTW fault routing, sfence sequencing)
+- `src/rtl/core/cpu_csr.sv` — CSR 文件 (satp 写入, medeleg/mideleg)
+- `src/rtl/core/cpu_execute.sv` — 执行单元 (MU/FPU handshake)
+- `src/rtl/core/ptw.sv` — Page Table Walker
+- `src/rtl/core/tlb.sv` — TLB (BRAM)
+- `src/rtl/debug_uart_tx.sv` — 新建: debug UART TX 模块
+- `src/rtl/system_top.sv` — SoC 顶层 (UART mux, LCD debug, ILA)
 - `boot/dts/simplecpu.dts` — 设备树 (已移除 initcall_debug)
-- `dev/docs/scan.md` — 完整审计报告 + FPGA 调试结果
+- `src/docs/scan.md` — 完整审计报告 + FPGA 调试结果
 - `build/kernel/vmlinux` — kernel ELF (可反汇编)
 - `tools/uart_console.py` — UART 捕获脚本
 

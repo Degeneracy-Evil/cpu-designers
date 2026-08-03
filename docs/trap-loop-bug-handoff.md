@@ -253,23 +253,23 @@ dec_is_ecall          # 译码阶段 ecall 识别
 
 | 文件 | 说明 |
 |------|------|
-| `dev/rtl/core/MMU.sv` | MMU + TLB，含 walk arbiter 修复 |
-| `dev/rtl/core/tlb.sv` | TLB 模块 (Port A=i-side, Port B=d-side/fill, READ_FIRST) |
-| `dev/rtl/core/core_top.sv` | CPU 顶层 |
-| `dev/rtl/core/cpu_clint.sv` | trap 委托逻辑, medeleg=0x0000_B1FF |
-| `dev/rtl/core/cpu_trap_manager.sv` | 异常原因生成 |
-| `dev/rtl/system_top.sv` | SoC 顶层, Axi_CDC, 地址解码器 |
-| `dev/rtl/ram_wrap/axi_wrap_ram.sv` | SRAM 模型 (128MB, [26:2], 零初始化) |
-| `dev/rtl/ram_wrap/axi_wrap_ddr.sv` | DDR3 包装器 (FPGA用, 第二级 Axi_CDC) |
+| `src/rtl/core/MMU.sv` | MMU + TLB，含 walk arbiter 修复 |
+| `src/rtl/core/tlb.sv` | TLB 模块 (Port A=i-side, Port B=d-side/fill, READ_FIRST) |
+| `src/rtl/core/core_top.sv` | CPU 顶层 |
+| `src/rtl/core/cpu_clint.sv` | trap 委托逻辑, medeleg=0x0000_B1FF |
+| `src/rtl/core/cpu_trap_manager.sv` | 异常原因生成 |
+| `src/rtl/system_top.sv` | SoC 顶层, Axi_CDC, 地址解码器 |
+| `src/rtl/ram_wrap/axi_wrap_ram.sv` | SRAM 模型 (128MB, [26:2], 零初始化) |
+| `src/rtl/ram_wrap/axi_wrap_ddr.sv` | DDR3 包装器 (FPGA用, 第二级 Axi_CDC) |
 
 ### 仿真
 
 | 文件 | 说明 |
 |------|------|
-| `dev/tb/tb_kernel_boot.sv` | Kernel boot TB, 含 stall watchdog |
-| `tasks.yaml` | 任务定义: `kernel_boot_sram_cdc` (128+128), `kernel_boot_sram128_dtb16` (128+16) |
-| `dev/program_source/firmware/fw_payload.hex` | 128MB DTB hex |
-| `dev/program_source/firmware/fw_payload_16mb.hex` | 16MB DTB hex |
+| `src/tb/tb_kernel_boot.sv` | Kernel boot TB, 含 stall watchdog |
+| `config/tasks.yaml` | 任务定义: `kernel_boot_sram_cdc` (128+128), `kernel_boot_sram128_dtb16` (128+16) |
+| `src/program_source/firmware/fw_payload.hex` | 128MB DTB hex |
+| `src/program_source/firmware/fw_payload_16mb.hex` | 16MB DTB hex |
 
 ### 构建
 

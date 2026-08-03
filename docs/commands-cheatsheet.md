@@ -147,16 +147,16 @@ python3 tools/test_builder.py --app led_marquee
 # 清理所有生成的 hex/coe
 python3 tools/test_builder.py --clean
 
-# 生成 tasks.yaml 任务条目（粘贴到 tasks.yaml）
+# 生成 config/tasks.yaml 任务条目（粘贴到 config/tasks.yaml）
 python3 tools/test_builder.py --gen-tasks
 ```
 
 ### 2.2 构建配置
 
-测试程序定义在 `dev/program_source/build.yaml` 中：
-- 源码：`dev/program_source/test/<category>/<name>.c` 或 `.S`
-- 输出：`dev/program_source/test/<category>/<name>.hex` 和 `.coe`
-- 链接脚本：`dev/program_source/link.ld`
+测试程序定义在 `src/program_source/build.yaml` 中：
+- 源码：`src/program_source/test/<category>/<name>.c` 或 `.S`
+- 输出：`src/program_source/test/<category>/<name>.hex` 和 `.coe`
+- 链接脚本：`src/program_source/link.ld`
 - 编译器：`riscv64-linux-gnu-gcc`（rv32im_zicsr_zifencei, ilp32）
 
 ---
@@ -203,7 +203,7 @@ python3 -m tools.trace_analyzer stats <trace.log>          # 统计信息
 ## 5. 配置与 IP 管理
 
 ```bash
-# 修改 vivado_config.yaml 后重新生成 cache_def.svh
+# 修改 config/vivado_config.yaml 后重新生成 cache_def.svh
 python3 -m tools.vivado_cli --gen-config
 
 # 增量刷新（只刷新指定层）
@@ -234,7 +234,7 @@ with open(dst, 'r+b') as f:
     f.seek(reg)
     f.write(bytes([0x80,0,0,0,0x01,0,0,0]))  # 128MB → 16MB
 subprocess.run(['python3','tools/bin2hex.py',dst,
-    'dev/program_source/firmware/fw_payload.hex'], capture_output=True)
+    'src/program_source/firmware/fw_payload.hex'], capture_output=True)
 print("Done")
 EOF
 ```
@@ -286,8 +286,8 @@ python3 -m tools.vivado_cli --cleanup
 cd /mnt/data/chen/cpu-designers
 export PATH="/tools/Xilinx/Vivado/2018.3/bin:$PATH"
 
-# 1. 改 RTL（如 dev/rtl/core/MMU.sv）
-vim dev/rtl/core/MMU.sv
+# 1. 改 RTL（如 src/rtl/core/MMU.sv）
+vim src/rtl/core/MMU.sv
 
 # 2. 刷新 + 仿真
 python3 -m tools.vivado_cli -task kernel_boot_sram128_dtb16 -refresh -sim \
@@ -298,7 +298,7 @@ python3 -m tools.vivado_cli -task kernel_boot_sram128_dtb16 -refresh -sim \
 
 ```bash
 # 1. 改测试源码
-vim dev/program_source/test/isa/alu.c
+vim src/program_source/test/isa/alu.c
 
 # 2. 重新编译
 python3 tools/test_builder.py --test isa/alu
@@ -325,14 +325,14 @@ ls -t /mnt/data/chen/logs/run_*.log | head -1 | xargs tail -3
 
 ```
 项目根目录:        /mnt/data/chen/cpu-designers (← /home/chen/cpu-designers 软链接)
-RTL 源码:          dev/rtl/core/           (CPU 核心)
-                   dev/rtl/ram_wrap/       (内存包装器)
-                   dev/rtl/system_top.sv   (SoC 顶层)
-Testbench:         dev/tb/tb_kernel_boot.sv (kernel boot TB)
-测试程序源码:       dev/program_source/test/
-测试程序构建配置:   dev/program_source/build.yaml
-仿真任务配置:       tasks.yaml
-Vivado 配置:       vivado_config.yaml
+RTL 源码:          src/rtl/core/           (CPU 核心)
+                   src/rtl/ram_wrap/       (内存包装器)
+                   src/rtl/system_top.sv   (SoC 顶层)
+Testbench:         src/tb/tb_kernel_boot.sv (kernel boot TB)
+测试程序源码:       src/program_source/test/
+测试程序构建配置:   src/program_source/build.yaml
+仿真任务配置:       config/tasks.yaml
+Vivado 配置:       config/vivado_config.yaml
 IP 生成脚本:        tools/vivado_core/ip_gen.py
 仿真项目输出:       project/<task_name>/simplecpu_soc.sim/sim_1/behav/xsim/
 Kernel 二进制:     build/kernel/vmlinux

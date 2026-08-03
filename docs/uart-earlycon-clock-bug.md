@@ -49,7 +49,7 @@ clock-frequency = <100000000>;
 
 ## 修复
 
-在 `boot/dts/simplecpu.dts` 的 `bootargs` 中为 earlycon 显式传入 100MHz UART clock：
+在 `linux/dts/simplecpu.dts` 的 `bootargs` 中为 earlycon 显式传入 100MHz UART clock：
 
 ```text
 earlycon=uart8250,mmio32,0x10008000,230400n8,100000000

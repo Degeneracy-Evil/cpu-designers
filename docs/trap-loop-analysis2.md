@@ -239,10 +239,10 @@ project/kernel_boot_sram128_dtb16/simplecpu_soc.sim/sim_1/behav/xsim/
 ├── uart_tx.log                # UART 输出
 └── simulate.log               # probe 日志
 
-dev/rtl/core/cpu_clint.sv         # hw_trap_cause/epc 生成, 委托逻辑
-dev/rtl/core/cpu_trap_manager.sv  # exception_valid_r 锁存, cause 优先级
-dev/rtl/core/cpu_csr.sv           # r_mcause/r_scause 寄存器
-dev/rtl/core/MMU.sv               # MMU/TLB, D-side page fault 生成
-dev/rtl/core/tlb.sv               # TLB BRAM (flag/data, READ_FIRST)
-dev/tb/tb_kernel_boot.sv          # TB (trap_deleg 记录 + forensic buffer)
+src/rtl/core/cpu_clint.sv         # hw_trap_cause/epc 生成, 委托逻辑
+src/rtl/core/cpu_trap_manager.sv  # exception_valid_r 锁存, cause 优先级
+src/rtl/core/cpu_csr.sv           # r_mcause/r_scause 寄存器
+src/rtl/core/MMU.sv               # MMU/TLB, D-side page fault 生成
+src/rtl/core/tlb.sv               # TLB BRAM (flag/data, READ_FIRST)
+src/tb/tb_kernel_boot.sv          # TB (trap_deleg 记录 + forensic buffer)
 ```

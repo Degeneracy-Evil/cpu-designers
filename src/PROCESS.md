@@ -3,8 +3,8 @@
 ## 2026-06-19: tlb_megapage.s + sv32_edge.s — Fix simulation timeout from slow clear_page_tables
 
 ### Changed files
-- `dev/program_source/test/mmu/tlb_megapage.s` — added disable_sv32 + inline fast page table clear
-- `dev/program_source/test/mmu/sv32_edge.s` — added disable_sv32 + inline fast page table clear
+- `src/program_source/test/mmu/tlb_megapage.s` — added disable_sv32 + inline fast page table clear
+- `src/program_source/test/mmu/sv32_edge.s` — added disable_sv32 + inline fast page table clear
 
 ### Root cause
 `clear_page_tables` (in page_table_utils.s) clears all 2048 entries (L1: 1024 + L0: 1024)
@@ -28,8 +28,8 @@ incorrect. Instruction trace analysis showed the loop runs exactly 1024 real ite
 ## 2026-06-19: tlb_replace.s + tlb_stress.s — Fix test data overwriting code/page tables
 
 ### Changed files
-- `dev/program_source/test/mmu/tlb_replace.s` — remapped all test data addresses
-- `dev/program_source/test/mmu/tlb_stress.s` — remapped all test data addresses
+- `src/program_source/test/mmu/tlb_replace.s` — remapped all test data addresses
+- `src/program_source/test/mmu/tlb_stress.s` — remapped all test data addresses
 
 ### Root cause
 Test data writes at offset 0x80 within pages 0-7 overlapped with:
@@ -61,8 +61,8 @@ to 2 sequential replacements (6 pages). All other tests use ≤6 pages.
 ## 2026-06-16: axi4lite_plic.sv — SiFive PLIC standard layout + dual-context support
 
 ### Changed files
-- `dev/rtl/axi/axi4lite_plic.sv` — full rewrite
-- `dev/rtl/system_top.sv` — o_eip connection updated
+- `src/rtl/axi/axi4lite_plic.sv` — full rewrite
+- `src/rtl/system_top.sv` — o_eip connection updated
 
 ### Summary
 Rewrote `axi4lite_plic` to use standard SiFive PLIC address offsets and support 2 interrupt contexts (M-mode + S-mode).
@@ -97,7 +97,7 @@ Rewrote `axi4lite_plic` to use standard SiFive PLIC address offsets and support 
 Any test accessing 0x80008000+ in Sv32 S-mode page faults because L0[8+] is not mapped.
 
 ### Changed files
-- `dev/program_source/test/mmu/tlb_asid.s` — test_04_sfence_preserves_global: replaced 3 occurrences of `0x80008000` with `0x80005000` (within mapped range, not in test result area 0x80007000)
+- `src/program_source/test/mmu/tlb_asid.s` — test_04_sfence_preserves_global: replaced 3 occurrences of `0x80008000` with `0x80005000` (within mapped range, not in test result area 0x80007000)
 
 ### Files checked but no fix needed
 - `tlb_replace.s` — all addresses 0x80000080-0x80007080, all within mapped range

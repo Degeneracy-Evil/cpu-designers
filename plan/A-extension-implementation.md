@@ -148,7 +148,7 @@ assign amo_computed_result =
 
 ### Phase 1: 流水线总线扩展
 
-#### 2.1.1 `dev/rtl/core/core_bus_types.svh`
+#### 2.1.1 `src/rtl/core/core_bus_types.svh`
 
 **修改内容**：扩展 `exe_mem_bus_t` 和 `wb_bus_t` 结构体
 
@@ -177,7 +177,7 @@ assign amo_computed_result =
 新增位宽：3 bit
 新 wb_bus_t 总宽：177 + 3 = **180 bit**
 
-#### 2.1.2 `dev/rtl/core/cpu_decode.sv` — id_exe_bus 扩展
+#### 2.1.2 `src/rtl/core/cpu_decode.sv` — id_exe_bus 扩展
 
 **新增 opcode 常量**：
 ```systemverilog
@@ -308,7 +308,7 @@ assign id_exe_bus = {
 
 ### Phase 2: 执行级传递
 
-#### 2.2.1 `dev/rtl/core/cpu_execute.sv`
+#### 2.2.1 `src/rtl/core/cpu_execute.sv`
 
 **修改内容**：
 
@@ -359,7 +359,7 @@ assign exe_mem_bus = '{
 
 ### Phase 3: 访存级核心实现
 
-#### 2.3.1 `dev/rtl/core/cpu_mem.sv` — 主要修改
+#### 2.3.1 `src/rtl/core/cpu_mem.sv` — 主要修改
 
 这是 A 扩展实现的核心文件，修改量最大。
 
@@ -509,7 +509,7 @@ assign mem_wb_bus = '{
 
 ### Phase 4: 回写级
 
-#### 2.4.1 `dev/rtl/core/cpu_wb.sv`
+#### 2.4.1 `src/rtl/core/cpu_wb.sv`
 
 **修改内容**：
 
@@ -521,7 +521,7 @@ assign mem_wb_bus = '{
 
 ### Phase 5: 核心顶层连线
 
-#### 2.5.1 `dev/rtl/core/core_top.sv`
+#### 2.5.1 `src/rtl/core/core_top.sv`
 
 **修改内容**：
 
@@ -535,7 +535,7 @@ assign mem_wb_bus = '{
 
 ### Phase 6: CSR misa 更新
 
-#### 2.6.1 `dev/rtl/core/cpu_csr.sv`
+#### 2.6.1 `src/rtl/core/cpu_csr.sv`
 
 **修改内容**：
 
@@ -558,7 +558,7 @@ assign mem_wb_bus = '{
 
 ### Phase 7: 控制器（无需修改）
 
-#### 2.7.1 `dev/rtl/core/cpu_controller.sv`
+#### 2.7.1 `src/rtl/core/cpu_controller.sv`
 
 **无需修改**。原因：
 - AMO/LR/SC 走正常的 EXEC → MEM → WB 流程
@@ -570,7 +570,7 @@ assign mem_wb_bus = '{
 
 ### Phase 8: DCache（无需修改）
 
-#### 2.8.1 `dev/rtl/core/dcache_ctrl.sv`
+#### 2.8.1 `src/rtl/core/dcache_ctrl.sv`
 
 **无需修改**。原因：
 - AMO 通过 dcache 现有读/写接口完成
@@ -582,7 +582,7 @@ assign mem_wb_bus = '{
 
 ### Phase 9: 总线桥接（无需修改）
 
-#### 2.9.1 `dev/rtl/core/cpu_bus_bridge.sv`
+#### 2.9.1 `src/rtl/core/cpu_bus_bridge.sv`
 
 **无需修改**。AMO 的读/写请求与普通 Load/Store 使用相同的 AXI4 协议。
 
@@ -604,7 +604,7 @@ assign mem_wb_bus = '{
 
 ### Phase 11: 陷阱与异常处理
 
-#### 2.11.1 `dev/rtl/core/cpu_trap_manager.sv`
+#### 2.11.1 `src/rtl/core/cpu_trap_manager.sv`
 
 **修改内容**：
 
@@ -626,7 +626,7 @@ assign mem_wb_bus = '{
 
 #### 2.12.1 ISA 测试程序
 
-**新建**：`dev/program_source/test/isa/a_ext.S`
+**新建**：`src/program_source/test/isa/a_ext.S`
 
 测试用例：
 
@@ -652,7 +652,7 @@ assign mem_wb_bus = '{
 
 #### 2.12.2 Testbench
 
-**新建**：`dev/tb/tb_isa_a_ext.sv`
+**新建**：`src/tb/tb_isa_a_ext.sv`
 
 基于 `tb_isa_template.sv` 模板，使用自检程序（x28=pass, x30=first_fail_id）。
 

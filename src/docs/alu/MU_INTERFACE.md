@@ -225,8 +225,8 @@ module non_restoring_divider(
 ## 12. 调试入口
 
 ```bash
-python3 tools/mk.py --top dev/tb/ALU/tb_mu_unit.v
-python3 tools/mk.py --top dev/tb/ALU/tb_non_restoring_divider.v
+python3 tools/mk.py --top src/tb/ALU/tb_mu_unit.v
+python3 tools/mk.py --top src/tb/ALU/tb_non_restoring_divider.v
 ```
 
 重点观察信号：`req_valid`、`mu_ready`、`mu_busy`、`result_valid`、`div_by_zero`、`mu_funct3`。

@@ -21,7 +21,7 @@ xsim 的工作目录为：
 **方案 A：绝对路径**（推荐用于单机开发）
 
 ```verilog
-$readmemh("E:/Xprogram/FPGA/cpu-designers/dev/program_source/cpu_test.hex", u_sram_model.mem32);
+$readmemh("E:/Xprogram/FPGA/cpu-designers/src/program_source/cpu_test.hex", u_sram_model.mem32);
 ```
 
 **方案 B：条件编译 + prog.hex 复制**（当前项目采用）
@@ -33,7 +33,7 @@ initial begin
 `ifdef XILINX_SIMULATOR
     $readmemh("prog.hex", u_sram_model.mem32);
 `else
-    $readmemh("dev/program_source/cpu_test.hex", u_sram_model.mem32);
+    $readmemh("src/program_source/cpu_test.hex", u_sram_model.mem32);
 `endif
 end
 ```

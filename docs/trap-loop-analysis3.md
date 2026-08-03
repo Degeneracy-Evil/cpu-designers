@@ -557,11 +557,11 @@ CPU 在 vzalloc_node_noprof 之前的某条指令上已经偏离了正确执行�
   if_sanity.log             — 取指健全性检查
 
 RTL 文件:
-  dev/rtl/core/MMU.sv              — MMU + TLB + PTW
-  dev/rtl/core/tlb.sv              — TLB BRAM (READ_FIRST)
-  dev/rtl/core/cpu_trap_manager.sv — exception 锁存
-  dev/rtl/core/cpu_clint.sv        — hw_trap_cause/epc 生成
-  dev/tb/tb_kernel_boot.sv         — TB: forensic buffer, dmmu trace, SV32 truth
+  src/rtl/core/MMU.sv              — MMU + TLB + PTW
+  src/rtl/core/tlb.sv              — TLB BRAM (READ_FIRST)
+  src/rtl/core/cpu_trap_manager.sv — exception 锁存
+  src/rtl/core/cpu_clint.sv        — hw_trap_cause/epc 生成
+  src/tb/tb_kernel_boot.sv         — TB: forensic buffer, dmmu trace, SV32 truth
 
 Kernel:
   build/kernel/vmlinux     — Linux kernel ELF

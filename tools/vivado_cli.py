@@ -770,7 +770,7 @@ def main(argv: list[str] | None = None) -> int:
                 else:
                     batch_spec.log_dir = str(log_arg.parent)
             else:
-                batch_spec.log_dir = str(project_root / "log")
+                batch_spec.log_dir = str(project_root / "build" / "logs")
 
         # --- Validate batch tasks ---
         for bt in batch_spec.tasks:

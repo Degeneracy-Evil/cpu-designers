@@ -448,7 +448,8 @@ class SessionManager:
     def __init__(self, base_dir: Path | str, config: GlobalConfig) -> None:
         self.base_dir = Path(base_dir).resolve()
         self.config = config
-        self._sessions_dir = self.base_dir / "project"
+        # Sessions live under build/ (generated artifacts), not the repo root.
+        self._sessions_dir = self.base_dir / "build" / "project"
         self._idle_watcher: threading.Thread | None = None
         self._watcher_stop = threading.Event()
         # Semaphore for atomic concurrent Vivado process limiting.

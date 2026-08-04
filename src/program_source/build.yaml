@@ -168,16 +168,3 @@ apps:
       - app/uart_echo_c_lib.c
     include_dirs:
       - lib/include
-
-  calculator:
-    src_files:
-      - lib/start.S
-      - lib/uart.c
-      - lib/stdio.c
-      - lib/atof.c
-      - lib/ftoa.c
-      - lib/math.c
-      - app/calculator.c
-    arch: rv32imaf_zicsr_zifencei
-    include_dirs:
-      - lib/include

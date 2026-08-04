@@ -463,123 +463,12 @@ tasks:
     tb: tb_axi4lite_clint_unit
     blhex: boot/bootloader_phase1.hex
     runtime: 20us
-
-  alu_integration:
-    tb: tb_alu_cpu_integration
-    blhex: boot/bootloader_phase1.hex
-    runtime: 5000ns
-
-  mu_unit:
-    tb: tb_mu_unit
-    blhex: boot/bootloader_phase1.hex
-    runtime: 5000ns
-
-  # ── MMU/TLB 单元仿真 (src/tb/mmu_tlb_unit/) ──
-
-  mmu_unit:
-    tb: tb_mmu_unit
-    blhex: boot/bootloader_phase1.hex
-    runtime: 500us
-
-  tlb_unit:
-    tb: tb_tlb_unit
-    blhex: boot/bootloader_phase1.hex
-    runtime: 500us
-
-  divider:
-    tb: tb_non_restoring_divider
-    blhex: boot/bootloader_phase1.hex
-    runtime: 5000ns
-
-  calculator:
-    tb: tb_calculator
-    blhex: boot/bootloader_phase1.hex
-    phex: app/calculator.hex
-    runtime: 300ms
-
-  # ── FPGA上板 ──
-
   fpga:
     top: system_top
     blcoe: boot/bootloader.coe
     verilog_defines:
       SIMU_USE_DDR: 1
       SIMU_USE_PLL: 1
-
-  # DDR3 IP 验证 — 仅创建项目，不仿真/不生成 bitstream
-  # Use: python -m tools.vivado_cli -task ddr3_test -create
-  ddr3_test:
-    top: system_top
-
-  # ── DDR3仿真 ──
-
-  ddr3_mig_ex:
-    tb: tb_ddr3_mig_ex
-    blhex: boot/bootloader.hex
-    sim_mode: ddr3
-    verilog_defines:
-      SIM_BYPASS_INIT_CAL: FAST
-      SIMULATION: "TRUE"
-    runtime: 1000us
-
-  ddr3_ahb_ex:
-    tb: tb_ddr3_ahb_ex
-    blhex: boot/bootloader.hex
-    sim_mode: ddr3
-    verilog_defines:
-      SIM_BYPASS_INIT_CAL: FAST
-      SIMULATION: "TRUE"
-    runtime: 1000us
-
-  ddr3_basic:
-    tb: tb_ddr3_basic
-    blhex: boot/bootloader.hex
-    sim_mode: ddr3
-    verilog_defines:
-      SIM_BYPASS_INIT_CAL: FAST
-      SIMULATION: "TRUE"
-    runtime: 1000us
-
-  ddr3_system:
-    tb: tb_ddr3_system
-    blhex: boot/bootloader.hex
-    sim_mode: ddr3
-    verilog_defines:
-      SIM_BYPASS_INIT_CAL: FAST
-      SIMULATION: "TRUE"
-      sg125: 1
-      DDR3_BYPASS_CLK_WIZ: 1
-    phex: app/ddr3_test.hex
-    runtime: 100ms
-
-  ddr3_system_v2:
-    tb: tb_ddr3_system_v2
-    blhex: boot/bootloader.hex
-    sim_mode: ddr3
-    verilog_defines:
-      SIM_BYPASS_INIT_CAL: FAST
-      SIMULATION: "TRUE"
-      sg125: 1
-      DDR3_BYPASS_CLK_WIZ: 1
-    phex: app/ddr3_test.hex
-    runtime: 100ms
-
-  ddr3_system_v3:
-    tb: tb_ddr3_system_v3
-    blhex: boot/bootloader.hex
-    sim_mode: ddr3
-    verilog_defines:
-      SIM_BYPASS_INIT_CAL: FAST
-      SIMULATION: "TRUE"
-      sg125: 1
-      DDR3_BYPASS_CLK_WIZ: 1
-    phex: app/ddr3_test.hex
-    runtime: 100ms
-
-  # ── Linux Kernel Boot 仿真 (DDR3) ──
-  # Loads OpenSBI+kernel payload into DDR3 via AXI4 force writes,
-  # then releases CPU to boot. Trap delegation debug enabled.
-  # Expected wall-clock time: 2-8 hours depending on crash point.
   kernel_boot_ddr3:
     tb: tb_kernel_boot
     blhex: boot/bootloader_phase1.hex

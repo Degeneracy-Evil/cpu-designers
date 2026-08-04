@@ -161,9 +161,6 @@ add_files -norecurse "{sys_rtl_dir}/soc_config.vh"
 if {{ [file exists "{sys_rtl_dir}/axi4_def.svh"] }} {{
     add_files -norecurse "{sys_rtl_dir}/axi4_def.svh"
 }}
-if {{ [file exists "{sys_rtl_dir}/clk_wiz_0_passthrough.sv"] }} {{
-    add_files -norecurse "{sys_rtl_dir}/clk_wiz_0_passthrough.sv"
-}}
 if {{ [file exists "{sys_rtl_dir}/debug_uart_tx.sv"] }} {{
     add_files -norecurse "{sys_rtl_dir}/debug_uart_tx.sv"
 }}
@@ -599,9 +596,6 @@ if {{ [file exists "{sys_rtl_dir}/axi4_def.svh"] }} {{
     set_property file_type "Verilog Header" [get_files axi4_def.svh]
 }}
 import_files -fileset sim_1 -norecurse "{sys_rtl_dir}/system_top.sv"
-if {{ [file exists "{sys_rtl_dir}/clk_wiz_0_passthrough.sv"] }} {{
-    import_files -fileset sim_1 -norecurse "{sys_rtl_dir}/clk_wiz_0_passthrough.sv"
-}}
 if {{ [file exists "{sys_rtl_dir}/debug_uart_tx.sv"] }} {{
     import_files -fileset sim_1 -norecurse "{sys_rtl_dir}/debug_uart_tx.sv"
 }}

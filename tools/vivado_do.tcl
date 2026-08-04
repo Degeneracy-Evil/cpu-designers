@@ -19,7 +19,7 @@
 #
 # 工程策略:
 #   - 拷贝策略 (source_mgmt_mode=Copy): 源码完全拷贝到工程目录，与原始源码隔离
-#   - IP 仅存储 XCI 文件于 Reference/ips/ 下 (扁平目录，无子文件夹)
+#   - IP 仅存储 XCI 文件于 docs/Reference/ips/ 下 (扁平目录，无子文件夹)
 #   - 源码变更后使用 -refresh 刷新工程以同步最新源码
 #
 # 典型用法:
@@ -86,7 +86,7 @@ set tb_dir          "${dev_dir}/tb"
 set prog_dir        "${dev_dir}/program_source"
 # 子目录: test/ = CPU 验证测试程序, app/ = FPGA 演示应用程序
 set fpga_dir        "${dev_dir}/fpga"
-set ips_dir         "${base_dir}/Reference/newips"
+set ips_dir         "${base_dir}/docs/Reference/newips"
 
 set tcl_dir         "${base_dir}/tools/vivado_core/tcl"
 

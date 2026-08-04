@@ -51,7 +51,7 @@ project/
 
 | 层 | 文件范围 | 刷新代价 |
 |----|----------|----------|
-| `rtl` | `src/rtl/**/*.sv/.svh` + `Reference/**/*.xci` | 全量重建（分钟级） |
+| `rtl` | `src/rtl/**/*.sv/.svh` + `docs/Reference/**/*.xci` | 全量重建（分钟级） |
 | `tb` | `src/tb/**/*.sv` | 重加 testbench（秒级） |
 | `coe` | `src/program_source/**/*.coe/.hex` | 更新 COE 配置（秒级） |
 | `fpga` | `src/fpga/**/*.xdc/.dcp` + `tools/tcl/**/*.tcl` | 重加约束（秒级） |

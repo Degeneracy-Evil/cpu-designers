@@ -149,7 +149,7 @@ class Ddr3Config:
     enabled: bool = False
     ip_name: str = "mig_axi_32"
     ip_version: str = "4.2"
-    mig_prj_file: str = "Reference/mig/mig_a.prj"
+    mig_prj_file: str = "docs/Reference/mig/mig_a.prj"
     mem_size: int = 134217728  # 128MB
     axi_addr_width: int = 27
     axi_data_width: int = 32
@@ -359,7 +359,7 @@ def load_config(path: Path | str | None = None, base_dir: Path | str | None = No
         enabled=ddr3_raw.get("enabled", False),
         ip_name=ddr3_raw.get("ip_name", "mig_axi_32"),
         ip_version=ddr3_raw.get("ip_version", "4.2"),
-        mig_prj_file=ddr3_raw.get("mig_prj_file", "Reference/mig/mig_a.prj"),
+        mig_prj_file=ddr3_raw.get("mig_prj_file", "docs/Reference/mig/mig_a.prj"),
         mem_size=ddr3_raw.get("mem_size", 134217728),
         axi_addr_width=ddr3_raw.get("axi_addr_width", 27),
         axi_data_width=ddr3_raw.get("axi_data_width", 32),

@@ -4,7 +4,7 @@ Computes per-layer SHA256 hashes over project source files so that
 stale sessions can be detected and incremental refreshes planned.
 
 Layers:
-- **rtl**:  src/rtl/**/*.sv + src/rtl/**/*.svh + Reference/**/*.xci
+- **rtl**:  src/rtl/**/*.sv + src/rtl/**/*.svh + docs/Reference/**/*.xci
 - **tb**:   src/tb/**/*.sv
 - **src**:  src/program_source/**/*.{s,S,c,h,ld} + build.yaml + test_builder.py + rv2coe.py
 - **coe**:  src/program_source/{test,app,boot}/**/*.{coe,hex}
@@ -35,12 +35,12 @@ class LayeredHash:
         "rtl": [
             "src/rtl/**/*.sv",
             "src/rtl/**/*.svh",
-            "Reference/**/*.xci",
+            "docs/Reference/**/*.xci",
             "config/vivado_config.yaml",
             "tools/vivado_core/**/*.py",
-            "Reference/ddr3_sim/**/*.sv",
-            "Reference/ddr3_sim/**/*.vh",
-            "Reference/ddr3_sim/**/*.v",
+            "docs/Reference/ddr3_sim/**/*.sv",
+            "docs/Reference/ddr3_sim/**/*.vh",
+            "docs/Reference/ddr3_sim/**/*.v",
         ],
         "tb": [
             "src/tb/**/*.sv",

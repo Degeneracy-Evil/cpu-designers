@@ -447,7 +447,7 @@ E:/Xprogram/FPGA/tmp/
 │       ├── tb/              — testbench
 │       ├── program_source/  — COE/HEX 初始化文件
 │       └── fpga/            — DCP, XDC
-├── Reference/ips/           — 已生成的 IP (icache.xci, dcache.xci)
+├── docs/Reference/ips/           — 已生成的 IP (icache.xci, dcache.xci)
 └── vivado_do.tcl           — 仿真自动化脚本
 ```
 

@@ -71,7 +71,7 @@ memory:
     enabled: true
     ip_name: mig_axi_32
     ip_version: "4.2"
-    mig_prj_file: Reference/mig/mig_a.prj
+    mig_prj_file: docs/Reference/mig/mig_a.prj
     mem_size: 134217728          # 128MB
     axi_addr_width: 27
     axi_data_width: 32

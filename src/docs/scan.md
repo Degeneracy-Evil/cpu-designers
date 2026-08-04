@@ -674,7 +674,7 @@ context，导致 Linux/OpenSBI 使用 ctx0 作为 S-mode，与硬件不匹配。
 - `ila_cpu_axi` (cpu_clk 50MHz): CPU 侧 AXI 四通道 + `if_pc`
 - 一键构建: `vivado -mode batch -source tools/vivado_core/tcl/build_with_ila.tcl`
 - 下载时必须同时加载 `.bit` + `.ltx` 文件
-- 详见 `Reference/ILA调试指南.md`
+- 详见 `docs/Reference/ILA调试指南.md`
 
 **调试策略**: 先用 `uart_console.py` 看 boot log 定位 hang 点，如需精确定位再用 ILA 扩展探针。
 

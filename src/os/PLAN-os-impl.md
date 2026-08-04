@@ -1,7 +1,7 @@
 # MicroOS 实现计划
 
 > 生成日期: 2026-05-24 | 目标平台: SimpleCPU (RV32IM, Sv32, 32KB SRAM)
-> 参考: xv6-riscv (Reference/xv6) | RTL 设计报告: src/docs/simpleCPU-design-report.md
+> 参考: xv6-riscv (docs/Reference/xv6) | RTL 设计报告: src/docs/simpleCPU-design-report.md
 
 ---
 

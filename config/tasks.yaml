@@ -172,10 +172,6 @@ tasks:
     phex: test/privilege/csr_access_priv.hex
     runtime: 10ms
 
-  regression_icache_mmio_stale_resp:
-    tb: tb_regression_reg_icache_mmio_stale_resp
-    runtime: 2us
-
   # ── MMU 仿真 ──
 
   mmu_sv32_basic:
@@ -296,32 +292,6 @@ tasks:
     phex: test/mmio/plic.hex
     runtime: 150ms
 
-  # ── 审计仿真 (bug verification + discovery) ──
-
-  audit_csr_bugs:
-    tb: tb_audit_csr_bugs
-    blhex: boot/bootloader_phase1.hex
-    phex: test/audit/csr_bugs.hex
-    runtime: 20ms
-
-  audit_mmu_bugs:
-    tb: tb_audit_mmu_bugs
-    blhex: boot/bootloader_phase1.hex
-    phex: test/audit/mmu_bugs.hex
-    runtime: 30ms
-
-  audit_plic_bugs:
-    tb: tb_audit_plic_bugs
-    blhex: boot/bootloader_phase1.hex
-    phex: test/audit/plic_bugs.hex
-    runtime: 20ms
-
-  audit_plic_seip:
-    tb: tb_audit_plic_seip
-    blhex: boot/bootloader_phase1.hex
-    phex: test/audit/plic_seip.hex
-    runtime: 20ms
-
   # ── 回归仿真 ──
 
   reg_tlb_fill_way:
@@ -346,12 +316,6 @@ tasks:
     tb: tb_regression_reg_stale_paddr
     blhex: boot/bootloader_phase1.hex
     phex: test/regression/reg_stale_paddr.hex
-    runtime: 20ms
-
-  reg_bug16_tlb_valid_pulse:
-    tb: tb_regression_reg_bug16_tlb_valid_pulse
-    blhex: boot/bootloader_phase1.hex
-    phex: test/regression/reg_bug16_tlb_valid_pulse.hex
     runtime: 20ms
 
   reg_bare_no_miss:

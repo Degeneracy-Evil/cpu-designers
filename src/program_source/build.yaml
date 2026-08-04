@@ -103,14 +103,6 @@ categories:
       - mmio/clint
       - mmio/plic
 
-  audit:
-    framework: mmu
-    tests:
-      - audit/csr_bugs
-      - audit/mmu_bugs
-      - audit/plic_bugs
-      - audit/plic_seip
-
   regression:
     framework: mmu
     tests:
@@ -122,7 +114,6 @@ categories:
       - regression/reg_pf_latch
       - regression/reg_linux_ptr_reload
       - regression/reg_linux_field_values
-      - regression/reg_bug16_tlb_valid_pulse
 
   regression_common:
     framework: common

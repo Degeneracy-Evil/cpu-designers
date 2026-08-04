@@ -193,7 +193,6 @@ module MMU #(
     // PTW done/fault (declared early for tlb_fill_req)
     wire        ptw_walk_done;
     wire        ptw_walk_fault;
-    wire [1:0]  ptw_fault_kind_out;
 
     // TLB lookup requests
     // BUG-16 fix: keep lookup req active during I_LOOKUP/D_LOOKUP so BRAM-based
@@ -772,7 +771,6 @@ module MMU #(
         .walk_fault(ptw_walk_fault),
         .walk_fault_cause(ptw_fault_cause_out),
         .walk_fault_vaddr(ptw_fault_vaddr_out),
-        .walk_fault_kind(ptw_fault_kind_out),
         .walk_ppn(ptw_fill_ppn),
         .walk_r(ptw_fill_r),
         .walk_w(ptw_fill_w),

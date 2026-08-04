@@ -17,7 +17,6 @@ module ptw(
     output             walk_fault,
     output      [3:0]  walk_fault_cause,
     output      [31:0] walk_fault_vaddr,
-    output      [1:0]  walk_fault_kind,
 
     output      [21:0] walk_ppn,
     output             walk_r,
@@ -53,13 +52,12 @@ module ptw(
     localparam S_IDLE       = 4'd0;
     localparam S_L1_READ    = 4'd1;
     localparam S_L1_CHECK   = 4'd2;
-    localparam S_L0_READ    = 4'd3;
-    localparam S_L0_CHECK   = 4'd4;
-    localparam S_PERM_CHECK = 4'd5;
-    localparam S_AD_UPDATE  = 4'd6;
-    localparam S_AD_WAIT    = 4'd7;
-    localparam S_DONE       = 4'd8;
-    localparam S_FAULT      = 4'd9;
+    localparam S_L0_CHECK   = 4'd3;
+    localparam S_PERM_CHECK = 4'd4;
+    localparam S_AD_UPDATE  = 4'd5;
+    localparam S_AD_WAIT    = 4'd6;
+    localparam S_DONE       = 4'd7;
+    localparam S_FAULT      = 4'd8;
 
     reg [3:0] state;
 
@@ -128,7 +126,6 @@ module ptw(
 
     assign walk_fault_cause = fault_cause_r;
     assign walk_fault_vaddr = vaddr_r;
-    assign walk_fault_kind  = fault_kind_r;
 
     assign walk_ppn         = pte_ppn;
     assign walk_r           = pte_r_bit;
@@ -143,7 +140,6 @@ module ptw(
     assign walk_done   = (state == S_DONE);
     assign walk_fault  = (state == S_FAULT);
 
-    reg bus_req_r;
     reg [31:0] bus_addr_r;
     reg bus_we_r;
     reg [31:0] bus_wdata_r;
@@ -161,7 +157,6 @@ module ptw(
     // Explicit 32-bit arithmetic: use only PPN[19:0] for address (top 2 bits
     // would exceed 32-bit bus width). Each term is exactly 32 bits wide.
     wire [31:0] l1_pte_addr = {satp_ppn[19:0], 12'b0} + {20'b0, vpn1, 2'b0};
-    wire [31:0] l0_pte_addr = {pte_ppn[19:0], 12'b0} + {20'b0, vpn0, 2'b0};
 
     wire perm_fault;
     reg perm_fault_r;
@@ -199,7 +194,6 @@ module ptw(
             is_megapage_r    <= 1'b0;
             need_ad_update_r <= 1'b0;
             need_d_update_r  <= 1'b0;
-            bus_req_r        <= 1'b0;
             bus_addr_r       <= 32'b0;
             bus_we_r         <= 1'b0;
             bus_wdata_r      <= 32'b0;
@@ -207,7 +201,6 @@ module ptw(
             timeout_cnt      <= 16'd0;
             fault_kind_r     <= FAULT_NONE;
         end else begin
-            bus_req_r <= 1'b0;
             // Clear pending on bus response
             if (bus_resp_any)
                 bus_req_pending_r <= 1'b0;
@@ -245,7 +238,6 @@ module ptw(
                     bus_addr_r <= l1_pte_addr;
                     bus_we_r   <= 1'b0;
                     bus_wdata_r<= 32'b0;
-                    bus_req_r  <= 1'b1;
                     bus_req_pending_r <= 1'b1;
                     pte_addr_r <= l1_pte_addr;
                     state      <= S_L1_CHECK;
@@ -279,7 +271,6 @@ module ptw(
                                 bus_addr_r        <= next_l0_addr;
                                 bus_we_r          <= 1'b0;
                                 bus_wdata_r       <= 32'b0;
-                                bus_req_r         <= 1'b1;
                                 bus_req_pending_r <= 1'b1;  // override clear
                                 pte_addr_r        <= next_l0_addr;
                                 state             <= S_L0_CHECK;
@@ -290,16 +281,6 @@ module ptw(
                         state <= S_FAULT;
                         bus_req_pending_r <= 1'b0;
                     end
-                end
-
-                S_L0_READ: begin
-                    bus_addr_r <= l0_pte_addr;
-                    bus_we_r   <= 1'b0;
-                    bus_wdata_r<= 32'b0;
-                    bus_req_r  <= 1'b1;
-                    bus_req_pending_r <= 1'b1;
-                    pte_addr_r <= l0_pte_addr;
-                    state      <= S_L0_CHECK;
                 end
 
                 S_L0_CHECK: begin
@@ -352,7 +333,6 @@ module ptw(
                         bus_wdata_r <= pte_r | 32'hC0;
                     else
                         bus_wdata_r <= pte_r | 32'h40;
-                    bus_req_r  <= 1'b1;
                     bus_req_pending_r <= 1'b1;
                     state      <= S_AD_WAIT;
                 end

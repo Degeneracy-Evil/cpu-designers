@@ -239,22 +239,6 @@ module cpu_execute(
         end
     end
 
-    wire [31:0] csr_new_val;
-    wire [4:0]  csr_rs1;
-    assign csr_rs1 = inst[19:15];
-
-    assign csr_new_val = (csr_funct3 == 3'b001) ? rs1_value :
-                         (csr_funct3 == 3'b010) ? (csr_rdata | rs1_value) :
-                         (csr_funct3 == 3'b011) ? (csr_rdata & ~rs1_value) :
-                         (csr_funct3 == 3'b101) ? {27'b0, csr_uimm} :
-                         (csr_funct3 == 3'b110) ? (csr_rdata | {27'b0, csr_uimm}) :
-                         (csr_funct3 == 3'b111) ? (csr_rdata & ~{27'b0, csr_uimm}) :
-                         csr_rdata;
-
-    wire csr_no_write;
-    assign csr_no_write = ((csr_funct3 == 3'b010 || csr_funct3 == 3'b011) && (csr_rs1 == 5'd0)) ||
-                          ((csr_funct3 == 3'b110 || csr_funct3 == 3'b111) && (csr_uimm == 5'd0));
-
     assign exe_done = done_reg;
     assign exe_branch_taken = branch_taken_reg;
     assign exe_branch_target = branch_target_reg;
@@ -268,11 +252,6 @@ module cpu_execute(
     assign exe_is_ctrl_flow = is_branch | is_jal_like;
     assign exe_is_branch = is_branch;
     assign exe_need_mem  = is_load | is_store | is_amo;
-
-    assign exe_csr_wen    = is_csr && !csr_no_write;
-    assign exe_csr_waddr  = csr_addr;
-    assign exe_csr_wdata  = csr_new_val;
-    assign exe_csr_old_val = csr_rdata;
 
     assign exe_misalign_valid = done_reg && exe_is_ctrl_flow && branch_taken_reg && (branch_target_reg[1:0] != 2'b00);
     assign exe_misalign_target = branch_target_reg;

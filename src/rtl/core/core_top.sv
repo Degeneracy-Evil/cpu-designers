@@ -1450,14 +1450,8 @@ module core_top(
         .dbg_d_tlb_miss(mmu_dbg_d_tlb_miss)
     );
 
-    // ===================================================================
-    // Firmware Region Protection — block S/U-mode writes to OpenSBI code
-    // ===================================================================
-    // Simple hardcoded check: deny S/U-mode stores to 0x80000000-0x803fffff
-    // (4MB firmware region). This prevents kernel memory init from overwriting
-    // OpenSBI's trap handler at 0x80000418.
-    // M-mode has full access. Loads and instruction fetches are always allowed.
-    assign pmp_data_violation = 1'b0; // DISABLED for testing
+    // PMP enforcement is disabled (see pmp_data_violation below).
+    assign pmp_data_violation = 1'b0;
 
     cpu_bus_bridge u_bus_bridge(
         .clk              (clk),

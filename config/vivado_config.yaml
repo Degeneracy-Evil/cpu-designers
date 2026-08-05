@@ -101,17 +101,17 @@ memory:
 # is restructured.
 # ---------------------------------------------------------------------------
 rtl_path:
-  alu: ALU
-  mu: MU
+  alu: alu
+  mu: mu
   cpu_core: core
   common: common
   ahb: axi
   ahb_ip: axi/ip
-  amba: AMBA
+  amba: amba
   ram_wrap: ram_wrap
-  apb: APB
-  apb_header: APB/header
-  apb_perips: APB/perips
-  apb_uart16550: APB/perips/uart16550
+  apb: apb
+  apb_header: apb/header
+  apb_perips: apb/perips
+  apb_uart16550: apb/perips/uart16550
   sys_rtl: ""                   # src/rtl root (empty = src/rtl itself)
   tb: ""                        # src/tb (handled relative to src/, not src/rtl/)

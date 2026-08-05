@@ -222,12 +222,12 @@ class RtlPathsConfig:
     common: str = "common"
     ahb: str = "axi"
     ahb_ip: str = "axi/ip"
-    amba: str = "AMBA"
+    amba: str = "amba"
     ram_wrap: str = "ram_wrap"
-    apb: str = "APB"
-    apb_header: str = "APB/header"
-    apb_perips: str = "APB/perips"
-    apb_uart16550: str = "APB/perips/uart16550"
+    apb: str = "apb"
+    apb_header: str = "apb/header"
+    apb_perips: str = "apb/perips"
+    apb_uart16550: str = "apb/perips/uart16550"
     sys_rtl: str = ""  # src/rtl itself (empty fragment → src/rtl)
     tb: str = ""  # relative to src/ not src/rtl/ → handled specially
 
@@ -396,19 +396,19 @@ def load_config(path: Path | str | None = None, base_dir: Path | str | None = No
     # --- rtl_path sub-dict ---
     rtl_raw: dict = raw.get("rtl_path", {}) or {}
     rtl_path = RtlPathsConfig(
-        alu=rtl_raw.get("alu", "ALU"),
-        mu=rtl_raw.get("mu", "MU"),
+        alu=rtl_raw.get("alu", "alu"),
+        mu=rtl_raw.get("mu", "mu"),
         fpu=rtl_raw.get("fpu", "FPU"),
         cpu_core=rtl_raw.get("cpu_core", "core"),
         common=rtl_raw.get("common", "common"),
         ahb=rtl_raw.get("ahb", "axi"),
         ahb_ip=rtl_raw.get("ahb_ip", "axi/ip"),
-        amba=rtl_raw.get("amba", "AMBA"),
+        amba=rtl_raw.get("amba", "amba"),
         ram_wrap=rtl_raw.get("ram_wrap", "ram_wrap"),
-        apb=rtl_raw.get("apb", "APB"),
-        apb_header=rtl_raw.get("apb_header", "APB/header"),
-        apb_perips=rtl_raw.get("apb_perips", "APB/perips"),
-        apb_uart16550=rtl_raw.get("apb_uart16550", "APB/perips/uart16550"),
+        apb=rtl_raw.get("apb", "apb"),
+        apb_header=rtl_raw.get("apb_header", "apb/header"),
+        apb_perips=rtl_raw.get("apb_perips", "apb/perips"),
+        apb_uart16550=rtl_raw.get("apb_uart16550", "apb/perips/uart16550"),
         sys_rtl=rtl_raw.get("sys_rtl", ""),
         tb=rtl_raw.get("tb", ""),
     )

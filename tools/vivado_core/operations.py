@@ -9,6 +9,8 @@ from __future__ import annotations
 import logging
 import os
 import re
+import subprocess
+import sys
 from pathlib import Path
 
 from .cache_header_gen import write_cache_header
@@ -786,6 +788,13 @@ class Operations:
                 result.reason,
             )
 
+    def _prog_base(self) -> Path:
+        """Root for compiled program artifacts (.hex/.coe).
+
+        Mirrors ``src/program_source``'s relative layout under ``build/program``.
+        """
+        return self.session_mgr.base_dir / "build" / "program"
+
     def _resolve_blcoe_path(self, task: TaskConfig) -> str:
         """Return the absolute blcoe path for a task, or empty string.
 
@@ -793,7 +802,7 @@ class Operations:
         """
         if not task.blcoe:
             return ""
-        return _tcl_path(self.session_mgr.base_dir / "src" / "program_source" / task.blcoe)
+        return _tcl_path(self._prog_base() / task.blcoe)
 
     def _resolve_blhex_path(self, task: TaskConfig) -> str:
         """Return the bootloader hex path for the bootROM $readmemh.
@@ -802,39 +811,42 @@ class Operations:
         For DDR3/FPGA tasks (blcoe set): returns the default bootloader.hex.
         """
         if task.blhex:
-            return _tcl_path(self.session_mgr.base_dir / "src" / "program_source" / task.blhex)
-        return _tcl_path(self.session_mgr.base_dir / "src" / "program_source" / "boot/bootloader.hex")
+            return _tcl_path(self._prog_base() / task.blhex)
+        return _tcl_path(self._prog_base() / "boot/bootloader.hex")
 
     def _resolve_phex_path(self, task: TaskConfig) -> str:
         """Return the program hex path for SRAM $readmemh, or empty string."""
         if not task.phex:
             return ""
-        return _tcl_path(self.session_mgr.base_dir / "src" / "program_source" / task.phex)
+        return _tcl_path(self._prog_base() / task.phex)
 
-    def _check_required_files(self, task: TaskConfig) -> str:
-        """Pre-check that blcoe/blhex/phex files referenced by the task exist on disk.
+    def _check_required_files(self, task: TaskConfig,
+                              auto_build: bool = True) -> str:
+        """Pre-check that blcoe/blhex/phex files referenced by the task exist.
 
-        Returns an error message string if any file is missing, or empty string
-        if all files are present.  The message includes the task name, missing
-        file path, and the command to generate it.
+        If ``auto_build`` is true and artifacts are missing from ``build/program``,
+        invoke ``test_builder`` to compile the needed program source on the fly.
+
+        Returns an error message string if files are still missing, or empty
+        string if all files are present.
         """
-        base = self.session_mgr.base_dir / "src" / "program_source"
-        missing = []
+        base = self._prog_base()
 
-        if task.blcoe:
-            coe_path = base / task.blcoe
-            if not coe_path.exists():
-                missing.append(("BLCOE", task.blcoe, coe_path))
+        def _targets() -> list[tuple[str, str, Path]]:
+            out = []
+            if task.blcoe:
+                out.append(("BLCOE", task.blcoe, base / task.blcoe))
+            if task.blhex:
+                out.append(("BLHEX", task.blhex, base / task.blhex))
+            if task.phex:
+                out.append(("PHEX", task.phex, base / task.phex))
+            return out
 
-        if task.blhex:
-            hex_path = base / task.blhex
-            if not hex_path.exists():
-                missing.append(("BLHEX", task.blhex, hex_path))
+        missing = [(k, r, p) for k, r, p in _targets() if not p.exists()]
 
-        if task.phex:
-            hex_path = base / task.phex
-            if not hex_path.exists():
-                missing.append(("PHEX", task.phex, hex_path))
+        if missing and auto_build:
+            self._build_missing(task)
+            missing = [(k, r, p) for k, r, p in _targets() if not p.exists()]
 
         if not missing:
             return ""
@@ -848,6 +860,41 @@ class Operations:
             "  python -m tools.test_builder --app <app_name>"
         )
         return "\n".join(lines)
+
+    def _build_missing(self, task: TaskConfig) -> None:
+        """Compile the task's test program on the fly via test_builder.
+
+        Compiled artifacts land under ``build/program`` (see ``test_builder``).
+        """
+        root = self.session_mgr.base_dir
+        tb_py = root / "tools" / "test_builder.py"
+        if not tb_py.exists():
+            logging.warning("test_builder.py not found at %s; skipping auto-build", tb_py)
+            return
+        rel = task.phex or task.blhex or task.blcoe or ""
+        # Map program path back to a build.yaml target: strip extension and
+        # the leading category subdir (e.g. test/mmu/x.hex -> mmu/x).
+        if not rel:
+            return
+        p = Path(rel)
+        target = str(p.with_suffix(""))
+        # Bootloader is not a build.yaml target; it is a dedicated artifact
+        # produced separately. Skip auto-build for the boot/ tree.
+        if target.startswith("boot/"):
+            logging.info("Skipping auto-build for boot artifact: %s", target)
+            return
+        if target.startswith("test/"):
+            target = target[len("test/"):]
+        elif target.startswith("app/"):
+            target = target[len("app/"):]
+        cmd = [sys.executable, str(tb_py), "--test", target]
+        try:
+            logging.info("Auto-building test program: %s", target)
+            subprocess.run(cmd, cwd=root, check=True,
+                           capture_output=True, text=True)
+        except subprocess.CalledProcessError as exc:
+            logging.warning("Auto-build failed for %s:\n%s%s",
+                            target, exc.stdout or "", exc.stderr or "")
 
     def _update_hashes(self, session: Session) -> None:
         """Recompute and persist the current source hashes."""

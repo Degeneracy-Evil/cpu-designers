@@ -7,7 +7,7 @@ Layers:
 - **rtl**:  src/rtl/**/*.sv + src/rtl/**/*.svh + docs/Reference/**/*.xci
 - **tb**:   src/tb/**/*.sv
 - **src**:  src/program_source/**/*.{s,S,c,h,ld} + build.yaml + test_builder.py + rv2coe.py
-- **coe**:  src/program_source/{test,app,boot}/**/*.{coe,hex}
+- **coe**:  build/program/**/*.{coe,hex}
 - **fpga**: src/fpga/**/*.xdc + src/fpga/**/*.dcp + tools/vivado_core/tcl/**/*.tcl
 """
 from __future__ import annotations
@@ -56,12 +56,8 @@ class LayeredHash:
             "tools/rv2coe.py",
         ],
         "coe": [
-            "src/program_source/test/**/*.coe",
-            "src/program_source/test/**/*.hex",
-            "src/program_source/app/**/*.coe",
-            "src/program_source/app/**/*.hex",
-            "src/program_source/boot/**/*.coe",
-            "src/program_source/boot/**/*.hex",
+            "build/program/**/*.coe",
+            "build/program/**/*.hex",
         ],
         "fpga": [
             "src/fpga/**/*.xdc",

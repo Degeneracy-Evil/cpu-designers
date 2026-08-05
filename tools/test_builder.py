@@ -42,6 +42,12 @@ TEST_SRC = PROG_SRC / "test"
 # 应用源码基目录
 APP_SRC = PROG_SRC / "app"
 
+# 产物根目录 (build/program/) — 镜像 program_source 的相对结构。
+# 编译产物 (.hex/.coe) 一律落在 build/ 下, 不入版本库。
+PROG_BUILD = REPO_ROOT / "build" / "program"
+TEST_BUILD = PROG_BUILD / "test"
+APP_BUILD = PROG_BUILD / "app"
+
 # build.yaml 路径（统一编译配置：测试 + 应用）
 BUILD_YAML = PROG_SRC / "build.yaml"
 
@@ -148,6 +154,7 @@ def discover_all_tests(config: dict) -> list[dict]:
                 "abi": cat_config.get("abi", defaults.get("abi", "ilp32")),
                 "linker_script": PROG_SRC / defaults.get("linker_script", "link.ld"),
                 "depth": defaults.get("depth", 8192),
+                "output_dir": TEST_BUILD,
             })
 
     return all_tests
@@ -194,7 +201,7 @@ def discover_app(app_name: str) -> dict:
         "linker_script": app["linker_script"],
         "include_dirs": app["include_dirs"],
         "depth": app["depth"],
-        "output_dir": APP_SRC,
+        "output_dir": APP_BUILD,
     }
 
 
@@ -208,7 +215,7 @@ def build_test(test: dict, verbose: bool, dry_run: bool) -> bool:
     """
     name = test["name"]
     src_files = test.get("src_files", [test["src_file"]])
-    output_dir = test.get("output_dir", TEST_SRC)
+    output_dir = test.get("output_dir", TEST_BUILD)
     hex_file = output_dir / f"{name}.hex"
     coe_file = output_dir / f"{name}.coe"
 
@@ -296,8 +303,9 @@ def clean_tests(all_tests: list[dict]) -> None:
     """清理所有测试产物 (.hex, .coe)。"""
     removed = 0
     for test in all_tests:
+        out_dir = test.get("output_dir", TEST_BUILD)
         for ext in (".hex", ".coe"):
-            f = TEST_SRC / f"{test['name']}{ext}"
+            f = out_dir / f"{test['name']}{ext}"
             if f.exists():
                 f.unlink()
                 removed += 1
@@ -307,7 +315,7 @@ def clean_tests(all_tests: list[dict]) -> None:
 def clean_app(app: dict) -> None:
     """清理单个应用产物 (.hex, .coe)。"""
     removed = 0
-    out_dir = app.get("output_dir", APP_SRC)
+    out_dir = app.get("output_dir", APP_BUILD)
     for ext in (".hex", ".coe"):
         f = out_dir / f"{app['name']}{ext}"
         if f.exists():

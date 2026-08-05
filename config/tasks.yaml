@@ -241,7 +241,7 @@ tasks:
     runtime: 20ms
 
   mmu_unified_mmu:
-    tb: tb_mmu_unified_mmu
+    tb: tb_mmu_unified
     blhex: boot/bootloader_phase1.hex
     phex: test/mmu/unified_mmu.hex
     runtime: 150ms
@@ -273,7 +273,7 @@ tasks:
     runtime: 10ms
 
   cache_mmu_interact:
-    tb: tb_cache_cache_mmu_interact
+    tb: tb_cache_mmu_interact
     blhex: boot/bootloader_phase1.hex
     phex: test/cache/cache_mmu_interact.hex
     runtime: 20ms

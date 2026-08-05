@@ -1,6 +1,6 @@
 `timescale 1ns / 1ps
 
-module tb_mmu_unified_mmu;
+module tb_mmu_unified;
 
     localparam integer EXPECTED_TOTAL = 8;
     localparam integer SIM_CYCLES    = 1000000;

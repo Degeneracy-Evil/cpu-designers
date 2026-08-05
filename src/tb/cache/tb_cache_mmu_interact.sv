@@ -1,6 +1,6 @@
 `timescale 1ns / 1ps
 
-module tb_cache_cache_mmu_interact;
+module tb_cache_mmu_interact;
 
     localparam integer EXPECTED_TOTAL = 6;
     localparam integer SIM_CYCLES    = 200000;

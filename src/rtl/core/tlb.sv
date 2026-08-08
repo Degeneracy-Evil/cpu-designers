@@ -1,5 +1,4 @@
 `timescale 1ns / 1ps
-`include "cache_def.svh"
 
 module tlb #(
     parameter ENTRIES = 16
@@ -7,7 +6,7 @@ module tlb #(
     input              clk,
     input              resetn,
 
-    // ── Port A: i-side lookup (read-only) ──
+    // Instruction-side lookup
     input  [19:0]      i_lookup_vpn,
     input  [8:0]       i_lookup_asid,
     input              i_lookup_req,
@@ -23,7 +22,7 @@ module tlb #(
     output             i_lookup_is_megapage,
     output             i_lookup_valid,
 
-    // ── Port B: d-side lookup (read) or PTW fill (write, priority) ──
+    // Data-side lookup
     input  [19:0]      d_lookup_vpn,
     input  [8:0]       d_lookup_asid,
     input              d_lookup_req,
@@ -39,8 +38,9 @@ module tlb #(
     output             d_lookup_is_megapage,
     output             d_lookup_valid,
 
-    // ── Fill (uses Port B write, preempts d-lookup) ──
+    // PTW fill. ITLB and DTLB are independent 16-entry banks.
     input              fill_req,
+    input              fill_is_instruction,
     input  [19:0]      fill_vpn,
     input  [8:0]       fill_asid,
     input  [21:0]      fill_ppn,
@@ -53,432 +53,183 @@ module tlb #(
     input              fill_g,
     input              fill_is_megapage,
 
-    // ── Flush ──
     input              flush_all,
     output             flush_done
 );
+    localparam NUM_WAYS  = 2;
+    localparam NUM_SETS  = ENTRIES / NUM_WAYS;
+    localparam SET_IDX_W = $clog2(NUM_SETS);
 
-`ifdef USE_TLB_BRAM
+    // Index with VPN[12:10]. VPN[9:0] must not participate because all 4 KiB
+    // pages covered by one Sv32 megapage need to find the same entry.
+    wire [SET_IDX_W-1:0] i_set = i_lookup_vpn[SET_IDX_W+9:10];
+    wire [SET_IDX_W-1:0] d_set = d_lookup_vpn[SET_IDX_W+9:10];
+    wire [SET_IDX_W-1:0] fill_set = fill_vpn[SET_IDX_W+9:10];
 
-// =========================================================================
-// BRAM-based set-associative TLB (4-way x 4-set = 16 entries)
-// Dual-port: Port A = i-side lookup, Port B = d-side lookup / fill
-// =========================================================================
+    reg                  i_valid_mem [0:NUM_SETS-1][0:NUM_WAYS-1];
+    reg [19:0]           i_vpn_mem   [0:NUM_SETS-1][0:NUM_WAYS-1];
+    reg [8:0]            i_asid_mem  [0:NUM_SETS-1][0:NUM_WAYS-1];
+    reg [21:0]           i_ppn_mem   [0:NUM_SETS-1][0:NUM_WAYS-1];
+    reg [7:0]            i_attr_mem  [0:NUM_SETS-1][0:NUM_WAYS-1];
 
-localparam NUM_WAYS      = `TLB_NUM_WAYS;
-localparam NUM_SETS      = `TLB_NUM_SETS;
-localparam SET_IDX_W     = `TLB_SET_IDX_WIDTH;
-localparam WAY_W         = `TLB_WAY_WIDTH;
-localparam FLAG_ENTRY_W  = `TLB_FLAG_ENTRY_WIDTH;
-localparam DATA_ENTRY_W  = `TLB_DATA_ENTRY_WIDTH;
+    reg                  d_valid_mem [0:NUM_SETS-1][0:NUM_WAYS-1];
+    reg [19:0]           d_vpn_mem   [0:NUM_SETS-1][0:NUM_WAYS-1];
+    reg [8:0]            d_asid_mem  [0:NUM_SETS-1][0:NUM_WAYS-1];
+    reg [21:0]           d_ppn_mem   [0:NUM_SETS-1][0:NUM_WAYS-1];
+    reg [7:0]            d_attr_mem  [0:NUM_SETS-1][0:NUM_WAYS-1];
 
-// --- State machine (simplified: no per-lookup FSM, MMU manages sequencing) ---
-localparam S_RUN   = 2'd0;
-localparam S_FLUSH = 2'd1;
+    // attr = {R, W, X, U, A, D, G, megapage}
+    reg i_victim [0:NUM_SETS-1];
+    reg d_victim [0:NUM_SETS-1];
 
-reg [1:0] state;
+    reg [19:0] i_vpn_r;
+    reg [8:0]  i_asid_r;
+    reg [SET_IDX_W-1:0] i_set_r;
+    reg [19:0] d_vpn_r;
+    reg [8:0]  d_asid_r;
+    reg [SET_IDX_W-1:0] d_set_r;
+    reg i_lookup_valid_r;
+    reg d_lookup_valid_r;
+    reg flush_done_r;
 
-// --- Set index: upper VPN bits only (no VPN[1:0]) ---
-// This ensures all VPNs within a megapage (which differ only in VPN[1:0])
-// map to the same set, so megapage entries don't need replication.
-wire [SET_IDX_W-1:0] i_lookup_set_idx = i_lookup_vpn[SET_IDX_W+9:10];
-wire [SET_IDX_W-1:0] d_lookup_set_idx = d_lookup_vpn[SET_IDX_W+9:10];
-wire [SET_IDX_W-1:0] fill_set_idx     = fill_vpn[SET_IDX_W+9:10];
+    wire i_vpn_match0 = i_attr_mem[i_set_r][0][0] ?
+                        (i_vpn_mem[i_set_r][0][19:10] == i_vpn_r[19:10]) :
+                        (i_vpn_mem[i_set_r][0] == i_vpn_r);
+    wire i_vpn_match1 = i_attr_mem[i_set_r][1][0] ?
+                        (i_vpn_mem[i_set_r][1][19:10] == i_vpn_r[19:10]) :
+                        (i_vpn_mem[i_set_r][1] == i_vpn_r);
+    wire i_hit0 = i_valid_mem[i_set_r][0] && i_vpn_match0 &&
+                  (i_attr_mem[i_set_r][0][1] || (i_asid_mem[i_set_r][0] == i_asid_r));
+    wire i_hit1 = i_valid_mem[i_set_r][1] && i_vpn_match1 &&
+                  (i_attr_mem[i_set_r][1][1] || (i_asid_mem[i_set_r][1] == i_asid_r));
+    wire i_hit_way = i_hit1;
+    wire [7:0] i_hit_attr = i_attr_mem[i_set_r][i_hit_way];
 
-// --- Latched lookup values (for comparison when BRAM output valid) ---
-reg [19:0]           i_latched_vpn;
-reg [8:0]            i_latched_asid;
-reg [SET_IDX_W-1:0]  i_latched_set_idx;
+    wire d_vpn_match0 = d_attr_mem[d_set_r][0][0] ?
+                        (d_vpn_mem[d_set_r][0][19:10] == d_vpn_r[19:10]) :
+                        (d_vpn_mem[d_set_r][0] == d_vpn_r);
+    wire d_vpn_match1 = d_attr_mem[d_set_r][1][0] ?
+                        (d_vpn_mem[d_set_r][1][19:10] == d_vpn_r[19:10]) :
+                        (d_vpn_mem[d_set_r][1] == d_vpn_r);
+    wire d_hit0 = d_valid_mem[d_set_r][0] && d_vpn_match0 &&
+                  (d_attr_mem[d_set_r][0][1] || (d_asid_mem[d_set_r][0] == d_asid_r));
+    wire d_hit1 = d_valid_mem[d_set_r][1] && d_vpn_match1 &&
+                  (d_attr_mem[d_set_r][1][1] || (d_asid_mem[d_set_r][1] == d_asid_r));
+    wire d_hit_way = d_hit1;
+    wire [7:0] d_hit_attr = d_attr_mem[d_set_r][d_hit_way];
 
-reg [19:0]           d_latched_vpn;
-reg [8:0]            d_latched_asid;
-reg [SET_IDX_W-1:0]  d_latched_set_idx;
+    assign i_lookup_hit = i_lookup_valid_r && (i_hit0 || i_hit1);
+    assign i_lookup_ppn = i_ppn_mem[i_set_r][i_hit_way];
+    assign i_lookup_r = i_hit_attr[7];
+    assign i_lookup_w = i_hit_attr[6];
+    assign i_lookup_x = i_hit_attr[5];
+    assign i_lookup_u = i_hit_attr[4];
+    assign i_lookup_a = i_hit_attr[3];
+    assign i_lookup_d = i_hit_attr[2];
+    assign i_lookup_g = i_hit_attr[1];
+    assign i_lookup_is_megapage = i_hit_attr[0];
+    assign i_lookup_valid = i_lookup_valid_r;
 
-// --- PLRU state per set ---
-reg [NUM_WAYS-2:0] plru_state [0:NUM_SETS-1];
+    assign d_lookup_hit = d_lookup_valid_r && (d_hit0 || d_hit1);
+    assign d_lookup_ppn = d_ppn_mem[d_set_r][d_hit_way];
+    assign d_lookup_r = d_hit_attr[7];
+    assign d_lookup_w = d_hit_attr[6];
+    assign d_lookup_x = d_hit_attr[5];
+    assign d_lookup_u = d_hit_attr[4];
+    assign d_lookup_a = d_hit_attr[3];
+    assign d_lookup_d = d_hit_attr[2];
+    assign d_lookup_g = d_hit_attr[1];
+    assign d_lookup_is_megapage = d_hit_attr[0];
+    assign d_lookup_valid = d_lookup_valid_r;
+    assign flush_done = flush_done_r;
 
-// --- Shadow valid bits (for victim way selection during fill) ---
-reg valid_shadow [0:NUM_SETS-1][0:NUM_WAYS-1];
+    wire i_fill_way = !i_valid_mem[fill_set][0] ? 1'b0 :
+                      !i_valid_mem[fill_set][1] ? 1'b1 : i_victim[fill_set];
+    wire d_fill_way = !d_valid_mem[fill_set][0] ? 1'b0 :
+                      !d_valid_mem[fill_set][1] ? 1'b1 : d_victim[fill_set];
+    wire [19:0] normalized_fill_vpn = fill_is_megapage ?
+                                      {fill_vpn[19:10], 10'b0} : fill_vpn;
+    wire [7:0] fill_attr = {fill_r, fill_w, fill_x, fill_u,
+                            fill_a, fill_d, fill_g, fill_is_megapage};
 
-// --- Flush counter ---
-reg [SET_IDX_W-1:0] flush_set;
-reg flush_done_r;
+    integer set_idx;
+    integer way_idx;
+    always_ff @(posedge clk or negedge resetn) begin
+        if (!resetn) begin
+            i_vpn_r <= 20'b0;
+            i_asid_r <= 9'b0;
+            i_set_r <= {SET_IDX_W{1'b0}};
+            d_vpn_r <= 20'b0;
+            d_asid_r <= 9'b0;
+            d_set_r <= {SET_IDX_W{1'b0}};
+            i_lookup_valid_r <= 1'b0;
+            d_lookup_valid_r <= 1'b0;
+            flush_done_r <= 1'b0;
+            for (set_idx = 0; set_idx < NUM_SETS; set_idx = set_idx + 1) begin
+                i_victim[set_idx] <= 1'b0;
+                d_victim[set_idx] <= 1'b0;
+                for (way_idx = 0; way_idx < NUM_WAYS; way_idx = way_idx + 1) begin
+                    i_valid_mem[set_idx][way_idx] <= 1'b0;
+                    d_valid_mem[set_idx][way_idx] <= 1'b0;
+                    i_vpn_mem[set_idx][way_idx] <= 20'b0;
+                    d_vpn_mem[set_idx][way_idx] <= 20'b0;
+                    i_asid_mem[set_idx][way_idx] <= 9'b0;
+                    d_asid_mem[set_idx][way_idx] <= 9'b0;
+                    i_ppn_mem[set_idx][way_idx] <= 22'b0;
+                    d_ppn_mem[set_idx][way_idx] <= 22'b0;
+                    i_attr_mem[set_idx][way_idx] <= 8'b0;
+                    d_attr_mem[set_idx][way_idx] <= 8'b0;
+                end
+            end
+        end else begin
+            flush_done_r <= 1'b0;
+            i_lookup_valid_r <= i_lookup_req && !flush_all;
+            d_lookup_valid_r <= d_lookup_req && !flush_all;
 
-// --- Valid pulses (1 cycle after corresponding req) ---
-reg i_lookup_valid_r;
-reg d_lookup_valid_r;
+            if (i_lookup_req && !flush_all) begin
+                i_vpn_r <= i_lookup_vpn;
+                i_asid_r <= i_lookup_asid;
+                i_set_r <= i_set;
+            end
+            if (d_lookup_req && !flush_all) begin
+                d_vpn_r <= d_lookup_vpn;
+                d_asid_r <= d_lookup_asid;
+                d_set_r <= d_set;
+            end
 
-// =========================================================================
-// Fill victim way selection (needed before BRAM Port B controls)
-// =========================================================================
-wire inv0_f = ~valid_shadow[fill_set_idx][0];
-wire inv1_f = ~valid_shadow[fill_set_idx][1];
-wire inv2_f = ~valid_shadow[fill_set_idx][2];
-wire inv3_f = ~valid_shadow[fill_set_idx][3];
+            if (flush_all) begin
+                for (set_idx = 0; set_idx < NUM_SETS; set_idx = set_idx + 1) begin
+                    i_victim[set_idx] <= 1'b0;
+                    d_victim[set_idx] <= 1'b0;
+                    for (way_idx = 0; way_idx < NUM_WAYS; way_idx = way_idx + 1) begin
+                        i_valid_mem[set_idx][way_idx] <= 1'b0;
+                        d_valid_mem[set_idx][way_idx] <= 1'b0;
+                    end
+                end
+                flush_done_r <= 1'b1;
+            end else begin
+                if (fill_req && fill_is_instruction) begin
+                    i_valid_mem[fill_set][i_fill_way] <= 1'b1;
+                    i_vpn_mem[fill_set][i_fill_way] <= normalized_fill_vpn;
+                    i_asid_mem[fill_set][i_fill_way] <= fill_asid;
+                    i_ppn_mem[fill_set][i_fill_way] <= fill_ppn;
+                    i_attr_mem[fill_set][i_fill_way] <= fill_attr;
+                    i_victim[fill_set] <= ~i_fill_way;
+                end else if (i_lookup_valid_r && i_lookup_hit) begin
+                    i_victim[i_set_r] <= ~i_hit_way;
+                end
 
-wire [WAY_W-1:0]    plru_victim_fill;
-wire [NUM_WAYS-2:0] plru_next_fill;
-tree_plru u_plru_fill(
-    .plru_state (plru_state[fill_set_idx]),
-    .victim_way (plru_victim_fill),
-    .access_way (inv0_f ? 2'd0 :
-                 inv1_f ? 2'd1 :
-                 inv2_f ? 2'd2 :
-                 inv3_f ? 2'd3 : plru_victim_fill),
-    .next_state (plru_next_fill)
-);
-
-wire [WAY_W-1:0] fill_victim_way = inv0_f ? 2'd0 :
-                                   inv1_f ? 2'd1 :
-                                   inv2_f ? 2'd2 :
-                                   inv3_f ? 2'd3 : plru_victim_fill;
-
-// Megapage: normalize VPN[9:0] to 0
-wire [19:0] fill_vpn_normalized = fill_is_megapage ? {fill_vpn[19:10], 10'b0} : fill_vpn;
-
-// Pack flag entry for fill: {V(1), G(1), ASID(9), VPN(20), mega(1)}
-wire [FLAG_ENTRY_W-1:0] fill_flag_entry = {1'b1, fill_g, fill_asid, fill_vpn_normalized, fill_is_megapage};
-
-// Pack data entry for fill: {PPN(22), R(1), W(1), X(1), U(1), A(1), D(1), pad(4)}
-wire [DATA_ENTRY_W-1:0] fill_data_entry = {fill_ppn, fill_r, fill_w, fill_x, fill_u, fill_a, fill_d, 4'b0};
-
-// Place fill entry at victim way position in BRAM line
-wire [`TLB_FLAG_BRAM_WIDTH-1:0] fill_flag_din;
-assign fill_flag_din[FLAG_ENTRY_W*0 +: FLAG_ENTRY_W] = (fill_victim_way == 2'd0) ? fill_flag_entry : {FLAG_ENTRY_W{1'b0}};
-assign fill_flag_din[FLAG_ENTRY_W*1 +: FLAG_ENTRY_W] = (fill_victim_way == 2'd1) ? fill_flag_entry : {FLAG_ENTRY_W{1'b0}};
-assign fill_flag_din[FLAG_ENTRY_W*2 +: FLAG_ENTRY_W] = (fill_victim_way == 2'd2) ? fill_flag_entry : {FLAG_ENTRY_W{1'b0}};
-assign fill_flag_din[FLAG_ENTRY_W*3 +: FLAG_ENTRY_W] = (fill_victim_way == 2'd3) ? fill_flag_entry : {FLAG_ENTRY_W{1'b0}};
-
-wire [`TLB_DATA_BRAM_WIDTH-1:0] fill_data_din;
-assign fill_data_din[DATA_ENTRY_W*0 +: DATA_ENTRY_W] = (fill_victim_way == 2'd0) ? fill_data_entry : {DATA_ENTRY_W{1'b0}};
-assign fill_data_din[DATA_ENTRY_W*1 +: DATA_ENTRY_W] = (fill_victim_way == 2'd1) ? fill_data_entry : {DATA_ENTRY_W{1'b0}};
-assign fill_data_din[DATA_ENTRY_W*2 +: DATA_ENTRY_W] = (fill_victim_way == 2'd2) ? fill_data_entry : {DATA_ENTRY_W{1'b0}};
-assign fill_data_din[DATA_ENTRY_W*3 +: DATA_ENTRY_W] = (fill_victim_way == 2'd3) ? fill_data_entry : {DATA_ENTRY_W{1'b0}};
-
-// =========================================================================
-// Flag BRAM (tlb_flag) — 128-bit x 4 deep
-// Per-way flag entry (32 bits): {V(1), G(1), ASID(9), VPN(20), mega(1)}
-// =========================================================================
-wire [`TLB_FLAG_BRAM_WIDTH-1:0] flag_bram_douta;
-wire [`TLB_FLAG_BRAM_WIDTH-1:0] flag_bram_doutb;
-
-// Port B fill-active: fill preempts d-lookup on Port B
-wire portb_fill = fill_req;
-
-// Port A: i-side lookup (combinational controls, 1-cycle read latency)
-wire        flag_bram_ena   = (state == S_RUN) && i_lookup_req && !flush_all;
-wire [SET_IDX_W-1:0] flag_bram_addra = i_lookup_set_idx;
-
-// Port B: d-side lookup (read) or fill (write) or flush (write) — combinational
-wire        flag_bram_enb = (state == S_FLUSH) ? 1'b1 :
-                            (state == S_RUN)   ? (portb_fill || (d_lookup_req && !flush_all)) : 1'b0;
-wire [`TLB_FLAG_BRAM_WEA_WIDTH-1:0] flag_bram_web =
-    (state == S_FLUSH) ? {`TLB_FLAG_BRAM_WEA_WIDTH{1'b1}} :
-    (state == S_RUN && portb_fill) ? ({{(`TLB_FLAG_BRAM_WEA_WIDTH-4){1'b0}}, 4'hF} << ({fill_victim_way, 2'b0})) :
-    {`TLB_FLAG_BRAM_WEA_WIDTH{1'b0}};
-wire [SET_IDX_W-1:0] flag_bram_addrb =
-    (state == S_FLUSH) ? flush_set :
-    (state == S_RUN && portb_fill) ? fill_set_idx : d_lookup_set_idx;
-wire [`TLB_FLAG_BRAM_WIDTH-1:0] flag_bram_dinb =
-    (state == S_FLUSH) ? {`TLB_FLAG_BRAM_WIDTH{1'b0}} :
-    (state == S_RUN && portb_fill) ? fill_flag_din : {`TLB_FLAG_BRAM_WIDTH{1'b0}};
-
-tlb_flag u_tlb_flag(
-    .clka   (clk),
-    .ena    (flag_bram_ena),
-    .wea    ({`TLB_FLAG_BRAM_WEA_WIDTH{1'b0}}),
-    .addra  (flag_bram_addra),
-    .dina   ({`TLB_FLAG_BRAM_WIDTH{1'b0}}),
-    .douta  (flag_bram_douta),
-
-    .clkb   (clk),
-    .enb    (flag_bram_enb),
-    .web    (flag_bram_web),
-    .addrb  (flag_bram_addrb),
-    .dinb   (flag_bram_dinb),
-    .doutb  (flag_bram_doutb)
-);
-
-// =========================================================================
-// Data BRAM (tlb_data) — 128-bit x 4 deep
-// Per-way data entry (32 bits): {PPN(22), R(1), W(1), X(1), U(1), A(1), D(1), pad(4)}
-// =========================================================================
-wire [`TLB_DATA_BRAM_WIDTH-1:0] data_bram_douta;
-wire [`TLB_DATA_BRAM_WIDTH-1:0] data_bram_doutb;
-
-// Port A: i-side lookup (combinational)
-wire        data_bram_ena   = (state == S_RUN) && i_lookup_req && !flush_all;
-wire [SET_IDX_W-1:0] data_bram_addra = i_lookup_set_idx;
-
-// Port B: d-side lookup or fill or flush — combinational
-wire        data_bram_enb = (state == S_FLUSH) ? 1'b1 :
-                            (state == S_RUN)   ? (portb_fill || (d_lookup_req && !flush_all)) : 1'b0;
-wire [`TLB_DATA_BRAM_WEA_WIDTH-1:0] data_bram_web =
-    (state == S_FLUSH) ? {`TLB_DATA_BRAM_WEA_WIDTH{1'b1}} :
-    (state == S_RUN && portb_fill) ? ({{(`TLB_DATA_BRAM_WEA_WIDTH-4){1'b0}}, 4'hF} << ({fill_victim_way, 2'b0})) :
-    {`TLB_DATA_BRAM_WEA_WIDTH{1'b0}};
-wire [SET_IDX_W-1:0] data_bram_addrb =
-    (state == S_FLUSH) ? flush_set :
-    (state == S_RUN && portb_fill) ? fill_set_idx : d_lookup_set_idx;
-wire [`TLB_DATA_BRAM_WIDTH-1:0] data_bram_dinb =
-    (state == S_FLUSH) ? {`TLB_DATA_BRAM_WIDTH{1'b0}} :
-    (state == S_RUN && portb_fill) ? fill_data_din : {`TLB_DATA_BRAM_WIDTH{1'b0}};
-
-tlb_data u_tlb_data(
-    .clka   (clk),
-    .ena    (data_bram_ena),
-    .wea    ({`TLB_DATA_BRAM_WEA_WIDTH{1'b0}}),
-    .addra  (data_bram_addra),
-    .dina   ({`TLB_DATA_BRAM_WIDTH{1'b0}}),
-    .douta  (data_bram_douta),
-
-    .clkb   (clk),
-    .enb    (data_bram_enb),
-    .web    (data_bram_web),
-    .addrb  (data_bram_addrb),
-    .dinb   (data_bram_dinb),
-    .doutb  (data_bram_doutb)
-);
-
-// =========================================================================
-// i-side 4-way parallel match (Port A output, valid 1 cycle after i_lookup_req)
-// =========================================================================
-
-wire [FLAG_ENTRY_W-1:0] i_flag_r0 = flag_bram_douta[FLAG_ENTRY_W*1-1:FLAG_ENTRY_W*0];
-wire [FLAG_ENTRY_W-1:0] i_flag_r1 = flag_bram_douta[FLAG_ENTRY_W*2-1:FLAG_ENTRY_W*1];
-wire [FLAG_ENTRY_W-1:0] i_flag_r2 = flag_bram_douta[FLAG_ENTRY_W*3-1:FLAG_ENTRY_W*2];
-wire [FLAG_ENTRY_W-1:0] i_flag_r3 = flag_bram_douta[FLAG_ENTRY_W*4-1:FLAG_ENTRY_W*3];
-
-wire [DATA_ENTRY_W-1:0] i_data_r0 = data_bram_douta[DATA_ENTRY_W*1-1:DATA_ENTRY_W*0];
-wire [DATA_ENTRY_W-1:0] i_data_r1 = data_bram_douta[DATA_ENTRY_W*2-1:DATA_ENTRY_W*1];
-wire [DATA_ENTRY_W-1:0] i_data_r2 = data_bram_douta[DATA_ENTRY_W*3-1:DATA_ENTRY_W*2];
-wire [DATA_ENTRY_W-1:0] i_data_r3 = data_bram_douta[DATA_ENTRY_W*4-1:DATA_ENTRY_W*3];
-
-// Flag entry layout: [31]=V, [30]=G, [29:21]=ASID, [20:1]=VPN, [0]=mega
-wire i_valid0  = i_flag_r0[31], i_valid1  = i_flag_r1[31],
-     i_valid2  = i_flag_r2[31], i_valid3  = i_flag_r3[31];
-wire i_global0 = i_flag_r0[30], i_global1 = i_flag_r1[30],
-     i_global2 = i_flag_r2[30], i_global3 = i_flag_r3[30];
-wire [8:0]  i_asid0 = i_flag_r0[29:21], i_asid1 = i_flag_r1[29:21],
-           i_asid2 = i_flag_r2[29:21], i_asid3 = i_flag_r3[29:21];
-wire [19:0] i_vpn0  = i_flag_r0[20:1],  i_vpn1  = i_flag_r1[20:1],
-           i_vpn2  = i_flag_r2[20:1],  i_vpn3  = i_flag_r3[20:1];
-wire i_mega0  = i_flag_r0[0],  i_mega1  = i_flag_r1[0],
-     i_mega2  = i_flag_r2[0],  i_mega3  = i_flag_r3[0];
-
-wire i_vpn_match0 = i_mega0 ? (i_vpn0[19:10] == i_latched_vpn[19:10]) : (i_vpn0 == i_latched_vpn);
-wire i_vpn_match1 = i_mega1 ? (i_vpn1[19:10] == i_latched_vpn[19:10]) : (i_vpn1 == i_latched_vpn);
-wire i_vpn_match2 = i_mega2 ? (i_vpn2[19:10] == i_latched_vpn[19:10]) : (i_vpn2 == i_latched_vpn);
-wire i_vpn_match3 = i_mega3 ? (i_vpn3[19:10] == i_latched_vpn[19:10]) : (i_vpn3 == i_latched_vpn);
-
-wire i_hit0 = i_valid0 && i_vpn_match0 && (i_global0 || (i_asid0 == i_latched_asid));
-wire i_hit1 = i_valid1 && i_vpn_match1 && (i_global1 || (i_asid1 == i_latched_asid));
-wire i_hit2 = i_valid2 && i_vpn_match2 && (i_global2 || (i_asid2 == i_latched_asid));
-wire i_hit3 = i_valid3 && i_vpn_match3 && (i_global3 || (i_asid3 == i_latched_asid));
-
-wire i_tlb_hit = i_hit0 | i_hit1 | i_hit2 | i_hit3;
-assign i_lookup_hit = i_tlb_hit;
-
-wire [WAY_W-1:0] i_hit_way = i_hit0 ? 2'd0 :
-                            i_hit1 ? 2'd1 :
-                            i_hit2 ? 2'd2 : 2'd3;
-
-wire [FLAG_ENTRY_W-1:0] i_hit_flag = i_hit0 ? i_flag_r0 :
-                                    i_hit1 ? i_flag_r1 :
-                                    i_hit2 ? i_flag_r2 : i_flag_r3;
-
-wire [DATA_ENTRY_W-1:0] i_hit_data = i_hit0 ? i_data_r0 :
-                                    i_hit1 ? i_data_r1 :
-                                    i_hit2 ? i_data_r2 : i_data_r3;
-
-// Data entry layout: [31:10]=PPN, [9]=R, [8]=W, [7]=X, [6]=U, [5]=A, [4]=D, [3:0]=pad
-assign i_lookup_ppn         = i_hit_data[31:10];
-assign i_lookup_r           = i_hit_data[9];
-assign i_lookup_w           = i_hit_data[8];
-assign i_lookup_x           = i_hit_data[7];
-assign i_lookup_u           = i_hit_data[6];
-assign i_lookup_a           = i_hit_data[5];
-assign i_lookup_d           = i_hit_data[4];
-assign i_lookup_g           = i_hit_flag[30];
-assign i_lookup_is_megapage = i_hit_flag[0];
-
-// =========================================================================
-// d-side 4-way parallel match (Port B output, valid 1 cycle after d_lookup_req)
-// =========================================================================
-
-wire [FLAG_ENTRY_W-1:0] d_flag_r0 = flag_bram_doutb[FLAG_ENTRY_W*1-1:FLAG_ENTRY_W*0];
-wire [FLAG_ENTRY_W-1:0] d_flag_r1 = flag_bram_doutb[FLAG_ENTRY_W*2-1:FLAG_ENTRY_W*1];
-wire [FLAG_ENTRY_W-1:0] d_flag_r2 = flag_bram_doutb[FLAG_ENTRY_W*3-1:FLAG_ENTRY_W*2];
-wire [FLAG_ENTRY_W-1:0] d_flag_r3 = flag_bram_doutb[FLAG_ENTRY_W*4-1:FLAG_ENTRY_W*3];
-
-wire [DATA_ENTRY_W-1:0] d_data_r0 = data_bram_doutb[DATA_ENTRY_W*1-1:DATA_ENTRY_W*0];
-wire [DATA_ENTRY_W-1:0] d_data_r1 = data_bram_doutb[DATA_ENTRY_W*2-1:DATA_ENTRY_W*1];
-wire [DATA_ENTRY_W-1:0] d_data_r2 = data_bram_doutb[DATA_ENTRY_W*3-1:DATA_ENTRY_W*2];
-wire [DATA_ENTRY_W-1:0] d_data_r3 = data_bram_doutb[DATA_ENTRY_W*4-1:DATA_ENTRY_W*3];
-
-wire d_valid0  = d_flag_r0[31], d_valid1  = d_flag_r1[31],
-     d_valid2  = d_flag_r2[31], d_valid3  = d_flag_r3[31];
-wire d_global0 = d_flag_r0[30], d_global1 = d_flag_r1[30],
-     d_global2 = d_flag_r2[30], d_global3 = d_flag_r3[30];
-wire [8:0]  d_asid0 = d_flag_r0[29:21], d_asid1 = d_flag_r1[29:21],
-           d_asid2 = d_flag_r2[29:21], d_asid3 = d_flag_r3[29:21];
-wire [19:0] d_vpn0  = d_flag_r0[20:1],  d_vpn1  = d_flag_r1[20:1],
-           d_vpn2  = d_flag_r2[20:1],  d_vpn3  = d_flag_r3[20:1];
-wire d_mega0  = d_flag_r0[0],  d_mega1  = d_flag_r1[0],
-     d_mega2  = d_flag_r2[0],  d_mega3  = d_flag_r3[0];
-
-wire d_vpn_match0 = d_mega0 ? (d_vpn0[19:10] == d_latched_vpn[19:10]) : (d_vpn0 == d_latched_vpn);
-wire d_vpn_match1 = d_mega1 ? (d_vpn1[19:10] == d_latched_vpn[19:10]) : (d_vpn1 == d_latched_vpn);
-wire d_vpn_match2 = d_mega2 ? (d_vpn2[19:10] == d_latched_vpn[19:10]) : (d_vpn2 == d_latched_vpn);
-wire d_vpn_match3 = d_mega3 ? (d_vpn3[19:10] == d_latched_vpn[19:10]) : (d_vpn3 == d_latched_vpn);
-
-wire d_hit0 = d_valid0 && d_vpn_match0 && (d_global0 || (d_asid0 == d_latched_asid));
-wire d_hit1 = d_valid1 && d_vpn_match1 && (d_global1 || (d_asid1 == d_latched_asid));
-wire d_hit2 = d_valid2 && d_vpn_match2 && (d_global2 || (d_asid2 == d_latched_asid));
-wire d_hit3 = d_valid3 && d_vpn_match3 && (d_global3 || (d_asid3 == d_latched_asid));
-
-wire d_tlb_hit = d_hit0 | d_hit1 | d_hit2 | d_hit3;
-assign d_lookup_hit = d_tlb_hit;
-
-wire [WAY_W-1:0] d_hit_way = d_hit0 ? 2'd0 :
-                            d_hit1 ? 2'd1 :
-                            d_hit2 ? 2'd2 : 2'd3;
-
-wire [FLAG_ENTRY_W-1:0] d_hit_flag = d_hit0 ? d_flag_r0 :
-                                    d_hit1 ? d_flag_r1 :
-                                    d_hit2 ? d_flag_r2 : d_flag_r3;
-
-wire [DATA_ENTRY_W-1:0] d_hit_data = d_hit0 ? d_data_r0 :
-                                    d_hit1 ? d_data_r1 :
-                                    d_hit2 ? d_data_r2 : d_data_r3;
-
-assign d_lookup_ppn         = d_hit_data[31:10];
-assign d_lookup_r           = d_hit_data[9];
-assign d_lookup_w           = d_hit_data[8];
-assign d_lookup_x           = d_hit_data[7];
-assign d_lookup_u           = d_hit_data[6];
-assign d_lookup_a           = d_hit_data[5];
-assign d_lookup_d           = d_hit_data[4];
-assign d_lookup_g           = d_hit_flag[30];
-assign d_lookup_is_megapage = d_hit_flag[0];
-
-assign i_lookup_valid = i_lookup_valid_r;
-assign d_lookup_valid = d_lookup_valid_r;
-assign flush_done     = flush_done_r;
-
-// =========================================================================
-// PLRU for i-side lookup hit
-// =========================================================================
-wire [WAY_W-1:0]    i_plru_victim;
-wire [NUM_WAYS-2:0] i_plru_next;
-tree_plru u_i_plru(
-    .plru_state (plru_state[i_latched_set_idx]),
-    .victim_way (i_plru_victim),
-    .access_way (i_hit_way),
-    .next_state (i_plru_next)
-);
-
-// =========================================================================
-// PLRU for d-side lookup hit
-// =========================================================================
-wire [WAY_W-1:0]    d_plru_victim;
-wire [NUM_WAYS-2:0] d_plru_next;
-tree_plru u_d_plru(
-    .plru_state (plru_state[d_latched_set_idx]),
-    .victim_way (d_plru_victim),
-    .access_way (d_hit_way),
-    .next_state (d_plru_next)
-);
-
-// =========================================================================
-// State machine + latching + PLRU update
-// =========================================================================
-integer i;
-always_ff @(posedge clk or negedge resetn) begin
-    if (!resetn) begin
-        state            <= S_FLUSH;   // BUG-9: start in S_FLUSH to zero BRAM on reset
-        i_latched_vpn    <= 20'b0;
-        i_latched_asid   <= 9'b0;
-        i_latched_set_idx <= {SET_IDX_W{1'b0}};
-        d_latched_vpn    <= 20'b0;
-        d_latched_asid   <= 9'b0;
-        d_latched_set_idx <= {SET_IDX_W{1'b0}};
-        flush_set        <= {SET_IDX_W{1'b0}};
-        flush_done_r     <= 1'b0;
-        i_lookup_valid_r <= 1'b0;
-        d_lookup_valid_r <= 1'b0;
-        for (i = 0; i < NUM_SETS; i = i + 1) begin
-            plru_state[i] <= {NUM_WAYS-1{1'b0}};
-            for (integer w = 0; w < NUM_WAYS; w = w + 1)
-                valid_shadow[i][w] <= 1'b0;
+                if (fill_req && !fill_is_instruction) begin
+                    d_valid_mem[fill_set][d_fill_way] <= 1'b1;
+                    d_vpn_mem[fill_set][d_fill_way] <= normalized_fill_vpn;
+                    d_asid_mem[fill_set][d_fill_way] <= fill_asid;
+                    d_ppn_mem[fill_set][d_fill_way] <= fill_ppn;
+                    d_attr_mem[fill_set][d_fill_way] <= fill_attr;
+                    d_victim[fill_set] <= ~d_fill_way;
+                end else if (d_lookup_valid_r && d_lookup_hit) begin
+                    d_victim[d_set_r] <= ~d_hit_way;
+                end
+            end
         end
-    end else begin
-        flush_done_r     <= 1'b0;
-        i_lookup_valid_r <= 1'b0;
-        d_lookup_valid_r <= 1'b0;
-
-        case (state)
-            S_RUN: begin
-                if (flush_all) begin
-                    state     <= S_FLUSH;
-                    flush_set <= {SET_IDX_W{1'b0}};
-                end else begin
-                    // i-side latch (Port A read initiated by i_lookup_req)
-                    if (i_lookup_req) begin
-                        i_latched_vpn     <= i_lookup_vpn;
-                        i_latched_asid    <= i_lookup_asid;
-                        i_latched_set_idx <= i_lookup_set_idx;
-                        i_lookup_valid_r  <= 1'b1;
-                    end
-
-                    // d-side latch (Port B read, only when not preempted by fill)
-                    if (d_lookup_req && !fill_req) begin
-                        d_latched_vpn     <= d_lookup_vpn;
-                        d_latched_asid    <= d_lookup_asid;
-                        d_latched_set_idx <= d_lookup_set_idx;
-                        d_lookup_valid_r  <= 1'b1;
-                    end
-
-                    // Fill: update valid_shadow and PLRU
-                    if (fill_req) begin
-                        valid_shadow[fill_set_idx][fill_victim_way] <= 1'b1;
-                        plru_state[fill_set_idx] <= plru_next_fill;
-                    end
-
-                    // PLRU update on lookup hits (gated by valid pulse)
-                    // If both sides hit the same set in the same cycle, d-side wins
-                    if (i_lookup_valid_r && i_tlb_hit && d_lookup_valid_r && d_tlb_hit &&
-                        (i_latched_set_idx == d_latched_set_idx)) begin
-                        plru_state[d_latched_set_idx] <= d_plru_next;
-                    end else begin
-                        if (i_lookup_valid_r && i_tlb_hit)
-                            plru_state[i_latched_set_idx] <= i_plru_next;
-                        if (d_lookup_valid_r && d_tlb_hit)
-                            plru_state[d_latched_set_idx] <= d_plru_next;
-                    end
-                end
-            end
-
-            S_FLUSH: begin
-                // Clear shadow valid bits for this set
-                for (i = 0; i < NUM_WAYS; i = i + 1)
-                    valid_shadow[flush_set][i] <= 1'b0;
-
-                if (flush_set == NUM_SETS - 1) begin
-                    for (i = 0; i < NUM_SETS; i = i + 1)
-                        plru_state[i] <= {NUM_WAYS-1{1'b0}};
-                    flush_done_r <= 1'b1;
-                    state <= S_RUN;
-                end else begin
-                    flush_set <= flush_set + 1'b1;
-                end
-            end
-
-            default: state <= S_RUN;
-        endcase
     end
-end
-
-`endif // USE_TLB_BRAM
-
 endmodule

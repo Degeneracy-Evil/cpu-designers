@@ -31,6 +31,8 @@ module MMU #(
     // ── shared CSR inputs ──
     input       [1:0]  priv_mode,
     input       [31:0] satp,
+    input              mstatus_mprv,
+    input       [1:0]  mstatus_mpp,
     input              mstatus_sum,
     input              mstatus_mxr,
 
@@ -42,7 +44,6 @@ module MMU #(
     input       [31:0] ptw_bus_rdata,
     input              ptw_bus_done,
     input              ptw_bus_error,
-    input              ptw_bus_hold,
 
     // ── flush ──
     input              sfence_vma,
@@ -88,9 +89,13 @@ module MMU #(
     wire [8:0]  i_asid = satp[30:22];
     wire        i_sv32 = satp[31] && (priv_mode != PRIV_M) && i_translate_en;
 
+    // MPRV affects explicit data accesses only. Instruction fetches always
+    // use the hart's current privilege mode.
+    wire [1:0] d_effective_priv_mode =
+        ((priv_mode == PRIV_M) && mstatus_mprv) ? mstatus_mpp : priv_mode;
     wire [19:0] d_vpn  = d_vaddr[31:12];
     wire [8:0]  d_asid = satp[30:22];
-    wire        d_sv32 = satp[31] && (priv_mode != PRIV_M) && d_translate_en;
+    wire        d_sv32 = satp[31] && (d_effective_priv_mode != PRIV_M) && d_translate_en;
 
     // =========================================================================
     // TLB flush on satp write (RISC-V spec requirement)
@@ -107,8 +112,6 @@ module MMU #(
         else
             satp_prev <= satp;
     end
-
-`ifdef USE_TLB_BRAM
 
     // =========================================================================
     // Unified MMU state machine
@@ -169,7 +172,7 @@ module MMU #(
 
     wire d_input_changed = (d_vaddr != d_latched_vaddr) ||
                            (d_access_type != d_latched_access_type) ||
-                           (priv_mode != d_latched_priv_mode) ||
+                           (d_effective_priv_mode != d_latched_priv_mode) ||
                            (satp != d_latched_satp) ||
                            (d_translate_en != d_latched_translate_en) ||
                            (mstatus_sum != d_latched_mstatus_sum) ||
@@ -193,16 +196,14 @@ module MMU #(
     // PTW done/fault (declared early for tlb_fill_req)
     wire        ptw_walk_done;
     wire        ptw_walk_fault;
+    wire        ptw_walk_idle;
+    wire        d_lookup_stalled;
 
     // TLB lookup requests
-    // BUG-16 fix: keep lookup req active during I_LOOKUP/D_LOOKUP so BRAM-based
-    // TLB i_lookup_valid_r/d_lookup_valid_r stay high. Otherwise the 1-cycle
+    // Keep lookup req active during I_LOOKUP/D_LOOKUP so the synchronous
+    // TLB lookup-valid pulses stay high. Otherwise the one-cycle
     // valid pulse expires and the MMU deadlocks (valid=0, hit=1, ready=0, miss=0).
     //
-    // NOTE: BRAM IP is configured as READ_FIRST. When Port B writes (fill) and
-    // Port A reads the same address simultaneously, Port A returns the OLD data
-    // (still valid, just stale by one update). No stall needed — i-side lookup
-    // proceeds normally during fill. This avoids freezing the fetch path.
     wire i_req_active = (i_state == I_LOOKUP) && !i_input_changed;
     wire d_req_active = (d_state == D_LOOKUP) && !d_input_changed;
     wire i_tlb_lookup_req = i_req_active && !mmu_flush_req;
@@ -238,7 +239,7 @@ module MMU #(
     wire [8:0]  fill_asid = (walk_state == W_D_WALK) ? d_latched_satp[30:22] : i_latched_satp[30:22];
 
     // d-side lookup stalled when Port B is used for fill
-    wire d_lookup_stalled = tlb_fill_req;
+    assign d_lookup_stalled = tlb_fill_req;
 
     tlb #(.ENTRIES(TLB_ENTRIES)) u_tlb(
         .clk(clk),
@@ -275,6 +276,7 @@ module MMU #(
         .d_lookup_valid(d_tlb_valid),
         // Fill (Port B write, preempts d-lookup)
         .fill_req(tlb_fill_req),
+        .fill_is_instruction(walk_state == W_I_WALK),
         .fill_vpn(fill_vpn),
         .fill_asid(fill_asid),
         .fill_ppn(ptw_fill_ppn),
@@ -562,7 +564,7 @@ module MMU #(
                         // don't trigger d_input_changed oscillation.
                         d_latched_vaddr       <= d_vaddr;
                         d_latched_access_type <= d_access_type;
-                        d_latched_priv_mode   <= priv_mode;
+                        d_latched_priv_mode   <= d_effective_priv_mode;
                         d_latched_satp        <= satp;
                         d_latched_translate_en <= d_translate_en;
                         d_latched_mstatus_sum  <= mstatus_sum;
@@ -645,8 +647,7 @@ module MMU #(
     // Walk arbiter FSM (manages single PTW instance)
     // =========================================================================
     // Walk request pulses from each side (detected in I_LOOKUP / D_LOOKUP on miss)
-    // NOTE: NOT gated by tlb_fill_req. i_tlb_miss is derived from BRAM outputs
-    // which may be garbage during fill, BUT i_tlb_miss is only consumed by the
+    // NOTE: NOT gated by tlb_fill_req. i_tlb_miss is only consumed by the
     // walk arbiter — it does NOT trigger a BRAM read. The actual BRAM read
     // (i_tlb_lookup_req) is gated separately. The walk arbiter capture logic
     // in W_D_WALK/W_I_WALK needs the un-gated miss signal to detect the race
@@ -686,9 +687,10 @@ module MMU #(
 
                 W_D_WALK: begin
                     if (mmu_flush_req) begin
-                        walk_state     <= W_IDLE;
                         pending_i_walk <= 1'b0;
                         pending_d_walk <= 1'b0;
+                    end else if (ptw_walk_idle) begin
+                        walk_state <= W_IDLE;
                     end else if (ptw_walk_done || ptw_walk_fault) begin
                         // Go to W_IDLE. If pending_i_walk/pending_d_walk,
                         // W_IDLE will restart PTW on the next cycle.
@@ -709,9 +711,10 @@ module MMU #(
 
                 W_I_WALK: begin
                     if (mmu_flush_req) begin
-                        walk_state     <= W_IDLE;
                         pending_i_walk <= 1'b0;
                         pending_d_walk <= 1'b0;
+                    end else if (ptw_walk_idle) begin
+                        walk_state <= W_IDLE;
                     end else if (ptw_walk_done || ptw_walk_fault) begin
                         walk_state <= W_IDLE;
                         // BUG-FIX: Same race as W_D_WALK — capture d_walk_req
@@ -766,7 +769,8 @@ module MMU #(
         .access_type(walk_access),
         .walk_vaddr(walk_vaddr),
         .walk_req(ptw_walk_req_pulse),
-        .walk_abort(mmu_flush_req),           // BUG-7: abort PTW on sfence_vma or satp change
+        .walk_abort(mmu_flush_req),
+        .walk_idle(ptw_walk_idle),
         .walk_done(ptw_walk_done),
         .walk_fault(ptw_walk_fault),
         .walk_fault_cause(ptw_fault_cause_out),
@@ -786,8 +790,7 @@ module MMU #(
         .ptw_bus_wdata(ptw_bus_wdata),
         .ptw_bus_rdata(ptw_bus_rdata),
         .ptw_bus_done(ptw_bus_done),
-        .ptw_bus_error(ptw_bus_error),
-        .ptw_bus_hold(ptw_bus_hold)
+        .ptw_bus_error(ptw_bus_error)
     );
 
     assign dbg_i_walk_active  = (walk_state != W_IDLE);
@@ -812,7 +815,5 @@ module MMU #(
     assign dbg_pending_d_walk    = pending_d_walk;
     assign dbg_d_pf_from_ptw     = d_pf_from_ptw_r;
     assign dbg_d_tlb_miss        = d_tlb_miss;
-
-`endif // USE_TLB_BRAM
 
 endmodule

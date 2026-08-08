@@ -1,14 +1,12 @@
 # ============================================================
 # cache/fencei.s — FENCE.I behavior tests
 # Category: Cache
-# Description: Test FENCE.I (dcache flush + icache invalidate)
+# Description: Test FENCE.I instruction/data stream synchronization
 # Sub-tests: 4
 # Depends: framework/test_framework.s, framework/trap_handlers.s
 # ============================================================
-# FENCE.I in this CPU:
-#   1. Flushes dcache: writeback all dirty lines, then invalidate all
-#   2. Invalidates icache: clear all valid bits
-# This synchronizes data and instruction streams for self-modifying code.
+# Completed write-through stores are already visible in memory. FENCE.I clears
+# I-cache valid bits so later fetches observe self-modifying-code stores.
 # ============================================================
 
 .section .text.start
@@ -46,7 +44,7 @@ test_fencei_smc:
     li   x12, 0x00100513
     sw   x12, 0(x11)
 
-    # FENCE.I: flush dcache (writeback new instr to SRAM) + invalidate icache
+    # FENCE.I: invalidate I-cache after the completed write-through store
     fence.i
 
     # Call smc_fn — icache miss, fetch from SRAM, gets new instruction
@@ -65,17 +63,15 @@ test_fencei_smc:
     ret
 
 
-# ── Sub-test 2: FENCE.I flushes dcache (writeback to SRAM) ──
-# Store value, FENCE.I, then load back — after dcache invalidate,
-# the load misses and refills from SRAM which has the writeback data
+# ── Sub-test 2: FENCE.I preserves completed store visibility ──
 test_fencei_dcache_flush:
     lui  x10, 0x80003         # x10 = 0x80003000 (test_data_area)
     li   x11, 0xDEADBEEF
-    sw   x11, 0(x10)          # store to dcache (dirty line)
+    sw   x11, 0(x10)          # write-through store
 
-    fence.i                    # flush dcache → SRAM, then invalidate
+    fence.i                    # invalidate I-cache
 
-    # Load from same address — dcache miss, refill from SRAM
+    # Load from same address — cache hit or refill must see the store
     lw   x12, 0(x10)          # x12 should be 0xDEADBEEF
 
     li   x11, 0xDEADBEEF
@@ -101,7 +97,7 @@ test_fencei_preserve_data:
     li   x11, 0xDDDD4444
     sw   x11, 12(x10)         # addr+12
 
-    fence.i                    # flush all dirty lines
+    fence.i                    # synchronize instruction fetch
 
     # Load all back and verify
     lw   x11, 0(x10)

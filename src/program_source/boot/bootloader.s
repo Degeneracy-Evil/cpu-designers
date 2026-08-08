@@ -88,8 +88,7 @@ _start:
     li   t1, 0xDEADBEEF       # Test pattern
     sw   t1, 0(t0)             # Write to DDR3
 
-    fence.i                    # Flush dcache write-back + icache invalidate
-                               # Ensures subsequent lw reads from DDR3, not dcache
+    fence.i                    # Invalidate icache; stores are already write-through
 
     lw   t2, 0(t0)             # Read back from DDR3
     bne  t1, t2, ddr_fail      # Compare
@@ -177,8 +176,7 @@ uart_init:
 
 load_done:
     # ── Step 7: Jump to entry address ─────────────────────────────
-    fence.i                    # Flush dcache write-back + icache invalidate
-                               # Ensures CPU fetches freshly-written program, not stale icache
+    fence.i                    # Invalidate icache before executing the new program
     jr   s3                    # Jump to program entry in DDR3
 
 hdr_err:

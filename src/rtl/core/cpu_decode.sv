@@ -30,7 +30,9 @@ module cpu_decode(
     output             dec_csr_access_ok,
 
     input      [1:0]   priv_mode,
-    input      [31:0]  csr_mstatus
+    input      [31:0]  csr_mstatus,
+    input      [31:0]  csr_mcounteren,
+    input      [31:0]  csr_scounteren
   );
   localparam PRIV_U = 2'b00;
   localparam PRIV_S = 2'b01;
@@ -217,7 +219,10 @@ wire inst_amomaxu  = (opcode == OPCODE_AMO) && (funct3 == 3'b010) && (funct5 == 
 
   assign inst_ecall  = (opcode == OPCODE_SYSTEM) && (funct3 == 3'b000) && (inst[31:20] == 12'h000);
   assign inst_ebreak = (opcode == OPCODE_SYSTEM) && (funct3 == 3'b000) && (inst[31:20] == 12'h001);
-  assign inst_wfi    = (opcode == OPCODE_SYSTEM) && (funct3 == 3'b000) && (inst[31:20] == 12'h105);
+  // WFI has fixed rd=x0 and rs1=x0 fields.  Do not accept reserved SYSTEM
+  // encodings that merely share WFI's funct12 value.
+  assign inst_wfi    = (opcode == OPCODE_SYSTEM) && (funct3 == 3'b000) &&
+                        (inst[31:20] == 12'h105) && (rs1 == 5'd0) && (rd == 5'd0);
   assign inst_mret   = (opcode == OPCODE_SYSTEM) && (funct3 == 3'b000) && (inst[31:7] == 25'b0011000_00010_00000_000_00000);
   assign inst_sret   = (opcode == OPCODE_SYSTEM) && (funct3 == 3'b000) && (inst[31:7] == 25'b0001000_00010_00000_000_00000);
   assign inst_fence  = (opcode == OPCODE_FENCE)  && (funct3 == 3'b000);
@@ -462,11 +467,20 @@ wire inst_amomaxu  = (opcode == OPCODE_AMO) && (funct3 == 3'b010) && (funct5 == 
 
   assign dec_csr_addr_valid = is_s_csr(csr_addr) || is_m_csr(csr_addr) || is_u_csr(csr_addr);
 
+  wire [1:0] counter_enable_index =
+      (csr_addr == CSR_CYCLE || csr_addr == CSR_CYCLEH) ? 2'd0 :
+      (csr_addr == CSR_TIME || csr_addr == CSR_TIMEH) ? 2'd1 : 2'd2;
+  wire m_counter_enabled = csr_mcounteren[counter_enable_index];
+  wire s_counter_enabled = csr_scounteren[counter_enable_index];
+
   reg dec_csr_access_ok_r;
   always_comb begin
       case (priv_mode)
-          PRIV_U: dec_csr_access_ok_r = is_u_csr(csr_addr);  // U-mode: counter aliases only (mcounteren checked at execution)
-          PRIV_S: dec_csr_access_ok_r = is_s_csr(csr_addr) || is_u_csr(csr_addr);
+          // mcounteren controls S-mode access.  U-mode additionally requires
+          // the corresponding scounteren bit.
+          PRIV_U: dec_csr_access_ok_r = is_u_csr(csr_addr) && m_counter_enabled && s_counter_enabled;
+          PRIV_S: dec_csr_access_ok_r = is_s_csr(csr_addr) ||
+                                         (is_u_csr(csr_addr) && m_counter_enabled);
           PRIV_M: dec_csr_access_ok_r = 1'b1;
           default: dec_csr_access_ok_r = 1'b0;
       endcase
@@ -500,7 +514,9 @@ wire inst_amomaxu  = (opcode == OPCODE_AMO) && (funct3 == 3'b010) && (funct5 == 
   wire sret_tsr_violation = is_sret && tsr_bit && (priv_mode == PRIV_S);
   wire tvm_bit = csr_mstatus[20];
   wire sfence_tvm_violation = is_sfence_vma && tvm_bit && (priv_mode == PRIV_S);
-  wire satp_tvm_violation = is_csr && (csr_addr == CSR_SATP) && csr_is_write && tvm_bit && (priv_mode == PRIV_S);
+  // TVM traps every S-mode access to satp, including read-only CSRRS/CSRRC
+  // forms.  M-mode uses this to virtualize both observing and changing satp.
+  wire satp_tvm_violation = is_csr && (csr_addr == CSR_SATP) && tvm_bit && (priv_mode == PRIV_S);
 
   assign illegal_inst = id_valid && (!valid_inst || csr_addr_invalid || csr_priv_violation || write_ro_csr ||
                                       sret_priv_violation || mret_priv_violation ||

@@ -42,6 +42,11 @@ module axi4lite_plic #(
     input  wire [NUM_SRC-1:0] src_irq,
     output wire [NUM_CTX-1:0] o_eip       // [0]=M-mode, [1]=S-mode
 );
+    // This small platform implements eight WARL priority levels (0..7).
+    // Keeping the internal priority datapath at 3 bits avoids placing a chain
+    // of unnecessary 32-bit comparators on the interrupt/claim critical path.
+    localparam PRIO_WIDTH = 3;
+
 
     // =========================================================================
     // AXI4-Lite Write FSM
@@ -160,13 +165,13 @@ module axi4lite_plic #(
     // Internal registers
     // =========================================================================
     // Shared across all contexts
-    reg  [31:0] r_prio [0:NUM_SRC-1];
+    reg  [PRIO_WIDTH-1:0] r_prio [0:NUM_SRC-1];
     reg  [31:0] r_pending;
     reg  [NUM_SRC-1:0] r_gw_en;
 
     // Per-context
     reg  [31:0] r_enable   [0:NUM_CTX-1];
-    reg  [31:0] r_threshold[0:NUM_CTX-1];
+    reg  [PRIO_WIDTH-1:0] r_threshold[0:NUM_CTX-1];
     integer ii;
     integer ci;
 
@@ -174,17 +179,18 @@ module axi4lite_plic #(
     // find_highest function — returns highest-priority pending+enabled ID
     // =========================================================================
     function [7:0] find_highest;
-        input [31:0] pend, enbl, thresh;
-        input [31:0] prio_arr [0:NUM_SRC-1];
-        reg   [31:0] pmat [1:NUM_SRC-1];
-        reg   [31:0] best;
+        input [31:0] pend, enbl;
+        input [PRIO_WIDTH-1:0] thresh;
+        input [PRIO_WIDTH-1:0] prio_arr [0:NUM_SRC-1];
+        reg   [PRIO_WIDTH-1:0] pmat [1:NUM_SRC-1];
+        reg   [PRIO_WIDTH-1:0] best;
         reg   [7:0]  id;
         integer      j;
         begin
-            best = 32'd0;
+            best = {PRIO_WIDTH{1'b0}};
             id   = 8'd0;
             for (j = 1; j < NUM_SRC; j = j + 1) begin
-                pmat[j] = 32'd0;
+                pmat[j] = {PRIO_WIDTH{1'b0}};
                 if (pend[j] && enbl[j])
                     pmat[j] = prio_arr[j];
             end
@@ -214,11 +220,10 @@ module axi4lite_plic #(
     // =========================================================================
     // WSTRB-aware write data helpers
     // =========================================================================
-    wire [31:0] wdata_prio_masked = (wr_addr_eff[7:2] < NUM_SRC) ?
-        {(wr_wstrb_eff[3] ? wr_wdata_eff[31:24] : r_prio[wr_addr_eff[7:2]][31:24]),
-         (wr_wstrb_eff[2] ? wr_wdata_eff[23:16] : r_prio[wr_addr_eff[7:2]][23:16]),
-         (wr_wstrb_eff[1] ? wr_wdata_eff[15:8]  : r_prio[wr_addr_eff[7:2]][15:8]),
-         (wr_wstrb_eff[0] ? wr_wdata_eff[7:0]   : r_prio[wr_addr_eff[7:2]][7:0])} : 32'd0;
+    wire [PRIO_WIDTH-1:0] wdata_prio_masked =
+        ((wr_addr_eff[7:2] < NUM_SRC) && wr_wstrb_eff[0]) ?
+        wr_wdata_eff[PRIO_WIDTH-1:0] :
+        ((wr_addr_eff[7:2] < NUM_SRC) ? r_prio[wr_addr_eff[7:2]] : {PRIO_WIDTH{1'b0}});
 
     // Per-context enable WSTRB masking — computed for the addressed context
     wire [31:0] wdata_enable_masked [0:NUM_CTX-1];
@@ -233,14 +238,12 @@ module axi4lite_plic #(
     endgenerate
 
     // Per-context threshold WSTRB masking
-    wire [31:0] wdata_thresh_masked [0:NUM_CTX-1];
+    wire [PRIO_WIDTH-1:0] wdata_thresh_masked [0:NUM_CTX-1];
     generate
         for (gi = 0; gi < NUM_CTX; gi = gi + 1) begin : gen_th_mask
-            assign wdata_thresh_masked[gi] =
-                {(wr_wstrb_eff[3] ? wr_wdata_eff[31:24] : r_threshold[gi][31:24]),
-                 (wr_wstrb_eff[2] ? wr_wdata_eff[23:16] : r_threshold[gi][23:16]),
-                 (wr_wstrb_eff[1] ? wr_wdata_eff[15:8]  : r_threshold[gi][15:8]),
-                 (wr_wstrb_eff[0] ? wr_wdata_eff[7:0]   : r_threshold[gi][7:0])};
+            assign wdata_thresh_masked[gi] = wr_wstrb_eff[0] ?
+                                               wr_wdata_eff[PRIO_WIDTH-1:0] :
+                                               r_threshold[gi];
         end
     endgenerate
 
@@ -256,10 +259,10 @@ module axi4lite_plic #(
             r_pending <= 32'd0;
             r_gw_en   <= {(NUM_SRC){1'b1}};
             for (ii = 0; ii < NUM_SRC; ii = ii + 1)
-                r_prio[ii] <= 32'd0;
+                r_prio[ii] <= {PRIO_WIDTH{1'b0}};
             for (ci = 0; ci < NUM_CTX; ci = ci + 1) begin
                 r_enable[ci]    <= 32'd0;
-                r_threshold[ci] <= 32'd0;
+                r_threshold[ci] <= {PRIO_WIDTH{1'b0}};
             end
         end else begin
             // 1. Pending and gateway enable logic (shared, level-triggered)
@@ -327,7 +330,8 @@ module axi4lite_plic #(
                 end
                 RD_WAIT: begin
                     if (rd_addr_is_prio) begin
-                        r_rd_data <= (rd_addr[7:2] < NUM_SRC) ? r_prio[rd_addr[7:2]] : 32'd0;
+                        r_rd_data <= (rd_addr[7:2] < NUM_SRC) ?
+                                     {{(32-PRIO_WIDTH){1'b0}}, r_prio[rd_addr[7:2]]} : 32'd0;
                     end else if (rd_addr_is_pend) begin
                         r_rd_data <= r_pending;
                     end else if (rd_addr_is_enable) begin
@@ -339,9 +343,9 @@ module axi4lite_plic #(
                     end else if (rd_addr_is_thresh) begin
                         r_rd_data <= 32'd0;
                         if (rd_ctx == 0)
-                            r_rd_data <= r_threshold[0];
+                            r_rd_data <= {{(32-PRIO_WIDTH){1'b0}}, r_threshold[0]};
                         else if ((NUM_CTX > 1) && (rd_ctx == 1))
-                            r_rd_data <= r_threshold[1];
+                            r_rd_data <= {{(32-PRIO_WIDTH){1'b0}}, r_threshold[1]};
                     end else if (rd_addr_is_claim) begin
                         r_rd_data <= {24'd0, rd_claim_id};
                     end else begin

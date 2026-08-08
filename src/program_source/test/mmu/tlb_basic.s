@@ -3,8 +3,8 @@
 # Category: MMU
 # Sub-tests: 12
 # ============================================================
-# TLB: 16 entries, 4-way set-associative (4 sets × 4 ways), tree-PLRU
-# Set index: VPN[11:10] (2 bits)
+# TLB: 16 entries, 2-way set-associative (8 sets × 2 ways), register arrays
+# Set index: VPN[12:10] (3 bits; excludes a megapage's VPN[9:0])
 # After enable_sv32 (which includes sfence.vma), TLB is empty.
 # First S-mode access → TLB miss → PTW → fill → data returned.
 # Second access to same page → TLB hit.

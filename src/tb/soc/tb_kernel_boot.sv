@@ -1470,9 +1470,9 @@ module tb_kernel_boot;
                                  u_soc.cpu.u_bus_bridge.bvalid);
 
                         // PTW state (hierarchical reference)
-                        $display("[STALL] PTW: state=%0d bus_req_pending=%0d",
+                        $display("[STALL] PTW: state=%0d bus_req=%0d",
                                  u_soc.cpu.u_mmu.u_ptw.state,
-                                 u_soc.cpu.u_mmu.u_ptw.bus_req_pending_r);
+                                 u_soc.cpu.u_mmu.ptw_bus_req);
 
                         $fflush;
                         $finish;

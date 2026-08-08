@@ -260,7 +260,7 @@ s_mode_entry:
 
 ### 6.4 注意事项
 
-- **fence.i 在 enable_sv32 前必需**: dcache write-back, PTW 绕过 dcache → fence.i 确保页表写入内存
+- **enable_sv32 前的可见性**: DCache 写穿透保证 PTW 能看到页表 store；`fence.i` 只建立取指一致性边界
 - **数据区最小化**: 使用 `.word + .word 0` 代替 `.fill 1023, 4, 0`，`.balign 4096` 保证页对齐
 - **MMU 测试自约束 32KB**: 页表 (8KB) + 代码 + 数据区 < 32KB (仿真模型为 1MB，但 MMU 测试布局仅使用前 8 页)
 - **地址偏移用 li+add**: 0x800 等大立即数超出 addi 12-bit 范围

@@ -169,7 +169,10 @@ module cpu_mem(
     endfunction
 
     // ── A extension: SC reservation match check ──
-    wire sc_reservation_match = lr_reservation_valid && (lr_reservation_addr == alu_result);
+    // Use the address captured when this memory operation was accepted.  The
+    // SC response may arrive many cycles later and must not depend on live
+    // execute-stage inputs remaining unchanged.
+    wire sc_reservation_match = lr_reservation_valid && (lr_reservation_addr == addr_reg);
 
     always_ff @(posedge clk or negedge resetn) begin
         if (!resetn) begin

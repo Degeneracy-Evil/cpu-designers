@@ -276,8 +276,7 @@ jalr_target:
     # during dcache flush (flush takes many cycles, MTIP stays asserted)
     csrw mie, x0
 
-    # Flush dcache: fence.i triggers dcache writeback + icache invalidate
-    # This ensures all dirty cache lines reach BRAM before the testbench reads them.
+    # Stores are write-through; fence.i establishes an instruction-cache boundary.
     fence.i
 
 end_loop:

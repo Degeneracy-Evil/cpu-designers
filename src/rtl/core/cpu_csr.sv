@@ -158,7 +158,6 @@ module cpu_csr(
     reg [63:0] r_mcycle;
     reg [63:0] r_minstret;
 
-    reg [31:0] r_sie;
     reg [31:0] r_stvec;
     reg [31:0] r_sscratch;
     reg [31:0] r_sepc;
@@ -198,13 +197,14 @@ module cpu_csr(
     assign sd_bit = (r_mstatus[14:13] != 2'b00) || (r_mstatus[16:15] != 2'b00);
 
     wire [31:0] w_sstatus;
+    wire [31:0] w_sie;
     wire [31:0] w_sip;
     assign w_sstatus = {sd_bit,
                         8'b0,
                         3'b000,
                         r_mstatus[19],
                         r_mstatus[18],
-                        r_mstatus[17],
+                        1'b0,              // MPRV is not visible through sstatus
                         r_mstatus[16:15],
                         r_mstatus[14:13],
                         2'b00,
@@ -218,7 +218,10 @@ module cpu_csr(
                         1'b0,
                         r_mstatus[1],
                         1'b0};
-    assign w_sip = {22'd0, (ext_seip | r_sip[9]), 3'b0, r_sip[5], 3'b0, r_sip[1], 1'b0};
+    // sie/sip are delegated views of the machine-level interrupt CSRs, not
+    // independent banks of enable and pending bits.
+    assign w_sie = r_mie & r_mideleg & 32'h0000_0222;
+    assign w_sip = r_mip & r_mideleg & 32'h0000_0222;
 
     function is_s_csr;
         input [11:0] addr;
@@ -296,18 +299,20 @@ module cpu_csr(
                               (sw_csr_addr == ADDR_TIMEH)   ||
                               (sw_csr_addr == ADDR_INSTRETH);
 
+    wire [2:0] counter_idx;
+    wire u_counter_allowed;
+    wire s_counter_allowed;
+
     reg csr_access_ok_r;
     always_comb begin
         case (priv_mode)
             PRIV_U: begin
-                // U-mode can read counter aliases (cycle/time/instret) if
-                // mcounteren allows; writes are blocked by is_read_only_csr
-                // checked in cpu_decode.sv (write_ro_csr).
+                // U-mode requires permission from both higher levels.
                 csr_access_ok_r = is_u_csr(sw_csr_addr) && u_counter_allowed;
             end
             PRIV_S: begin
                 // S-mode can access own CSRs and U-mode counter aliases
-                // (if both mcounteren and scounteren allow).
+                // when M-mode grants access through mcounteren.
                 // Read-only check for writes is handled in cpu_decode.sv.
                 csr_access_ok_r = is_s_csr(sw_csr_addr) || (is_u_csr(sw_csr_addr) && s_counter_allowed);
             end
@@ -368,15 +373,14 @@ module cpu_csr(
     // ── Counter access permission checks ──
     // mcounteren/scounteren bit mapping:
     //   bit 0 = cycle/cycleh, bit 1 = time/timeh, bit 2 = instret/instreth
-    // U-mode access allowed if mcounteren bit is set.
-    // S-mode access to U-mode aliases allowed if both mcounteren and scounteren bits are set.
-    wire [2:0] counter_idx;
+    // S-mode access requires mcounteren. U-mode access additionally requires
+    // scounteren.
     assign counter_idx = (sw_csr_addr == ADDR_CYCLE  || sw_csr_addr == ADDR_CYCLEH)  ? 3'd0 :
                          (sw_csr_addr == ADDR_TIME   || sw_csr_addr == ADDR_TIMEH)   ? 3'd1 :
                          (sw_csr_addr == ADDR_INSTRET|| sw_csr_addr == ADDR_INSTRETH) ? 3'd2 : 3'd0;
 
-    wire u_counter_allowed = r_mcounteren[counter_idx];
-    wire s_counter_allowed = r_mcounteren[counter_idx] && r_scounteren[counter_idx];
+    assign u_counter_allowed = r_mcounteren[counter_idx] && r_scounteren[counter_idx];
+    assign s_counter_allowed = r_mcounteren[counter_idx];
 
     wire [31:0] mstatus_wmask;
     assign mstatus_wmask = {1'b0,
@@ -402,7 +406,7 @@ module cpu_csr(
                             1'b0};
 
     wire [31:0] mie_wmask;
-    assign mie_wmask = {20'd0, sw_csr_wdata[11], 3'd0, sw_csr_wdata[7], 3'd0, sw_csr_wdata[3], 3'd0};
+    assign mie_wmask = sw_csr_wdata & 32'h0000_0AAA;
 
     wire [31:0] mtvec_wmask;
     assign mtvec_wmask = {sw_csr_wdata[31:2], 2'b00};
@@ -423,21 +427,11 @@ module cpu_csr(
     wire [31:0] mideleg_wmask;
     assign mideleg_wmask = sw_csr_wdata & 32'h0000_0222;  // only SSI(1), STI(5), SEI(9)
 
-    wire [31:0] sie_wmask;
-    assign sie_wmask = {20'd0, sw_csr_wdata[9], 3'd0, sw_csr_wdata[5], 3'd0, sw_csr_wdata[1], 3'd0};
-
     wire [31:0] stvec_wmask;
     assign stvec_wmask = {sw_csr_wdata[31:2], 2'b00};
 
     wire [31:0] sepc_wmask;
     assign sepc_wmask = {sw_csr_wdata[31:2], 2'b00};
-
-    wire [31:0] sip_wmask;
-    // BUG-FIX: Allow writing sip[5] (STIP) in addition to sip[1] (SSIP).
-    // Per RISC-V spec, S-mode can write STIP to set/clear the S-mode timer
-    // interrupt pending bit. This is essential for software-interrupt-based
-    // timer emulation when mideleg[5]=0 (timer not delegated to S-mode).
-    assign sip_wmask = {22'd0, sw_csr_wdata[9], 3'b0, sw_csr_wdata[5], 3'b0, sw_csr_wdata[1], 1'b0};
 
     always_ff @(posedge clk or negedge resetn) begin
         if (!resetn) begin
@@ -454,7 +448,6 @@ module cpu_csr(
             r_mcounteren<= 32'b0;
             r_mcycle    <= 64'b0;
             r_minstret  <= 64'b0;
-            r_sie       <= 32'b0;
             r_stvec     <= 32'b0;
             r_sscratch  <= 32'b0;
             r_sepc      <= 32'b0;
@@ -551,17 +544,24 @@ module cpu_csr(
                         r_mstatus[14]  <= sw_csr_wdata[14];
                         r_mstatus[15]  <= sw_csr_wdata[15];
                         r_mstatus[16]  <= sw_csr_wdata[16];
-                        r_mstatus[17]  <= sw_csr_wdata[17];
+                        // mstatus.MPRV is an M-mode-only field and is not
+                        // writable through the sstatus restricted view.
                         r_mstatus[18]  <= sw_csr_wdata[18];
                         r_mstatus[19]  <= sw_csr_wdata[19];
                     end
-                    ADDR_SIE:        r_sie       <= sie_wmask;
+                    ADDR_SIE: begin
+                        r_mie <= (r_mie & ~(r_mideleg & 32'h0000_0222)) |
+                                 (sw_csr_wdata & r_mideleg & 32'h0000_0222);
+                    end
                     ADDR_STVEC:      r_stvec     <= stvec_wmask;
                     ADDR_SSCRATCH:   r_sscratch  <= sw_csr_wdata;
                     ADDR_SEPC:       r_sepc      <= sepc_wmask;
                     ADDR_SCAUSE:     r_scause    <= sw_csr_wdata;
                     ADDR_STVAL:      r_stval     <= sw_csr_wdata;
-                    ADDR_SIP:        r_sip       <= sip_wmask;
+                    ADDR_SIP: begin
+                        r_sip <= (r_sip & ~(r_mideleg & 32'h0000_0222)) |
+                                 (sw_csr_wdata & r_mideleg & 32'h0000_0222);
+                    end
                     ADDR_SATP:       r_satp      <= sw_csr_wdata;
 ADDR_SCOUNTEREN: if (priv_mode != PRIV_U) r_scounteren <= sw_csr_wdata;
                     // PMP config writes: lock-bit enforcement via pmpcfg*_wmask
@@ -596,7 +596,7 @@ ADDR_SCOUNTEREN: if (priv_mode != PRIV_U) r_scounteren <= sw_csr_wdata;
     always_comb begin
         case (sw_csr_addr)
             ADDR_SSTATUS:     sw_csr_rdata_r = w_sstatus;
-            ADDR_SIE:         sw_csr_rdata_r = r_sie;
+            ADDR_SIE:         sw_csr_rdata_r = w_sie;
             ADDR_STVEC:       sw_csr_rdata_r = r_stvec;
             ADDR_SCOUNTEREN:  sw_csr_rdata_r = r_scounteren;
             ADDR_SSCRATCH:    sw_csr_rdata_r = r_sscratch;
@@ -678,7 +678,7 @@ ADDR_SCOUNTEREN: if (priv_mode != PRIV_U) r_scounteren <= sw_csr_wdata;
     assign csr_medeleg   = r_medeleg;
     assign csr_mideleg   = r_mideleg;
     assign csr_sstatus   = w_sstatus;
-    assign csr_sie       = r_sie;
+    assign csr_sie       = w_sie;
     assign csr_stvec     = r_stvec;
     assign csr_sscratch  = r_sscratch;
     assign csr_sepc      = r_sepc;

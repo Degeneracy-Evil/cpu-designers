@@ -33,10 +33,6 @@ module cpu_trap_manager(
     input  [31:0] csr_mideleg,
     input  [31:0] csr_stvec,
     input  [31:0] csr_sepc,
-    input  [31:0] csr_sie,
-    input  [31:0] csr_sip,
-
-    input         timer_irq,
     input  [31:0] current_pc,
 
     input         exe_misalign_valid,
@@ -86,8 +82,6 @@ module cpu_trap_manager(
     localparam PRIV_S = 2'b01;
     localparam PRIV_M = 2'b11;
 
-    assign exception_at_decode = (id_valid && id_done) && (dec_illegal || dec_is_ecall || dec_is_ebreak) && !inst_access_fault_r && !inst_page_fault_r;
-
     wire [31:0] decode_exception_cause;
     assign decode_exception_cause = dec_illegal  ? 32'd2 :
                                     dec_is_ecall ? ((priv_mode == PRIV_U) ? 32'd8 :
@@ -112,6 +106,10 @@ module cpu_trap_manager(
     reg store_page_fault_r;
     reg [31:0] store_page_fault_vaddr_r;
     reg [31:0] mem_page_fault_pc_r;
+
+    assign exception_at_decode = (id_valid && id_done) &&
+                                 (dec_illegal || dec_is_ecall || dec_is_ebreak) &&
+                                 !inst_access_fault_r && !inst_page_fault_r;
 
     always_ff @(posedge clk or negedge resetn) begin
         if (!resetn) begin
@@ -298,9 +296,6 @@ module cpu_trap_manager(
         .csr_mideleg(csr_mideleg),
         .csr_stvec(csr_stvec),
         .csr_sepc(csr_sepc),
-        .csr_sie(csr_sie),
-        .csr_sip(csr_sip),
-        .ext_mtip(timer_irq),
         .trap_enter(clint_trap_enter),
         .trap_return(),
         .trap_pc(clint_trap_pc),

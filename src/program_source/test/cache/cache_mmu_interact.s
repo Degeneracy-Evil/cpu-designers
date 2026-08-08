@@ -7,11 +7,11 @@
 #          framework/page_table_utils.s
 # ============================================================
 # Key interactions tested:
-#   1. FENCE.I in S-mode flushes dcache through TLB
+#   1. FENCE.I in S-mode synchronizes instruction fetch through the TLB
 #   2. Store-load roundtrip in S-mode (dcache hit through TLB)
 #   3. Self-modifying code in S-mode (icache refill after FENCE.I)
 #   4. Cross-page dcache operations (multi-TLB-entry, same dcache)
-#   5. Multiple dirty same-line stores → FENCE.I writeback
+#   5. Multiple same-line write-through stores remain visible
 #   6. Byte/halfword ops under Sv32
 #
 # Memory layout (all identity-mapped by setup_identity_map):
@@ -55,9 +55,7 @@ end_loop:
 
 
 # ============================================================
-# Sub-test 1: FENCE.I in S-mode flushes dcache through TLB
-# Store value in S-mode (write to dcache), FENCE.I (flush),
-# then load back (dcache miss → refill from SRAM)
+# Sub-test 1: FENCE.I in S-mode preserves store visibility through the TLB
 # ============================================================
 test_01_fencei_smode:
     la x5, mmu_saved_ra
@@ -75,9 +73,9 @@ s_01_fencei:
     # Store to test_data_area
     la x14, test_data_area
     li x15, 0xCAFEBABE
-    sw x15, 0(x14)             # dcache dirty
+    sw x15, 0(x14)             # write-through store
 
-    # FENCE.I: flush dcache (writeback to SRAM) + invalidate icache
+    # FENCE.I: invalidate I-cache; data store is already in memory
     fence.i
 
     # Load back — dcache miss → refill from SRAM (which has 0xCAFEBABE)
@@ -152,7 +150,7 @@ s_03_smc:
     li x15, 0x00008067         # ret
     sw x15, 4(x14)
 
-    # FENCE.I: flush dcache + invalidate icache
+    # FENCE.I: synchronize the following instruction fetch
     fence.i
 
     # Call smc_fn — icache miss, fetch from SRAM, get new instruction
@@ -198,7 +196,7 @@ s_04_cross:
     li x15, 0xBBBB2222
     sw x15, 0(x14)
 
-    fence.i                    # flush all dirty
+    fence.i                    # synchronize instruction fetch
 
     # Load page 4 back
     lui x14, 0x80004
@@ -223,7 +221,7 @@ _s04_done:
 
 
 # ============================================================
-# Sub-test 5: Multiple dirty same-line stores + FENCE.I
+# Sub-test 5: Multiple same-line write-through stores + FENCE.I
 # Store 4 words to same cache line, FENCE.I, verify all 4
 # ============================================================
 test_05_multi_dirty:
@@ -250,7 +248,7 @@ s_05_multi:
     li x15, 0xCCCC0004
     sw x15, 12(x14)
 
-    fence.i                    # flush all dirty
+    fence.i                    # stores are already globally visible
 
     # Verify all 4
     la x14, test_data_area

@@ -44,18 +44,20 @@ module tb_simple_cpu_compute;
         check_reg(5'd30, 32'h00000000);
         check_reg(5'd31, 32'h800000b0);
 
-        check_mem_word(32'd0, 32'habcd5678);
-        check_mem_word(32'd4, 32'h12345678);
-        check_mem_word(32'd8, 32'hff0000ff);
+        // cpu_compute.s uses x21 = 0x8000_1000 as its data base. The SRAM
+        // model aliases away the high memory base but preserves offset 0x1000.
+        check_mem_word(32'h1000, 32'habcd5678);
+        check_mem_word(32'h1004, 32'h12345678);
+        check_mem_word(32'h1008, 32'hff0000ff);
 
-        check_mem_word(32'h10, 32'h000002bc);
-        check_mem_word(32'h14, 32'h00000000);
-        check_mem_word(32'h18, 32'hffffffff);
-        check_mem_word(32'h1C, 32'hfffffffe);
-        check_mem_word(32'h20, 32'h0000000e);
-        check_mem_word(32'h24, 32'h24924924);
-        check_mem_word(32'h28, 32'h00000002);
-        check_mem_word(32'h2C, 32'h00000003);
+        check_mem_word(32'h1010, 32'h000002bc);
+        check_mem_word(32'h1014, 32'h00000000);
+        check_mem_word(32'h1018, 32'hffffffff);
+        check_mem_word(32'h101C, 32'hfffffffe);
+        check_mem_word(32'h1020, 32'h0000000e);
+        check_mem_word(32'h1024, 32'h24924924);
+        check_mem_word(32'h1028, 32'h00000002);
+        check_mem_word(32'h102C, 32'h00000003);
 
         $display("========================================");
         $display("compute test summary");
@@ -71,4 +73,3 @@ module tb_simple_cpu_compute;
 
 
 endmodule
-

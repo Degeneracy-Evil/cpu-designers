@@ -7,7 +7,7 @@
 # ============================================================
 # Note: I$ hit/miss is not directly observable from software.
 # These tests verify that instruction fetch works correctly through
-# the icache, which implicitly tests refill, hit, and PLRU.
+# the two-way icache, which implicitly tests refill, hit, and replacement.
 # ============================================================
 
 .section .text.start

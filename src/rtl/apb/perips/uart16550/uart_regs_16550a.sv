@@ -147,6 +147,7 @@ module uart_regs_16550a (
 
     wire rf_overrun;
     wire rf_push_pulse;
+    wire [7:0] lsr;
 
     uart_receiver receiver (
         .clk          (clk),
@@ -330,7 +331,6 @@ module uart_regs_16550a (
     // ----------------------------------------------------------------
     // Line Status Register
     // ----------------------------------------------------------------
-    wire [7:0] lsr;
     wire lsr0, lsr1, lsr2, lsr3, lsr4, lsr5, lsr6, lsr7;
     reg  lsr0r, lsr1r, lsr2r, lsr3r, lsr4r, lsr5r, lsr6r, lsr7r;
 

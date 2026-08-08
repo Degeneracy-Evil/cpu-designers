@@ -67,6 +67,8 @@ categories:
       - privilege/priv_transition
       - privilege/delegation
       - privilege/csr_access_priv
+      - privilege/wfi
+      - privilege/counter_access
 
   mmu:
     framework: mmu
@@ -120,9 +122,7 @@ categories:
     tests:
       - regression/reg_mmio_ready
       - regression/reg_dcache_refill_error
-      - regression/reg_dcache_wb_error
-      - regression/reg_fencei_wb_error
-      - regression/reg_sfence_wb_error
+      - regression/reg_dcache_store_error
 
   integration:
     framework: none

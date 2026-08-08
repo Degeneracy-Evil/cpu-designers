@@ -33,12 +33,12 @@
 
 // --- I-Cache ---
 `define ICACHE_NUM_SETS    8
-`define ICACHE_NUM_WAYS    4
+`define ICACHE_NUM_WAYS    2
 `define ICACHE_TAG_WIDTH   19
 `define ICACHE_LINE_WORDS  8
 `define ICACHE_LINE_WIDTH  256
-`define ICACHE_DEPTH       32
-`define ICACHE_ADDR_WIDTH  5
+`define ICACHE_DEPTH       16
+`define ICACHE_ADDR_WIDTH  4
 `define ICACHE_WEA_WIDTH   32
 
 // Address bit slices for ICACHE
@@ -50,23 +50,23 @@
 `define ICACHE_TAG_HI     26
 `define ICACHE_TAG_ENTRY_WIDTH 20
 `define ICACHE_SET_IDX_WIDTH 3
-`define ICACHE_WAY_WIDTH    2
-`define ICACHE_TAG_BRAM_WIDTH      144
+`define ICACHE_WAY_WIDTH    1
+`define ICACHE_TAG_BRAM_WIDTH      72
 `define ICACHE_TAG_BRAM_DEPTH      8
 `define ICACHE_TAG_BRAM_ADDR_WIDTH 3
-`define ICACHE_TAG_BRAM_WEA_WIDTH  16
+`define ICACHE_TAG_BRAM_WEA_WIDTH  8
 `define ICACHE_TAG_BRAM_BYTE_SIZE  36
 `define ICACHE_TAG_BRAM_XILINX_BYTE_SIZE  9
 `define ICACHE_TAG_BRAM_WEA_BITS_PER_WAY  4
 
 // --- D-Cache ---
 `define DCACHE_NUM_SETS    8
-`define DCACHE_NUM_WAYS    4
+`define DCACHE_NUM_WAYS    2
 `define DCACHE_TAG_WIDTH   19
 `define DCACHE_LINE_WORDS  8
 `define DCACHE_LINE_WIDTH  256
-`define DCACHE_DEPTH       32
-`define DCACHE_ADDR_WIDTH  5
+`define DCACHE_DEPTH       16
+`define DCACHE_ADDR_WIDTH  4
 `define DCACHE_WEA_WIDTH   32
 
 // Address bit slices for DCACHE
@@ -78,11 +78,11 @@
 `define DCACHE_TAG_HI     26
 `define DCACHE_TAG_ENTRY_WIDTH 21
 `define DCACHE_SET_IDX_WIDTH 3
-`define DCACHE_WAY_WIDTH    2
-`define DCACHE_TAG_BRAM_WIDTH      144
+`define DCACHE_WAY_WIDTH    1
+`define DCACHE_TAG_BRAM_WIDTH      72
 `define DCACHE_TAG_BRAM_DEPTH      8
 `define DCACHE_TAG_BRAM_ADDR_WIDTH 3
-`define DCACHE_TAG_BRAM_WEA_WIDTH  16
+`define DCACHE_TAG_BRAM_WEA_WIDTH  8
 `define DCACHE_TAG_BRAM_BYTE_SIZE  36
 `define DCACHE_TAG_BRAM_XILINX_BYTE_SIZE  9
 `define DCACHE_TAG_BRAM_WEA_BITS_PER_WAY  4
@@ -91,26 +91,23 @@
 `define USE_TAG_BRAM 1
 
 // --- TLB geometry ---
-`define TLB_NUM_WAYS           4
-`define TLB_NUM_SETS          4
-`define TLB_SET_IDX_WIDTH     2
-`define TLB_WAY_WIDTH         2
+`define TLB_NUM_WAYS           2
+`define TLB_NUM_SETS          8
+`define TLB_SET_IDX_WIDTH     3
+`define TLB_WAY_WIDTH         1
 
 `define TLB_FLAG_ENTRY_WIDTH  32
-`define TLB_FLAG_BRAM_WIDTH   128
-`define TLB_FLAG_BRAM_DEPTH   4
-`define TLB_FLAG_BRAM_ADDR_WIDTH 2
-`define TLB_FLAG_BRAM_WEA_WIDTH  16
+`define TLB_FLAG_BRAM_WIDTH   64
+`define TLB_FLAG_BRAM_DEPTH   8
+`define TLB_FLAG_BRAM_ADDR_WIDTH 3
+`define TLB_FLAG_BRAM_WEA_WIDTH  8
 `define TLB_FLAG_BRAM_BYTE_SIZE  8
 
 `define TLB_DATA_ENTRY_WIDTH  32
-`define TLB_DATA_BRAM_WIDTH   128
-`define TLB_DATA_BRAM_DEPTH   4
-`define TLB_DATA_BRAM_ADDR_WIDTH 2
-`define TLB_DATA_BRAM_WEA_WIDTH  16
+`define TLB_DATA_BRAM_WIDTH   64
+`define TLB_DATA_BRAM_DEPTH   8
+`define TLB_DATA_BRAM_ADDR_WIDTH 3
+`define TLB_DATA_BRAM_WEA_WIDTH  8
 `define TLB_DATA_BRAM_BYTE_SIZE  8
-
-// --- TLB storage mode ---
-`define USE_TLB_BRAM 1
 
 `endif // CACHE_DEF_SVH

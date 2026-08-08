@@ -30,13 +30,9 @@ _start:
     blt     t0, t1, .Lbss_loop
 .Lbss_done:
 
-    /* ---- Ensure dcache/icache coherence before entering main ---- */
-    /* BUG-96 fix: Bootloader loads hex data via dcache (cacheable writes).
-       Some dirty dcache lines may not have been written back to DDR3
-       before the icache fetches instructions from those addresses.
-       fence.i flushes all dirty dcache lines to DDR3, then invalidates
-       the icache, guaranteeing that subsequent instruction fetches
-       read the correct data from DDR3. */
+    /* ---- Establish an instruction-fetch coherence boundary ---- */
+    /* Data stores are write-through. fence.i only needs to invalidate stale
+       instruction lines before main executes newly installed code. */
     fence.i
 
     /* ---- Call main ---- */

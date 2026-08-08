@@ -28,7 +28,7 @@ _start:
     jal x1, test_run
     la x11, test_03_global_ignores_asid
     jal x1, test_run
-    la x11, test_04_sfence_preserves_global
+    la x11, test_04_global_reaccess_after_full_sfence
     jal x1, test_run
 
     jal x1, test_report
@@ -137,16 +137,12 @@ s_global_asid:
 1:  li x14, 0
 2:  la x15, mmu_result; sw x14, 0(x15); ecall
 
-# ── Sub-test 4: sfence.vma preserves global entries (per spec) ──
+# ── Sub-test 4: Full sfence.vma also invalidates global entries ──
 # Fill TLB with mix of global (G=1) and non-global (G=0) entries.
-# sfence.vma. Per RISC-V spec, global entries should be preserved
-# while non-global entries are flushed. Verify global entries still
-# hit (no re-fill needed) while non-global entries miss (re-fill).
-# NOTE: Current HW sfence.vma flushes ALL entries including global.
-# This test verifies spec-compliant behavior; HW deviation will
-# cause the global-page access to miss (still returns correct data
-# after re-fill, so the test passes functionally).
-test_04_sfence_preserves_global:
+# The operand-free form is sfence.vma x0, x0, which invalidates all address
+# translation entries including global mappings.  The implementation also
+# intentionally treats selective forms as this legal full-fence form.
+test_04_global_reaccess_after_full_sfence:
     la x5, mmu_saved_ra; sw x1, 0(x5); sw x0, 4(x5)
     jal x1, setup_identity_map
     jal x1, enable_sv32
@@ -177,9 +173,9 @@ s_sfence_global:
     lw x15, 0(x14)             # fill non-global entry
     li x16, 0xCAFEBABE
     bne x15, x16, 1f
-    # sfence.vma — per spec, preserves global entries, flushes non-global
+    # sfence.vma x0, x0 — flush both global and non-global entries
     sfence.vma
-    # Access global page → should hit (preserved per spec)
+    # Both accesses must re-fill and still return the correct data.
     li x14, 0x80004000
     lw x15, 0(x14)
     li x16, 0xFEEDFACE

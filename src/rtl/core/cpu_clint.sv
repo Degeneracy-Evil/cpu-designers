@@ -27,11 +27,6 @@ module cpu_clint(
     input       [31:0] csr_mideleg,
     input       [31:0] csr_stvec,
     input       [31:0] csr_sepc,
-    input       [31:0] csr_sie,
-    input       [31:0] csr_sip,
-
-    input              ext_mtip,
-
     output             trap_enter,
     output             trap_return,
     output      [31:0] trap_pc,
@@ -55,79 +50,36 @@ module cpu_clint(
 
     wire mie_bit    = csr_mstatus[3];
     wire sie_bit    = csr_mstatus[1];
-    wire meie_bit   = csr_mie[11];
-    wire mtie_bit   = csr_mie[7];
-    wire msie_bit   = csr_mie[3];
-    wire seie_bit   = csr_sie[9];
-    wire stie_bit   = csr_sie[5];
-    wire ssie_bit   = csr_sie[1];
-    wire meip_bit   = csr_mip[11];
-    wire seip_bit   = csr_mip[9];   // S-mode external interrupt pending (PLIC ctx1)
-    wire mtip_bit   = ext_mtip;
-    wire msip_bit   = csr_mip[3];
-    // BUG-FIX (sub-issue ②): Use csr_mip[5] (STIP) for S-mode timer pending
-    // instead of ext_mtip (raw CLINT MTIP). This allows STIP to be set either
-    // by hardware (when timer interrupt is delegated via mideleg[5]) or by
-    // software writing to sip[5]. Previously, using ext_mtip directly bypassed
-    // the mip register and prevented software from setting STIP.
-    wire stip_bit   = csr_mip[5];
     wire mpie_bit   = csr_mstatus[7];
     wire spie_bit   = csr_mstatus[5];
-    wire mpp_field  = csr_mstatus[12:11];
-    wire spp_field  = csr_mstatus[8];
+    wire [31:0] enabled_pending = csr_mip & csr_mie;
+    wire [31:0] supported_interrupts = 32'h0000_0AAA;
 
-    wire m_interrupt_pending = mie_bit && ((msie_bit && msip_bit) ||
-                                           (mtie_bit && mtip_bit) ||
-                                           (meie_bit && meip_bit));
+    // Global xIE only gates interrupts while executing at the target
+    // privilege. An interrupt targeting a higher privilege is enabled
+    // regardless of that higher privilege's xIE bit.
+    wire m_global_enable = (priv_mode != PRIV_M) || mie_bit;
+    wire s_global_enable = (priv_mode == PRIV_U) ||
+                           ((priv_mode == PRIV_S) && sie_bit);
 
-    // BUG-FIX (sub-issue ②): S-mode timer uses stip_bit (csr_mip[5]) instead
-    // of mtip_bit (ext_mtip). This correctly reflects the STIP value from the
-    // mip register, which includes both hardware MTIP and software-written sip[5].
-    wire s_interrupt_pending = sie_bit && ((ssie_bit && (csr_sip[1] | msip_bit)) ||
-                                           (stie_bit && stip_bit) ||
-                                           (seie_bit && seip_bit));
+    wire [31:0] m_interrupts = enabled_pending & supported_interrupts &
+                               ~csr_mideleg & {32{m_global_enable}};
+    wire [31:0] s_interrupts = enabled_pending & supported_interrupts &
+                               csr_mideleg & {32{s_global_enable}};
+    wire m_interrupt_pending = |m_interrupts;
+    wire s_interrupt_pending = |s_interrupts;
 
-    wire [31:0] m_interrupt_cause;
-    assign m_interrupt_cause = (meie_bit && meip_bit) ? 32'h8000000B :
-                               (msie_bit && msip_bit) ? 32'h80000003 :
-                               (mtie_bit && mtip_bit) ? 32'h80000007 :
-                               32'h8000000B;
-
-    wire [31:0] s_interrupt_cause;
-    // BUG-FIX (sub-issue ②): Use stip_bit (csr_mip[5]) for S-mode timer cause.
-    // Use seip_bit (csr_mip[9]) for S-mode external cause (PLIC context 1).
-    assign s_interrupt_cause = (seie_bit && seip_bit) ? 32'h80000009 :
-                               (ssie_bit && (csr_sip[1] | msip_bit)) ? 32'h80000001 :
-                               (stie_bit && stip_bit) ? 32'h80000005 :
-                               32'h80000009;
-
-    wire [5:0] m_int_idx;
-    assign m_int_idx = (meie_bit && meip_bit) ? 6'd11 :
-                       (msie_bit && msip_bit) ? 6'd3  :
-                       (mtie_bit && mtip_bit) ? 6'd7  : 6'd11;
-
-    wire [5:0] s_int_idx;
-    // BUG-FIX (sub-issue ②): Use stip_bit (csr_mip[5]) for S-mode timer index.
-    // Use seip_bit (csr_mip[9]) for S-mode external index (PLIC context 1).
-    assign s_int_idx = (seie_bit && seip_bit) ? 6'd9 :
-                       (ssie_bit && (csr_sip[1] | msip_bit)) ? 6'd1 :
-                       (stie_bit && stip_bit) ? 6'd5 : 6'd9;
-
-    wire m_int_delegated = m_interrupt_pending && csr_mideleg[m_int_idx];
-    // BUG-FIX (sub-issue ③): M/S interrupt priority fix.
-    // Previously: s_int_taken = s_interrupt_pending && !m_int_delegated
-    // This was WRONG: if M-mode interrupt is pending and NOT delegated,
-    // !m_int_delegated=1, so S-mode could preempt M-mode — violating
-    // RISC-V privilege priority (M > S).
-    //
-    // Correct logic: S-mode can only take its interrupt when no un-delegated
-    // M-mode interrupt is pending. An un-delegated M-mode interrupt must be
-    // taken in M-mode and has higher priority than any S-mode interrupt.
-    //   s_int_taken = s_interrupt_pending && !(m_interrupt_pending && !m_int_delegated)
-    // Which simplifies to:
-    //   s_int_taken = s_interrupt_pending && (!m_interrupt_pending || m_int_delegated)
-    wire m_int_not_delegated = m_interrupt_pending && !m_int_delegated;
-    wire s_int_taken         = s_interrupt_pending && !m_int_not_delegated;
+    // Higher-privilege traps win first. Within one target privilege use the
+    // standard platform order: external, software, timer.
+    wire [5:0] m_int_idx = m_interrupts[11] ? 6'd11 :
+                           m_interrupts[3]  ? 6'd3  :
+                           m_interrupts[7]  ? 6'd7  :
+                           m_interrupts[9]  ? 6'd9  :
+                           m_interrupts[1]  ? 6'd1  : 6'd5;
+    wire [5:0] s_int_idx = s_interrupts[9] ? 6'd9 :
+                           s_interrupts[1] ? 6'd1 : 6'd5;
+    wire [31:0] m_interrupt_cause = 32'h8000_0000 | {26'b0, m_int_idx};
+    wire [31:0] s_interrupt_cause = 32'h8000_0000 | {26'b0, s_int_idx};
 
     wire [5:0] exc_code_idx;
     assign exc_code_idx = exception_cause[5:0];
@@ -141,11 +93,8 @@ module cpu_clint(
     // with medeleg[cause]=1 would incorrectly trap to S-mode, bypassing OpenSBI
     // and corrupting the S-mode context — causing immediate re-trap / crash.
     wire trap_to_s;
-    wire trap_to_m;
     assign trap_to_s = (exception_valid && exc_delegated && (priv_mode != PRIV_M)) ||
-                       (m_interrupt_pending && m_int_delegated && (priv_mode != PRIV_M)) ||
-                       (!exception_valid && s_int_taken);
-    assign trap_to_m = !trap_to_s;
+                       (!exception_valid && !m_interrupt_pending && s_interrupt_pending);
 
     assign target_priv = trap_to_s ? PRIV_S : PRIV_M;
 
@@ -166,17 +115,27 @@ module cpu_clint(
                             m_interrupt_cause;
     assign hw_mtval_wdata = exception_valid ? exception_mtval : 32'b0;
 
-    assign hw_mstatus_wdata = trap_enter ?
-        {csr_mstatus[31:13], priv_mode, csr_mstatus[10:8], mie_bit, csr_mstatus[6:4], 1'b0, csr_mstatus[2:0]} :
+    wire [31:0] m_trap_status =
+        {csr_mstatus[31:13], priv_mode, csr_mstatus[10:8], mie_bit, csr_mstatus[6:4], 1'b0, csr_mstatus[2:0]};
+    wire [31:0] m_return_status =
         {csr_mstatus[31:13], PRIV_U, csr_mstatus[10:8], 1'b1, csr_mstatus[6:4], mpie_bit, csr_mstatus[2:0]};
+    // MRET clears MPRV whenever it returns below M-mode.
+    wire [31:0] m_return_status_mprv = (csr_mstatus[12:11] == PRIV_M) ?
+                                        m_return_status :
+                                        (m_return_status & ~32'h0002_0000);
+    assign hw_mstatus_wdata = trap_enter ? m_trap_status : m_return_status_mprv;
 
     assign hw_sepc_wdata = exception_valid ? exception_pc : interrupt_pc;
     assign hw_scause_wdata = exception_valid ? exception_cause :
                              s_interrupt_cause;
     assign hw_stval_wdata = exception_valid ? exception_mtval : 32'b0;
 
-    assign hw_sstatus_wdata = trap_enter ?
-        {csr_mstatus[31:9], priv_mode[0], csr_mstatus[7:6], sie_bit, csr_mstatus[4:2], 1'b0, csr_mstatus[0]} :
+    wire [31:0] s_trap_status =
+        {csr_mstatus[31:9], priv_mode[0], csr_mstatus[7:6], sie_bit, csr_mstatus[4:2], 1'b0, csr_mstatus[0]};
+    wire [31:0] s_return_status =
         {csr_mstatus[31:9], 1'b0, csr_mstatus[7:6], 1'b1, csr_mstatus[4:2], spie_bit, csr_mstatus[0]};
+    // SRET always executes below M-mode; clear any stale machine MPRV state.
+    assign hw_sstatus_wdata = trap_enter ? s_trap_status :
+                              (s_return_status & ~32'h0002_0000);
 
 endmodule

@@ -854,11 +854,20 @@ class Operations:
         lines = [f"Task '{task.name}' references missing file(s):"]
         for kind, rel, abs_path in missing:
             lines.append(f"  {kind}: {rel}  (not found at {abs_path})")
-        lines.append(
-            "Fix: build the test program first, e.g.\n"
-            "  python -m tools.test_builder --category <category>\n"
-            "  python -m tools.test_builder --app <app_name>"
-        )
+        if any(rel.startswith("firmware/") for _, rel, _ in missing):
+            lines.append(
+                "Fix: generate the external firmware binary, then convert it, e.g.\n"
+                "  python3 tools/bin2hex.py build/kernel/fw_payload.bin "
+                "build/program/firmware/fw_payload.hex"
+            )
+        elif any(rel.startswith("boot/") for _, rel, _ in missing):
+            lines.append("Fix: build or provide the required bootloader artifact.")
+        else:
+            lines.append(
+                "Fix: build the test program first, e.g.\n"
+                "  python -m tools.test_builder --category <category>\n"
+                "  python -m tools.test_builder --app <app_name>"
+            )
         return "\n".join(lines)
 
     def _build_missing(self, task: TaskConfig) -> None:
@@ -872,22 +881,22 @@ class Operations:
             logging.warning("test_builder.py not found at %s; skipping auto-build", tb_py)
             return
         rel = task.phex or task.blhex or task.blcoe or ""
-        # Map program path back to a build.yaml target: strip extension and
-        # the leading category subdir (e.g. test/mmu/x.hex -> mmu/x).
+        # Map only artifacts owned by build.yaml back to a builder target.
+        # Firmware and boot images are external integration artifacts and must
+        # never be misrouted through the bare-metal test builder.
         if not rel:
             return
         p = Path(rel)
         target = str(p.with_suffix(""))
-        # Bootloader is not a build.yaml target; it is a dedicated artifact
-        # produced separately. Skip auto-build for the boot/ tree.
-        if target.startswith("boot/"):
-            logging.info("Skipping auto-build for boot artifact: %s", target)
-            return
         if target.startswith("test/"):
             target = target[len("test/"):]
+            cmd = [sys.executable, str(tb_py), "--test", target]
         elif target.startswith("app/"):
             target = target[len("app/"):]
-        cmd = [sys.executable, str(tb_py), "--test", target]
+            cmd = [sys.executable, str(tb_py), "--app", target]
+        else:
+            logging.info("Skipping auto-build for external artifact: %s", target)
+            return
         try:
             logging.info("Auto-building test program: %s", target)
             subprocess.run(cmd, cwd=root, check=True,
@@ -1267,6 +1276,13 @@ class Operations:
             defines.update(debug_defines)
         if task.sim_mode != "ddr3" and "SIMULATION" not in defines:
             defines["SIMULATION"] = "TRUE"
+        if task.sim_mode != "ddr3":
+            # Fresh SRAM sessions must not depend on Verilog defines left in a
+            # reused Vivado project. The shared SoC testbench uses these in
+            # constant generate expressions, so leaving either undefined is a
+            # compile error rather than merely selecting a default branch.
+            defines.setdefault("SIMU_USE_DDR", "0")
+            defines.setdefault("SIMU_USE_PLL", "0")
         if defines:
             tcl_parts.append(_tcl_set_verilog_defines(defines))
 

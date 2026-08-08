@@ -214,13 +214,12 @@ setup_dual_map:
 # 设置 satp 寄存器启用 Sv32 模式，并刷新 TLB
 # satp[31] = 1 (Sv32), satp[30:22] = ASID (0), satp[21:0] = L1_PPN
 # 注意: 切换 satp 后必须 sfence.vma 刷新 TLB，否则可能命中旧条目
-# CRITICAL: dcache 是 write-back，页表写入可能还在 dcache 中未写回 SRAM。
-# PTW 直接从 SRAM 读取（绕过 dcache），因此必须先 fence.i 刷新 dcache，
-# 否则 PTW 会读到全零的陈旧页表 → 页表遍历失败 → CPU 挂死。
+# DCache 为写穿透，页表 store 在完成时已对 PTW 可见。
+# 这里的 fence.i 仅用于建立明确的取指边界并失效 ICache。
 #
 .globl enable_sv32
 enable_sv32:
-    fence.i                     # 刷新 dcache (写回脏行) + 无效化 icache
+    fence.i                     # 无效化 icache
     la   x10, l1_page_table
     srli x10, x10, 12           # PPN = L1_base >> 12
     li   x11, 0x80000000        # Sv32 mode bit

@@ -643,6 +643,7 @@ module system_top(
     //   0xC03BB4F0: __initcall0_start
     //   0xC03BB9CC: __initcall_end  (OOB threshold)
     // ========================================================================
+`ifdef LEGACY_LINUX_DEBUG
     localparam [31:0] INITCALL_LOOP1_PC  = 32'hC038110C;
     localparam [31:0] INITCALL_LOOP2_PC  = 32'hC0381260;
     localparam [31:0] INITCALL_JALR_PC   = 32'hC0380DA4;
@@ -651,6 +652,11 @@ module system_top(
     wire dbg_initcall_loop_hit = (exe_pc == INITCALL_LOOP1_PC) || (exe_pc == INITCALL_LOOP2_PC);
     wire dbg_initcall_jalr_hit = (exe_pc == INITCALL_JALR_PC);
     wire dbg_initcall_oob      = dbg_initcall_loop_hit && (gpr_s1 > INITCALL_END_ADDR);
+`else
+    wire dbg_initcall_loop_hit = 1'b0;
+    wire dbg_initcall_jalr_hit = 1'b0;
+    wire dbg_initcall_oob      = 1'b0;
+`endif
 
     reg [31:0] dbg_initcall_last_fn_r;    // Last initcall function called (s1 at jalr)
     reg [31:0] dbg_initcall_prev_fn_r;    // Previous initcall function called

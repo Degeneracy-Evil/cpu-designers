@@ -1,18 +1,13 @@
 # ============================================================
-# cache/dcache_dirty.s — D$ dirty line writeback tests
+# cache/dcache_dirty.s — D$ write-through visibility compatibility tests
 # Category: Cache
-# Description: Test dcache write-back behavior via FENCE.I flush
+# Description: Test that completed stores remain visible across FENCE.I
 # Sub-tests: 4
 # Depends: framework/test_framework.s, framework/trap_handlers.s
 # ============================================================
-# D-cache is write-back: stores set dirty bit, eviction or flush
-# writes dirty data back to SRAM. FENCE.I triggers a full dcache
-# flush (writeback all dirty + invalidate all lines).
-#
-# After FENCE.I, the dcache is completely empty (all valid=0).
-# Subsequent loads miss and refill from SRAM, which should contain
-# the writeback data. This is the key mechanism for verifying
-# that writeback works correctly.
+# D-cache is write-through: a store retires only after its backing AXI write
+# completes. FENCE.I therefore only invalidates I-cache; these historical
+# tests remain useful as architectural data-visibility regressions.
 #
 # Address layout: tag[14:8] | set[7:5] | word_off[4:2] | byte[1:0]
 # test_data_area = 0x80003000 (tag=3, set=0)
@@ -44,15 +39,13 @@ end_loop:
     j end_loop
 
 
-# ── Sub-test 1: Store + FENCE.I + load (writeback verification) ──
-# Store a value, FENCE.I (flush dcache → SRAM, invalidate all),
-# then load from same address — dcache miss, refill from SRAM
+# ── Sub-test 1: Store + FENCE.I + load visibility ──
 test_dwb_flush_verify:
     lui  x10, 0x80003         # 0x80003000
     li   x11, 0xCAFEBABE
-    sw   x11, 0(x10)          # store → dcache (dirty)
+    sw   x11, 0(x10)          # write-through store
 
-    fence.i                    # flush: writeback to SRAM, invalidate all
+    fence.i                    # instruction-side synchronization
 
     lw   x12, 0(x10)          # miss → refill from SRAM
     li   x11, 0xCAFEBABE
@@ -85,13 +78,13 @@ test_dwb_overwrite:
     ret
 
 
-# ── Sub-test 3: Multiple dirty lines + FENCE.I ──
+# ── Sub-test 3: Multiple stores + FENCE.I ──
 # Store to 4 different addresses (potentially different cache lines),
 # FENCE.I, load all 4 back — all should be correct
 test_dwb_multi_dirty:
     lui  x10, 0x80003         # 0x80003000
 
-    # Store to 4 different words (same cache line, but all dirty)
+    # Store to 4 different words in the same cache line
     li   x11, 0xAAAA0001
     sw   x11, 0(x10)          # word 0
     li   x11, 0xBBBB0002
@@ -101,7 +94,7 @@ test_dwb_multi_dirty:
     li   x11, 0xDDDD0004
     sw   x11, 12(x10)         # word 3
 
-    fence.i                    # flush all dirty lines
+    fence.i                    # stores are already globally visible
 
     # Load all back
     lw   x12, 0(x10)

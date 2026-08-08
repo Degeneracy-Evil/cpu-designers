@@ -1,7 +1,7 @@
 # ============================================================
 # mmu/permission.s — Permission check tests
 # Category: MMU
-# Sub-tests: 12
+# Sub-tests: 14
 # ============================================================
 # Permission checks (from MMU.sv):
 #   U-mode + !U-bit → PF
@@ -49,6 +49,10 @@ _start:
     la x11, test_11_sum_fetch_user_page_pf
     jal x1, test_run
     la x11, test_12_read_only_load_ok
+    jal x1, test_run
+    la x11, test_13_mprv_uses_mpp_translation
+    jal x1, test_run
+    la x11, test_14_mprv_u_enforces_user_permission
     jal x1, test_run
 
     jal x1, test_report
@@ -457,6 +461,66 @@ s_ro_load:
     bne x15, x16, 1f; li x14, 1; j 2f
 1:  li x14, 0
 2:  la x15, mmu_result; sw x14, 0(x15); ecall
+
+# ── Sub-test 13: MPRV data access uses MPP translation ──
+# Remap VA 0x80001000 to PA 0x80004000. M-mode instruction fetch remains
+# bare, while the explicit load must use S-mode Sv32 translation.
+test_13_mprv_uses_mpp_translation:
+    # setup_identity_map/enable_sv32 are ordinary subroutine calls and
+    # therefore overwrite ra.  Preserve test_run's return address explicitly.
+    la x5, mmu_saved_ra
+    sw x1, 0(x5)
+    jal x1, setup_identity_map
+    li x14, 0x80004000
+    li x15, 0x13579BDF
+    sw x15, 0(x14)
+    la x14, l0_page_table
+    li x15, 0x80004
+    slli x15, x15, 10
+    li x16, 0x0CF               # V|R|W|X|A|D, supervisor
+    or x15, x15, x16
+    sw x15, 4(x14)              # L0[1]: VA 0x80001000 -> PA 0x80004000
+    jal x1, enable_sv32
+    li x5, 0x20800              # MPRV=1, MPP=S
+    csrw mstatus, x5
+    li x14, 0x80001000
+    lw x15, 0(x14)
+    li x16, 0x13579BDF
+    li x10, 0
+    bne x15, x16, 1f
+    li x10, 1
+1:  li x5, 0x1888
+    csrw mstatus, x5
+    csrw satp, x0
+    sfence.vma
+    la x5, mmu_saved_ra
+    lw x1, 0(x5)
+    ret
+
+# ── Sub-test 14: MPRV with MPP=U enforces U-page permission ──
+test_14_mprv_u_enforces_user_permission:
+    la x5, mmu_saved_ra; sw x1, 0(x5)
+    la x5, post_mprv_u_fault; la x6, mmu_return_pc; sw x5, 0(x6)
+    sw x0, 8(x6)
+    jal x1, setup_identity_map
+    jal x1, enable_sv32
+    li x5, 0x20000              # MPRV=1, MPP=U
+    csrw mstatus, x5
+    li x14, 0x80004000
+    lw x15, 0(x14)              # supervisor page as effective U -> load PF
+    li x10, 0
+    ret
+
+post_mprv_u_fault:
+    la x5, mmu_got_fault; lw x5, 0(x5)
+    beqz x5, 1f
+    la x5, mmu_fault_cause; lw x5, 0(x5)
+    li x6, 13; beq x5, x6, 2f
+1:  li x10, 0; j 3f
+2:  li x10, 1
+3:  csrw satp, x0
+    sfence.vma
+    la x5, mmu_saved_ra; lw x1, 0(x5); ret
 
 # ============================================================
 # MMU Trap Handler

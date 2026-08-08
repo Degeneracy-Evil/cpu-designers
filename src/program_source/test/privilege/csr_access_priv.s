@@ -2,7 +2,7 @@
 # privilege/csr_access_priv.s — CSR privilege access control tests
 # Category: Privilege
 # Description: Test that CSR reads/writes are restricted by privilege level
-# Sub-tests: 8
+# Sub-tests: 11
 # Depends: framework/test_framework.s, framework/trap_handlers.s,
 #          framework/page_table_utils.s
 # ============================================================
@@ -48,6 +48,12 @@ _start:
     la x11, test_07_u_mode_write_s_csr_illegal
     jal x1, test_run
     la x11, test_08_s_mode_write_s_csr_ok
+    jal x1, test_run
+    la x11, test_09_sstatus_hides_mprv
+    jal x1, test_run
+    la x11, test_10_sstatus_write_preserves_mprv
+    jal x1, test_run
+    la x11, test_11_tvm_traps_satp_read
     jal x1, test_run
 
     jal x1, test_report
@@ -246,6 +252,58 @@ post_08:
     j 2f
 1:  li x10, 0
 2:  la x5, csr_saved_ra; lw x1, 0(x5); ret
+
+# ── Test 09: sstatus must not expose machine-only MPRV ──
+test_09_sstatus_hides_mprv:
+    li x5, 0x20000
+    csrs mstatus, x5
+    csrr x6, sstatus
+    and x6, x6, x5
+    li x10, 1
+    beqz x6, 1f
+    li x10, 0
+1:  csrc mstatus, x5
+    ret
+
+# ── Test 10: sstatus writes must not modify machine-only MPRV ──
+test_10_sstatus_write_preserves_mprv:
+    li x5, 0x20000
+    csrs mstatus, x5
+    csrw sstatus, x0
+    csrr x6, mstatus
+    and x6, x6, x5
+    li x10, 0
+    beqz x6, 1f
+    li x10, 1
+1:  csrc mstatus, x5
+    ret
+
+# ── Test 11: TVM traps S-mode reads of satp, not only writes ──
+test_11_tvm_traps_satp_read:
+    la x5, csr_saved_ra; sw x1, 0(x5)
+    la x5, post_11; la x6, csr_return_pc; sw x5, 0(x6)
+    sw x0, 4(x6)
+    jal x1, setup_dual_map
+    jal x1, enable_sv32
+    csrw medeleg, x0          # route the S-origin illegal instruction to M
+    la x5, s_tvm_read_satp; csrw mepc, x5
+    li x5, 0x100880          # TVM=1, MPP=S, MPIE=1
+    csrw mstatus, x5
+    mret
+
+s_tvm_read_satp:
+    csrr x14, satp           # must raise illegal instruction
+    li x10, 0
+    ret
+
+post_11:
+    la x5, csr_got_fault; lw x5, 0(x5)
+    beqz x5, 1f
+    la x5, csr_fault_cause; lw x5, 0(x5)
+    li x6, 2; beq x5, x6, 2f
+1:  li x10, 0; j 3f
+2:  li x10, 1
+3:  la x5, csr_saved_ra; lw x1, 0(x5); ret
 
 # ────────────────────────────────────────────
 # S-mode trap handler (for U-mode CSR access tests)

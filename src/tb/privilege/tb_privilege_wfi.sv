@@ -1,14 +1,11 @@
 `timescale 1ns / 1ps
 
-module tb_cache_dcache_basic;
+module tb_privilege_wfi;
 
-    localparam integer EXPECTED_TOTAL = 4;
-    localparam integer SIM_CYCLES    = 50000;
+    localparam integer EXPECTED_TOTAL = 6;
+    localparam integer SIM_CYCLES     = 300000;
 
-
-    // Shared boilerplate: system_top, clock, reset, debug signals, check_reg, check_mem_word
     `include "tb_soc_includes.svh"
-
 
     reg [31:0] _val;
     initial begin
@@ -18,18 +15,7 @@ module tb_cache_dcache_basic;
         repeat (SIM_CYCLES) @(posedge clk);
 
         $display("");
-        $display("--- Cache dcache_basic Results ---");
-
-        read_reg(5'd28, _val);
-        $display("  x28 (pass_count)    = %0d", _val);
-
-        read_reg(5'd29, _val);
-        $display("  x29 (total_count)   = %0d", _val);
-
-        read_reg(5'd30, _val);
-        $display("  x30 (first_fail_id) = %0d", _val);
-
-        $display("");
+        $display("--- Privilege WFI Results ---");
 
         read_reg(5'd28, _val);
         if (_val === EXPECTED_TOTAL) begin
@@ -46,20 +32,15 @@ module tb_cache_dcache_basic;
             $display("  PASS first_fail_id = 0 (no failures)");
         end else begin
             fail_count = fail_count + 1;
-            $display("  FAIL first_fail_id = %0d (test %0d failed)", _val, _val);
+            $display("  FAIL first_fail_id = %0d", _val);
         end
 
-        $display("");
-        $display("========================================");
-        $display("Cache dcache_basic summary");
-        $display("pass=%0d fail=%0d", pass_count, fail_count);
+        $display("Privilege WFI summary: pass=%0d fail=%0d", pass_count, fail_count);
         if (fail_count == 0)
             $display("ALL TESTS PASSED");
         else
             $display("TEST FAILED");
-        $display("========================================");
         $finish;
     end
-
 
 endmodule

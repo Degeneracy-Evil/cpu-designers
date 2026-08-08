@@ -122,12 +122,12 @@ class CacheConfig:
 
 @dataclass(frozen=True)
 class TlbConfig:
-    """TLB geometry configuration (set-associative BRAM structure)."""
+    """TLB geometry configuration (small register-array structure)."""
 
-    num_ways: int = 4
-    """Associativity (ways per set). ⚠ FIXED: do not change (tree_plru hardcoded)."""
+    num_ways: int = 2
+    """Associativity (ways per set). The RTL currently implements two ways."""
 
-    num_sets: int = 4
+    num_sets: int = 8
     """Number of TLB sets. Total entries = num_ways × num_sets."""
 
     flag_byte_enable: bool = True

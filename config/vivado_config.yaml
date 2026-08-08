@@ -32,7 +32,7 @@ memory:
 
   icache:
     num_sets: 8           # Number of cache sets
-    num_ways: 4           # Associativity (ways per set) — ⚠ FIXED: do not change (tree_plru hardcoded)
+    num_ways: 2           # Blocking two-way set associative cache
     tag_width: 19         # Tag field width (bits) — covers 128MB DDR3 address space
     line_words: 8         # Words per cache line (line_width = line_words * 32)
     byte_enable: true     # Byte-write enable for data BRAM
@@ -43,7 +43,7 @@ memory:
 
   dcache:
     num_sets: 8
-    num_ways: 4           # ⚠ FIXED: do not change (tree_plru hardcoded)
+    num_ways: 2           # Blocking 2-way write-through cache
     tag_width: 19         # covers 128MB DDR3 address space
     line_words: 8
     byte_enable: true
@@ -56,15 +56,15 @@ memory:
   use_tag_bram: true
 
   tlb:
-    num_ways: 4           # Associativity — ⚠ FIXED: do not change (tree_plru hardcoded)
-    num_sets: 4           # Number of TLB sets (total entries = num_ways × num_sets = 16)
+    num_ways: 2           # Two-way set associative, 16 entries per ITLB/DTLB bank
+    num_sets: 8
     flag_byte_enable: true   # Byte-write enable for flag BRAM
     flag_byte_size: 8        # Byte size = 8 (WEA width = 128/8 = 16, 4 bits per 32-bit way)
     data_byte_enable: true   # Byte-write enable for data BRAM
     data_byte_size: 8        # Byte size = 8 (WEA width = 128/8 = 16, 4 bits per 32-bit way)
 
   # TLB storage: false = register array (current), true = BRAM IPs (tlb_flag/tlb_data)
-  use_tlb_bram: true
+  use_tlb_bram: false
 
   # DDR3 main memory via MIG 7 Series (AXI4 native)
   ddr3:

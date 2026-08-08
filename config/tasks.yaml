@@ -172,6 +172,18 @@ tasks:
     phex: test/privilege/csr_access_priv.hex
     runtime: 10ms
 
+  privilege_wfi:
+    tb: tb_privilege_wfi
+    blhex: boot/bootloader_phase1.hex
+    phex: test/privilege/wfi.hex
+    runtime: 10ms
+
+  privilege_counter_access:
+    tb: tb_privilege_counter_access
+    blhex: boot/bootloader_phase1.hex
+    phex: test/privilege/counter_access.hex
+    runtime: 10ms
+
   # ── MMU 仿真 ──
 
   mmu_sv32_basic:
@@ -336,22 +348,10 @@ tasks:
     phex: test/regression/reg_dcache_refill_error.hex
     runtime: 20ms
 
-  reg_dcache_wb_error:
-    tb: tb_regression_reg_dcache_wb_error
+  reg_dcache_store_error:
+    tb: tb_regression_reg_dcache_store_error
     blhex: boot/bootloader_phase1.hex
-    phex: test/regression/reg_dcache_wb_error.hex
-    runtime: 20ms
-
-  reg_fencei_wb_error:
-    tb: tb_regression_reg_fencei_wb_error
-    blhex: boot/bootloader_phase1.hex
-    phex: test/regression/reg_fencei_wb_error.hex
-    runtime: 20ms
-
-  reg_sfence_wb_error:
-    tb: tb_regression_reg_sfence_wb_error
-    blhex: boot/bootloader_phase1.hex
-    phex: test/regression/reg_sfence_wb_error.hex
+    phex: test/regression/reg_dcache_store_error.hex
     runtime: 20ms
 
   reg_pf_latch:
@@ -365,18 +365,23 @@ tasks:
     blhex: boot/bootloader_phase1.hex
     phex: test/regression/reg_linux_ptr_reload.hex
     runtime: 20ms
+    verilog_defines:
+      LEGACY_LINUX_DEBUG: 1
 
   reg_linux_field_values:
     tb: tb_regression_reg_linux_field_values
     blhex: boot/bootloader_phase1.hex
     phex: test/regression/reg_linux_field_values.hex
     runtime: 20ms
+    verilog_defines:
+      LEGACY_LINUX_DEBUG: 1
 
   reg_linux_ptr_reload_ddr3:
     tb: tb_regression_reg_linux_ptr_reload
     blhex: boot/bootloader.hex
     sim_mode: ddr3
     verilog_defines:
+      LEGACY_LINUX_DEBUG: 1
       SIM_BYPASS_INIT_CAL: FAST
       SIMULATION: "TRUE"
       SIMU_USE_DDR: 1
@@ -427,6 +432,23 @@ tasks:
     tb: tb_axi4lite_clint_unit
     blhex: boot/bootloader_phase1.hex
     runtime: 20us
+
+  cpu_clint_unit:
+    tb: tb_cpu_clint_unit
+    blhex: boot/bootloader_phase1.hex
+    runtime: 20us
+  cpu_bus_bridge_unit:
+    tb: tb_cpu_bus_bridge_unit
+    blhex: boot/bootloader_phase1.hex
+    runtime: 100us
+  dcache_writethrough_unit:
+    tb: tb_dcache_writethrough_unit
+    blhex: boot/bootloader_phase1.hex
+    runtime: 100us
+  icache_blocking_unit:
+    tb: tb_icache_blocking_unit
+    blhex: boot/bootloader_phase1.hex
+    runtime: 100us
   fpga:
     top: system_top
     blcoe: boot/bootloader.coe
@@ -468,6 +490,22 @@ tasks:
     blhex: boot/bootloader_phase1.hex
     phex: firmware/fw_payload_16mb.hex
     runtime: 300s
+    verilog_defines:
+      LINUX_BOOT: "TRUE"
+      DEBUG_TRAP_DELEG: 1
+      DEBUG_UART_TX: 1
+      SIMULATION: "TRUE"
+      SIMU_USE_DDR: 0
+      SIMU_USE_PLL: 0
+
+  # Compile/elaboration smoke for the Linux-specific testbench. It deliberately
+  # uses a small built-in program so RTL/TB compatibility can be checked before
+  # an externally generated OpenSBI/Linux payload is available.
+  kernel_tb_compile_smoke:
+    tb: tb_kernel_boot
+    blhex: boot/bootloader_phase1.hex
+    phex: test/integration/cpu_trap.hex
+    runtime: 1us
     verilog_defines:
       LINUX_BOOT: "TRUE"
       DEBUG_TRAP_DELEG: 1

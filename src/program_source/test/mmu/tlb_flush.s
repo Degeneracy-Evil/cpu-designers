@@ -3,7 +3,8 @@
 # Category: MMU
 # Sub-tests: 8
 # ============================================================
-# sfence.vma flushes all 16 TLB entries (4 cycles, iterates 4 sets).
+# This implementation over-fences every sfence.vma form by invalidating all
+# 16 entries in the 8-set x 2-way TLB.
 # After flush, subsequent S-mode access triggers re-fill via PTW.
 # sfence.vma in M-mode is always legal; in S-mode requires TVM=0.
 # ============================================================

@@ -1,30 +1,45 @@
-# 完整操作方法
-步骤 1：生成 hex 文件（已完成）
-# bin → hex 转换（已生成，如需重新转换）
-python3 tools/bin2hex.py /tmp/fws/firmware/fw_payload.bin src/program_source/firmware/fw_payload.hex
-# 产出: 2352542 words (9.0 MB)
-hex 文件已在 src/program_source/firmware/fw_payload.hex。
-步骤 2：运行仿真
+# Linux SRAM 仿真操作方法
+
+步骤 1：使用项目维护者的脚本生成 OpenSBI + kernel + initramfs 平坦二进制镜像。
+
+步骤 2：将 bin 转换成 SRAM `$readmemh` 格式。
+
+```sh
+python3 tools/bin2hex.py build/kernel/fw_payload.bin \
+  build/program/firmware/fw_payload.hex
+```
+
+转换器按 little-endian 32-bit word 每行输出 8 位十六进制数，尾部不足 4 byte 时自动补零。
+
+步骤 3：可先运行 Linux 专用 testbench 编译烟雾测试（不需要 Linux 镜像）。
+
+```sh
+python3 -m tools.vivado_cli -task kernel_tb_compile_smoke -create -sim
+```
+
+步骤 4：运行完整 SRAM 仿真。
+
 # 快速模式（仅 trap 追踪，~10K cycles/s）
-python3 -m tools.vivado_cli -task linux_boot -create -sim --debug trap
+python3 -m tools.vivado_cli -task kernel_boot_sram_cdc -create -sim --debug trap
 
 # 完整模式（trap + 指令追踪 + 波形，更慢）
-python3 -m tools.vivado_cli -task linux_boot -create -sim --debug trace,trap,wave
+python3 -m tools.vivado_cli -task kernel_boot_sram_cdc -create -sim --debug trace,trap,wave
 
 # 复用已有 session（不重建项目，仅重新仿真）
-python3 -m tools.vivado_cli -task linux_boot -sim --debug trap
-步骤 3：分析结果
+python3 -m tools.vivado_cli -task kernel_boot_sram_cdc -sim --debug trap
+
+步骤 5：分析结果
 # 仿真产物位置
-# project/linux_boot/simplecpu_soc.sim/sim_1/behav/xsim/
+# build/project/kernel_boot_sram_cdc/simplecpu_soc.sim/sim_1/behav/xsim/
 
 # trap 追踪（关键 — 查找 cause=13 load page fault）
-tail -20 project/linux_boot/simplecpu_soc.sim/sim_1/behav/xsim/trap_trace.log
+tail -20 build/project/kernel_boot_sram_cdc/simplecpu_soc.sim/sim_1/behav/xsim/trap_trace.log
 
 # 指令追踪（完整模式才有）
-tail -20 project/linux_boot/simplecpu_soc.sim/sim_1/behav/xsim/instr_trace.log
+tail -20 build/project/kernel_boot_sram_cdc/simplecpu_soc.sim/sim_1/behav/xsim/instr_trace.log
 
 # Vivado 日志（FIFO-MON 显示周期和 PC）
-grep "FIFO-MON" project/linux_boot/vivado.log | tail -10
+grep "FIFO-MON" build/project/kernel_boot_sram_cdc/vivado.log | tail -10
 关键观察点
 trap_trace.log 中查找：
 - cause=12 → instruction page fault（旧 bug，应已修复）

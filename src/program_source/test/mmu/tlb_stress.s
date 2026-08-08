@@ -3,8 +3,8 @@
 # Category: MMU
 # Sub-tests: 6
 # ============================================================
-# TLB: 16 entries, 4-way set-associative (4 sets × 4 ways), tree-PLRU
-# Set index: VPN[11:10] (2 bits)
+# TLB: 16 entries, 2-way set-associative (8 sets × 2 ways)
+# Set index: VPN[12:10] (3 bits)
 # Mapped pages (L0[0-7]) at 0x80000000-0x80007000
 # All pages map to the SAME TLB set (set 0).
 # Stress tests exercise repeated access, flush+refill, and R/W coherence.
@@ -48,7 +48,7 @@ end_loop:
     j end_loop
 
 # ── Sub-test 1: Access all 6 pages sequentially, re-access first → data integrity ──
-# With 6 pages in set 0 (4 ways), accessing 6 triggers replacement.
+# With 6 pages in one two-way set, accessing 6 repeatedly replaces entries.
 # Re-access verifies that TLB returns correct data after replacement.
 test_01_overflow_16_entries:
     la x5, mmu_saved_ra; sw x1, 0(x5); sw x0, 4(x5)
@@ -64,7 +64,7 @@ test_01_overflow_16_entries:
     la x5, s_overflow; csrw mepc, x5; li x5, 0x880; csrw mstatus, x5; mret
 
 s_overflow:
-    # Access all 6 pages sequentially (fills 4 ways + 2 replacements)
+    # Access all 6 pages sequentially (2 fills + 4 replacements)
     li x14, 0x80000F00;  lw x15, 0(x14)
     li x14, 0x80001F00;  lw x15, 0(x14)
     li x14, 0x80004F00;  lw x15, 0(x14)
@@ -117,7 +117,7 @@ cyc_done:
     la x15, mmu_result; sw x14, 0(x15); ecall
 
 # ── Sub-test 3: Working set of 6 pages — all fit in TLB after warm-up ──
-# After warm-up (first pass fills 4 ways + 2 replacements), second pass
+# After warm-up (first pass fills 2 ways + 4 replacements), second pass
 # should return correct data for all 6 pages.
 test_03_working_set_6:
     la x5, mmu_saved_ra; sw x1, 0(x5); sw x0, 4(x5)
@@ -159,7 +159,7 @@ ws6_done:
     la x15, mmu_result; sw x14, 0(x15); ecall
 
 # ── Sub-test 4: Fill 6 entries, flush, access evicted page → re-fill correct ──
-# Fill all 6 pages (4 ways + 2 replacements), sfence.vma (flush all),
+# Fill all 6 pages (2 ways + 4 replacements), sfence.vma (flush all),
 # then re-access all 6 pages. Each re-access triggers re-fill via PTW.
 # Verify all data correct after re-fill.
 test_04_replacement_correctness:
@@ -175,7 +175,7 @@ test_04_replacement_correctness:
     la x5, s_repl; csrw mepc, x5; li x5, 0x880; csrw mstatus, x5; mret
 
 s_repl:
-    # Fill all 6 pages (4 ways + 2 replacements)
+    # Fill all 6 pages (2 ways + 4 replacements)
     li x14, 0x80000F00;  lw x15, 0(x14)
     li x14, 0x80001F00;  lw x15, 0(x14)
     li x14, 0x80004F00;  lw x15, 0(x14)

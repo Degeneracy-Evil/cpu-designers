@@ -94,6 +94,7 @@ module axi4lite_bootrom #(
     enum logic { RD_IDLE, RD_DATA } rd_state;
 
     reg [INDEX_WIDTH-1:0] latch_addra;
+    wire [DATA_WIDTH-1:0] bram_douta;
 
     // BRAM address: live during AR handshake, latched afterwards
     wire [INDEX_WIDTH-1:0] bram_addra = (rd_state == RD_IDLE) ?
@@ -169,10 +170,8 @@ module axi4lite_bootrom #(
             rom_rd_cnt = rom_rd_cnt + 1;
         end
     end
-    wire [31:0] bram_douta = mem[bram_addra];
+    assign bram_douta = mem[bram_addra];
 `else
-    wire [31:0] bram_douta;
-
     ROM u_bram (
         .clka   (s_axi_aclk),
         .ena    (bram_ena),

@@ -138,7 +138,6 @@ module cpu_csr_interface(
     };
 
     wire [31:0] csr_mscratch;
-    wire [31:0] csr_mcause;
     wire [31:0] csr_mtval;
 
     cpu_csr u_csr(

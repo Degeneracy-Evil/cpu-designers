@@ -42,6 +42,9 @@ class BramConfig:
     register_output: bool = False
     """Whether to register the output of memory primitives."""
 
+    clock_mhz: int = 50
+    """Native clock frequency used for both ports and OOC timing generation."""
+
     @property
     def addr_width(self) -> int:
         """Address width = ceil(log2(depth))."""
@@ -97,6 +100,7 @@ def rom_to_bram(cfg: RomConfig) -> BramConfig:
         byte_enable=cfg.byte_enable,
         byte_size=cfg.byte_size,
         register_output=False,
+        clock_mhz=100,
     )
 
 
@@ -273,7 +277,8 @@ def generate_bram_create_ip_tcl(cfg: BramConfig, ip_dir: str) -> str:
         f"CONFIG.Operating_Mode_B {{READ_FIRST}}",
         f"CONFIG.Interface_Type {{Native}}",
         f"CONFIG.PRIM_type_to_Implement {{BRAM}}",
-        f"CONFIG.Port_B_Clock {{100}}",
+        f"CONFIG.Port_A_Clock {{{cfg.clock_mhz}}}",
+        f"CONFIG.Port_B_Clock {{{cfg.clock_mhz}}}",
         f"CONFIG.Port_B_Write_Rate {{50}}",
         f"CONFIG.Port_B_Enable_Rate {{100}}",
     ]

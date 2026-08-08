@@ -5,7 +5,7 @@
 # Sub-tests: 4
 # Depends: framework/test_framework.s, framework/trap_handlers.s
 # ============================================================
-# D-cache: 8 sets × 4 ways, 32-byte lines (8 words), write-back, tree-PLRU
+# D-cache: 8 sets × 2 ways, 32-byte lines, write-through/no-write-allocate
 # Address layout: tag[14:8] | set[7:5] | word_off[4:2] | byte[1:0]
 # test_data_area = 0x80003000 (tag=3, set=0)
 # ============================================================

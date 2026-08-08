@@ -1,10 +1,12 @@
 `timescale 1ns / 1ps
 `include "cache_def.svh"
 
+// Blocking two-way ICache with register tags and BRAM line data.
+// Accepted MMIO/refill transactions are always drained. A redirect may discard
+// their architectural result, but it never cancels or retargets the bus access.
 module icache_ctrl(
     input  wire        clk,
     input  wire        resetn,
-
     input  wire        cpu_req_valid,
     input  wire [31:0] cpu_req_addr,
     input  wire [31:0] cpu_req_vaddr,
@@ -23,389 +25,224 @@ module icache_ctrl(
     output wire [31:0] refill_addr,
     input  wire [`ICACHE_LINE_WIDTH-1:0] refill_data,
     input  wire        refill_valid,
+    input  wire        refill_done,
+    input  wire        refill_error,
 
     input  wire        invalidate_req,
     output wire        invalidate_done,
     output wire [2:0]  dbg_state
 );
+    localparam NUM_SETS   = `ICACHE_NUM_SETS;
+    localparam TAG_WIDTH  = `ICACHE_TAG_WIDTH;
+    localparam LINE_WIDTH = `ICACHE_LINE_WIDTH;
+    localparam SET_W      = `ICACHE_SET_IDX_WIDTH;
+    localparam WAY_W      = `ICACHE_WAY_WIDTH;
+    localparam ADDR_W     = `ICACHE_ADDR_WIDTH;
+    localparam WEA_W      = `ICACHE_WEA_WIDTH;
 
-    // --- Cache geometry from config ---
-    localparam NUM_SETS      = `ICACHE_NUM_SETS;
-    localparam NUM_WAYS      = `ICACHE_NUM_WAYS;
-    localparam TAG_WIDTH     = `ICACHE_TAG_WIDTH;
-    localparam LINE_WIDTH    = `ICACHE_LINE_WIDTH;
-    localparam BRAM_ADDR_W   = `ICACHE_ADDR_WIDTH;
-    localparam WEA_WIDTH     = `ICACHE_WEA_WIDTH;
-    localparam TAG_ENTRY_W   = `ICACHE_TAG_ENTRY_WIDTH;
-    localparam SET_IDX_W     = `ICACHE_SET_IDX_WIDTH;
-    localparam WAY_W         = `ICACHE_WAY_WIDTH;
-    localparam TAG_BRAM_W    = `ICACHE_TAG_BRAM_WIDTH;
-    localparam TAG_BRAM_WEA  = `ICACHE_TAG_BRAM_WEA_WIDTH;
-    localparam TAG_BRAM_BS   = `ICACHE_TAG_BRAM_BYTE_SIZE;
-    localparam TAG_BRAM_BPW  = `ICACHE_TAG_BRAM_WEA_BITS_PER_WAY;
-    // Derived: address layout
-    localparam ADDR_UPPER_ZEROS = 30 - `ICACHE_TAG_HI;
-    localparam ADDR_LOWER_ZEROS = `ICACHE_SET_IDX_LO;
-
-    localparam S_IDLE       = 3'd0;
-    localparam S_TAG_READ   = 3'd1;
-    localparam S_READ       = 3'd2;
-    localparam S_REFILL     = 3'd3;
-    localparam S_INVALIDATE = 3'd4;
-
-    // Address map:
-    //   0x00000000-0x7FFFFFFF: MMIO (peripherals)     — bit[31]=0
-    //   0x80000000-0x87FFFFFF: Cacheable (DDR3, 128MB) — bit[31]=1, bit[30]=0, bits[29:27]=0
-    //   0x88000000-0xBFFFFFFF: Unmapped (no physical memory; tag aliasing risk if accessed)
-    //   0xC0000000-0xFFFFFFFF: MMIO (boot ROM, etc.)  — bit[31]=1, bit[30]=1
-    // Boot ROM at 0xFC000000 MUST be uncached: addresses with bit[30]=1
-    // are classified as MMIO, so they bypass the cache entirely.
-    // Tag width (19 bits) covers exactly 128MB; bits[29:27] are forced zero
-    // in refill addresses (ADDR_UPPER_ZEROS=4), so only 0x8000_0000–0x87FF_FFFF
-    // is safely cacheable without aliasing.
-    //
-    // BUG-FIX: MMIO judgment must be based on PHYSICAL address, not virtual address.
-    // When Sv32 translation is active, a virtual address in the cacheable range
-    // could map to an MMIO physical address (or vice versa). Using the virtual
-    // address for this decision would incorrectly route translated MMIO accesses
-    // through the cache, or cacheable accesses through the MMIO bypass.
-    // The is_mmio signal is only consumed after mmu_ready is asserted (paddr valid).
-    wire is_mmio = ~cpu_req_addr[31] | cpu_req_addr[30];
-
-    reg [31:0] active_req_addr_r;
-    reg [31:0] active_req_vaddr_r;
-
-    wire lookup_active = (state != S_IDLE);
-    wire [31:0] req_addr_sel  = lookup_active ? active_req_addr_r  : cpu_req_addr;
-    wire [31:0] req_vaddr_sel = lookup_active ? active_req_vaddr_r : cpu_req_vaddr;
-    wire req_paddr_changed = mmu_ready && (cpu_req_addr != active_req_addr_r);
-    wire req_changed = lookup_active && cpu_req_valid &&
-                       (req_paddr_changed || (cpu_req_vaddr != active_req_vaddr_r));
-
-    // VIPT: use vaddr for set index (bits within page offset), paddr for tag
-    wire [TAG_WIDTH-1:0]   req_tag  = req_addr_sel[`ICACHE_TAG_HI:`ICACHE_TAG_LO];
-    wire [SET_IDX_W-1:0]   set_idx  = req_vaddr_sel[`ICACHE_SET_IDX_HI:`ICACHE_SET_IDX_LO];
-    wire [SET_IDX_W-1:0]   word_off = req_vaddr_sel[`ICACHE_WORD_OFF_HI:`ICACHE_WORD_OFF_LO];
+    localparam [2:0] S_IDLE       = 3'd0;
+    localparam [2:0] S_LOOKUP     = 3'd1;
+    localparam [2:0] S_READ_HIT   = 3'd2;
+    localparam [2:0] S_REFILL     = 3'd3;
+    localparam [2:0] S_MMIO_WAIT  = 3'd4;
+    localparam [2:0] S_INVALIDATE = 3'd5;
 
     reg [2:0] state;
+    reg valid_array [0:NUM_SETS-1][0:1];
+    reg [TAG_WIDTH-1:0] tag_array [0:NUM_SETS-1][0:1];
+    reg victim_array [0:NUM_SETS-1];
 
-    // --- PLRU state (kept as registers — too small for BRAM) ---
-    reg [NUM_WAYS-2:0] plru_state [0:NUM_SETS-1];
+    reg [31:0] op_addr_r;
+    reg [31:0] op_vaddr_r;
+    reg [SET_W-1:0] op_set_r;
+    reg [2:0] op_word_r;
+    reg [TAG_WIDTH-1:0] op_tag_r;
+    reg [WAY_W-1:0] fill_way_r;
+    reg discard_r;
 
-    // =========================================================================
-    // Tag BRAM (icachet) — 144-bit × 8 deep, Byte_Size=36, 4-bit WEA
-    // Each address = 1 set, data = 4 ways packed: {Way3, Way2, Way1, Way0}
-    //   Way N bits: [N*36 +: 36], lower 20 bits = {V(1), tag(19)}, upper 16 = padding
-    // =========================================================================
-    wire [TAG_BRAM_W-1:0] tag_bram_douta;
-    wire [TAG_BRAM_W-1:0] tag_bram_doutb;
+    wire hit0 = valid_array[op_set_r][0] &&
+                (tag_array[op_set_r][0] == op_tag_r);
+    wire hit1 = valid_array[op_set_r][1] &&
+                (tag_array[op_set_r][1] == op_tag_r);
+    wire cache_hit = hit0 || hit1;
+    wire [WAY_W-1:0] hit_way = hit0 ? {WAY_W{1'b0}} : {{(WAY_W-1){1'b0}}, 1'b1};
+    wire [WAY_W-1:0] victim_way = !valid_array[op_set_r][0] ? {WAY_W{1'b0}} :
+                                   !valid_array[op_set_r][1] ? {{(WAY_W-1){1'b0}}, 1'b1} :
+                                   victim_array[op_set_r];
 
-    // Port A: CPU read (enable in S_IDLE → output valid in S_TAG_READ)
-    // Gated by mmu_ready: is_mmio now depends on physical address, which is
-    // only valid when mmu_ready=1. Without this gate, a stale paddr could
-    // wrongly enable the tag BRAM for an MMIO access.
-    wire tag_bram_ena = (state == S_IDLE) && cpu_req_valid && !cpu_req_ready_r && mmu_ready && !is_mmio;
+    wire live_request_matches = cpu_req_valid &&
+                                (cpu_req_vaddr == op_vaddr_r) &&
+                                (!mmu_ready || (cpu_req_addr == op_addr_r));
+    wire cpu_is_mmio = ~cpu_req_addr[31] || cpu_req_addr[30];
 
-    // Port B: Refill write / Invalidate write (registered, applied next cycle)
-    reg                          tag_bram_enb_r;
-    reg [TAG_BRAM_WEA-1:0]      tag_bram_web_r;
-    reg [SET_IDX_W-1:0]         tag_bram_addrb_r;
-    reg [TAG_BRAM_W-1:0]        tag_bram_dinb_r;
-
-    icachet u_icachet(
-        .clka   (clk),
-        .ena    (tag_bram_ena),
-        .wea    ({TAG_BRAM_WEA{1'b0}}),      // Port A: read only
-        .addra  (set_idx),                    // 3-bit set index
-        .dina   ({TAG_BRAM_W{1'b0}}),
-        .douta  (tag_bram_douta),
-
-        .clkb   (clk),
-        .enb    (tag_bram_enb_r),
-        .web    (tag_bram_web_r),
-        .addrb  (tag_bram_addrb_r),
-        .dinb   (tag_bram_dinb_r),
-        .doutb  (tag_bram_doutb)
-    );
-
-    // --- Tag comparison from BRAM Port A output (valid in S_TAG_READ) ---
-    // Each way occupies TAG_BRAM_BS bits in the BRAM word, but only the lower
-    // TAG_ENTRY_W bits are meaningful (valid bit + tag). Upper padding is zero.
-    wire [TAG_BRAM_BS-1:0] way0_raw = tag_bram_douta[TAG_BRAM_BS*1-1:TAG_BRAM_BS*0];
-    wire [TAG_BRAM_BS-1:0] way1_raw = tag_bram_douta[TAG_BRAM_BS*2-1:TAG_BRAM_BS*1];
-    wire [TAG_BRAM_BS-1:0] way2_raw = tag_bram_douta[TAG_BRAM_BS*3-1:TAG_BRAM_BS*2];
-    wire [TAG_BRAM_BS-1:0] way3_raw = tag_bram_douta[TAG_BRAM_BS*4-1:TAG_BRAM_BS*3];
-    wire [TAG_ENTRY_W-1:0] tag_r0 = way0_raw[TAG_ENTRY_W-1:0];
-    wire [TAG_ENTRY_W-1:0] tag_r1 = way1_raw[TAG_ENTRY_W-1:0];
-    wire [TAG_ENTRY_W-1:0] tag_r2 = way2_raw[TAG_ENTRY_W-1:0];
-    wire [TAG_ENTRY_W-1:0] tag_r3 = way3_raw[TAG_ENTRY_W-1:0];
-
-    wire hit0 = tag_r0[TAG_ENTRY_W-1] && (tag_r0[TAG_WIDTH-1:0] == req_tag);
-    wire hit1 = tag_r1[TAG_ENTRY_W-1] && (tag_r1[TAG_WIDTH-1:0] == req_tag);
-    wire hit2 = tag_r2[TAG_ENTRY_W-1] && (tag_r2[TAG_WIDTH-1:0] == req_tag);
-    wire hit3 = tag_r3[TAG_ENTRY_W-1] && (tag_r3[TAG_WIDTH-1:0] == req_tag);
-
-    wire cache_hit = hit0 | hit1 | hit2 | hit3;
-
-    wire [WAY_W-1:0] hit_way;
-    assign hit_way = hit0 ? {WAY_W{1'b0}} :
-                     hit1 ? {{(WAY_W-1){1'b0}}, 1'b1} :
-                     hit2 ? {{(WAY_W-2){1'b0}}, 2'b10} :
-                            {{(WAY_W-2){1'b0}}, 2'b11};
-
-    wire inv0 = ~tag_r0[TAG_ENTRY_W-1];
-    wire inv1 = ~tag_r1[TAG_ENTRY_W-1];
-    wire inv2 = ~tag_r2[TAG_ENTRY_W-1];
-    wire inv3 = ~tag_r3[TAG_ENTRY_W-1];
-
-    wire [WAY_W-1:0] plru_victim;
-    wire [NUM_WAYS-2:0] plru_next;
-    tree_plru u_plru(
-        .plru_state (plru_state[set_idx]),
-        .victim_way (plru_victim),
-        .access_way (hit_way),
-        .next_state (plru_next)
-    );
-
-    wire [WAY_W-1:0] victim_way = inv0 ? {WAY_W{1'b0}} :
-                            inv1 ? {{(WAY_W-1){1'b0}}, 1'b1} :
-                            inv2 ? {{(WAY_W-2){1'b0}}, 2'b10} :
-                            inv3 ? {{(WAY_W-2){1'b0}}, 2'b11} :
-                            plru_victim;
-
-    reg [SET_IDX_W-1:0]  latched_set;
-    reg [WAY_W-1:0]      refill_way;
-    reg [31:0] latched_addr;
-
-    // =========================================================================
-    // Data BRAM (icached) — 256-bit × 32 deep
-    // =========================================================================
-    wire [BRAM_ADDR_W-1:0] bram_addra = {set_idx, hit_way};
-    wire [BRAM_ADDR_W-1:0] bram_addrb = {latched_set, refill_way};
-
-    wire [LINE_WIDTH-1:0] bram_douta;
-    wire [LINE_WIDTH-1:0] bram_doutb;
-
-    reg cpu_req_ready_r;
-    reg  invalidate_done_r;
-
-    // Data BRAM Port A: enable in S_TAG_READ on hit (hit_way now known).
-    // The physical address was latched when S_IDLE observed mmu_ready, so the
-    // lookup must not depend on live mmu_ready after entering S_TAG_READ.
-    wire bram_ena = (state == S_TAG_READ) && cache_hit;
-    wire bram_enb = refill_valid && (state == S_REFILL);
-
-    icached u_icached(
-        .clka   (clk),
-        .ena    (bram_ena),
-        .wea    ({WEA_WIDTH{1'b0}}),
-        .addra  (bram_addra),
-        .dina   ({LINE_WIDTH{1'b0}}),
-        .douta  (bram_douta),
-
-        .clkb   (clk),
-        .enb    (bram_enb),
-        .web    ({WEA_WIDTH{1'b1}}),
-        .addrb  (bram_addrb),
-        .dinb   (refill_data),
-        .doutb  (bram_doutb)
-    );
-
-    reg [31:0] bypass_data;
-    reg        mmio_pending_r;
-    reg [31:0] mmio_addr_r;
-
-    // BUG-86 fix is in the bus bridge (cpu_bus_bridge.sv): when a stale
-    // MMIO instruction response arrives after a branch redirect, the bus
-    // bridge detects addr_r != icache_mmio_addr and discards the stale
-    // response, then restarts with the new address.  No icache changes
-    // needed — the bus bridge guarantees that ahb_inst_valid is only
-    // asserted for the *current* icache_mmio_addr.
-
-    wire [SET_IDX_W-1:0] sel_word_off = (state == S_REFILL) ? latched_addr[`ICACHE_WORD_OFF_HI:`ICACHE_WORD_OFF_LO] : word_off;
-    wire [LINE_WIDTH-1:0] sel_line     = (state == S_REFILL) ? refill_data : bram_douta;
-    wire [31:0]  sel_word;
-    assign sel_word = sel_line[sel_word_off*32 +: 32];
-
-    assign cpu_req_data = is_mmio ? mmio_data : bypass_data;
-
+    reg mmio_pending_r;
+    reg mmio_inflight_r;
     reg refill_req_r;
-    reg [31:0] refill_addr_r;
+    reg [31:0] response_data_r;
+    reg cpu_ready_r;
+    reg invalidate_done_r;
+    reg [SET_W-1:0] invalidate_set_r;
 
-    assign refill_req  = refill_req_r;
-    assign refill_addr = refill_addr_r;
-
-    assign mmio_req  = mmio_pending_r;
-    assign mmio_addr = mmio_addr_r;
-
-    assign cpu_req_ready = cpu_req_ready_r;
+    assign mmio_req = mmio_pending_r;
+    assign mmio_addr = op_addr_r;
+    assign refill_req = refill_req_r;
+    assign refill_addr = {op_addr_r[31:5], 5'b0};
+    assign cpu_req_data = response_data_r;
+    assign cpu_req_ready = cpu_ready_r;
     assign invalidate_done = invalidate_done_r;
     assign dbg_state = state;
 
-    wire [NUM_WAYS-2:0] plru_next_refill;
-    tree_plru u_plru_refill(
-        .plru_state (plru_state[latched_set]),
-        .victim_way (),
-        .access_way (refill_way),
-        .next_state (plru_next_refill)
+    wire data_a_read = (state == S_LOOKUP) && cache_hit;
+    wire [ADDR_W-1:0] data_a_addr = {op_set_r, hit_way};
+    wire [LINE_WIDTH-1:0] data_a_out;
+    wire refill_write = (state == S_REFILL) && refill_valid;
+    wire [ADDR_W-1:0] data_b_addr = {op_set_r, fill_way_r};
+    wire [LINE_WIDTH-1:0] data_b_out;
+
+    icached u_icached(
+        .clka(clk),
+        .ena(data_a_read),
+        .wea({WEA_W{1'b0}}),
+        .addra(data_a_addr),
+        .dina({LINE_WIDTH{1'b0}}),
+        .douta(data_a_out),
+        .clkb(clk),
+        .enb(refill_write),
+        .web({WEA_W{1'b1}}),
+        .addrb(data_b_addr),
+        .dinb(refill_data),
+        .doutb(data_b_out)
     );
 
-    // --- Invalidate counter (multi-cycle: 1 BRAM write per set) ---
-    reg [SET_IDX_W-1:0] invalidate_set;
-
-    // --- Helper: pack a single way's tag entry into the BRAM line position ---
-    // new_entry is TAG_ENTRY_W bits wide; placed at refill_way * TAG_BRAM_BS offset
-    wire [TAG_ENTRY_W-1:0] refill_new_entry = {1'b1, latched_addr[`ICACHE_TAG_HI:`ICACHE_TAG_LO]};
-    wire [TAG_BRAM_W-1:0]  refill_tag_din   = ({TAG_BRAM_W{1'b0}} | {{(TAG_BRAM_W-TAG_ENTRY_W){1'b0}}, refill_new_entry}) << (refill_way * TAG_BRAM_BS);
-
+    integer s;
     always_ff @(posedge clk or negedge resetn) begin
         if (!resetn) begin
-            state            <= S_IDLE;
-            refill_req_r     <= 1'b0;
-            refill_addr_r    <= 32'b0;
-            latched_set      <= {SET_IDX_W{1'b0}};
-            refill_way       <= {WAY_W{1'b0}};
-            latched_addr     <= 32'b0;
-            active_req_addr_r <= 32'b0;
-            active_req_vaddr_r <= 32'b0;
-            bypass_data      <= 32'b0;
-            cpu_req_ready_r  <= 1'b0;
-            mmio_pending_r   <= 1'b0;
-            mmio_addr_r      <= 32'b0;
+            state <= S_IDLE;
+            op_addr_r <= 32'b0;
+            op_vaddr_r <= 32'b0;
+            op_set_r <= {SET_W{1'b0}};
+            op_word_r <= 3'b0;
+            op_tag_r <= {TAG_WIDTH{1'b0}};
+            fill_way_r <= {WAY_W{1'b0}};
+            discard_r <= 1'b0;
+            mmio_pending_r <= 1'b0;
+            mmio_inflight_r <= 1'b0;
+            refill_req_r <= 1'b0;
+            response_data_r <= 32'b0;
+            cpu_ready_r <= 1'b0;
             invalidate_done_r <= 1'b0;
-            invalidate_set   <= {SET_IDX_W{1'b0}};
-            tag_bram_enb_r   <= 1'b0;
-            tag_bram_web_r   <= {TAG_BRAM_WEA{1'b0}};
-            tag_bram_addrb_r <= {SET_IDX_W{1'b0}};
-            tag_bram_dinb_r  <= {TAG_BRAM_W{1'b0}};
-            for (integer s = 0; s < NUM_SETS; s = s + 1) begin
-                plru_state[s] <= {NUM_WAYS-1{1'b0}};
+            invalidate_set_r <= {SET_W{1'b0}};
+            for (s = 0; s < NUM_SETS; s = s + 1) begin
+                valid_array[s][0] <= 1'b0;
+                valid_array[s][1] <= 1'b0;
+                tag_array[s][0] <= {TAG_WIDTH{1'b0}};
+                tag_array[s][1] <= {TAG_WIDTH{1'b0}};
+                victim_array[s] <= 1'b0;
             end
         end else begin
-            cpu_req_ready_r  <= 1'b0;
+            cpu_ready_r <= 1'b0;
             invalidate_done_r <= 1'b0;
-            tag_bram_enb_r   <= 1'b0;  // default: no tag BRAM write
-            if (mmio_accept)
+
+            if (mmio_accept) begin
                 mmio_pending_r <= 1'b0;
+                mmio_inflight_r <= 1'b1;
+            end
 
-            if (flush_req && (state != S_INVALIDATE)) begin
-                state             <= S_IDLE;
-                refill_req_r      <= 1'b0;
-                mmio_pending_r    <= 1'b0;
-                active_req_addr_r <= 32'b0;
-                active_req_vaddr_r<= 32'b0;
-            end else case (state)
-                S_IDLE: begin
-                    refill_req_r <= 1'b0;
-                    if (invalidate_req) begin
-                        state <= S_INVALIDATE;
-                        invalidate_set <= {SET_IDX_W{1'b0}};
-                    end else if (cpu_req_valid && !cpu_req_ready_r) begin
-                        // BUG-FIX: Wait for mmu_ready before deciding MMIO vs cache,
-                        // because is_mmio now depends on physical address (cpu_req_addr)
-                        // which is only valid when mmu_ready=1.
-                        if (mmu_ready) begin
-                            if (is_mmio) begin
-                                if (!mmio_pending_r) begin
-                                    mmio_pending_r <= 1'b1;
-                                    mmio_addr_r    <= cpu_req_addr;
-                                end
-                                if (mmio_valid) begin
-                                    bypass_data     <= mmio_data;
-                                    cpu_req_ready_r <= 1'b1;
-                                end
+            // A pipeline redirect cancels only local lookups. Accepted external
+            // transactions stay in their wait state until their response drains.
+            if (flush_req && ((state == S_LOOKUP) || (state == S_READ_HIT))) begin
+                state <= S_IDLE;
+                discard_r <= 1'b0;
+            end else begin
+                if (flush_req && ((state == S_REFILL) || (state == S_MMIO_WAIT)))
+                    discard_r <= 1'b1;
+
+                case (state)
+                    S_IDLE: begin
+                        refill_req_r <= 1'b0;
+                        if (invalidate_req) begin
+                            invalidate_set_r <= {SET_W{1'b0}};
+                            state <= S_INVALIDATE;
+                        end else if (cpu_req_valid && mmu_ready && !cpu_ready_r) begin
+                            op_addr_r <= cpu_req_addr;
+                            op_vaddr_r <= cpu_req_vaddr;
+                            op_set_r <= cpu_req_vaddr[`ICACHE_SET_IDX_HI:`ICACHE_SET_IDX_LO];
+                            op_word_r <= cpu_req_vaddr[`ICACHE_WORD_OFF_HI:`ICACHE_WORD_OFF_LO];
+                            op_tag_r <= cpu_req_addr[`ICACHE_TAG_HI:`ICACHE_TAG_LO];
+                            discard_r <= 1'b0;
+                            if (cpu_is_mmio) begin
+                                mmio_pending_r <= 1'b1;
+                                state <= S_MMIO_WAIT;
                             end else begin
-                                active_req_addr_r  <= cpu_req_addr;
-                                active_req_vaddr_r <= cpu_req_vaddr;
-                                // Enable tag BRAM Port A (addra=set_idx already wired)
-                                // Output will be valid next cycle in S_TAG_READ
-                                state <= S_TAG_READ;
+                                state <= S_LOOKUP;
                             end
+                        end
+                    end
+
+                    S_LOOKUP: begin
+                        if (cache_hit) begin
+                            state <= S_READ_HIT;
                         end else begin
-                            // mmu_ready not yet — wait for physical address.
-                            // Handle any already-pending MMIO response from a
-                            // previous request (shouldn't normally happen, but
-                            // defensive coding avoids deadlocking the handshake).
-                            if (mmio_valid) begin
-                                bypass_data     <= mmio_data;
-                                cpu_req_ready_r <= 1'b1;
+                            fill_way_r <= victim_way;
+                            refill_req_r <= 1'b1;
+                            state <= S_REFILL;
+                        end
+                    end
+
+                    S_READ_HIT: begin
+                        if (!discard_r && live_request_matches) begin
+                            response_data_r <= data_a_out[op_word_r*32 +: 32];
+                            cpu_ready_r <= 1'b1;
+                            victim_array[op_set_r] <= ~hit_way;
+                        end
+                        state <= S_IDLE;
+                    end
+
+                    S_REFILL: begin
+                        refill_req_r <= 1'b1;
+                        if (refill_done) begin
+                            refill_req_r <= 1'b0;
+                            if (!refill_error) begin
+                                valid_array[op_set_r][fill_way_r] <= 1'b1;
+                                tag_array[op_set_r][fill_way_r] <= op_tag_r;
+                                victim_array[op_set_r] <= ~fill_way_r;
+                                if (!discard_r && live_request_matches) begin
+                                    response_data_r <= refill_data[op_word_r*32 +: 32];
+                                    cpu_ready_r <= 1'b1;
+                                end
                             end
+                            discard_r <= 1'b0;
+                            state <= S_IDLE;
                         end
                     end
-                end
 
-                S_TAG_READ: begin
-                    if (req_changed) begin
-                        refill_req_r <= 1'b0;
-                        state <= S_IDLE;
-                    end else if (cache_hit) begin
-                        // Data BRAM Port A enabled this cycle (bram_ena above)
-                        // Data available next cycle in S_READ
-                        state <= S_READ;
-                    end else begin
-                        latched_set  <= set_idx;
-                        latched_addr <= req_addr_sel;
-                        refill_way   <= victim_way;
-                        refill_req_r <= 1'b1;
-                        refill_addr_r <= {1'b1, {ADDR_UPPER_ZEROS{1'b0}}, req_tag, set_idx, {ADDR_LOWER_ZEROS{1'b0}}};
-                        state <= S_REFILL;
-                    end
-                end
-
-                S_READ: begin
-                    if (req_changed) begin
-                        state <= S_IDLE;
-                    end else begin
-                        // Data BRAM Port A output is now valid
-                        bypass_data     <= sel_word;
-                        cpu_req_ready_r <= 1'b1;
-                        plru_state[set_idx] <= plru_next;
-                        state <= S_IDLE;
-                    end
-                end
-
-                S_REFILL: begin
-                    if (req_changed) begin
-                        refill_req_r <= 1'b0;
-                        state <= S_IDLE;
-                    end else begin
-                        refill_req_r <= 1'b1;
-                    end
-                    if (!req_changed && refill_valid) begin
-                        refill_req_r    <= 1'b0;
-                        bypass_data     <= sel_word;
-                        cpu_req_ready_r <= 1'b1;
-                        // Write tag BRAM Port B: update only the refilled way
-                        tag_bram_enb_r   <= 1'b1;
-                        tag_bram_web_r   <= ((1 << TAG_BRAM_BPW) - 1) << (refill_way * TAG_BRAM_BPW);
-                        tag_bram_addrb_r <= latched_set;
-                        tag_bram_dinb_r  <= refill_tag_din;
-                        plru_state[latched_set] <= plru_next_refill;
-                        state <= S_IDLE;
-                    end
-                end
-
-                S_INVALIDATE: begin
-                    // Write one set per cycle with all zeros (clear all valid bits)
-                    tag_bram_enb_r   <= 1'b1;
-                    tag_bram_web_r   <= {TAG_BRAM_WEA{1'b1}};   // write all 4 ways
-                    tag_bram_addrb_r <= invalidate_set;
-                    tag_bram_dinb_r  <= {TAG_BRAM_W{1'b0}};     // all zeros
-                    if (invalidate_set == NUM_SETS - 1) begin
-                        // Last set written — done
-                        for (integer s = 0; s < NUM_SETS; s = s + 1) begin
-                            plru_state[s] <= {NUM_WAYS-1{1'b0}};
+                    S_MMIO_WAIT: begin
+                        if (mmio_valid) begin
+                            mmio_inflight_r <= 1'b0;
+                            if (!discard_r && live_request_matches) begin
+                                response_data_r <= mmio_data;
+                                cpu_ready_r <= 1'b1;
+                            end
+                            discard_r <= 1'b0;
+                            state <= S_IDLE;
                         end
-                        invalidate_done_r <= 1'b1;
-                        state <= S_IDLE;
-                    end else begin
-                        invalidate_set <= invalidate_set + 1'b1;
                     end
-                end
 
-                default: state <= S_IDLE;
-            endcase
+                    S_INVALIDATE: begin
+                        valid_array[invalidate_set_r][0] <= 1'b0;
+                        valid_array[invalidate_set_r][1] <= 1'b0;
+                        victim_array[invalidate_set_r] <= 1'b0;
+                        if (invalidate_set_r == NUM_SETS - 1) begin
+                            invalidate_done_r <= 1'b1;
+                            state <= S_IDLE;
+                        end else begin
+                            invalidate_set_r <= invalidate_set_r + 1'b1;
+                        end
+                    end
+
+                    default: state <= S_IDLE;
+                endcase
+            end
         end
     end
-
 endmodule

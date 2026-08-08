@@ -6,7 +6,7 @@
 
 module tb_privilege_csr_access_priv;
 
-    localparam integer EXPECTED_TOTAL = 8;
+    localparam integer EXPECTED_TOTAL = 11;
     localparam integer SIM_CYCLES    = 300000;
 
 
@@ -67,4 +67,3 @@ module tb_privilege_csr_access_priv;
 
 
 endmodule
-

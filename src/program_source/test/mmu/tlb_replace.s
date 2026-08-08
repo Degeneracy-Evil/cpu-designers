@@ -1,15 +1,14 @@
 # ============================================================
-# mmu/tlb_replace.s — TLB replacement (tree-PLRU) tests
+# mmu/tlb_replace.s — two-way TLB replacement tests
 # Category: MMU
 # Sub-tests: 6
 # ============================================================
-# TLB: 16 entries, 4-way set-associative (4 sets × 4 ways), tree-PLRU
-# Set index: VPN[11:10] (2 bits)
+# TLB: 16 entries, 2-way set-associative (8 sets × 2 ways)
+# Set index: VPN[12:10] (3 bits)
 #
 # All mapped pages (0x80000000-0x80007000, L0[0-7]) map to
-# the SAME TLB set (set 0) because VPN[11:10] = VA[23:22] = 0b00.
-# With 4 ways per set, accessing 5+ different pages triggers
-# tree-PLRU replacement.
+# the SAME TLB set (set 0) because VPN[12:10] = VA[24:22] = 0b000.
+# With 2 ways per set, every third distinct page triggers replacement.
 #
 # IMPORTANT: Pages 0-1 contain code, pages 2-3 contain page tables,
 # page 4 has data variables (up to offset 0xEB4). Test data must
@@ -49,10 +48,10 @@ _start:
 end_loop:
     j end_loop
 
-# ── Sub-test 1: Fill 4 ways, then 5th page triggers replacement ──
+# ── Sub-test 1: Repeated same-set fills trigger replacement ──
 # Write unique values to pages A-E, then in S-mode:
-# Fill pages A-D (fills ways 0-3, all invalid), then access page E.
-# Page E → TLB miss → all ways valid → PLRU victim replacement.
+# Access pages A-D, repeatedly replacing entries after the first two fills,
+# then access page E and verify its translation after another replacement.
 # Verify page E data is correct after replacement fill.
 test_01_fill_4_then_5th_replaces:
     la x5, mmu_saved_ra; sw x1, 0(x5); sw x0, 4(x5)
@@ -67,13 +66,12 @@ test_01_fill_4_then_5th_replaces:
     la x5, s_replace_5th; csrw mepc, x5; li x5, 0x880; csrw mstatus, x5; mret
 
 s_replace_5th:
-    # Fill ways 0-3 with pages A-D
-    li x14, 0x80000F00;  lw x15, 0(x14)   # page A → way 0
-    li x14, 0x80001F00;  lw x15, 0(x14)   # page B → way 1
-    li x14, 0x80004F00;  lw x15, 0(x14)   # page C → way 2
-    li x14, 0x80005F00;  lw x15, 0(x14)   # page D → way 3
-    # 5th page → replacement (PLRU victim = way 0 after filling 0,1,2,3)
-    li x14, 0x80006F00;  lw x15, 0(x14)   # page E → replaces way 0
+    # Fill two ways, then force three deterministic replacement decisions.
+    li x14, 0x80000F00;  lw x15, 0(x14)
+    li x14, 0x80001F00;  lw x15, 0(x14)
+    li x14, 0x80004F00;  lw x15, 0(x14)
+    li x14, 0x80005F00;  lw x15, 0(x14)
+    li x14, 0x80006F00;  lw x15, 0(x14)
     li x16, 0xA0000004
     bne x15, x16, 1f; li x14, 1; j 2f
 1:  li x14, 0
@@ -94,12 +92,11 @@ test_02_evicted_page_refill:
     la x5, s_evicted_refill; csrw mepc, x5; li x5, 0x880; csrw mstatus, x5; mret
 
 s_evicted_refill:
-    # Fill all 4 ways
-    li x14, 0x80000F00;  lw x15, 0(x14)   # page A → way 0
-    li x14, 0x80001F00;  lw x15, 0(x14)   # page B → way 1
-    li x14, 0x80004F00;  lw x15, 0(x14)   # page C → way 2
-    li x14, 0x80005F00;  lw x15, 0(x14)   # page D → way 3
-    # Trigger replacement: page E evicts way 0 (page A)
+    # Cycle through more pages than the two-way set can retain.
+    li x14, 0x80000F00;  lw x15, 0(x14)
+    li x14, 0x80001F00;  lw x15, 0(x14)
+    li x14, 0x80004F00;  lw x15, 0(x14)
+    li x14, 0x80005F00;  lw x15, 0(x14)
     li x14, 0x80006F00;  lw x15, 0(x14)
     # Re-access evicted page A → miss → re-fill
     li x14, 0x80000F00;  lw x15, 0(x14)
@@ -110,7 +107,7 @@ s_evicted_refill:
 
 # ── Sub-test 3: Sequential replacement — 2 replacements in a row ──
 # Fill pages A-D, then access pages E,F in sequence.
-# Each access after the 4th triggers a replacement.
+# Each access after the second may trigger a replacement.
 # Verify both new pages have correct data after sequential replacement.
 test_03_sequential_replacement:
     la x5, mmu_saved_ra; sw x1, 0(x5); sw x0, 4(x5)
@@ -125,7 +122,7 @@ test_03_sequential_replacement:
     la x5, s_seq_replace; csrw mepc, x5; li x5, 0x880; csrw mstatus, x5; mret
 
 s_seq_replace:
-    # Fill all 4 ways with pages A-D
+    # Exercise repeated replacement with pages A-D.
     li x14, 0x80000F00;  lw x15, 0(x14)
     li x14, 0x80001F00;  lw x15, 0(x14)
     li x14, 0x80004F00;  lw x15, 0(x14)
@@ -143,8 +140,8 @@ s_seq_replace:
 2:  la x15, mmu_result; sw x14, 0(x15); ecall
 
 # ── Sub-test 4: Replacement after TLB flush ──
-# Fill 4 pages, flush TLB, re-fill 4 pages (different set),
-# then access 5th page → replacement. Verify correct behavior
+# Fill pages, flush TLB, then refill beyond two-way capacity.
+# Verify correct behavior
 # after flush+refill cycle.
 test_04_replace_after_flush:
     la x5, mmu_saved_ra; sw x1, 0(x5); sw x0, 4(x5)
@@ -158,27 +155,26 @@ test_04_replace_after_flush:
     la x5, s_replace_flush; csrw mepc, x5; li x5, 0x880; csrw mstatus, x5; mret
 
 s_replace_flush:
-    # Fill all 4 ways
+    # Exercise the set before flushing it.
     li x14, 0x80000F00;  lw x15, 0(x14)
     li x14, 0x80001F00;  lw x15, 0(x14)
     li x14, 0x80004F00;  lw x15, 0(x14)
     li x14, 0x80005F00;  lw x15, 0(x14)
     # Flush TLB
     sfence.vma
-    # Re-fill 4 ways (reuse C,D after flush + new E,F)
-    li x14, 0x80004F00;  lw x15, 0(x14)   # page C → way 0
-    li x14, 0x80005F00;  lw x15, 0(x14)   # page D → way 1
-    li x14, 0x80006F00;  lw x15, 0(x14)   # page E → way 2
-    li x14, 0x80007F00;  lw x15, 0(x14)   # page F → way 3
-    # 5th access → replacement
-    li x14, 0x80000F00;  lw x15, 0(x14)   # page A → replaces PLRU victim
+    # Refill and repeatedly replace after the flush.
+    li x14, 0x80004F00;  lw x15, 0(x14)
+    li x14, 0x80005F00;  lw x15, 0(x14)
+    li x14, 0x80006F00;  lw x15, 0(x14)
+    li x14, 0x80007F00;  lw x15, 0(x14)
+    li x14, 0x80000F00;  lw x15, 0(x14)
     li x16, 0xD0000000
     bne x15, x16, 1f; li x14, 1; j 2f
 1:  li x14, 0
 2:  la x15, mmu_result; sw x14, 0(x15); ecall
 
 # ── Sub-test 5: Write to replaced page, read back ──
-# Fill 4 ways, trigger replacement with page E, write unique value
+# Fill beyond two-way capacity, then write a unique value to page E
 # to page E, read back. Verify write/read coherence after replacement.
 test_05_write_after_replace:
     la x5, mmu_saved_ra; sw x1, 0(x5); sw x0, 4(x5)
@@ -192,7 +188,7 @@ test_05_write_after_replace:
     la x5, s_write_replace; csrw mepc, x5; li x5, 0x880; csrw mstatus, x5; mret
 
 s_write_replace:
-    # Fill all 4 ways
+    # Fill beyond the two-way set capacity.
     li x14, 0x80000F00;  lw x15, 0(x14)
     li x14, 0x80001F00;  lw x15, 0(x14)
     li x14, 0x80004F00;  lw x15, 0(x14)
@@ -227,7 +223,7 @@ test_06_non_evicted_hit:
     la x5, s_non_evicted; csrw mepc, x5; li x5, 0x880; csrw mstatus, x5; mret
 
 s_non_evicted:
-    # Fill all 4 ways with pages A-D
+    # Fill beyond the two-way set capacity with pages A-D.
     li x14, 0x80000F00;  lw x15, 0(x14)   # page A → way 0
     li x14, 0x80001F00;  lw x15, 0(x14)   # page B → way 1
     li x14, 0x80004F00;  lw x15, 0(x14)   # page C → way 2

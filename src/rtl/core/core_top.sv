@@ -30,7 +30,7 @@ module core_top(
     output [31:0] csr_stvec,
     output [31:0] csr_sepc,
     output [31:0] csr_scause,
-    output [1:0]  priv_mode,
+    output reg [1:0] priv_mode,
     output [1:0]  target_priv,
 
     // ---------- Extended debug outputs ----------
@@ -208,8 +208,6 @@ module core_top(
     localparam PRIV_M = 2'b11;
 
     reg [31:0] pc;
-    reg [1:0]  priv_mode;
-
     wire if_done;
     wire id_done;
     wire exe_done;
@@ -222,8 +220,6 @@ module core_top(
     wire mem_valid;
     wire wb_valid;
     wire csr_valid;
-    wire trap_enter_valid;
-    wire trap_return_valid;
     wire exe_to_wb;
     wire [3:0] fsm_state;
 
@@ -315,30 +311,12 @@ module core_top(
     wire        ptw_bus_done;
     wire        ptw_bus_error;
 
-    // Conservative PTW/DCache coherency fix:
-    // before every PTW page-table read, write back and invalidate the whole
-    // DCache so page-table stores are visible to the AXI/SRAM PTW path.
-    wire        ptw_read_req = ptw_bus_req && !ptw_bus_we;
-    wire        ptw_read_flush_enable = csr_satp[31] && (priv_mode != PRIV_M);
-    wire        ptw_read_needs_flush = ptw_read_req && ptw_read_flush_enable;
-    localparam [1:0] PTW_RF_IDLE      = 2'd0;
-    localparam [1:0] PTW_RF_FLUSH     = 2'd1;
-    localparam [1:0] PTW_RF_WAIT_RESP = 2'd2;
-    reg [1:0]   ptw_read_flush_state_r;
-    wire        ptw_read_flush_req = (ptw_read_flush_state_r == PTW_RF_FLUSH);
-    wire        ptw_read_flush_released = (ptw_read_flush_state_r == PTW_RF_WAIT_RESP);
-    wire        ptw_req_to_bridge = ptw_bus_req &&
-                                    (ptw_bus_we || !ptw_read_flush_enable || ptw_read_flush_released);
-    wire        ptw_bus_hold = ptw_read_needs_flush && !ptw_read_flush_released;
-
-    // PTW A/D bit writeback → dcache line invalidation
-    // When PTW completes a write (ptw_bus_we && ptw_bus_done), the written
-    // PTE address may have a stale copy in dcache. Invalidate that line.
-    reg        ptw_ad_inv_pending_r;
-    reg [31:0] ptw_ad_inv_addr_r;
-    wire       ptw_ad_inv_req  = ptw_ad_inv_pending_r;
-    wire [31:0]ptw_ad_inv_addr = ptw_ad_inv_addr_r;
-    wire       ptw_ad_inv_done;
+    // Write-through DCache stores are already visible to the PTW, so page-table
+    // reads no longer require a whole-cache writeback. Completed hardware A/D
+    // writes explicitly snoop the matching clean DCache line.
+    wire ptw_req_to_bridge = ptw_bus_req;
+    wire ptw_dcache_snoop_valid = ptw_bus_req && ptw_bus_we &&
+                                   ptw_bus_done && !ptw_bus_error;
 
     wire        mmu_sfence_done;
 
@@ -390,9 +368,7 @@ module core_top(
     wire trap_pending;
     wire [31:0] csr_read_data;
     wb_bus_t      csr_wb_bus;
-    wire [31:0] trap_csr_pc;
     wire [31:0] csr_pc_plus4_out;
-    wire [1:0]  target_priv;
 
     wire inst_access_fault_pending;
     wire data_access_fault_pending;
@@ -402,25 +378,22 @@ module core_top(
     wire cycle_en;
     assign cycle_en = ~init_sig;
     wire inst_retire;
-    assign inst_retire = wb_done;
+    // Instructions without a register-writeback stage still retire.  Count
+    // each instruction at its single architectural completion point.
+    assign inst_retire = wb_done ||
+                         (exe_valid && exe_done && exe_is_branch) ||
+                         (id_valid && id_done && dec_is_nop_like) ||
+                         (fencei_req && fencei_done) ||
+                         (sfence_vma_req && sfence_vma_done) ||
+                         trap_return_valid;
 
     wire [31:0] csr_mstatus;
     wire [31:0] csr_mie;
-    wire [31:0] csr_mtvec;
-    wire [31:0] csr_mepc;
-    wire [31:0] csr_mcause;
     wire [31:0] csr_mip;
     wire [31:0] csr_medeleg;
     wire [31:0] csr_mideleg;
-    wire [31:0] csr_sstatus;
     wire [31:0] csr_sie;
-    wire [31:0] csr_stvec;
-    wire [31:0] csr_sscratch;
-    wire [31:0] csr_sepc;
-    wire [31:0] csr_scause;
-    wire [31:0] csr_stval;
     wire [31:0] csr_sip;
-    wire [31:0] csr_satp;
     wire [31:0] csr_mcounteren;
     wire [31:0] csr_scounteren;
     // PMP CSR wires
@@ -488,6 +461,17 @@ module core_top(
     reg [31:0] dbg_focus_load_wb_status_r;
     reg [31:0] dbg_focus_load_wb_rfdata_r;
     reg [31:0] dbg_focus_load_wb_s2_r;
+
+    wire [31:0] mem_dataAddr_32;
+    wire        dbg_dcache_lh_valid_w;
+    wire [31:0] dbg_dcache_lh_data_w;
+    wire [31:0] dbg_dcache_lh_count_w;
+    wire        dbg_dcache_rf_valid_w;
+    wire [31:0] dbg_dcache_rf_data_w;
+    wire [31:0] dbg_dcache_rf_count_w;
+    wire        dbg_dcache_wb_valid_w;
+    wire [31:0] dbg_dcache_wb_data_w;
+    wire [31:0] dbg_dcache_wb_count_w;
 
     assign hw_trap_epc   = hw_trap_epc_w;
     assign hw_trap_cause = hw_trap_cause_w;
@@ -560,7 +544,7 @@ module core_top(
             pc <= 32'hFC000000;  // Boot ROM @ 0xFC00_0000 (both sim and FPGA)
             priv_mode <= PRIV_M;
             if_id_bus_r <= 96'b0;
-            id_exe_bus_r <= 349'b0;
+            id_exe_bus_r <= '0;
             exe_mem_bus_r <= '0;
             mem_wb_bus_r <= '0;
         end else begin
@@ -583,12 +567,12 @@ module core_top(
 
             if (trap_enter_valid) begin
                 if_id_bus_r <= 96'b0;
-                id_exe_bus_r <= 349'b0;
+                id_exe_bus_r <= '0;
                 pc <= trap_csr_pc;
                 priv_mode <= target_priv;
             end else if (trap_return_valid) begin
                 if_id_bus_r <= 96'b0;
-                id_exe_bus_r <= 349'b0;
+                id_exe_bus_r <= '0;
                 pc <= trap_csr_pc;
                 if (priv_mode == PRIV_M) begin
                     priv_mode <= mpp_field;
@@ -598,7 +582,7 @@ module core_top(
             end else if (exe_valid && exe_done) begin
                 if (exe_is_ctrl_flow && exe_branch_taken) begin
                     if_id_bus_r <= 96'b0;
-                    id_exe_bus_r <= 349'b0;
+                    id_exe_bus_r <= '0;
                     pc <= exe_branch_target;
                 end else begin
                     pc <= exe_pc_plus4;
@@ -664,6 +648,7 @@ module core_top(
     wire        inst_valid_mux;
     wire        icache_mmio_req;
     wire        icache_mmio_accept;
+    wire [31:0] icache_mmio_addr;
 
     wire [31:0] ahb_inst_data;
     wire        ahb_inst_valid;
@@ -672,152 +657,70 @@ module core_top(
     wire [31:0] icache_refill_addr;
     wire [255:0] icache_refill_data;
     wire        icache_refill_valid;
+    wire        icache_refill_done;
+    wire        icache_refill_error;
     wire [2:0]  icache_dbg_state;
 
-    wire        dcache_flush_req;
-    wire        dcache_flush_done;
     wire        icache_invalidate_req;
     wire        icache_invalidate_done;
     wire        icache_flush_req;
 
     // ── fence.i sequencing ──
-    // Sequence: dcache flush (writeback+invalidate) → icache invalidate → done
-    reg fencei_dcache_flush_sent_r;
+    // Write-through stores have completed in memory before fence.i reaches
+    // decode, so fence.i only has to invalidate the ICache.
     reg fencei_icache_inv_sent_r;
 
     always_ff @(posedge clk or negedge resetn) begin
         if (!resetn) begin
-            fencei_dcache_flush_sent_r  <= 1'b0;
             fencei_icache_inv_sent_r    <= 1'b0;
         end else begin
             if (!fencei_req) begin
-                fencei_dcache_flush_sent_r  <= 1'b0;
                 fencei_icache_inv_sent_r    <= 1'b0;
             end else begin
-                if (dcache_flush_done && !fencei_dcache_flush_sent_r)
-                    fencei_dcache_flush_sent_r <= 1'b1;
-                if (icache_invalidate_done && fencei_dcache_flush_sent_r && !fencei_icache_inv_sent_r)
+                if (icache_invalidate_done && !fencei_icache_inv_sent_r)
                     fencei_icache_inv_sent_r <= 1'b1;
             end
         end
     end
 
     // ── sfence.vma sequencing ──
-    // Sequence: dcache flush (writeback+invalidate) → icache invalidate → TLB flush → done
-    // The dcache writeback ensures all previous stores (including page table writes)
-    // are globally visible in main memory before the TLB is invalidated.
-    reg sfence_dcache_flush_sent_r;
-    reg sfence_icache_inv_sent_r;
+    // All prior stores are globally visible when they retire, so sfence.vma
+    // only needs the MMU/TLB flush.
     reg sfence_tlb_flush_sent_r;
 
     always_ff @(posedge clk or negedge resetn) begin
         if (!resetn) begin
-            sfence_dcache_flush_sent_r  <= 1'b0;
-            sfence_icache_inv_sent_r    <= 1'b0;
             sfence_tlb_flush_sent_r     <= 1'b0;
         end else begin
             if (!sfence_vma_req) begin
-                sfence_dcache_flush_sent_r  <= 1'b0;
-                sfence_icache_inv_sent_r    <= 1'b0;
                 sfence_tlb_flush_sent_r     <= 1'b0;
             end else begin
-                if (dcache_flush_done && !sfence_dcache_flush_sent_r)
-                    sfence_dcache_flush_sent_r <= 1'b1;
-                if (icache_invalidate_done && sfence_dcache_flush_sent_r && !sfence_icache_inv_sent_r)
-                    sfence_icache_inv_sent_r <= 1'b1;
-                if (mmu_sfence_done && sfence_dcache_flush_sent_r && sfence_icache_inv_sent_r && !sfence_tlb_flush_sent_r)
+                if (mmu_sfence_done && !sfence_tlb_flush_sent_r)
                     sfence_tlb_flush_sent_r <= 1'b1;
             end
         end
     end
 
-    // ── Combined cache maintenance requests ──
-    // fencei/sfence/PTW-read flush all reuse the same DCache flush engine.
-    // PTW read is held off until its flush completion has been observed in a
-    // register, avoiding same-cycle <= ready/done skew.
-    wire fencei_dcache_flush_req = fencei_req && !fencei_dcache_flush_sent_r;
-    wire sfence_dcache_flush_req = sfence_vma_req && !sfence_dcache_flush_sent_r;
-    assign dcache_flush_req      = fencei_dcache_flush_req ||
-                                   sfence_dcache_flush_req ||
-                                   ptw_read_flush_req;
-    assign icache_invalidate_req = (fencei_req && fencei_dcache_flush_sent_r && !fencei_icache_inv_sent_r) ||
-                                   (sfence_vma_req && sfence_dcache_flush_sent_r && !sfence_icache_inv_sent_r);
+    assign icache_invalidate_req = fencei_req && !fencei_icache_inv_sent_r;
     assign icache_flush_req      = trap_enter_valid ||
                                    trap_return_valid ||
                                    (exe_valid && exe_done && exe_is_ctrl_flow && exe_branch_taken);
 
-    assign fencei_done     = fencei_dcache_flush_sent_r && fencei_icache_inv_sent_r;
-    assign sfence_vma_done = sfence_dcache_flush_sent_r && sfence_icache_inv_sent_r && sfence_tlb_flush_sent_r;
+    assign fencei_done     = fencei_icache_inv_sent_r;
+    assign sfence_vma_done = sfence_tlb_flush_sent_r;
 
     // ── sfence.vma pulse to MMU ──
-    // Send a one-cycle pulse to the MMU to trigger TLB flush ONLY after
-    // dcache flush and icache invalidate are complete.  This ensures all
-    // previous stores are globally visible before TLB entries are discarded.
+    // Send one pulse to the MMU for each held sfence request.
     reg sfence_tlb_pulse_sent_r;
     always_ff @(posedge clk or negedge resetn) begin
         if (!resetn)
             sfence_tlb_pulse_sent_r <= 1'b0;
         else if (!sfence_vma_req)
             sfence_tlb_pulse_sent_r <= 1'b0;
-        else if (sfence_dcache_flush_sent_r && sfence_icache_inv_sent_r && !sfence_tlb_pulse_sent_r)
+        else if (sfence_vma_req && !sfence_tlb_pulse_sent_r)
             sfence_tlb_pulse_sent_r <= 1'b1;
     end
-    wire sfence_vma_to_mmu_pulse = sfence_vma_req && sfence_dcache_flush_sent_r && sfence_icache_inv_sent_r && !sfence_tlb_pulse_sent_r;
-
-    // ── PTW read → DCache flush sequencing ──
-    // Keep this as a small registered FSM. dcache_flush_done only advances the
-    // state; bridge-side PTW release happens in the following cycle, which cuts
-    // timing paths through the DCache flush engine.
-    always_ff @(posedge clk or negedge resetn) begin
-        if (!resetn) begin
-            ptw_read_flush_state_r <= PTW_RF_IDLE;
-        end else begin
-            if (!ptw_bus_req || !ptw_read_flush_enable) begin
-                ptw_read_flush_state_r <= PTW_RF_IDLE;
-            end else begin
-                case (ptw_read_flush_state_r)
-                    PTW_RF_IDLE: begin
-                        if (ptw_read_needs_flush)
-                            ptw_read_flush_state_r <= PTW_RF_FLUSH;
-                    end
-
-                    PTW_RF_FLUSH: begin
-                        if (dcache_flush_done)
-                            ptw_read_flush_state_r <= PTW_RF_WAIT_RESP;
-                    end
-
-                    PTW_RF_WAIT_RESP: begin
-                        if (ptw_bus_done || ptw_bus_error)
-                            ptw_read_flush_state_r <= PTW_RF_IDLE;
-                    end
-
-                    default: begin
-                        ptw_read_flush_state_r <= PTW_RF_IDLE;
-                    end
-                endcase
-            end
-        end
-    end
-
-    // PTW A/D bit writeback → dcache line invalidation
-    // When PTW completes a write to memory (setting A/D bits in a PTE),
-    // the dcache may contain a stale copy of that cache line.
-    // Latch the address and request invalidation; hold until dcache completes.
-    always_ff @(posedge clk or negedge resetn) begin
-        if (!resetn) begin
-            ptw_ad_inv_pending_r <= 1'b0;
-            ptw_ad_inv_addr_r   <= 32'b0;
-        end else begin
-            if (ptw_bus_we && ptw_bus_done && !ptw_ad_inv_pending_r) begin
-                // PTW write completed — request dcache line invalidation
-                ptw_ad_inv_pending_r <= 1'b1;
-                ptw_ad_inv_addr_r   <= ptw_bus_addr;
-            end else if (ptw_ad_inv_done) begin
-                // dcache completed the invalidation
-                ptw_ad_inv_pending_r <= 1'b0;
-            end
-        end
-    end
+    wire sfence_vma_to_mmu_pulse = sfence_vma_req && !sfence_tlb_pulse_sent_r;
 
 
 
@@ -835,7 +738,7 @@ module core_top(
 
         .mmio_req(icache_mmio_req),
         .mmio_accept(icache_mmio_accept),
-        .mmio_addr(),
+        .mmio_addr(icache_mmio_addr),
         .mmio_data(ahb_inst_data),
         .mmio_valid(ahb_inst_valid),
 
@@ -843,6 +746,8 @@ module core_top(
         .refill_addr(icache_refill_addr),
         .refill_data(icache_refill_data),
         .refill_valid(icache_refill_valid),
+        .refill_done(icache_refill_done),
+        .refill_error(icache_refill_error),
 
         .invalidate_req(icache_invalidate_req),
         .invalidate_done(icache_invalidate_done),
@@ -891,7 +796,9 @@ module core_top(
         .dec_csr_addr_valid(dec_csr_addr_valid),
         .dec_csr_access_ok(dec_csr_access_ok),
         .priv_mode(priv_mode),
-        .csr_mstatus(csr_mstatus)
+        .csr_mstatus(csr_mstatus),
+        .csr_mcounteren(csr_mcounteren),
+        .csr_scounteren(csr_scounteren)
     );
 
     // dbg_mu wires must be declared before cpu_execute instantiation
@@ -936,7 +843,6 @@ module core_top(
 
     wire        mem_hwrite;
     wire [2:0]  mem_hsize;
-    wire [31:0] mem_dataAddr_32;
     wire [31:0] mem_writeData_32;
 
     wire [31:0] readData_32_mux;
@@ -964,21 +870,22 @@ module core_top(
     wire        dcache_wb_valid;
     wire        dcache_wb_done;
     wire        dcache_wb_error;
-    wire        dbg_dcache_lh_valid_w;
-    wire [31:0] dbg_dcache_lh_data_w;
-    wire [31:0] dbg_dcache_lh_count_w;
-    wire        dbg_dcache_rf_valid_w;
-    wire [31:0] dbg_dcache_rf_data_w;
-    wire [31:0] dbg_dcache_rf_count_w;
-    wire        dbg_dcache_wb_valid_w;
-    wire [31:0] dbg_dcache_wb_data_w;
-    wire [31:0] dbg_dcache_wb_count_w;
-
+    // Kept as constant hierarchy-visible probes for old Linux debug benches.
+    assign dcache_wb_req   = 1'b0;
+    assign dcache_wb_addr  = 32'b0;
+    assign dcache_wb_data  = 256'b0;
+    assign dcache_wb_valid = 1'b0;
+    assign dcache_wb_done  = 1'b0;
+    assign dcache_wb_error = 1'b0;
     wire        bridge_icache_error;
     wire        bridge_dcache_error;
     wire        bridge_dcache_error_is_store;
     wire [31:0] bridge_bus_error_addr;
 
+    // Historical probes tied to one particular test image and Linux build.
+    // Keep them available for the two forensic regression tests, but exclude
+    // the address comparators from normal simulation and synthesis builds.
+`ifdef LEGACY_LINUX_DEBUG
 `ifdef SIMULATION
     localparam [31:0] DBG_WATCH_PADDR = 32'h8000_21FC;
     localparam [31:0] DBG_FOCUS_STORE_PC0 = 32'h8000_00E0;
@@ -1033,6 +940,16 @@ module core_top(
                                   ((mmu_data_paddr == DBG_WATCH_PADDR) || dbg_focus_store_pc_match);
     wire dbg_watch_load_commit = data_valid_mux && mem_en && !mem_hwrite &&
                                  dbg_focus_load_mem_pc_match;
+`else
+    wire dbg_focus_store_hit = 1'b0;
+    wire dbg_focus_load_hit = 1'b0;
+    wire dbg_focus_load_wb_hit = 1'b0;
+    wire dbg_watch_store_commit = 1'b0;
+    wire dbg_watch_load_commit = 1'b0;
+    wire [31:0] dbg_focus_store_status_w = 32'b0;
+    wire [31:0] dbg_focus_load_status_w = 32'b0;
+    wire [31:0] dbg_focus_load_wb_status_w = 32'b0;
+`endif
     wire [31:0] dbg_watch_load_status_w = {
         26'b0,
         dbg_load_mem_unsigned_w,
@@ -1169,6 +1086,7 @@ module core_top(
         .mmio_hsize(dcache_mmio_hsize),
         .mmio_rdata(ahb_data_rdata),
         .mmio_valid(ahb_data_valid),
+        .mmio_error(bridge_dcache_error),
 
         .refill_req(dcache_refill_req),
         .refill_addr(dcache_refill_addr),
@@ -1177,20 +1095,9 @@ module core_top(
         .refill_done(dcache_refill_done),
         .refill_error(dcache_refill_error),
 
-        .wb_req(dcache_wb_req),
-        .wb_addr(dcache_wb_addr),
-        .wb_data(dcache_wb_data),
-        .wb_valid(dcache_wb_valid),
-        .wb_done(dcache_wb_done),
-        .wb_error(dcache_wb_error),
-
-        .flush_req(dcache_flush_req),
-        .flush_done(dcache_flush_done),
-
-        // Single-line invalidation for PTW A/D bit coherency
-        .inv_line_req(ptw_ad_inv_req),
-        .inv_line_addr(ptw_ad_inv_addr),
-        .inv_line_done(ptw_ad_inv_done),
+        .snoop_write_valid(ptw_dcache_snoop_valid),
+        .snoop_write_addr(ptw_bus_addr),
+        .snoop_write_data(ptw_bus_wdata),
         .dbg_watch_lh_valid(dbg_dcache_lh_valid_w),
         .dbg_watch_lh_data(dbg_dcache_lh_data_w),
         .dbg_watch_lh_count(dbg_dcache_lh_count_w),
@@ -1413,6 +1320,8 @@ module core_top(
         // shared CSR
         .priv_mode(priv_mode),
         .satp(csr_satp),
+        .mstatus_mprv(csr_mstatus[17]),
+        .mstatus_mpp(csr_mstatus[12:11]),
         .mstatus_sum(csr_mstatus[18]),
         .mstatus_mxr(csr_mstatus[19]),
         // single PTW bus
@@ -1423,7 +1332,6 @@ module core_top(
         .ptw_bus_rdata(ptw_bus_rdata),
         .ptw_bus_done(ptw_bus_done),
         .ptw_bus_error(ptw_bus_error),
-        .ptw_bus_hold(ptw_bus_hold),
         // flush
         .sfence_vma(sfence_vma_to_mmu_pulse),
         // sfence completion
@@ -1458,7 +1366,7 @@ module core_top(
         .resetn            (resetn),
         .icache_mmio_req  (icache_mmio_req),
         .icache_mmio_accept(icache_mmio_accept),
-        .icache_mmio_addr (mmu_inst_paddr),
+        .icache_mmio_addr (icache_mmio_addr),
         .dcache_mmio_req  (dcache_mmio_req),
         .dcache_mmio_accept(dcache_mmio_accept),
         .dcache_mmio_addr (dcache_mmio_addr),
@@ -1473,18 +1381,14 @@ module core_top(
         .icache_refill_addr (icache_refill_addr),
         .icache_refill_data (icache_refill_data),
         .icache_refill_valid (icache_refill_valid),
+        .icache_refill_done (icache_refill_done),
+        .icache_refill_error(icache_refill_error),
         .dcache_refill_req  (dcache_refill_req),
         .dcache_refill_addr (dcache_refill_addr),
         .dcache_refill_data (dcache_refill_data),
         .dcache_refill_valid (dcache_refill_valid),
         .dcache_refill_done (dcache_refill_done),
         .dcache_refill_error(dcache_refill_error),
-        .dcache_wb_req      (dcache_wb_req),
-        .dcache_wb_addr     (dcache_wb_addr),
-        .dcache_wb_data     (dcache_wb_data),
-        .dcache_wb_valid    (dcache_wb_valid),
-        .dcache_wb_done     (dcache_wb_done),
-        .dcache_wb_error    (dcache_wb_error),
         .ptw_req           (ptw_req_to_bridge),
         .ptw_addr          (ptw_bus_addr),
         .ptw_we            (ptw_bus_we),

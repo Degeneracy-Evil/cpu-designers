@@ -53,7 +53,7 @@ memory:
     tag_bram_xilinx_byte_size: 9  # Xilinx BRAM Byte_Size param (Vivado 2018.3 only accepts 8 or 9)
 
   # Tag storage: false = register arrays (current), true = BRAM IPs (icachet/dcachet)
-  use_tag_bram: true
+  use_tag_bram: false
 
   tlb:
     num_ways: 2           # Two-way set associative, 16 entries per ITLB/DTLB bank

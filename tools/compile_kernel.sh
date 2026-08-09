@@ -1,40 +1,111 @@
 #!/bin/bash
 # 该脚本用于编译Linux内核和OpenSBI固件，并将生成的固件复制到内核构建目录。
-# 该脚本必须在项目根目录下运行！
-# 最终产物位置在：./build/opensbi/fw_payload.bin
-
-# 更改文件为：./init/main.c 和 ./drivers/tty/serial/8250/8250_of.c
-# 标志为 BOOTDBG
-# 现已回退，但保留bak文件
+# 最终产物位置在：./build/opensbi/platform/generic/firmware/fw_payload.bin
 
 set -euo pipefail
 
 # 准备环境变量
-export CPU_HOME=$(pwd)
-export DTS_HOME=${CPU_HOME}/linux/dts
-export DTB_BUILD=${CPU_HOME}/build/dtb
-export DTB_OUT=${CPU_HOME}/build/dtb/simplecpu.dtb
-export KERNEL_HOME=${CPU_HOME}/linux/linux-7.1
-export KERNEL_BUILD=${CPU_HOME}/build/kernel
-export KERNEL_IMG=${CPU_HOME}/build/kernel/arch/riscv/boot/Image
-export OPENSBI_HOME=${CPU_HOME}/linux/opensbi
-export OPENSBI_BUILD=${CPU_HOME}/build/opensbi
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+CPU_HOME="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
+export CPU_HOME
+export DTS_HOME="${CPU_HOME}/linux/dts"
+export DTB_BUILD="${CPU_HOME}/build/dtb"
+export DTB_OUT="${DTB_BUILD}/simplecpu.dtb"
+export KERNEL_HOME="${CPU_HOME}/linux/linux-7.1"
+export KERNEL_BUILD="${CPU_HOME}/build/kernel"
+export KERNEL_IMG="${KERNEL_BUILD}/arch/riscv/boot/Image"
+export OPENSBI_HOME="${CPU_HOME}/linux/opensbi"
+export OPENSBI_BUILD="${CPU_HOME}/build/opensbi"
+export OPENSBI_DEFCONFIG="${CPU_HOME}/config/opensbi_simplecpu_defconfig"
+export BUSYBOX_HOME="${CPU_HOME}/linux/busybox-1.36.1"
+export ROOTFS_BUILD="${CPU_HOME}/build/rootfs"
+export INITRAMFS_IMG="${CPU_HOME}/build/initramfs.cpio.gz"
+export FIRMWARE_HEX="${CPU_HOME}/build/program/firmware/fw_payload.hex"
+
+MUSL_TOOLCHAIN_BIN="${CPU_HOME}/linux/toolchains/riscv32ima-linux-musl/bin"
+export PATH="${MUSL_TOOLCHAIN_BIN}:${PATH}"
+
+for tool in make dtc cpio gzip grep nproc python3 sudo \
+            riscv32-linux-musl-gcc riscv64-linux-gnu-gcc; do
+  if ! command -v "${tool}" >/dev/null 2>&1; then
+    echo "error: required tool not found: ${tool}" >&2
+    exit 1
+  fi
+done
 
 # 准备环境
-rm -rf ${CPU_HOME}/build/{dtb,kernel,opensbi}
-mkdir -p $DTB_BUILD
-mkdir -p $KERNEL_BUILD
-mkdir -p $OPENSBI_BUILD
+rm -rf "${DTB_BUILD}" "${KERNEL_BUILD}" "${OPENSBI_BUILD}" "${ROOTFS_BUILD}"
+mkdir -p "${DTB_BUILD}" "${KERNEL_BUILD}" "${OPENSBI_BUILD}" "${ROOTFS_BUILD}"
+
+# 编译busybox
+cd "${BUSYBOX_HOME}"
+
+make ARCH=riscv CROSS_COMPILE=riscv32-linux-musl- distclean
+make ARCH=riscv CROSS_COMPILE=riscv32-linux-musl- defconfig
+sed -i \
+  's/# CONFIG_STATIC is not set/CONFIG_STATIC=y/' \
+  .config
+sed -i \
+  -e 's/^CONFIG_HWCLOCK=y/# CONFIG_HWCLOCK is not set/' \
+  -e 's/^CONFIG_FEATURE_HWCLOCK_ADJTIME_FHS=y/# CONFIG_FEATURE_HWCLOCK_ADJTIME_FHS is not set/' \
+  .config
+make ARCH=riscv CROSS_COMPILE=riscv32-linux-musl- oldconfig
+
+make ARCH=riscv CROSS_COMPILE=riscv32-linux-musl- -j"$(nproc)"
+
+## 先在busybox目录下执行make install，生成rootfs目录结构
+make ARCH=riscv CROSS_COMPILE=riscv32-linux-musl- \
+  CONFIG_PREFIX="${ROOTFS_BUILD}" install
+
+# 配置initramfs
+cd "${ROOTFS_BUILD}"
+
+mkdir -p proc sys dev tmp
+cat > init <<'EOF'
+#!/bin/sh
+
+echo "[init] Hello from RV32 initramfs"
+echo "[init] Mounting proc/sysfs/devtmpfs"
+
+mount -t proc none /proc
+mount -t sysfs none /sys
+mount -t devtmpfs none /dev 2>/dev/null || echo "[init] devtmpfs mount failed"
+
+echo "[init] Starting shell loop"
+
+while true; do
+    /bin/sh </dev/console >/dev/console 2>&1
+    echo "[init] shell exited, restarting..."
+    sleep 1
+done
+EOF
+chmod +x init
+
+rm -f dev/console dev/null
+sudo mknod -m 600 dev/console c 5 1
+sudo mknod -m 666 dev/null    c 1 3
+
+find . -print0 | cpio --null -o --format=newc | gzip -9 > "${INITRAMFS_IMG}"
+
+INITRAMFS_LIST="$(gzip -dc "${INITRAMFS_IMG}" | cpio -it 2>/dev/null)"
+if ! grep -Eq '^(\./)?init$' <<<"${INITRAMFS_LIST}"; then
+  echo "error: initramfs does not contain init" >&2
+  exit 1
+fi
+if ! grep -Eq '^(\./)?bin/sh$' <<<"${INITRAMFS_LIST}"; then
+  echo "error: initramfs does not contain bin/sh" >&2
+  exit 1
+fi
 
 # 生成设备树
-cd $DTS_HOME
+cd "${DTS_HOME}"
 
 dtc -I dts -O dtb \
-  -o $DTB_OUT \
+  -o "${DTB_OUT}" \
   simplecpu.dts
 
 # 内核基础配置生成
-cd $KERNEL_HOME
+cd "${KERNEL_HOME}"
 
 make ARCH=riscv mrproper
 
@@ -187,7 +258,7 @@ scripts/config --file "$KERNEL_BUILD/.config" \
 scripts/config --file "$KERNEL_BUILD/.config" \
   -e BLK_DEV_INITRD \
   -e RD_GZIP \
-  --set-str INITRAMFS_SOURCE "${CPU_HOME}/linux/initramfs-rv32.cpio.gz"
+  --set-str INITRAMFS_SOURCE "${INITRAMFS_IMG}"
 
 # 自动补充生成内核配置
 make ARCH=riscv \
@@ -200,7 +271,7 @@ time \
 make ARCH=riscv \
   CROSS_COMPILE=riscv64-linux-gnu- \
   O="$KERNEL_BUILD" \
-  -j$(nproc) \
+  -j"$(nproc)" \
   Image
 
 ##################################
@@ -208,24 +279,44 @@ make ARCH=riscv \
 ##################################
 
 # git clone https://github.com/riscv-software-src/opensbi.git
-# 需要先手动配置CONFIG_SERIAL_SEMIHOSTING=n
-# make PLATFORM=generic menuconfig
 
-cd ${OPENSBI_HOME}
+cd "${OPENSBI_HOME}"
 
-#make clean
+OPENSBI_ARGS=(
+  "O=${OPENSBI_BUILD}"
+  "PLATFORM=generic"
+  "PLATFORM_RISCV_XLEN=32"
+  "PLATFORM_RISCV_ISA=rv32ima_zicsr_zifencei"
+  "PLATFORM_RISCV_ABI=ilp32"
+  "CROSS_COMPILE=riscv64-linux-gnu-"
+)
+OPENSBI_CONFIG="${OPENSBI_BUILD}/platform/generic/kconfig/.config"
 
-make -j$(nproc) \
-  PLATFORM=generic \
-  CROSS_COMPILE=riscv64-linux-gnu- \
-  PLATFORM_RISCV_XLEN=32 \
-  PLATFORM_RISCV_ISA=rv32ima_zicsr_zifencei \
-  PLATFORM_RISCV_ABI=ilp32 \
+# Generate a project-owned minimal configuration without modifying the ignored
+# OpenSBI source checkout.  The normal make invocation below synchronizes it to
+# auto.conf/autoconf.h before compiling.
+mkdir -p "$(dirname -- "${OPENSBI_CONFIG}")"
+KCONFIG_CONFIG="${OPENSBI_CONFIG}" \
+OPENSBI_SRC_DIR="${OPENSBI_HOME}" \
+OPENSBI_PLATFORM="generic" \
+OPENSBI_PLATFORM_SRC_DIR="${OPENSBI_HOME}/platform/generic" \
+python3 "${OPENSBI_HOME}/scripts/Kconfiglib/defconfig.py" \
+  --kconfig "${OPENSBI_HOME}/Kconfig" \
+  "${OPENSBI_DEFCONFIG}"
+
+make -j"$(nproc)" \
+  "${OPENSBI_ARGS[@]}" \
   FW_TEXT_START=0x80000000 \
   FW_PAYLOAD_OFFSET=0x400000 \
-  FW_PAYLOAD_PATH="$KERNEL_IMG" \
-  FW_FDT_PATH="$DTB_OUT"
+  FW_PAYLOAD_PATH="${KERNEL_IMG}" \
+  FW_FDT_PATH="${DTB_OUT}"
 
-# 将生成的OpenSBI固件复制到内核构建目录
-cp build/platform/generic/firmware/fw_payload.{bin,elf} \
-   ${OPENSBI_BUILD}/
+# 生成 SRAM/DDR 仿真可直接加载的 little-endian word HEX。
+mkdir -p "$(dirname -- "${FIRMWARE_HEX}")"
+python3 "${CPU_HOME}/tools/bin2hex.py" \
+  "${OPENSBI_BUILD}/platform/generic/firmware/fw_payload.bin" \
+  "${FIRMWARE_HEX}"
+
+echo "firmware bin: ${OPENSBI_BUILD}/platform/generic/firmware/fw_payload.bin"
+echo "firmware elf: ${OPENSBI_BUILD}/platform/generic/firmware/fw_payload.elf"
+echo "firmware hex: ${FIRMWARE_HEX}"

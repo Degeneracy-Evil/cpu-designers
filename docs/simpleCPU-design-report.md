@@ -17,10 +17,10 @@
 | 数据位宽 | 32-bit |
 | 特权模式 | M/S/U 三级特权模式，支持陷阱委托（medeleg/mideleg） |
 | 地址空间 | 32-bit，Sv32 页表虚拟内存（MMU + TLB + PTW） |
-| 存储架构 | 哈佛结构（icache / dcache 分离），4 路组相联，Tree-PLRU 替换，VIPT |
-| 缓存策略 | 写回（write-back）+ 写分配（write-allocate），脏行驱逐写回主存 |
-| 标签存储 | BRAM IP（icachet 144-bit×8 / dcachet 144-bit×8），19-bit tag 覆盖 128MB DDR3，配置驱动 |
-| TLB 架构 | 4 路 × 4 组组相联（16 项），BRAM IP（tlb_flag 128-bit×4 / tlb_data 128-bit×4），Tree-PLRU 替换 |
+| 存储架构 | 哈佛结构（icache / dcache 分离），2 路组相联，每组 1-bit victim 替换，VIPT |
+| 缓存策略 | ICache 缺失填充；DCache 写通（write-through），store miss 不分配 |
+| 标签存储 | RTL 寄存器数组（每组 2 路 valid + 19-bit tag） |
+| TLB 架构 | ITLB/DTLB 独立的 2 路 × 8 组组相联寄存器数组（各 16 项） |
 | 总线接口 | AXI4 Master（cpu_bus_bridge），支持 INCR8 突发读/写；AXI4-Lite 从设备（PLIC/CLINT/BootROM/SysStatus/APB Bridge） |
 | 中断/异常 | 支持 Trap 进入/返回（mret/sret）、CLINT 定时器中断、PLIC 外部中断 |
 | 特权指令 | SRET、SFENCE.VMA 指令支持 |
@@ -708,60 +708,33 @@ CSR 写掩码：mstatus 仅允许写 MPP[12:11]、SPP[8]、MPIE[7]、SPIE[5]、M
 
 > **注意**：标签位 19 和 7 的差异说明：实际 RTL 中 `ICACHE_TAG_WIDTH` / `DCACHE_TAG_WIDTH` = 19，`ICACHE_TAG_HI` / `DCACHE_TAG_HI` = 26，`ICACHE_TAG_LO` / `DCACHE_TAG_LO` = 8。报告早期版本误写为 7 位 tag（addr[14:8]），实际应为 19 位（addr[26:8]），其中 addr[29:27] 在 AXI 地址中强制为零，addr[31:30] 用于 Cacheable/MMIO 判定。
 
-### 5.2 Tree-PLRU 替换策略 (`tree_plru`)
+### 5.2 两路替换策略
 
-4 路 Tree-PLRU 使用 3-bit 状态编码，组织为二叉树：
+ICache、DCache 和 TLB 每组各使用 1-bit victim 状态。命中或填充 way N 后，victim 指向另一路；替换时优先选择无效路，仅当两路都有效时使用 victim 位。
 
-```
-       bit0
-      /    \
-   bit1    bit2
-   / \     / \
-  W0  W1  W2  W3
-```
+### 5.3 标签存储（寄存器数组）
 
-- `bit=0` 指向左子树，`bit=1` 指向右子树
-- 访问 way N 时，从根到叶路径上所有节点指向 N 所在子树的反方向
-- 替换时从根到叶按 bit 方向行走，定位受害路
-- 优先选择无效路（invalid way first），仅当所有路有效时使用 PLRU
+ICache 和 DCache 标签直接使用 RTL 二维寄存器数组存储，同组两路在当前周期并行比较。`use_tag_bram: false` 是当前硬件实现；Vivado 不生成 `icachet`/`dcachet` IP。
 
-### 5.3 标签存储（BRAM IP）
-
-标签使用 BRAM IP 存储（`use_tag_bram: true`），每组 4 路标签打包为一个 BRAM 字，通过 Port A 读取后在下一周期进行 4 路并行比较：
-
-| 缓存 | 标签 BRAM | BRAM 配置 | 每路标签格式 | BRAM 字内容 | 说明 |
-|------|-----------|-----------|-------------|-------------|------|
-| ICache | `icachet` | 144-bit × 8，True Dual Port，Byte_Enable，Byte_Size=36 | `{V(1), tag[18:0]}` = 20-bit | `{Way3[35:0]×4路打包}` = 144-bit（每路 36-bit，含 16-bit 填充） | 无脏位（指令缓存只读） |
-| DCache | `dcachet` | 144-bit × 8，True Dual Port，Byte_Enable，Byte_Size=36 | `{V(1), D(1), tag[18:0]}` = 21-bit | `{Way3[35:0]×4路打包}` = 144-bit（每路 36-bit，含 15-bit 填充） | dirty 位标识写回需求 |
-
-- BRAM 地址 = set_idx（3-bit），每个地址包含一组 4 路标签
-- ICache 标签 BRAM 字：`{Way3[35:0], Way2[35:0], Way1[35:0], Way0[35:0]}` = 144-bit（每路 36-bit，含 16-bit 填充 + 20-bit 标签项）
-- DCache 标签 BRAM 字：`{Way3[35:0], Way2[35:0], Way1[35:0], Way0[35:0]}` = 144-bit（每路 36-bit，含 15-bit 填充 + 21-bit 标签项）
-- Port A：CPU 读（S_IDLE 使能，S_TAG_READ 出结果）
-- Port B：Refill 写 / Dirty 更新 / Invalidate 写
-- 命中判定：`valid && (tag == paddr[26:8])`，4 路并行，BRAM 读延迟 1 周期
-- Byte-write enable 支持单路标签更新（Refill/Dirty 置位时仅写目标路）
+- ICache：每路 `{valid, tag[18:0]}`
+- DCache：每路 `{valid, tag[18:0]}`；当前为写通策略，无 dirty 位和驱逐写回
+- 命中判定：`valid && (tag == paddr[26:8])`
+- invalidate 直接清除对应组的 valid 位
 
 ### 5.4 数据存储（BRAM IP）
 
 | BRAM | 配置 | 端口 A | 端口 B |
 |------|------|--------|--------|
-| icached | 256-bit × 32，True Dual Port，WRITE_FIRST，Byte_Enable | CPU 读 | Refill 写 |
-| dcached | 256-bit × 32，True Dual Port，WRITE_FIRST，Byte_Enable | CPU 读/写 | Refill 写 / Victim 读 |
-| icachet | 144-bit × 8，True Dual Port，Byte_Enable，Byte_Size=36 | CPU 读 | Refill 写 / Invalidate 写 |
-| dcachet | 144-bit × 8，True Dual Port，Byte_Enable，Byte_Size=36 | CPU 读 / Flush 扫描 | Refill 写 / Dirty 更新 / Invalidate 写 |
-| tlb_flag | 128-bit × 4，True Dual Port，Byte_Enable，Byte_Size=8 | i-side 查找 | d-side 查找 / Fill 写 / Flush 写 |
-| tlb_data | 128-bit × 4，True Dual Port，Byte_Enable，Byte_Size=8 | i-side 查找 | d-side 查找 / Fill 写 / Flush 写 |
+| icached | 256-bit × 16，True Dual Port，WRITE_FIRST，Byte_Enable | CPU 读 | Refill 写 |
+| dcached | 256-bit × 16，True Dual Port，WRITE_FIRST，Byte_Enable | CPU 读/写 | Refill 写 |
 
-数据 BRAM 地址映射：`bram_addr = {set_idx[2:0], way[1:0]}`，5-bit 寻址 32 项。
-标签 BRAM 地址映射：`bram_addr = set_idx[2:0]`，3-bit 寻址 8 项（每组 4 路打包为 1 字）。
-TLB BRAM 地址映射：`bram_addr = set_idx[1:0]`，2-bit 寻址 4 项（每组 4 路打包为 1 字）。
+数据 BRAM 地址映射：`bram_addr = {set_idx[2:0], way}`，4-bit 寻址 16 项。标签和 TLB 均由 RTL 寄存器数组实现。
 
 **BRAM 读延迟差异**：
 
 - 仿真：BRAM 行为模型提供组合输出（0-cycle 延迟）
 - 硬件：`READ_LATENCY=1`，寄存输出（1-cycle 延迟）
-- 标签/TLB BRAM：ICache/DCache 控制器新增 `S_TAG_READ` 状态等待 BRAM 输出；TLB 查找结果延迟 1 周期有效
+- 标签/TLB 是寄存器数组，不引入 BRAM 读延迟
 - 仿真通过不代表硬件时序正确，综合时需关注
 
 ### 5.5 指令缓存控制器 (`icache_ctrl`)
@@ -771,17 +744,16 @@ ICache 采用 VIPT（Virtually-Indexed Physically-Tagged）策略：使用虚拟
 ICache FSM 状态转换：
 
 ```
-S_IDLE → S_TAG_READ (BRAM 使能，锁存请求，等待标签 BRAM 输出)
-S_TAG_READ → hit:  使能数据 BRAM，进 S_READ
-S_TAG_READ → miss: 锁存 set/addr/victim，发 refill_req，进 S_REFILL
-S_READ:          返回数据 BRAM 输出，更新 PLRU，回 S_IDLE
-S_REFILL:        保持 refill_req，等 refill_valid，写 BRAM PortB，
-                 更新标签+PLRU，旁路返回数据，回 S_IDLE
-S_INVALIDATE:    逐组写零标签 BRAM，完成后回 S_IDLE
+S_IDLE → S_LOOKUP: 锁存请求（MMIO 则进 S_MMIO_WAIT）
+S_LOOKUP → hit:  读数据 BRAM，进 S_READ_HIT
+S_LOOKUP → miss: 选择 victim，发 refill_req，进 S_REFILL
+S_READ_HIT:      返回数据 BRAM 输出，更新 victim，回 S_IDLE
+S_REFILL:        保持 refill_req，完成后更新数据 BRAM、tag 和 victim
+S_INVALIDATE:    逐组清除两路 valid，完成后回 S_IDLE
 ```
 
 - MMIO 旁路：`paddr[31]==0 || paddr[30]==1` 时直接发 AXI 请求，不经过缓存（使用物理地址判断，即 TLB 翻译后的 paddr；此前使用 vaddr 判断在 VA≠PA 时会导致 MMIO 误命中缓存，为 Linux 适配关键修复）
-- 标签比较在 S_TAG_READ 完成（BRAM 1-cycle 延迟后），命中时进 S_READ 读数据 BRAM
+- 标签在 S_LOOKUP 中两路并行比较，命中时进 S_READ_HIT 等待数据 BRAM
 - 缺失时向 `cpu_bus_bridge` 发 INCR8 读突发请求，8 拍填充整行
 - 数据 BRAM 读使能门控 `mmu_ready`，避免使用过时物理地址
 
@@ -792,39 +764,22 @@ DCache 同样采用 VIPT 策略，使用虚拟地址的页内偏移位作为 set
 DCache FSM 状态转换：
 
 ```
-S_IDLE → S_TAG_READ (标签 BRAM 使能，锁存请求，等待 BRAM 输出)
-S_TAG_READ → store hit:  写数据 BRAM PortA，置 dirty（通过标签 BRAM PortB byte-write），更新 PLRU，ready=1
-S_TAG_READ → load hit:   进 S_READ_HIT
-S_TAG_READ → miss:       锁存请求，若 victim dirty → S_WB_READ，否则 → S_REFILL
-S_READ_HIT:          返回数据 BRAM 输出，更新 PLRU，回 S_IDLE
-S_WB_READ:           使能数据 BRAM PortB 读，重构 WB 地址，进 S_WB_SEND
-S_WB_SEND:           保持 wb_req，等 wb_valid，清 dirty，发 refill_req，进 S_REFILL
-S_REFILL:            保持 refill_req，等 refill_valid，写 BRAM PortB
-                     （store miss 时合并写入数据），更新标签+PLRU，旁路返回，回 S_IDLE
-S_FLUSH_SCAN:        逐组扫描标签 BRAM，检查脏行
-S_FLUSH_CHECK:       检查当前组各路脏位，若有脏行 → S_FLUSH_WB_RD
-S_FLUSH_WB_RD:       读出脏行数据 BRAM，进 S_FLUSH_WB_SD
-S_FLUSH_WB_SD:       发写回请求，等 wb_valid，继续扫描下一脏行或下一组
-S_FLUSH_INVALIDATE:  写零标签 BRAM，使所有路无效
+S_IDLE → S_LOOKUP: 锁存请求（MMIO 则进 S_BYPASS_WAIT）
+S_LOOKUP → load hit:  读数据 BRAM，进 S_READ_HIT
+S_LOOKUP → load miss: 发 refill_req，进 S_REFILL
+S_LOOKUP → store:     向主存发单拍写，进 S_STORE_WAIT
+S_STORE_WAIT:             主存写成功后，若 Cache 命中则同步更新数据 BRAM
 ```
 
 **写策略**：
 
-- 写回（write-back）：Store 命中时仅写 BRAM + 置 dirty，不立即写主存
-- 写分配（write-allocate）：Store 缺失时先 Refill 读入整行，再合并写入
+- 写通（write-through）：Store 总是先写主存，命中时再更新 Cache 副本
+- Store miss 不分配，因此没有 dirty 位、驱逐写回或 flush 扫描状态
 
 **Store 数据合并**：
 
 - Byte Store：`wdata[7:0] << (addr[1:0] * 8)`
 - Halfword/Word Store：直接使用 `cpu_req_wdata`（`cpu_mem` 已将数据放置到正确字节位置）
-- Store 缺失合并：Refill 读回数据中，仅替换 store 目标字，其余保持 Refill 数据
-
-**脏行驱逐（Writeback）**：
-
-- 替换受害路时，若 dirty=1，先通过 BRAM PortB 读出整行 256-bit 数据
-- 重构写回地址：`{tag, set_idx, 3'b000, 2'b00}`
-- 通过 `cpu_bus_bridge` 发 INCR8 写突发，8 拍写回主存
-- 写回完成后清 dirty，再发 Refill 读请求
 
 ### 5.7 总线桥接 (`cpu_bus_bridge`)
 
@@ -1043,17 +998,13 @@ PTW 在页表漫游过程中自动管理访问位（A）和脏位（D）：
 
 **SFENCE.VMA 指令**：
 
-执行 SFENCE.VMA 时触发 dcache 刷新 + TLB 刷新：
-1. **dcache 刷新**：写回所有脏行（writeback dirty lines），然后失效所有缓存行（invalidate all lines）。实现：`core_top.sv` 检测 sfence.vma，启动 dcache flush FSM（S_FLUSH_SCAN 逐组扫描，S_FLUSH_WB_RD/WB_SD 写回脏行，S_FLUSH_INVALIDATE 失效所有行）
-2. **TLB 刷新**：刷新两个 TLB 的全部项（逐组写零 BRAM，S_FLUSH 状态机）
-
-此前 sfence.vma 仅刷新 TLB；新增 dcache 刷新确保地址翻译一致性——修改页表后 dcache 中缓存的旧 PTE 数据不会干扰后续翻译。若指定 rs1（ASID）或 rs2（VPN），可选择性刷新，当前实现为全刷新。
+执行 SFENCE.VMA 时等待先前的写通 store 完成，然后刷新 ITLB/DTLB 的全部项。PTW 写 A/D 位时通过 snoop 更新已缓存的 PTE，因此不需要 dcache dirty-line flush。当前实现忽略 rs1/rs2，统一执行全量 TLB 刷新。
 
 **FENCE.I 指令**：
 
 执行 FENCE.I 时：
-1. 刷新 dcache：写回所有脏行（writeback dirty lines）
-2. 失效 icache：使所有标签 valid=0
+1. 等待先前的写通 store 完成
+2. 逐组失效 icache，使所有标签 valid=0
 
 ### 5.18 总线桥接 PTW 路径 (`cpu_bus_bridge`)
 
@@ -1086,7 +1037,7 @@ PTW 优先级高于 Cache Writeback 和 Refill，确保页表漫游不会被缓�
 
 ```
 vivado_config.yaml
-  ├─→ ip_gen.py           → create_ip TCL（BRAM 几何参数：ROM/icached/dcached/icachet/dcachet/tlb_flag/tlb_data）
+  ├─→ ip_gen.py           → create_ip TCL（当前生成 ROM/icached/dcached）
   ├─→ cache_header_gen.py → cache_def.svh（`define 宏：地址切片、宽度常量、存储模式）
   └─→ operations.py       → _tcl_setup_ip() 在 create/refresh 时执行
 ```
@@ -1096,7 +1047,7 @@ vivado_config.yaml
 - ROM 参数：`ROM_DATA_WIDTH`、`ROM_DEPTH`、`ROM_ADDR_WIDTH`
 - ICache/DCache 参数：`NUM_SETS`、`NUM_WAYS`、`TAG_WIDTH`、`LINE_WORDS`、`LINE_WIDTH`、`DEPTH`、`ADDR_WIDTH`、`WEA_WIDTH`
 - 地址切片：`WORD_OFF_LO/HI`、`SET_IDX_LO/HI`、`TAG_LO/HI`
-- 标签 BRAM 参数：`TAG_ENTRY_WIDTH`、`TAG_BRAM_WIDTH/DEPTH/ADDR_WIDTH/WEA_WIDTH/BYTE_SIZE`
+- 标签参数：`TAG_ENTRY_WIDTH`
 - TLB 参数：`TLB_NUM_WAYS`、`TLB_NUM_SETS`、`TLB_SET_IDX_WIDTH`、`TLB_WAY_WIDTH`
 - TLB BRAM 参数：`TLB_FLAG/DATA_ENTRY_WIDTH`、`TLB_FLAG/DATA_BRAM_WIDTH/DEPTH/ADDR_WIDTH/WEA_WIDTH/BYTE_SIZE`
 - 存储模式：`USE_TAG_BRAM`、`USE_TLB_BRAM`
@@ -1109,16 +1060,16 @@ vivado_config.yaml
 |------|--------|------|
 | `rom.data_width` | 32 | ROM 字宽 |
 | `rom.depth` | 8192 | ROM 深度（32KB） |
-| `rom.byte_enable` | false | ROM 字节写使能（当前关闭） |
+| `rom.byte_enable` | true | ROM BRAM 字节写使能 |
 | `icache/dcache.num_sets` | 8 | 组数 |
-| `icache/dcache.num_ways` | 4 | 相联度（⚠ tree_plru 硬编码，勿改） |
-| `icache/dcache.tag_width` | 7 | 标签位宽（⚠ tree_plru 硬编码，勿改） |
+| `icache/dcache.num_ways` | 2 | 相联度 |
+| `icache/dcache.tag_width` | 19 | 标签位宽 |
 | `icache/dcache.line_words` | 8 | 每行字数 |
 | `icache/dcache.byte_enable` | true | 数据 BRAM 字节写使能 |
-| `use_tag_bram` | true | 标签存储模式：true=BRAM IP，false=寄存器阵列 |
-| `tlb.num_ways` | 4 | TLB 相联度（⚠ tree_plru 硬编码，勿改） |
-| `tlb.num_sets` | 4 | TLB 组数（总项数 = ways × sets = 16） |
-| `use_tlb_bram` | true | TLB 存储模式：true=BRAM IP，false=寄存器阵列 |
+| `use_tag_bram` | false | 当前标签使用寄存器数组，不生成 Tag BRAM IP |
+| `tlb.num_ways` | 2 | TLB 相联度 |
+| `tlb.num_sets` | 8 | ITLB/DTLB 各 16 项 |
+| `use_tlb_bram` | false | TLB 使用寄存器数组 |
 
 ---
 
@@ -1286,10 +1237,10 @@ UART 外设已替换为 ns16550a 标准串口（`src/rtl/APB/perips/uart16550/ua
 
 ### 8.5 已知限制
 
-- **BRAM 读延迟**：仿真中 BRAM 行为模型为组合输出（0-cycle），硬件中为寄存输出（1-cycle），仿真通过不代表硬件时序正确。Cache/TLB 控制器已新增 S_TAG_READ 等状态处理 BRAM 延迟
+- **BRAM 读延迟**：仿真中 BRAM 行为模型为组合输出（0-cycle），硬件中为寄存输出（1-cycle），Cache 数据路径通过 S_READ_HIT 等状态等待数据 BRAM；Tag/TLB 为寄存器数组
 - **SRAM 地址空间**：SRAM 仿真模式下 `axi_wrap_ram` 容量由 BRAM 配置决定，DDR3 模式下地址范围 `0x8000_0000` 起始
-- **Cache 容量**：ICache/DCache 各 1KB（8 组 × 4 路 × 32 字节），大工作集程序可能频繁缺失
-- **TLB 容量**：4 路 × 4 组 = 16 项，大工作集或频繁上下文切换可能 TLB 抖动
+- **Cache 容量**：ICache/DCache 各 512B（8 组 × 2 路 × 32 字节），大工作集程序可能频繁缺失
+- **TLB 容量**：ITLB/DTLB 各 2 路 × 8 组 = 16 项，大工作集或频繁上下文切换可能 TLB 抖动
 - **SRAM 字节写**：SRAM 仿真模型（axi_wrap_ram）支持 AXI4 字节写（wstrb），DDR3 通过 MIG 管理
 - **PMP 硬件强制未实现**：pmpcfg0–pmpcfg3 和 pmpaddr0–pmpaddr15 共 20 个 CSR 已实现读写存储，但硬件地址匹配与权限检查未实现。Linux 可在无 PMP 强制下启动
 - **CLINT 标准地址布局**：寄存器布局遵循 SiFive CLINT 标准（msip @ 0x0000, mtimecmp_lo @ 0x4000, mtimecmp_hi @ 0x4004, mtime_lo @ 0xBFF8, mtime_hi @ 0xBFFC），addr[15:0] 译码。Linux 标准 sifive_clint 驱动可直接使用
@@ -1383,12 +1334,10 @@ UART 外设已替换为 ns16550a 标准串口（`src/rtl/APB/perips/uart16550/ua
 
 | BRAM IP | 配置 | 用途 |
 |---------|------|------|
-| `icached` | 256-bit × 32，True Dual Port，Byte_Enable | ICache 数据存储 |
-| `dcached` | 256-bit × 32，True Dual Port，Byte_Enable | DCache 数据存储 |
-| `icachet` | 32-bit × 8，True Dual Port，Byte_Enable(Byte_Size=8) | ICache 标签存储 |
-| `dcachet` | 36-bit × 8，True Dual Port，Byte_Enable(Byte_Size=9) | DCache 标签存储 |
-| `tlb_flag` | 128-bit × 4，True Dual Port，Byte_Enable(Byte_Size=8) | TLB 标志存储 |
-| `tlb_data` | 128-bit × 4，True Dual Port，Byte_Enable(Byte_Size=8) | TLB 数据存储 |
+| `icached` | 256-bit × 16，True Dual Port，Byte_Enable | ICache 数据存储 |
+| `dcached` | 256-bit × 16，True Dual Port，Byte_Enable | DCache 数据存储 |
+
+Cache 标签和 ITLB/DTLB 使用 RTL 寄存器数组，不生成独立 BRAM IP。
 
 ### 9.2 Testbench 文件
 
@@ -1493,14 +1442,14 @@ UART 外设已替换为 ns16550a 标准串口（`src/rtl/APB/perips/uart16550/ua
 10. **SRET/SFENCE.VMA/fence.i 指令**：S-mode 陷阱返回、TLB+dcache 刷新、icache 失效 + dcache 写回
 11. **硬件管理 A/D 位**：PTW 自动写回 PTE 的访问位和脏位
 12. **PTW-dcache 一致性**：PTW 更新 PTE 后失效 dcache 对应行，确保后续读看到更新 PTE
-13. **4 路组相联缓存**：ICache/DCache 各 1KB（8 组 × 4 路 × 32B 行），BRAM 标签存储
-14. **Tree-PLRU 替换**：3-bit 状态编码，无效路优先，近似 LRU 替换策略（Cache 和 TLB 均使用）
-15. **写回 + 写分配**：Store 命中仅写 BRAM + 置 dirty，缺失先 Refill 再合并写入，脏行驱逐写回主存
+13. **2 路组相联缓存**：ICache/DCache 各 512B（8 组 × 2 路 × 32B 行），标签使用寄存器数组
+14. **两路 victim 替换**：每组 1-bit 状态，无效路优先
+15. **DCache 写通**：Store 命中同时更新 Cache 和主存，Store miss 不分配，不需要 dirty 位和驱逐写回
 16. **INCR8 突发传输**：Cache Refill/Writeback 使用 AXI4 INCR8 突发，8 拍传输整行 256-bit 数据
 17. **MMIO 旁路**：`paddr[31]==0 || paddr[30]==1` 直接走 AXI 总线，不经过缓存，使用物理地址判断（Linux 适配修复：VA≠PA 时 vaddr 判断导致 MMIO 误命中缓存）
 18. **VIPT（Virtically-Indexed Physically-Tagged）**：Cache 使用虚拟地址的页内偏移位索引，物理地址标签比较，避免 MMU 翻译延迟
-19. **BRAM-based 标签存储**：Tag 使用 BRAM IP（icachet/dcachet），byte-write enable 支持单路更新，S_TAG_READ 状态处理 1-cycle 读延迟
-20. **BRAM-based TLB**：4 路×4 组组相联，tlb_flag/tlb_data 双 BRAM，双端口（i-side/d-side），Tree-PLRU 替换
+19. **寄存器标签存储**：Cache Tag 两路并行比较，无额外 BRAM 读等待状态
+20. **独立 ITLB/DTLB**：各 2 路×8 组，寄存器数组实现，每组 1-bit victim 替换
 21. **AXI4 + AXI4-Lite + APB 三级总线**：高速主存挂 AXI4，控制寄存器挂 AXI4-Lite，低速外设挂 APB，通过桥接互联
 22. **AXI4 Master 接口**：cpu_bus_bridge 五通道 AW/W/B/AR/R，支持 INCR8 突发读/写
 23. **AXI4-Lite 从设备**：PLIC/CLINT/BootROM/SysStatus/APB Bridge，手动地址译码 + 从设备多路复用

@@ -218,8 +218,10 @@ rsp_error
 - 完成一轮 FPGA 综合/实现审计。首次布线的 setup WNS 为 -0.500 ns、TNS 为 -1.388 ns，失败路径均位于 PLIC 中断优先级比较链。PLIC MMIO 仍保持 32 bit 视图，内部优先级和 threshold 收窄为平台实际实现的 3 bit WARL 字段（0..7），删除了不必要的 32 bit 比较器链。`axi4lite_plic_unit` 8/8 PASS，系统级 `mmio_plic` 4/4 PASS。
 - PLIC 简化后从全新工程生成 bitstream 成功。最终 routed timing：WNS +0.978 ns、TNS 0、WHS +0.036 ns、THS 0，53,707 个 setup endpoint 无失败，报告明确显示所有用户时序约束均满足。产物为 `build/project/fpga/simplecpu_soc.runs/impl_1/system_top.bit`。
 - BRAM IP 生成器现显式记录 ROM A/B 口 100 MHz、Cache A/B 口 50 MHz。Vivado 2018.3 的 `blk_mem_gen` 仍会为 boot ROM 生成 20 ns 的 OOC `clka` 约束，因而在顶层 10 ns 时钟下给出 `Timing 38-316` 提示；这一提示不影响顶层 routed timing 结论，干净重建的最终时序和 bitstream 均已通过。
+- 已从当前 BusyBox、Linux 7.1、OpenSBI 和 `simplecpu.dts` 干净生成新的 Linux 集成镜像。`fw_payload.bin` 为 10,237,560 bytes，对应 HEX 为 2,559,390 个 32-bit word；4 MiB payload 偏移处与本轮 kernel `Image` 逐字节一致。initramfs 包含可执行 `init`、静态 RV32 soft-float BusyBox `bin/sh`、`dev/console` 和 `dev/null`；OpenSBI ELF 为 RV32IMA，入口 `0x80000000`，semihosting 已禁用。产物位于 `build/opensbi/platform/generic/firmware/` 和 `build/program/firmware/fw_payload.hex`。
+- OpenSBI 改用项目自有的 `config/opensbi_simplecpu_defconfig`，从 upstream generic 约 135 个启用项收缩到 24 个。仅保留 UART8250、MTIMER、MSWI、PLIC 及 Linux 启动/诊断需要的 TIME、RFENCE、IPI、HSM、SRST、DBCN SBI 扩展；已去掉无关平台 override、外设驱动、PMU/CPPC/SUSP/vendor 扩展和 semihosting。全量重建通过，OpenSBI 在 payload 前保留的固件区间为 `0x80000000..0x80042000`。
 
-未执行 `cpu_full` 的 1600 万周期长等待仿真、OpenSBI/Linux 以及 DDR 仿真；按计划等待项目维护者提供新的 OpenSBI/kernel/initramfs 镜像后再进入集成阶段。
+未执行 `cpu_full` 的 1600 万周期长等待仿真、完整 OpenSBI/Linux 启动以及 DDR 仿真；新镜像已就绪。裁剪后的 SRAM 后端 10 ms 有界仿真可稳定执行到 OpenSBI FDT 解析阶段，但仍未看到 UART 输出；下一步对 `fdt_offset_ptr` 周边的寄存器和访存进行定点观测，区分正常的设备树扫描与 RTL 访存/数据异常。
 
 ## 开发纪律
 

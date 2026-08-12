@@ -47,12 +47,7 @@ module tb_dcache_writethrough_unit;
         .refill_data(refill_data), .refill_valid(refill_valid),
         .refill_done(refill_done), .refill_error(refill_error),
         .snoop_write_valid(1'b0), .snoop_write_addr(32'b0),
-        .snoop_write_data(32'b0),
-        .dbg_watch_lh_valid(), .dbg_watch_lh_data(),
-        .dbg_watch_lh_count(), .dbg_watch_rf_valid(),
-        .dbg_watch_rf_data(), .dbg_watch_rf_count(),
-        .dbg_watch_wb_valid(), .dbg_watch_wb_data(),
-        .dbg_watch_wb_count()
+        .snoop_write_data(32'b0)
     );
 
     reg [31:0] memory [0:1023];

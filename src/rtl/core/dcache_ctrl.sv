@@ -44,17 +44,7 @@ module dcache_ctrl(
     // update an already-cached PTE without an invalidate/flush state machine.
     input  wire        snoop_write_valid,
     input  wire [31:0] snoop_write_addr,
-    input  wire [31:0] snoop_write_data,
-
-    output wire        dbg_watch_lh_valid,
-    output wire [31:0] dbg_watch_lh_data,
-    output wire [31:0] dbg_watch_lh_count,
-    output wire        dbg_watch_rf_valid,
-    output wire [31:0] dbg_watch_rf_data,
-    output wire [31:0] dbg_watch_rf_count,
-    output wire        dbg_watch_wb_valid,
-    output wire [31:0] dbg_watch_wb_data,
-    output wire [31:0] dbg_watch_wb_count
+    input  wire [31:0] snoop_write_data
 );
     localparam NUM_SETS   = `DCACHE_NUM_SETS;
     localparam TAG_WIDTH  = `DCACHE_TAG_WIDTH;
@@ -173,25 +163,6 @@ module dcache_ctrl(
         .doutb(data_b_out)
     );
 
-    localparam [31:0] DBG_WATCH_LINE_ADDR = 32'h8000_21E0;
-    localparam integer DBG_WATCH_WORD_OFF = 7;
-    reg dbg_lh_valid_r;
-    reg [31:0] dbg_lh_data_r;
-    reg [31:0] dbg_lh_count_r;
-    reg dbg_rf_valid_r;
-    reg [31:0] dbg_rf_data_r;
-    reg [31:0] dbg_rf_count_r;
-
-    assign dbg_watch_lh_valid = dbg_lh_valid_r;
-    assign dbg_watch_lh_data = dbg_lh_data_r;
-    assign dbg_watch_lh_count = dbg_lh_count_r;
-    assign dbg_watch_rf_valid = dbg_rf_valid_r;
-    assign dbg_watch_rf_data = dbg_rf_data_r;
-    assign dbg_watch_rf_count = dbg_rf_count_r;
-    assign dbg_watch_wb_valid = 1'b0;
-    assign dbg_watch_wb_data = 32'b0;
-    assign dbg_watch_wb_count = 32'b0;
-
     integer s;
     always_ff @(posedge clk or negedge resetn) begin
         if (!resetn) begin
@@ -212,12 +183,6 @@ module dcache_ctrl(
             refill_addr_r <= 32'b0;
             response_data_r <= 32'b0;
             cpu_ready_r <= 1'b0;
-            dbg_lh_valid_r <= 1'b0;
-            dbg_lh_data_r <= 32'b0;
-            dbg_lh_count_r <= 32'b0;
-            dbg_rf_valid_r <= 1'b0;
-            dbg_rf_data_r <= 32'b0;
-            dbg_rf_count_r <= 32'b0;
             for (s = 0; s < NUM_SETS; s = s + 1) begin
                 valid_array[s][0] <= 1'b0;
                 valid_array[s][1] <= 1'b0;
@@ -271,11 +236,6 @@ module dcache_ctrl(
                     response_data_r <= data_a_out[op_word_r*32 +: 32];
                     cpu_ready_r <= 1'b1;
                     victim_array[op_set_r] <= ~hit_way;
-                    if ({op_addr_r[31:5], 5'b0} == DBG_WATCH_LINE_ADDR) begin
-                        dbg_lh_valid_r <= 1'b1;
-                        dbg_lh_data_r <= data_a_out[op_word_r*32 +: 32];
-                        dbg_lh_count_r <= dbg_lh_count_r + 1'b1;
-                    end
                     state <= S_IDLE;
                 end
 
@@ -291,14 +251,6 @@ module dcache_ctrl(
                             victim_array[op_set_r] <= ~fill_way;
                             response_data_r <= refill_data[op_word_r*32 +: 32];
                             cpu_ready_r <= 1'b1;
-                            if ({refill_addr_r[31:5], 5'b0} == DBG_WATCH_LINE_ADDR) begin
-                                dbg_lh_valid_r <= 1'b1;
-                                dbg_lh_data_r <= refill_data[op_word_r*32 +: 32];
-                                dbg_lh_count_r <= dbg_lh_count_r + 1'b1;
-                                dbg_rf_valid_r <= 1'b1;
-                                dbg_rf_data_r <= refill_data[DBG_WATCH_WORD_OFF*32 +: 32];
-                                dbg_rf_count_r <= dbg_rf_count_r + 1'b1;
-                            end
                             state <= S_IDLE;
                         end
                     end

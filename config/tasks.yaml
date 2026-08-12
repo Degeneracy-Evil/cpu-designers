@@ -365,31 +365,12 @@ tasks:
     blhex: boot/bootloader_phase1.hex
     phex: test/regression/reg_linux_ptr_reload.hex
     runtime: 20ms
-    verilog_defines:
-      LEGACY_LINUX_DEBUG: 1
 
   reg_linux_field_values:
     tb: tb_regression_reg_linux_field_values
     blhex: boot/bootloader_phase1.hex
     phex: test/regression/reg_linux_field_values.hex
     runtime: 20ms
-    verilog_defines:
-      LEGACY_LINUX_DEBUG: 1
-
-  reg_linux_ptr_reload_ddr3:
-    tb: tb_regression_reg_linux_ptr_reload
-    blhex: boot/bootloader.hex
-    sim_mode: ddr3
-    verilog_defines:
-      LEGACY_LINUX_DEBUG: 1
-      SIM_BYPASS_INIT_CAL: FAST
-      SIMULATION: "TRUE"
-      SIMU_USE_DDR: 1
-      SIMU_USE_PLL: 0
-      SIMU_DDR_MODE: 1
-      sg125: 1
-    phex: test/regression/reg_linux_ptr_reload.hex
-    runtime: 1s
 
   # ── 应用仿真 ──
 
@@ -466,9 +447,6 @@ tasks:
     sim_mode: ddr3
     runtime: 300s
     verilog_defines:
-      LINUX_BOOT: "TRUE"
-      DEBUG_TRAP_DELEG: 1
-      DEBUG_UART_TX: 1
       SIM_BYPASS_INIT_CAL: FAST
       SIMULATION: "TRUE"
       SIMU_USE_DDR: 1
@@ -482,9 +460,6 @@ tasks:
     phex: firmware/fw_payload.hex
     runtime: 300s
     verilog_defines:
-      LINUX_BOOT: "TRUE"
-      DEBUG_TRAP_DELEG: 1
-      DEBUG_UART_TX: 1
       SIMULATION: "TRUE"
       SIMU_USE_DDR: 0
       SIMU_USE_PLL: 0
@@ -495,9 +470,6 @@ tasks:
     phex: firmware/fw_payload_16mb.hex
     runtime: 300s
     verilog_defines:
-      LINUX_BOOT: "TRUE"
-      DEBUG_TRAP_DELEG: 1
-      DEBUG_UART_TX: 1
       SIMULATION: "TRUE"
       SIMU_USE_DDR: 0
       SIMU_USE_PLL: 0
@@ -511,9 +483,6 @@ tasks:
     phex: test/integration/cpu_trap.hex
     runtime: 1us
     verilog_defines:
-      LINUX_BOOT: "TRUE"
-      DEBUG_TRAP_DELEG: 1
-      DEBUG_UART_TX: 1
       SIMULATION: "TRUE"
       SIMU_USE_DDR: 0
       SIMU_USE_PLL: 0

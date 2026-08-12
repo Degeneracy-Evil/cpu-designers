@@ -25,7 +25,6 @@
 // ----------------------------------------------------------------
 reg         clk;
 reg         resetn;
-reg  [7:0]  sw;
 reg         uart_rx;
 wire        uart_tx;
 
@@ -40,9 +39,6 @@ wire [15:0] gpio_io;
 wire [15:0] ddr3_dq_wire;
 wire [1:0]  ddr3_dqs_p_wire;
 wire [1:0]  ddr3_dqs_n_wire;
-wire [15:0] lcd_data_io_wire;
-wire        ct_int_wire;
-wire        ct_sda_wire;
 
 // ----------------------------------------------------------------
 // DDR3 output wires (driven by system_top, read by ddr3_model)
@@ -68,7 +64,6 @@ system_top u_soc (
     .clk_system_bypass(1'b0),
     .clk_ddr_ref_bypass(1'b0),
     .clk_wiz_locked_bypass(1'b0),
-    .sw               (sw),
     .uart_rx          (uart_rx),
     .uart_tx          (uart_tx),
     .spi_miso         (1'b0),
@@ -78,17 +73,6 @@ system_top u_soc (
     .gpio_ctrl_out    (),
     .gpio_data_out    (),
     .gpio_io          (gpio_io),
-    .lcd_rst          (),
-    .lcd_cs           (),
-    .lcd_rs           (),
-    .lcd_wr           (),
-    .lcd_rd           (),
-    .lcd_data_io      (lcd_data_io_wire),
-    .lcd_bl_ctr       (),
-    .ct_int           (ct_int_wire),
-    .ct_sda           (ct_sda_wire),
-    .ct_scl           (),
-    .ct_rstn          (),
     .ddr3_addr        (ddr3_addr_wire),
     .ddr3_ba          (ddr3_ba_wire),
     .ddr3_ras_n       (ddr3_ras_n_wire),
@@ -117,7 +101,6 @@ end
 // Reset sequencing
 // ----------------------------------------------------------------
 initial begin
-    sw      = 8'b0;
     uart_rx = 1'b1;   // idle
     resetn  = 1'b0;
 
@@ -481,7 +464,6 @@ wire [31:0] mem_pc        = u_soc.mem_pc;
 wire [31:0] mem_inst      = u_soc.mem_inst;
 wire [31:0] wb_pc         = u_soc.wb_pc;
 wire [31:0] wb_inst       = u_soc.wb_inst;
-wire [31:0] display_state = u_soc.display_state;
 
 // ----------------------------------------------------------------
 // Pass / fail counters
@@ -491,8 +473,7 @@ integer fail_count;
 
 // ----------------------------------------------------------------
 // check_reg — force rf_addr into core_top, read rf_data
-//   rf_addr is a wire in system_top driven by a continuous assignment
-//   (display_number - 11).  The force overrides it during the check.
+//   rf_addr is tied off in system_top; force overrides it during the check.
 // ----------------------------------------------------------------
 task check_reg;
     input  [4:0]  addr;

@@ -66,12 +66,12 @@ docs: replace stale references with current project documentation
 
 ### A1. 静态与构建基线
 
-- [ ] `git diff --check` 通过。
-- [ ] `python3 -m compileall -q tools` 通过。
-- [ ] `bash -n tools/compile_kernel.sh tools/compile_musl.sh` 通过。
-- [ ] `config/vivado_config.yaml` 和 `config/tasks.yaml` 可被当前 Python 类型加载器读取。
-- [ ] `python3 tools/test_builder.py` 构建全部 52 个裸机测试，0 失败。
-- [ ] 核对每个 task 的 testbench 模块存在，所引用的测试程序已在构建目录生成。
+- [x] `git diff --check` 通过。
+- [x] `python3 -m compileall -q tools` 通过。
+- [x] `bash -n tools/compile_kernel.sh tools/compile_musl.sh` 通过。
+- [x] `config/vivado_config.yaml` 和 `config/tasks.yaml` 可被当前 Python 类型加载器读取。
+- [x] `python3 tools/test_builder.py` 构建全部 52 个裸机测试，0 失败。
+- [x] 核对每个 task 的 testbench 模块存在，所引用的测试程序已在构建目录生成。
 
 ### A2. RTL 行为基线
 
@@ -93,9 +93,11 @@ regression_m_irq_precision
 kernel_tb_compile_smoke
 ```
 
-- [ ] 记录每项 PASS/FAIL 和自检数量。
-- [ ] 确认默认仿真结束后不存在 `.wdb` 路径。
-- [ ] 不运行完整 Linux 或 DDR3 长仿真。
+- [x] 记录每项 PASS/FAIL 和自检数量。
+- [x] 确认默认仿真结束后不存在 `.wdb` 路径。
+- [x] 不运行完整 Linux 或 DDR3 长仿真。
+
+基线结果：13 项短回归全部 PASS；用户要求减少 Vivado 启动次数后，后续改为每阶段集中验证。
 
 验收门槛：所有既有短回归通过；若出现既有失败，先定位并记录，不能直接开始源码清理。
 
@@ -113,19 +115,19 @@ src/tb/lcd_module_stub.sv
 
 修改范围：
 
-- [ ] 从 `system_top.sv` 端口删除 `sw`、全部 `lcd_*` 和 `ct_*` 信号。
-- [ ] 删除 LCD 模块实例、显示页选择、显示请求/响应 CDC、扫描计数器和显示值复用器。
-- [ ] 删除 `sw[5]` 控制的 debug UART，`uart_tx` 始终直接连接 UART16550 输出。
-- [ ] 从 `src/fpga/cpu.xdc` 删除开关、LCD 和触摸引脚约束；保留 UART、SPI、GPIO、DDR3、时钟和复位约束。
-- [ ] 更新所有 `system_top` testbench 实例，删除对应寄存器、wire 和端口连接。
-- [ ] 删除 `tb_soc_includes.svh` 的 `display_state` 依赖；保留一个简单、可 force 的寄存器堆调试读地址，避免破坏自检 task。
-- [ ] 删除构建器对 LCD DCP、LCD stub 和 debug UART 源文件的导入。该项属于源码删除所需的最小配套修改，更深层脚本整理留到阶段 C。
+- [x] 从 `system_top.sv` 端口删除 `sw`、全部 `lcd_*` 和 `ct_*` 信号。
+- [x] 删除 LCD 模块实例、显示页选择、显示请求/响应 CDC、扫描计数器和显示值复用器。
+- [x] 删除 `sw[5]` 控制的 debug UART，`uart_tx` 始终直接连接 UART16550 输出。
+- [x] 从 `src/fpga/cpu.xdc` 删除开关、LCD 和触摸引脚约束；保留 UART、SPI、GPIO、DDR3、时钟和复位约束。
+- [x] 更新所有 `system_top` testbench 实例，删除对应寄存器、wire 和端口连接。
+- [x] 删除 `tb_soc_includes.svh` 的 `display_state` 依赖；保留一个简单、可 force 的寄存器堆调试读地址，避免破坏自检 task。
+- [x] 删除构建器对 LCD DCP、LCD stub 和 debug UART 源文件的导入。该项属于源码删除所需的最小配套修改，更深层脚本整理留到阶段 C。
 
 ILA 处理：
 
-- [ ] 保留 `system_top.sv` 中受 `ENABLE_ILA` 控制的两组通用 AXI/复位探针。
-- [ ] 删除普通构建不需要、启用真实 ILA 时又可能重名的 `src/rtl/common/ila_stub.sv`。
-- [ ] 普通构建不定义 `ENABLE_ILA`，因此不需要任何 ILA stub。
+- [x] 保留 `system_top.sv` 中受 `ENABLE_ILA` 控制的两组通用 AXI/复位探针。
+- [x] 删除普通构建不需要、启用真实 ILA 时又可能重名的 `src/rtl/common/ila_stub.sv`。
+- [x] 普通构建不定义 `ENABLE_ILA`，因此不需要任何 ILA stub。
 
 验证：
 

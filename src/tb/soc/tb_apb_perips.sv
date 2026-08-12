@@ -7,7 +7,6 @@ module tb_apb_perips;
     // ----------------------------------------------------------------
     reg         clk;
     reg         resetn;
-    reg  [7:0]  sw;
     reg         uart_rx;
     wire        uart_tx;
     wire [15:0] gpio_io;
@@ -16,12 +15,9 @@ module tb_apb_perips;
     // ----------------------------------------------------------------
     // Inout wires for DDR3 and peripheral ports (cannot connect constants to inout)
     // ----------------------------------------------------------------
-    wire [15:0] lcd_data_io_wire;
     wire [15:0] ddr3_dq_wire;
     wire [1:0]  ddr3_dqs_p_wire;
     wire [1:0]  ddr3_dqs_n_wire;
-    wire        ct_int_wire;
-    wire        ct_sda_wire;
 
     // ----------------------------------------------------------------
     // system_top instantiation (replaces ahb_lite_bus)
@@ -32,7 +28,6 @@ module tb_apb_perips;
         .clk_system_bypass(1'b0),
         .clk_ddr_ref_bypass(1'b0),
         .clk_wiz_locked_bypass(1'b0),
-        .sw               (sw),
         .uart_rx          (uart_rx),
         .uart_tx          (uart_tx),
         .spi_miso         (1'b0),
@@ -42,17 +37,6 @@ module tb_apb_perips;
         .gpio_ctrl_out    (),
         .gpio_data_out    (),
         .gpio_io          (gpio_io),
-        .lcd_rst          (),
-        .lcd_cs           (),
-        .lcd_rs           (),
-        .lcd_wr           (),
-        .lcd_rd           (),
-        .lcd_data_io      (lcd_data_io_wire),
-        .lcd_bl_ctr       (),
-        .ct_int           (ct_int_wire),
-        .ct_sda           (ct_sda_wire),
-        .ct_scl           (),
-        .ct_rstn          (),
         .ddr3_addr        (),
         .ddr3_ba          (),
         .ddr3_ras_n       (),
@@ -260,7 +244,6 @@ module tb_apb_perips;
         pass_count = 0;
         fail_count = 0;
 
-        sw      = 8'b0;
         uart_rx = 1'b1;   // idle
         resetn  = 1'b0;
 

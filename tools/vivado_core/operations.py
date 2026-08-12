@@ -157,9 +157,6 @@ add_files -norecurse "{sys_rtl_dir}/soc_config.vh"
 if {{ [file exists "{sys_rtl_dir}/axi4_def.svh"] }} {{
     add_files -norecurse "{sys_rtl_dir}/axi4_def.svh"
 }}
-if {{ [file exists "{sys_rtl_dir}/debug_uart_tx.sv"] }} {{
-    add_files -norecurse "{sys_rtl_dir}/debug_uart_tx.sv"
-}}
 update_compile_order -fileset sources_1
 
 # --- set include dirs ---
@@ -240,14 +237,13 @@ update_compile_order -fileset sources_1
 
 
 def _tcl_add_constrs(base_dir: str) -> str:
-    """Generate TCL for adding DCP and constraint files.
+    """Generate TCL for adding constraint files.
 
     Mirrors ``tools/vivado_core/tcl/_add_constrs.tcl``.
     """
     fpga_dir = f"{base_dir}/src/fpga"
     return f"""\
 # --- add constraints ---
-import_files -norecurse "{fpga_dir}/lcd_module.dcp"
 import_files -norecurse -fileset constrs_1 "{fpga_dir}/cpu.xdc"
 """
 
@@ -590,9 +586,6 @@ if {{ [file exists "{sys_rtl_dir}/axi4_def.svh"] }} {{
     set_property file_type "Verilog Header" [get_files axi4_def.svh]
 }}
 import_files -fileset sim_1 -norecurse "{sys_rtl_dir}/system_top.sv"
-if {{ [file exists "{sys_rtl_dir}/debug_uart_tx.sv"] }} {{
-    import_files -fileset sim_1 -norecurse "{sys_rtl_dir}/debug_uart_tx.sv"
-}}
 
 # --- import testbench LAST (after all RTL) ---
 # Vivado 2018.3: importing the testbench before RTL sources that define
@@ -600,9 +593,6 @@ if {{ [file exists "{sys_rtl_dir}/debug_uart_tx.sv"] }} {{
 # re-analyze the testbench when the package is overwritten, which
 # silently drops the .sdb file and breaks xelab.
 import_files -fileset sim_1 "{tb_path}"
-if {{ [file exists "{tb_dir}/lcd_module_stub.sv"] }} {{
-    import_files -fileset sim_1 "{tb_dir}/lcd_module_stub.sv"
-}}
 
 update_compile_order -fileset sim_1
 

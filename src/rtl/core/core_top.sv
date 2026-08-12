@@ -18,8 +18,6 @@ module core_top(
     output [31:0] mem_inst,
     output [31:0] wb_pc,
     output [31:0] wb_inst,
-    output [31:0] display_state,
-
     // ---------- Trap/CSR debug outputs ----------
     output        trap_enter_valid,
     output        trap_return_valid,
@@ -58,46 +56,6 @@ module core_top(
     output [31:0] gpr_a7,            // x17 (a7) value
     output [31:0] gpr_s2,            // x18 (s2) value
     output [31:0] gpr_s3,            // x19 (s3) value
-    output        dbg_watch_valid,
-    output [31:0] dbg_watch_pc,
-    output [31:0] dbg_watch_inst,
-    output [31:0] dbg_watch_vaddr,
-    output [31:0] dbg_watch_paddr,
-    output [31:0] dbg_watch_wdata,
-    output [31:0] dbg_watch_count,
-    output        dbg_dcache_lh_valid,
-    output [31:0] dbg_dcache_lh_data,
-    output [31:0] dbg_dcache_lh_count,
-    output        dbg_dcache_rf_valid,
-    output [31:0] dbg_dcache_rf_data,
-    output [31:0] dbg_dcache_rf_count,
-    output        dbg_dcache_wb_valid,
-    output [31:0] dbg_dcache_wb_data,
-    output [31:0] dbg_dcache_wb_count,
-    output        dbg_watch_load_valid,
-    output [31:0] dbg_watch_load_pc,
-    output [31:0] dbg_watch_load_rdata,
-    output [31:0] dbg_watch_load_wbdata,
-    output [31:0] dbg_watch_load_count,
-    output [31:0] dbg_watch_load_status,
-    output        dbg_focus_store_valid,
-    output [31:0] dbg_focus_store_pc,
-    output [31:0] dbg_focus_store_inst,
-    output [31:0] dbg_focus_store_vaddr,
-    output [31:0] dbg_focus_store_paddr,
-    output [31:0] dbg_focus_store_wdata,
-    output [31:0] dbg_focus_store_status,
-    output        dbg_focus_load_valid,
-    output [31:0] dbg_focus_load_pc,
-    output [31:0] dbg_focus_load_inst,
-    output [31:0] dbg_focus_load_paddr,
-    output [31:0] dbg_focus_load_rdata,
-    output [31:0] dbg_focus_load_status,
-    output        dbg_focus_load_wb_valid,
-    output [31:0] dbg_focus_load_wb_pc,
-    output [31:0] dbg_focus_load_wb_status,
-    output [31:0] dbg_focus_load_wb_rfdata,
-    output [31:0] dbg_focus_load_wb_s2,
     output        dbg_if_done,
     output        dbg_inst_valid,
     output        dbg_mmu_i_ready,
@@ -132,22 +90,6 @@ module core_top(
     output        dbg_mu_result_valid,
     output [2:0]  dbg_mu_funct3,
     output        dbg_exe_is_mu,
-    output        dbg_dmmio_req,
-    output        dbg_dmmio_we,
-    output [31:0] dbg_dmmio_addr,
-    output [2:0]  dbg_dmmio_hsize,
-    output        dbg_dmmio_valid,
-    output [31:0] dbg_dmmio_rdata,
-    output        dbg_last_mmio_valid,
-    output [31:0] dbg_last_mmio_pc,
-    output        dbg_last_mmio_we,
-    output [31:0] dbg_last_mmio_addr,
-    output [2:0]  dbg_last_mmio_hsize,
-    output [31:0] dbg_last_mmio_wdata,
-    output [31:0] dbg_last_mmio_rdata,
-    output [31:0] dbg_last_mmio_caller_pc,
-    output [31:0] dbg_last_mmio_count,
-
     // ---------- AXI4 Master — AW Channel ----------
     output [3:0]  awid,
     output [31:0] awaddr,
@@ -425,54 +367,7 @@ module core_top(
     wire [31:0] gpr_a7_w;
     wire [31:0] gpr_s2_w;
     wire [31:0] gpr_s3_w;
-    wire [2:0]  dbg_load_mem_size_w;
-    wire        dbg_load_mem_unsigned_w;
-    wire [31:0] dbg_load_addr_w;
-    wire [31:0] dbg_load_raw_rdata_w;
-    wire [31:0] dbg_load_value_w;
-    reg         dbg_watch_valid_r;
-    reg [31:0] dbg_watch_pc_r;
-    reg [31:0] dbg_watch_inst_r;
-    reg [31:0] dbg_watch_vaddr_r;
-    reg [31:0] dbg_watch_paddr_r;
-    reg [31:0] dbg_watch_wdata_r;
-    reg [31:0] dbg_watch_count_r;
-    reg        dbg_watch_load_valid_r;
-    reg [31:0] dbg_watch_load_pc_r;
-    reg [31:0] dbg_watch_load_rdata_r;
-    reg [31:0] dbg_watch_load_wbdata_r;
-    reg [31:0] dbg_watch_load_count_r;
-    reg [31:0] dbg_watch_load_status_r;
-    reg        dbg_focus_store_valid_r;
-    reg [31:0] dbg_focus_store_pc_r;
-    reg [31:0] dbg_focus_store_inst_r;
-    reg [31:0] dbg_focus_store_vaddr_r;
-    reg [31:0] dbg_focus_store_paddr_r;
-    reg [31:0] dbg_focus_store_wdata_r;
-    reg [31:0] dbg_focus_store_status_r;
-    reg        dbg_focus_load_valid_r;
-    reg [31:0] dbg_focus_load_pc_r;
-    reg [31:0] dbg_focus_load_inst_r;
-    reg [31:0] dbg_focus_load_paddr_r;
-    reg [31:0] dbg_focus_load_rdata_r;
-    reg [31:0] dbg_focus_load_status_r;
-    reg        dbg_focus_load_wb_valid_r;
-    reg [31:0] dbg_focus_load_wb_pc_r;
-    reg [31:0] dbg_focus_load_wb_status_r;
-    reg [31:0] dbg_focus_load_wb_rfdata_r;
-    reg [31:0] dbg_focus_load_wb_s2_r;
-
     wire [31:0] mem_dataAddr_32;
-    wire        dbg_dcache_lh_valid_w;
-    wire [31:0] dbg_dcache_lh_data_w;
-    wire [31:0] dbg_dcache_lh_count_w;
-    wire        dbg_dcache_rf_valid_w;
-    wire [31:0] dbg_dcache_rf_data_w;
-    wire [31:0] dbg_dcache_rf_count_w;
-    wire        dbg_dcache_wb_valid_w;
-    wire [31:0] dbg_dcache_wb_data_w;
-    wire [31:0] dbg_dcache_wb_count_w;
-
     assign hw_trap_epc   = hw_trap_epc_w;
     assign hw_trap_cause = hw_trap_cause_w;
     assign hw_trap_tval  = hw_trap_tval_w;
@@ -490,46 +385,6 @@ module core_top(
     assign gpr_a7        = gpr_a7_w;
     assign gpr_s2        = gpr_s2_w;
     assign gpr_s3        = gpr_s3_w;
-    assign dbg_watch_valid = dbg_watch_valid_r;
-    assign dbg_watch_pc    = dbg_watch_pc_r;
-    assign dbg_watch_inst  = dbg_watch_inst_r;
-    assign dbg_watch_vaddr = dbg_watch_vaddr_r;
-    assign dbg_watch_paddr = dbg_watch_paddr_r;
-    assign dbg_watch_wdata = dbg_watch_wdata_r;
-    assign dbg_watch_count = dbg_watch_count_r;
-    assign dbg_dcache_lh_valid = dbg_dcache_lh_valid_w;
-    assign dbg_dcache_lh_data  = dbg_dcache_lh_data_w;
-    assign dbg_dcache_lh_count = dbg_dcache_lh_count_w;
-    assign dbg_dcache_rf_valid = dbg_dcache_rf_valid_w;
-    assign dbg_dcache_rf_data  = dbg_dcache_rf_data_w;
-    assign dbg_dcache_rf_count = dbg_dcache_rf_count_w;
-    assign dbg_dcache_wb_valid = dbg_dcache_wb_valid_w;
-    assign dbg_dcache_wb_data  = dbg_dcache_wb_data_w;
-    assign dbg_dcache_wb_count = dbg_dcache_wb_count_w;
-    assign dbg_watch_load_valid  = dbg_watch_load_valid_r;
-    assign dbg_watch_load_pc     = dbg_watch_load_pc_r;
-    assign dbg_watch_load_rdata  = dbg_watch_load_rdata_r;
-    assign dbg_watch_load_wbdata = dbg_watch_load_wbdata_r;
-    assign dbg_watch_load_count  = dbg_watch_load_count_r;
-    assign dbg_watch_load_status = dbg_watch_load_status_r;
-    assign dbg_focus_store_valid  = dbg_focus_store_valid_r;
-    assign dbg_focus_store_pc     = dbg_focus_store_pc_r;
-    assign dbg_focus_store_inst   = dbg_focus_store_inst_r;
-    assign dbg_focus_store_vaddr  = dbg_focus_store_vaddr_r;
-    assign dbg_focus_store_paddr  = dbg_focus_store_paddr_r;
-    assign dbg_focus_store_wdata  = dbg_focus_store_wdata_r;
-    assign dbg_focus_store_status = dbg_focus_store_status_r;
-    assign dbg_focus_load_valid   = dbg_focus_load_valid_r;
-    assign dbg_focus_load_pc      = dbg_focus_load_pc_r;
-    assign dbg_focus_load_inst    = dbg_focus_load_inst_r;
-    assign dbg_focus_load_paddr   = dbg_focus_load_paddr_r;
-    assign dbg_focus_load_rdata   = dbg_focus_load_rdata_r;
-    assign dbg_focus_load_status  = dbg_focus_load_status_r;
-    assign dbg_focus_load_wb_valid  = dbg_focus_load_wb_valid_r;
-    assign dbg_focus_load_wb_pc     = dbg_focus_load_wb_pc_r;
-    assign dbg_focus_load_wb_status = dbg_focus_load_wb_status_r;
-    assign dbg_focus_load_wb_rfdata = dbg_focus_load_wb_rfdata_r;
-    assign dbg_focus_load_wb_s2     = dbg_focus_load_wb_s2_r;
     assign exe_mem_vaddr = mem_dataAddr_32;
     assign exe_is_store  = exe_mem_bus.is_store;
     assign exe_is_load   = exe_mem_bus.is_load;
@@ -863,206 +718,10 @@ module core_top(
     wire        dcache_refill_done;
     wire        dcache_refill_error;
 
-    wire        dcache_wb_req;
-    wire [31:0] dcache_wb_addr;
-    wire [255:0] dcache_wb_data;
-    wire        dcache_wb_valid;
-    wire        dcache_wb_done;
-    wire        dcache_wb_error;
-    // Kept as constant hierarchy-visible probes for old Linux debug benches.
-    assign dcache_wb_req   = 1'b0;
-    assign dcache_wb_addr  = 32'b0;
-    assign dcache_wb_data  = 256'b0;
-    assign dcache_wb_valid = 1'b0;
-    assign dcache_wb_done  = 1'b0;
-    assign dcache_wb_error = 1'b0;
     wire        bridge_icache_error;
     wire        bridge_dcache_error;
     wire        bridge_dcache_error_is_store;
     wire [31:0] bridge_bus_error_addr;
-
-    // Historical probes tied to one particular test image and Linux build.
-    // Keep them available for the two forensic regression tests, but exclude
-    // the address comparators from normal simulation and synthesis builds.
-`ifdef LEGACY_LINUX_DEBUG
-`ifdef SIMULATION
-    localparam [31:0] DBG_WATCH_PADDR = 32'h8000_21FC;
-    localparam [31:0] DBG_FOCUS_STORE_PC0 = 32'h8000_00E0;
-    localparam [31:0] DBG_FOCUS_STORE_PC1 = 32'h8000_0108;
-    localparam [31:0] DBG_FOCUS_LOAD_PC0  = 32'h8000_00F8;
-`else
-    localparam [31:0] DBG_WATCH_PADDR = 32'h807B_21FC;
-    localparam [31:0] DBG_FOCUS_STORE_PC0 = 32'hC00F_E334;
-    localparam [31:0] DBG_FOCUS_STORE_PC1 = 32'hC00F_E580;
-    localparam [31:0] DBG_FOCUS_LOAD_PC0  = 32'hC00F_E570;
-`endif
-    wire dbg_focus_store_pc_match = (exe_pc == DBG_FOCUS_STORE_PC0) || (exe_pc == DBG_FOCUS_STORE_PC1);
-    wire dbg_focus_load_pc_match  = (exe_pc == DBG_FOCUS_LOAD_PC0);
-    wire dbg_focus_load_mem_pc_match = (mem_pc == DBG_FOCUS_LOAD_PC0);
-    wire dbg_focus_load_wb_pc_match = (wb_pc == DBG_FOCUS_LOAD_PC0);
-    wire dbg_focus_store_hit = exe_valid && dbg_focus_store_pc_match;
-    wire dbg_focus_load_hit  = exe_valid && dbg_focus_load_pc_match;
-    wire dbg_focus_load_wb_hit = wb_valid && dbg_focus_load_wb_pc_match;
-    wire [31:0] dbg_focus_store_status_w = {
-        14'b0,
-        exe_mem_bus.wb_rd,
-        priv_mode,
-        exe_mem_bus.wb_we,
-        exe_mem_bus.is_store,
-        exe_mem_bus.is_load,
-        exe_need_mem,
-        exe_done,
-        exe_valid
-    };
-    wire [31:0] dbg_focus_load_status_w = {
-        14'b0,
-        exe_mem_bus.wb_rd,
-        priv_mode,
-        exe_mem_bus.wb_we,
-        exe_mem_bus.is_store,
-        exe_mem_bus.is_load,
-        exe_need_mem,
-        exe_done,
-        exe_valid
-    };
-    wire [31:0] dbg_focus_load_wb_status_w = {
-        22'b0,
-        rf_waddr,
-        rf_wen,
-        mem_wb_bus_r.wb_we,
-        wb_valid,
-        mem_wb_bus_r.is_csr,
-        mem_wb_bus_r.is_jal_like
-    };
-    wire dbg_watch_store_commit = data_valid_mux && mem_en && mem_hwrite &&
-                                  mmu_data_ready &&
-                                  ((mmu_data_paddr == DBG_WATCH_PADDR) || dbg_focus_store_pc_match);
-    wire dbg_watch_load_commit = data_valid_mux && mem_en && !mem_hwrite &&
-                                 dbg_focus_load_mem_pc_match;
-`else
-    wire dbg_focus_store_hit = 1'b0;
-    wire dbg_focus_load_hit = 1'b0;
-    wire dbg_focus_load_wb_hit = 1'b0;
-    wire dbg_watch_store_commit = 1'b0;
-    wire dbg_watch_load_commit = 1'b0;
-    wire [31:0] dbg_focus_store_status_w = 32'b0;
-    wire [31:0] dbg_focus_load_status_w = 32'b0;
-    wire [31:0] dbg_focus_load_wb_status_w = 32'b0;
-`endif
-    wire [31:0] dbg_watch_load_status_w = {
-        26'b0,
-        dbg_load_mem_unsigned_w,
-        dbg_load_mem_size_w,
-        dbg_load_addr_w[1:0]
-    };
-    wire dbg_last_mmio_fire = dcache_mmio_req && dcache_mmio_accept;
-    reg        dbg_last_mmio_valid_r;
-    reg [31:0] dbg_last_mmio_pc_r;
-    reg        dbg_last_mmio_we_r;
-    reg [31:0] dbg_last_mmio_addr_r;
-    reg [2:0]  dbg_last_mmio_hsize_r;
-    reg [31:0] dbg_last_mmio_wdata_r;
-    reg [31:0] dbg_last_mmio_rdata_r;
-    reg [31:0] dbg_last_mmio_caller_pc_r;
-    reg [31:0] dbg_last_mmio_count_r;
-
-    always_ff @(posedge clk or negedge resetn) begin
-        if (!resetn) begin
-            dbg_watch_valid_r <= 1'b0;
-            dbg_watch_pc_r    <= 32'b0;
-            dbg_watch_inst_r  <= 32'b0;
-            dbg_watch_vaddr_r <= 32'b0;
-            dbg_watch_paddr_r <= 32'b0;
-            dbg_watch_wdata_r <= 32'b0;
-            dbg_watch_count_r <= 32'b0;
-            dbg_watch_load_valid_r  <= 1'b0;
-            dbg_watch_load_pc_r     <= 32'b0;
-            dbg_watch_load_rdata_r  <= 32'b0;
-            dbg_watch_load_wbdata_r <= 32'b0;
-            dbg_watch_load_count_r  <= 32'b0;
-            dbg_watch_load_status_r <= 32'b0;
-            dbg_focus_store_valid_r  <= 1'b0;
-            dbg_focus_store_pc_r     <= 32'b0;
-            dbg_focus_store_inst_r   <= 32'b0;
-            dbg_focus_store_vaddr_r  <= 32'b0;
-            dbg_focus_store_paddr_r  <= 32'b0;
-            dbg_focus_store_wdata_r  <= 32'b0;
-            dbg_focus_store_status_r <= 32'b0;
-            dbg_focus_load_valid_r   <= 1'b0;
-            dbg_focus_load_pc_r      <= 32'b0;
-            dbg_focus_load_inst_r    <= 32'b0;
-            dbg_focus_load_paddr_r   <= 32'b0;
-            dbg_focus_load_rdata_r   <= 32'b0;
-            dbg_focus_load_status_r  <= 32'b0;
-            dbg_focus_load_wb_valid_r  <= 1'b0;
-            dbg_focus_load_wb_pc_r     <= 32'b0;
-            dbg_focus_load_wb_status_r <= 32'b0;
-            dbg_focus_load_wb_rfdata_r <= 32'b0;
-            dbg_focus_load_wb_s2_r     <= 32'b0;
-            dbg_last_mmio_valid_r      <= 1'b0;
-            dbg_last_mmio_pc_r         <= 32'b0;
-            dbg_last_mmio_we_r         <= 1'b0;
-            dbg_last_mmio_addr_r       <= 32'b0;
-            dbg_last_mmio_hsize_r      <= 3'b0;
-            dbg_last_mmio_wdata_r      <= 32'b0;
-            dbg_last_mmio_rdata_r      <= 32'b0;
-            dbg_last_mmio_caller_pc_r  <= 32'b0;
-            dbg_last_mmio_count_r      <= 32'b0;
-        end else begin
-            if (dbg_focus_store_hit) begin
-                dbg_focus_store_valid_r  <= 1'b1;
-                dbg_focus_store_pc_r     <= exe_pc;
-                dbg_focus_store_inst_r   <= exe_inst;
-                dbg_focus_store_vaddr_r  <= exe_mem_bus.result_reg;
-                dbg_focus_store_paddr_r  <= gpr_s2_w;
-                dbg_focus_store_wdata_r  <= exe_mem_bus.rs2_value;
-                dbg_focus_store_status_r <= dbg_focus_store_status_w;
-            end
-            if (dbg_focus_load_hit) begin
-                dbg_focus_load_valid_r  <= 1'b1;
-                dbg_focus_load_pc_r     <= exe_pc;
-                dbg_focus_load_inst_r   <= exe_inst;
-                dbg_focus_load_paddr_r  <= exe_mem_bus.result_reg;
-                dbg_focus_load_rdata_r  <= gpr_s1_w;
-                dbg_focus_load_status_r <= dbg_focus_load_status_w;
-            end
-            if (dbg_focus_load_wb_hit) begin
-                dbg_focus_load_wb_valid_r  <= 1'b1;
-                dbg_focus_load_wb_pc_r     <= wb_pc;
-                dbg_focus_load_wb_status_r <= dbg_focus_load_wb_status_w;
-                dbg_focus_load_wb_rfdata_r <= actual_rf_wdata;
-                dbg_focus_load_wb_s2_r     <= gpr_s2_w;
-            end
-            if (dbg_watch_store_commit) begin
-                dbg_watch_valid_r <= 1'b1;
-                dbg_watch_pc_r    <= mem_pc;
-                dbg_watch_inst_r  <= mem_inst;
-                dbg_watch_vaddr_r <= mem_dataAddr_32;
-                dbg_watch_paddr_r <= mmu_data_paddr;
-                dbg_watch_wdata_r <= mem_writeData_32;
-                dbg_watch_count_r <= dbg_watch_count_r + 32'd1;
-            end else if (dbg_watch_load_commit) begin
-                dbg_watch_load_valid_r  <= 1'b1;
-                dbg_watch_load_pc_r     <= mem_pc;
-                dbg_watch_load_rdata_r  <= dbg_load_raw_rdata_w;
-                dbg_watch_load_wbdata_r <= dbg_load_value_w;
-                dbg_watch_load_count_r  <= dbg_watch_load_count_r + 32'd1;
-                dbg_watch_load_status_r <= dbg_watch_load_status_w;
-            end
-            if (dbg_last_mmio_fire) begin
-                dbg_last_mmio_valid_r <= 1'b1;
-                dbg_last_mmio_pc_r    <= mem_pc;
-                dbg_last_mmio_we_r    <= dcache_mmio_hwrite;
-                dbg_last_mmio_addr_r  <= dcache_mmio_addr;
-                dbg_last_mmio_hsize_r <= dcache_mmio_hsize;
-                dbg_last_mmio_wdata_r <= dcache_mmio_wdata;
-                dbg_last_mmio_rdata_r <= ahb_data_rdata;
-                dbg_last_mmio_caller_pc_r <= gpr_ra;
-                dbg_last_mmio_count_r <= dbg_last_mmio_count_r + 32'd1;
-            end
-        end
-    end
-
     dcache_ctrl u_dcache_wrap (
         .clk(clk),
         .resetn(resetn),
@@ -1096,16 +755,7 @@ module core_top(
 
         .snoop_write_valid(ptw_dcache_snoop_valid),
         .snoop_write_addr(ptw_bus_addr),
-        .snoop_write_data(ptw_bus_wdata),
-        .dbg_watch_lh_valid(dbg_dcache_lh_valid_w),
-        .dbg_watch_lh_data(dbg_dcache_lh_data_w),
-        .dbg_watch_lh_count(dbg_dcache_lh_count_w),
-        .dbg_watch_rf_valid(dbg_dcache_rf_valid_w),
-        .dbg_watch_rf_data(dbg_dcache_rf_data_w),
-        .dbg_watch_rf_count(dbg_dcache_rf_count_w),
-        .dbg_watch_wb_valid(dbg_dcache_wb_valid_w),
-        .dbg_watch_wb_data(dbg_dcache_wb_data_w),
-        .dbg_watch_wb_count(dbg_dcache_wb_count_w)
+        .snoop_write_data(ptw_bus_wdata)
     );
 
     cpu_mem u_mem(
@@ -1128,12 +778,7 @@ module core_top(
         .mem_misalign_load(mem_misalign_load),
         .mem_misalign_store(mem_misalign_store),
         .mem_misalign_addr(mem_misalign_addr),
-        .mem_data_access(mem_data_access),
-        .dbg_load_mem_size(dbg_load_mem_size_w),
-        .dbg_load_mem_unsigned(dbg_load_mem_unsigned_w),
-        .dbg_load_addr(dbg_load_addr_w),
-        .dbg_load_raw_rdata(dbg_load_raw_rdata_w),
-        .dbg_load_value(dbg_load_value_w)
+        .mem_data_access(mem_data_access)
     );
 
     cpu_wb u_wb(
@@ -1438,7 +1083,6 @@ module core_top(
         .bus_error_addr   (bridge_bus_error_addr)
     );
 
-    assign display_state = {28'b0, fsm_state};
     assign dbg_if_done = if_done;
     assign dbg_inst_valid = inst_valid_mux;
     assign dbg_mmu_i_ready = mmu_inst_ready;
@@ -1473,21 +1117,6 @@ module core_top(
     assign dbg_mu_result_valid      = dbg_mu_result_valid_w;
     assign dbg_mu_funct3            = dbg_mu_funct3_w;
     assign dbg_exe_is_mu            = dbg_exe_is_mu_w;
-    assign dbg_dmmio_req            = dcache_mmio_req;
-    assign dbg_dmmio_we             = dcache_mmio_hwrite;
-    assign dbg_dmmio_addr           = dcache_mmio_addr;
-    assign dbg_dmmio_hsize          = dcache_mmio_hsize;
-    assign dbg_dmmio_valid          = ahb_data_valid;
-    assign dbg_dmmio_rdata          = ahb_data_rdata;
-    assign dbg_last_mmio_valid      = dbg_last_mmio_valid_r;
-    assign dbg_last_mmio_pc         = dbg_last_mmio_pc_r;
-    assign dbg_last_mmio_we         = dbg_last_mmio_we_r;
-    assign dbg_last_mmio_addr       = dbg_last_mmio_addr_r;
-    assign dbg_last_mmio_hsize      = dbg_last_mmio_hsize_r;
-    assign dbg_last_mmio_wdata      = dbg_last_mmio_wdata_r;
-    assign dbg_last_mmio_rdata      = dbg_last_mmio_rdata_r;
-    assign dbg_last_mmio_caller_pc  = dbg_last_mmio_caller_pc_r;
-    assign dbg_last_mmio_count      = dbg_last_mmio_count_r;
 
     assign id_pc   = id_pc_wire;
     assign id_inst = id_inst_wire;

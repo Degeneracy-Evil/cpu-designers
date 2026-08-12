@@ -7,7 +7,6 @@
 #   proj_dir        — Project directory (absolute path)
 #   alu_rtl_dir     — ALU RTL directory
 #   mu_rtl_dir     — MU RTL directory
-#   fpu_rtl_dir    — FPU RTL directory
 #   cpu_core_dir    — CPU core RTL directory
 #   ahb_dir         — AHB-Lite RTL directory
 #   ahb_ip_dir      — AHB-Lite IP directory
@@ -22,7 +21,7 @@
 # ---------------------------------------------------------------------------
 # 变量检查
 # ---------------------------------------------------------------------------
-foreach _var {proj_name device_part proj_dir alu_rtl_dir mu_rtl_dir fpu_rtl_dir cpu_core_dir \
+foreach _var {proj_name device_part proj_dir alu_rtl_dir mu_rtl_dir cpu_core_dir \
                ahb_dir ahb_ip_dir apb_dir apb_header_dir apb_perips_dir sys_rtl_dir common_dir tb_dir \
                amba_dir ram_wrap_dir} {
     if { ![info exists $_var] } {
@@ -71,11 +70,6 @@ if { [catch {add_files -scan_for_includes $alu_rtl_dir} err] } {
 # MU
 if { [catch {add_files -scan_for_includes $mu_rtl_dir} err] } {
     puts "WARNING: 添加 MU RTL 失败: $err"
-}
-
-# FPU
-if { [catch {add_files -scan_for_includes $fpu_rtl_dir} err] } {
-    puts "WARNING: 添加 FPU RTL 失败: $err"
 }
 
 # CPU Core (含 cache_def.svh, core_bus_types.svh 等头文件)
@@ -138,7 +132,6 @@ puts "========== Step 3: 设置 include 目录 =========="
 set_property include_dirs [list \
     $alu_rtl_dir \
     $mu_rtl_dir \
-    $fpu_rtl_dir \
     $cpu_core_dir \
     $common_dir \
     $ahb_dir \

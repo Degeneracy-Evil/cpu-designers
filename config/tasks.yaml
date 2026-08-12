@@ -445,6 +445,10 @@ tasks:
     tb: tb_dcache_writethrough_unit
     blhex: boot/bootloader_phase1.hex
     runtime: 100us
+  regression_m_irq_precision:
+    tb: tb_regression_m_irq_precision
+    blhex: boot/bootloader_phase1.hex
+    runtime: 20us
   icache_blocking_unit:
     tb: tb_icache_blocking_unit
     blhex: boot/bootloader_phase1.hex

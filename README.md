@@ -9,15 +9,17 @@
 ## 项目结构说明
 
 ```txt
-example     是老师给的课程资料
-dev         是我们的开发目录
-Experience  是调试经验（换工具后旧经验暂时用不到）
-Reference   是存放从别处复制进来的参考资料，ip配置化后不存储ip，只有fpga引脚表格和基础信息
-Report      存放实验报告
-tools       存放各种工具
-plan        计划
-process     进度
+src     源码（src/rtl RTL 设计，src/tb 测试台，src/program_source 测试程序）
+config  构建与仿真配置（vivado_config.yaml、tasks.yaml、build.yaml 等）
+docs    文档（设计报告、调试经验、研究报告装配 docs/Report）
+tools   Vivado orchestration / 测试构建 / trace 分析工具
+build   构建产物（测试程序、仿真工程、bitstream，不入版本库）
+linux   Linux 内核 / OpenSBI / busybox 源码与工具链（不入版本库）
 ```
+
+> 历史遗留说明：早期目录（`dev/`、`Experience/`、`Reference/`、`plan/`、`process/`、
+> `Report/`）已整理合并——源码统一在 `src/`，文档统一在 `docs/`（含
+> `docs/Reference/`、`docs/Report/`）。
 
 ## 本项目基础git使用
 
@@ -41,9 +43,9 @@ git push origin main        # 向main分支进行推送，这会自动的发送�
 
 ## 基本资源
 
-dev\docs\simpleCPU-design-report.md：项目报告，在不稳定版本中不一定更新及时，作为上一次修改后的总体报告。
+docs/simpleCPU-design-report.md：项目报告，在不稳定版本中不一定更新及时，作为上一次修改后的总体报告。
 
-dev\program_source\test-system.md：测试程序规范与结构讲解
+src/program_source/test-system.md：测试程序规范与结构讲解
 
 ## 工具
 
@@ -84,14 +86,15 @@ python tools/test_builder.py --clean        # 清理产物
 
 C 语言/汇编到 COE/HEX 文件编译程序，`test_builder.py` 的底层调用。详细用法见 `tools/README-rv2coe.md`。
 
-### run_regression.py — 回归测试
+### run_regression — 回归测试
 
 完整回归流程：构建测试程序 → 批量仿真 → 结果汇总。
 
 ```bash
-python tools/run_regression.py                  # 全回归
-python tools/run_regression.py --category mmu   # 按类别
-python tools/run_regression.py --sim-only       # 仅仿真（跳过构建）
+python tools/test_builder.py                       # 构建全部测试程序
+python -m tools.vivado_cli --tasks config/tasks.yaml -batch "*" -create -sim  # 全回归
+python -m tools.vivado_cli --tasks config/tasks.yaml -batch "mmu_*" -create -sim  # 按类别
+python -m tools.vivado_cli --tasks config/tasks.yaml -batch "*" -sim  # 仅仿真（复用会话）
 ```
 
 ### trace_analyzer.py — 仿真日志分析
@@ -145,7 +148,8 @@ python -m tools.vivado_cli -task isa_alu -sim --debug trace,trap,wave
 python -m tools.vivado_cli -task isa_alu -sim --debug all
 ```
 
-> 旧 `vivado_do.tcl` 仍保留但不可用，仅供tcl命令参考
+> 旧的 `vivado_do.tcl` 流程已被 Vivado Orchestrator 完全取代（脚本已移除）；若要查看
+> TCL 生成逻辑，见 `tools/vivado_core/tcl/` 下的模块化 TCL。
 
 ### 仿真配置
 

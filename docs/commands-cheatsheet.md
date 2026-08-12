@@ -74,9 +74,10 @@ python3 -m tools.vivado_cli -batch "isa_*" -create -sim
 python3 -m tools.vivado_cli -batch "mmu_*,cache_*" -create -sim --max-parallel 4
 
 # 回归测试（构建 + 仿真一条龙）
-python3 tools/run_regression.py                  # 全回归
-python3 tools/run_regression.py --category mmu   # 按类别
-python3 tools/run_regression.py --sim-only       # 仅仿真（跳过构建）
+python3 tools/test_builder.py                       # 先构建全部测试程序
+python3 -m tools.vivado_cli --tasks config/tasks.yaml -batch "*" -create -sim   # 全回归
+python3 -m tools.vivado_cli --tasks config/tasks.yaml -batch "mmu_*" -create -sim  # 按类别
+python3 -m tools.vivado_cli --tasks config/tasks.yaml -batch "*" -sim   # 仅仿真（复用会话）
 ```
 
 ### 1.5 仿真监控与管理

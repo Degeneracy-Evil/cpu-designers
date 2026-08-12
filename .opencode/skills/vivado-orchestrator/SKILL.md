@@ -826,11 +826,7 @@ TUI 每 5 秒自动刷新会话状态。
 
 | 工具 | 说明 |
 |------|------|
-| `tools/run_regression.py` | 完整回归测试：构建测试程序 → 批量仿真 → 结果汇总 |
-| `tools/run_spike.py` | Spike ISA 仿真器运行器，用于黄金模型对比 |
 | `tools/trace_analyzer.py` | 仿真 trace 日志解析 + Spike diff（详见 vivado-sim-debug 技能） |
-| `tools/uart_load.py` | UART 程序加载器 |
-| `tools/uart_console.py` | UART 交互控制台 |
 
 ## 会话元数据
 

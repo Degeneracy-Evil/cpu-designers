@@ -248,9 +248,9 @@ python -m tools.vivado_cli -batch "mmu_*" -create -sim --max-parallel 2
 ### 回归脚本
 
 ```bash
-python tools/run_regression.py                  # 全回归
-python tools/run_regression.py --category mmu   # 按类别
-python tools/run_regression.py --sim-only       # 仅仿真
+python -m tools.vivado_cli --tasks config/tasks.yaml -batch "*" -create -sim   # 全回归
+python -m tools.vivado_cli --tasks config/tasks.yaml -batch "mmu_*" -create -sim  # 按类别
+python -m tools.vivado_cli --tasks config/tasks.yaml -batch "*" -sim  # 仅仿真（复用会话）
 ```
 
 ## 调试指南

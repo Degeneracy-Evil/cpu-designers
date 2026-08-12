@@ -7,7 +7,6 @@ module cpu_execute(
     input              exe_valid,
     input      [329:0] id_exe_bus_r,
     input      [31:0]  csr_rdata,
-    input              trap_pending,   // BUG-16: flush MU on pending trap
     output             exe_done,
     output     exe_mem_bus_t exe_mem_bus,
     output             exe_branch_taken,
@@ -143,9 +142,6 @@ module cpu_execute(
     reg mu_result_got;
     reg mu_active;
 
-    // BUG-16: flush MU when trap is pending and it is active
-    wire exe_flush = trap_pending && mu_active;
-
     mu_unit u_mu(
         .clk(clk),
         .resetn(resetn),
@@ -153,7 +149,6 @@ module cpu_execute(
         .src1(alu_src1),
         .src2(alu_src2),
         .req_valid(mu_req_valid),
-        .flush(exe_flush),
         .result_got(mu_result_got),
         .result(mu_result),
         .mu_busy(mu_busy),
@@ -225,17 +220,6 @@ module cpu_execute(
                 end
             end
 
-            // BUG-16: flush MU when trap is pending — clear active flags,
-            // signal done with result_ok=0 (suppress WB), unblock controller FSM
-            if (exe_flush) begin
-                mu_active     <= 1'b0;
-                mu_req_valid  <= 1'b0;
-                done_reg      <= 1'b1;   // unblock STATE_EXEC
-                result_ok     <= 1'b0;   // suppress write-back
-                result_reg    <= 32'b0;
-                branch_target_reg <= 32'b0;
-                branch_taken_reg  <= 1'b0;
-            end
         end
     end
 

@@ -38,5 +38,10 @@ make -j"$(nproc)"
 
 make install
 
+if [[ ! -x "${MUSL_HOME}/bin/riscv32-linux-musl-gcc" ]]; then
+  echo "error: toolchain build failed — riscv32-linux-musl-gcc not found" >&2
+  exit 1
+fi
+
 echo "musl toolchain installed at: ${MUSL_HOME}"
 echo "compile_kernel.sh will add ${MUSL_HOME}/bin to PATH automatically"

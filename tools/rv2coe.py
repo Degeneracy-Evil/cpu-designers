@@ -188,7 +188,7 @@ DEFAULT_MARCH = "rv32im_zicsr_zifencei"
 
 
 def resolve_isa_profile(march: str) -> FrozenSet[str] | None:
-    normalized = march.lower().replace("_", "_")
+    normalized = march.lower().replace("-", "_")
     if normalized in ISA_PROFILES:
         return ISA_PROFILES[normalized]
     base = normalized.split("_")[0]
@@ -292,7 +292,7 @@ def detect_lang(input_path: Path, lang_arg: str) -> str:
     suffix = input_path.suffix.lower()
     if suffix == ".c":
         return "c"
-    if suffix in {".s", ".asm"} or input_path.suffix == ".S":
+    if suffix in {".s", ".asm"}:
         return "asm"
     return "asm"
 

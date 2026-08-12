@@ -29,7 +29,46 @@ if { [catch {current_sim_state} sim_state] == 0 } {
 }
 
 set_property xsim.simulate.runtime $sim_run_time [get_filesets sim_1]
-set_property xsim.simulate.log_all_objects true [get_filesets sim_1]
+# Keep XSIM.ELABORATE.DEBUG_LEVEL at its default: "off" breaks the testbench
+# hierarchical signal references (u_soc.cpu.*) used for trap/uart capture.
+# Vivado's generated run Tcl unconditionally executes "add_wave /", so use a
+# custom Tcl file even when LOG_ALL_SIGNALS is false.
+set xsim_custom_tcl "${proj_dir}/.xsim_run_${tb_name}.tcl"
+set xsim_custom_fp [open $xsim_custom_tcl w]
+
+if { [info exists ::wave_level] && $::wave_level ne "" } {
+    switch -- $::wave_level {
+        minimal {
+            puts $xsim_custom_fp {log_wave [get_objects /tb_*/u_soc/*]}
+        }
+        normal {
+            puts $xsim_custom_fp {log_wave [get_objects /tb_*/u_soc/*]}
+            puts $xsim_custom_fp {log_wave [get_objects /tb_*/u_soc/cpu/*]}
+        }
+        full {
+            puts $xsim_custom_fp {log_wave [get_objects *]}
+            puts $xsim_custom_fp {open_vcd sim_dump.vcd}
+            puts $xsim_custom_fp {log_vcd [get_objects *]}
+        }
+        default {
+            puts "WARNING: unknown wave_level '$::wave_level'; no waves will be recorded"
+            puts $xsim_custom_fp {foreach wdb_file [glob -nocomplain *.wdb] {
+                file delete -force $wdb_file
+            }}
+        }
+    }
+} else {
+    # XSim opens an empty WDB before sourcing this file. On Linux, unlink it so
+    # the run directory contains no WDB and it cannot grow accidentally.
+    puts $xsim_custom_fp {foreach wdb_file [glob -nocomplain *.wdb] {
+        file delete -force $wdb_file
+    }}
+}
+puts $xsim_custom_fp "run $sim_run_time"
+close $xsim_custom_fp
+
+set_property xsim.simulate.log_all_signals false [get_filesets sim_1]
+set_property xsim.simulate.custom_tcl $xsim_custom_tcl [get_filesets sim_1]
 
 puts "仿真配置: tb=$tb_name, runtime=$sim_run_time"
 

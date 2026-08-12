@@ -816,7 +816,6 @@ module core_top(
         .exe_valid(exe_valid),
         .id_exe_bus_r(id_exe_bus_r),
         .csr_rdata(csr_read_data),
-        .trap_pending(trap_pending),
         .exe_done(exe_done),
         .exe_mem_bus(exe_mem_bus),
         .exe_branch_taken(exe_branch_taken),

@@ -7,7 +7,6 @@ module mu_unit(
     input  [31:0] src1,
     input  [31:0] src2,
     input         req_valid,
-    input         flush,
     input         result_got,
     output [31:0] result,
     output        mu_busy,
@@ -108,64 +107,51 @@ module mu_unit(
     begin
       mul_start <= 1'b0;
       div_start <= 1'b0;
-      if (flush)
+      if (!req_valid)
+      begin
+        req_hold <= 1'b0;
+      end
+      else if (req_fire)
+      begin
+        req_hold <= 1'b1;
+      end
+
+      if (result_valid_reg && result_got)
+      begin
+        result_valid_reg <= 1'b0;
+      end
+
+      if (mul_done && mul_busy)
       begin
         mul_busy <= 1'b0;
-        div_busy <= 1'b0;
-        req_hold <= 1'b0;
-        result_valid_reg <= 1'b0;
-        div_by_zero_reg <= 1'b0;
-        // BUG-6 fix: clear hold register on flush to prevent stale data
-        result_hold_reg <= 32'b0;
+        result_hold_reg <= mul_selected_result;
+        result_valid_reg <= 1'b1;
       end
-      else
+
+      if (div_done && div_busy)
       begin
-        if (!req_valid)
-        begin
-          req_hold <= 1'b0;
-        end
-        else if (req_fire)
-        begin
-          req_hold <= 1'b1;
-        end
+        div_busy <= 1'b0;
+        result_hold_reg <= div_selected_result;
+        result_valid_reg <= 1'b1;
+      end
 
-        if (result_valid_reg && result_got)
-        begin
-          result_valid_reg <= 1'b0;
-        end
-
-        if (mul_done && mul_busy)
-        begin
-          mul_busy <= 1'b0;
-          result_hold_reg <= mul_selected_result;
-          result_valid_reg <= 1'b1;
-        end
-
-        if (div_done && div_busy)
-        begin
-          div_busy <= 1'b0;
-          result_hold_reg <= div_selected_result;
-          result_valid_reg <= 1'b1;
-        end
-
-        if (req_mul)
-        begin
-          mul_start <= 1'b1;
-          mul_busy <= 1'b1;
-          mul_src1_reg <= src1;
-          mul_src2_reg <= src2;
-          mu_funct3_reg <= mu_funct3;
-          div_by_zero_reg <= 1'b0;
-        end
-        else if (req_div_rem)
-        begin
-          div_start <= 1'b1;
-          div_busy <= 1'b1;
-          div_src1_reg <= src1;
-          div_src2_reg <= src2;
-          mu_funct3_reg <= mu_funct3;
-          div_by_zero_reg <= (src2 == 32'b0);
-        end
+      if (req_mul)
+      begin
+        mul_start <= 1'b1;
+        mul_busy <= 1'b1;
+        mul_src1_reg <= src1;
+        mul_src2_reg <= src2;
+        mu_funct3_reg <= mu_funct3;
+        div_by_zero_reg <= 1'b0;
+      end
+      else if (req_div_rem)
+      begin
+        div_start <= 1'b1;
+        div_busy <= 1'b1;
+        div_src1_reg <= src1;
+        div_src2_reg <= src2;
+        mu_funct3_reg <= mu_funct3;
+        div_by_zero_reg <= (src2 == 32'b0);
       end
     end
   end
@@ -180,7 +166,6 @@ module mu_unit(
                      .multiplicand(mul_src1_reg),
                      .multiplier(mul_src2_reg),
                      .start(mul_start),
-                     .flush(flush),
                      .product(mul_result),
                      .done(mul_done)
                    );
@@ -191,7 +176,6 @@ module mu_unit(
                           .dividend(div_src1_reg),
                           .divisor(div_src2_reg),
                           .start(div_start),
-                          .flush(flush),
                           .is_unsigned(mu_funct3_reg[2] & mu_funct3_reg[0]),
                           .quotient(div_quotient),
                           .remainder(div_remainder),

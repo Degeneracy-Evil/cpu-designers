@@ -86,7 +86,6 @@ def _resolve_rtl_dirs(dev_dir: str, rtl: RtlPathsConfig) -> dict[str, str]:
     for key, frag in (
         ("alu", rtl.alu),
         ("mu", rtl.mu),
-        ("fpu", rtl.fpu),
         ("cpu_core", rtl.cpu_core),
         ("common", rtl.common),
         ("ahb", rtl.ahb),
@@ -108,7 +107,6 @@ def _tcl_create_project(
     device_part: str,
     proj_dir: str,
     dev_dir: str,
-    base_dir: str,
     rtl: RtlPathsConfig,
 ) -> str:
     """Generate TCL for project creation + RTL import + include dirs.
@@ -119,7 +117,6 @@ def _tcl_create_project(
     d = _resolve_rtl_dirs(dev_dir, rtl)
     alu_rtl_dir = d["alu"]
     mu_rtl_dir = d["mu"]
-    fpu_rtl_dir = d["fpu"]
     cpu_core_dir = d["cpu_core"]
     common_dir = d["common"]
     ahb_dir = d["ahb"]
@@ -148,9 +145,6 @@ set_property simulator_language Mixed [current_project]
 # and update_compile_order can infer correct compile order.
 add_files -scan_for_includes "{alu_rtl_dir}"
 add_files -scan_for_includes "{mu_rtl_dir}"
-if {{ [file exists "{fpu_rtl_dir}"] }} {{
-    add_files -scan_for_includes "{fpu_rtl_dir}"
-}}
 add_files -scan_for_includes "{cpu_core_dir}"
 add_files -scan_for_includes "{common_dir}"
 add_files -scan_for_includes "{ahb_dir}"
@@ -506,7 +500,6 @@ def _tcl_add_tb(
 
     alu_rtl_dir = d["alu"]
     mu_rtl_dir = d["mu"]
-    fpu_rtl_dir = d["fpu"]
     cpu_core_dir = d["cpu_core"]
     common_dir = d["common"]
     ahb_dir = d["ahb"]
@@ -555,7 +548,6 @@ set_property include_dirs $src_includes [get_filesets sim_1]
 # into the sim_1 directory so the prj generator discovers them.
 foreach f [glob -nocomplain -directory "{alu_rtl_dir}" *.sv] {{ import_files -fileset sim_1 -norecurse $f }}
 foreach f [glob -nocomplain -directory "{mu_rtl_dir}" *.sv] {{ import_files -fileset sim_1 -norecurse $f }}
-foreach f [glob -nocomplain -directory "{fpu_rtl_dir}" *.sv] {{ import_files -fileset sim_1 -norecurse $f }}
 foreach f [glob -nocomplain -directory "{cpu_core_dir}" *.sv] {{ import_files -fileset sim_1 -norecurse $f }}
 foreach f [glob -nocomplain -directory "{cpu_core_dir}" *.svh] {{
     import_files -fileset sim_1 -norecurse $f
@@ -682,15 +674,29 @@ def _tcl_run_sim(
         Project name.
     wave_level:
         Debug waveform level: ``"minimal"``, ``"normal"``, ``"full"``,
-        or ``None`` (no waveform).  Adds ``log_wave`` commands after
-        ``launch_simulation``.
+        or ``None`` (no waveform).  XSim is launched with a custom Tcl script
+        so Vivado cannot inject its default ``add_wave /`` command.
     """
     sim_log_dir = f"{proj_dir}/{proj_name}.sim/sim_1/behav/xsim"
 
-    # Waveform TCL snippet
-    wave_tcl = ""
     if wave_level:
-        wave_tcl = _tcl_debug_wave(wave_level)
+        custom_sim_tcl = _tcl_debug_wave(wave_level)
+    else:
+        # XSim always opens a small WDB before sourcing its run Tcl, even when
+        # no signals are logged.  On Linux it is safe to unlink that open file:
+        # the simulator keeps its private descriptor until exit, while no WDB
+        # pathname or growing waveform database remains in the run directory.
+        custom_sim_tcl = """\
+# --- waveform recording disabled ---
+foreach wdb_file [glob -nocomplain *.wdb] {
+    file delete -force $wdb_file
+}
+"""
+    custom_sim_tcl += f"run {runtime}\n"
+
+    # A braced Tcl word preserves '$' and '[]' until XSim sources the generated
+    # script.  All snippets above have balanced braces.
+    custom_sim_tcl_literal = "{" + custom_sim_tcl + "}"
 
     return f"""\
 # --- run simulation ---
@@ -708,9 +714,21 @@ if {{ [catch {{current_sim_state}} sim_state] == 0 }} {{
     }}
 }}
 set_property xsim.simulate.runtime {runtime} [get_filesets sim_1]
-set_property xsim.simulate.log_all_objects true [get_filesets sim_1]
+# Keep XSIM.ELABORATE.DEBUG_LEVEL at its default: "off" breaks the testbench's
+# hierarchical signal references (u_soc.cpu.*), which the kernel boot tb relies
+# on for trap/uart capture.
+#
+# Vivado's generated XSim Tcl unconditionally contains "add_wave /". Merely
+# disabling LOG_ALL_SIGNALS therefore still creates a growing WDB. Replace the
+# generated Tcl entirely: normal runs unlink XSim's empty WDB and only execute
+# "run", while --debug wave writes the requested log_wave commands instead.
+set xsim_custom_tcl "{proj_dir}/.xsim_run_{tb_name}.tcl"
+set xsim_custom_fp [open $xsim_custom_tcl w]
+puts -nonewline $xsim_custom_fp {custom_sim_tcl_literal}
+close $xsim_custom_fp
+set_property xsim.simulate.log_all_signals false [get_filesets sim_1]
+set_property xsim.simulate.custom_tcl $xsim_custom_tcl [get_filesets sim_1]
 launch_simulation -mode behavioral
-{wave_tcl}
 # --- read sim log ---
 set sim_log_file "{sim_log_dir}/simulate.log"
 if {{ [file exists $sim_log_file] }} {{
@@ -1021,7 +1039,7 @@ class Operations:
 
         tcl_parts = [
             _tcl_cleanup_ip_gen(proj_dir, proj_name, bram_ip_names, mem_config),
-            _tcl_create_project(proj_name, device_part, proj_dir, dev, base, self.session_mgr.config.rtl_path),
+            _tcl_create_project(proj_name, device_part, proj_dir, dev, self.session_mgr.config.rtl_path),
             _tcl_setup_ip(proj_name, proj_dir, base, blcoe_file, mem_config),
             _tcl_upgrade_ip(),
             _tcl_add_constrs(base),
@@ -1105,7 +1123,7 @@ class Operations:
             tcl_parts: list[str] = [
                 f"catch {{ close_project }}\ncd [file dirname {proj_dir}]",
                 f"file delete -force {proj_dir}",
-                _tcl_create_project(proj_name, device_part, proj_dir, dev, base, self.session_mgr.config.rtl_path),
+                _tcl_create_project(proj_name, device_part, proj_dir, dev, self.session_mgr.config.rtl_path),
                 _tcl_setup_ip(proj_name, proj_dir, base, blcoe_file, mem_config),
                 _tcl_upgrade_ip(),
                 _tcl_add_constrs(base),

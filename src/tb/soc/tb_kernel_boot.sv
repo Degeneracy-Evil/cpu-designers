@@ -1500,9 +1500,16 @@ module tb_kernel_boot;
         $fflush;
 
         // Run for a very long time — kernel boot takes millions of cycles
-        // 3B cycles at 100MHz = 30 seconds of sim time (kernel panic at ~0.63s)
-        // The sim will be killed by timeout or $finish before this completes
-        repeat (2000000000) @(posedge clk);
+        // 2e9 cycles at 100MHz = 20 seconds of sim time. The DTB no longer has
+        // initcall_debug/loglevel=8, so UART printing is minimal and the kernel
+        // reaches init/panic much earlier. 4e9 = 40s gives generous headroom.
+        // NOTE: XSim 2018.3 evaluates the repeat counter as a 32-bit SIGNED int,
+        // so ANY single count >= 2^31 (e.g. 4000000000, even written 64'd...) is
+        // truncated to its low 32 bits and treated as NEGATIVE -> zero iterations
+        // -> sim ends at time 0. Use nested repeats (each layer < 2^31) instead.
+        repeat (2) begin
+            repeat (2000000000) @(posedge clk);
+        end
 
         $display("========================================");
         $display("[PROBE] %0t: Kernel boot simulation complete (3B cycles reached).", $time);

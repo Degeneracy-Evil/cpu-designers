@@ -19,7 +19,7 @@
          * 没有 initramfs 时，kernel 能打印日志后 panic 也算阶段性成功。
          */
 
-        bootargs = "console=ttyS0,230400 earlycon=uart8250,mmio32,0x10008000,230400n8,100000000 keep_bootcon ignore_loglevel loglevel=8 initcall_debug rdinit=/init";
+        bootargs = "console=ttyS0,230400 earlycon=uart8250,mmio32,0x10008000,230400n8,100000000 rdinit=/init";
 
     };
 
@@ -45,7 +45,15 @@
              * 即使硬件 misa 里有 F，如果 FPU/fcsr/mstatus.FS 尚未完全验证，
              * Linux 侧先按 soft-float 跑，减少变量。
              */
+            /*
+             * Keep riscv,isa for firmware and older software, and provide the
+             * non-deprecated split properties required when Linux is built
+             * with CONFIG_RISCV_ISA_FALLBACK disabled.
+             */
             riscv,isa = "rv32ima_zicsr_zifencei";
+            riscv,isa-base = "rv32i";
+            riscv,isa-extensions = "i", "m", "a",
+                                   "zicsr", "zifencei", "zicntr";
 
             mmu-type = "riscv,sv32";
 
@@ -60,23 +68,6 @@
     memory@80000000 {
         device_type = "memory";
         reg = <0x80000000 0x08000000>; /* 128 MiB */
-    };
-
-    reserved-memory {
-        #address-cells = <1>;
-        #size-cells = <1>;
-        ranges;
-
-        /*
-         * 先保守预留 0x80000000 ~ 0x803FFFFF 给 OpenSBI / firmware。
-         * Linux kernel 建议放在 0x80400000。
-         * 后续如果 OpenSBI 自动修 DTB reserved-memory，或者你们换了布局，
-         * 这里可以再调整。
-         */
-        opensbi_reserved: firmware@80000000 {
-            reg = <0x80000000 0x00400000>;
-            no-map;
-        };
     };
 
     soc {
@@ -104,7 +95,8 @@
 
         /*
          * PLIC base = 0x0C00_0000
-         * 当前报告中 PLIC 为 8 source，单 hart / 单 context。
+         * RTL 有 8 个 source 槽位，其中 source 0 按 PLIC 规范保留，
+         * 因而有效的设备中断 ID 是 1..7。
          *
          * 注意：
          * PLIC 有 2 个 interrupt context:
@@ -121,7 +113,7 @@
             #interrupt-cells = <1>;
             interrupt-controller;
 
-            riscv,ndev = <8>;
+            riscv,ndev = <7>;
             interrupts-extended = <&cpu0_intc 11>, <&cpu0_intc 9>;
         };
 

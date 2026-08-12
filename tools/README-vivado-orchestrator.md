@@ -371,9 +371,8 @@ memory:
 # RTL 子目录路径配置（相对于 src/rtl/）
 # 修改后影响项目创建和 testbench 导入的源文件搜索路径
 rtl_path:
-  alu: ALU
-  mu: MU
-  fpu: FPU
+  alu: alu
+  mu: mu
   cpu_core: core
   common: common
   ahb: axi

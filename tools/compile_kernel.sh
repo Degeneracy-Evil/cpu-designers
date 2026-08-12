@@ -82,8 +82,29 @@ EOF
 chmod +x init
 
 rm -f dev/console dev/null
-sudo mknod -m 600 dev/console c 5 1
-sudo mknod -m 666 dev/null    c 1 3
+
+# 创建设备节点需要 root；优先非交互 sudo -n，避免在 CI/无 TTY 下挂起。
+# 若 sudo 不可用或需要密码，给出明确报错退出。
+run_mknod() {
+  local node="$1" mode="$2" type="$3" major="$4" minor="$5"
+  if [ "$(id -u)" -eq 0 ]; then
+    mknod -m "$mode" "$node" "$type" "$major" "$minor"
+  elif command -v sudo >/dev/null 2>&1; then
+    sudo -n mknod -m "$mode" "$node" "$type" "$major" "$minor" 2>/dev/null \
+      || { echo "error: need root to mknod $node (run script as root or set NOPASSWD sudo)" >&2; return 1; }
+  else
+    echo "error: need root to mknod $node but sudo is unavailable" >&2
+    return 1
+  fi
+}
+
+run_mknod dev/console 600 c 5 1 || exit 1
+run_mknod dev/null    666 c 1 3 || exit 1
+
+if [ ! -e dev/console ] || [ ! -e dev/null ]; then
+  echo "error: device nodes not created (missing dev/console or dev/null)" >&2
+  exit 1
+fi
 
 find . -print0 | cpio --null -o --format=newc | gzip -9 > "${INITRAMFS_IMG}"
 
@@ -277,8 +298,6 @@ make ARCH=riscv \
 ##################################
 # 编译OpenSBI
 ##################################
-
-# git clone https://github.com/riscv-software-src/opensbi.git
 
 cd "${OPENSBI_HOME}"
 

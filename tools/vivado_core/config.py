@@ -95,10 +95,10 @@ class CacheConfig:
     num_sets: int = 8
     """Number of cache sets."""
 
-    num_ways: int = 4
+    num_ways: int = 2
     """Associativity (ways per set)."""
 
-    tag_width: int = 7
+    tag_width: int = 19
     """Tag field width in bits."""
 
     line_words: int = 8
@@ -113,7 +113,7 @@ class CacheConfig:
     tag_bram_byte_enable: bool = True
     """Whether byte-write enable is active for tag BRAM (when use_tag_bram=true)."""
 
-    tag_bram_byte_size: int = 8
+    tag_bram_byte_size: int = 36
     """Way stride in packed tag BRAM word (bits per way, must be multiple of xilinx_byte_size)."""
 
     tag_bram_xilinx_byte_size: int = 9
@@ -215,9 +215,8 @@ class RtlPathsConfig:
     project layout changes.
     """
 
-    alu: str = "ALU"
-    mu: str = "MU"
-    fpu: str = "FPU"
+    alu: str = "alu"
+    mu: str = "mu"
     cpu_core: str = "core"
     common: str = "common"
     ahb: str = "axi"
@@ -324,8 +323,8 @@ def load_config(path: Path | str | None = None, base_dir: Path | str | None = No
     )
     icache = CacheConfig(
         num_sets=icache_raw.get("num_sets", 8),
-        num_ways=icache_raw.get("num_ways", 4),
-        tag_width=icache_raw.get("tag_width", 7),
+        num_ways=icache_raw.get("num_ways", 2),
+        tag_width=icache_raw.get("tag_width", 19),
         line_words=icache_raw.get("line_words", 8),
         byte_enable=icache_raw.get("byte_enable", True),
         byte_size=icache_raw.get("byte_size", 8),
@@ -335,8 +334,8 @@ def load_config(path: Path | str | None = None, base_dir: Path | str | None = No
     )
     dcache = CacheConfig(
         num_sets=dcache_raw.get("num_sets", 8),
-        num_ways=dcache_raw.get("num_ways", 4),
-        tag_width=dcache_raw.get("tag_width", 7),
+        num_ways=dcache_raw.get("num_ways", 2),
+        tag_width=dcache_raw.get("tag_width", 19),
         line_words=dcache_raw.get("line_words", 8),
         byte_enable=dcache_raw.get("byte_enable", True),
         byte_size=dcache_raw.get("byte_size", 8),
@@ -345,12 +344,12 @@ def load_config(path: Path | str | None = None, base_dir: Path | str | None = No
         tag_bram_xilinx_byte_size=dcache_raw.get("tag_bram_xilinx_byte_size", 9),
     )
     tlb = TlbConfig(
-        num_ways=tlb_raw.get("num_ways", 4),
-        num_sets=tlb_raw.get("num_sets", 4),
+        num_ways=tlb_raw.get("num_ways", 2),
+        num_sets=tlb_raw.get("num_sets", 8),
         flag_byte_enable=tlb_raw.get("flag_byte_enable", True),
-        flag_byte_size=tlb_raw.get("flag_byte_size", 32),
+        flag_byte_size=tlb_raw.get("flag_byte_size", 8),
         data_byte_enable=tlb_raw.get("data_byte_enable", True),
-        data_byte_size=tlb_raw.get("data_byte_size", 32),
+        data_byte_size=tlb_raw.get("data_byte_size", 8),
     )
     ddr3_raw: dict = mem_raw.get("ddr3", {}) or {}
     clk_wiz_raw: dict = mem_raw.get("clk_wiz", {}) or {}
@@ -398,7 +397,6 @@ def load_config(path: Path | str | None = None, base_dir: Path | str | None = No
     rtl_path = RtlPathsConfig(
         alu=rtl_raw.get("alu", "alu"),
         mu=rtl_raw.get("mu", "mu"),
-        fpu=rtl_raw.get("fpu", "FPU"),
         cpu_core=rtl_raw.get("cpu_core", "core"),
         common=rtl_raw.get("common", "common"),
         ahb=rtl_raw.get("ahb", "axi"),
@@ -416,7 +414,7 @@ def load_config(path: Path | str | None = None, base_dir: Path | str | None = No
     return GlobalConfig(
         limits=limits,
         vivado_path=raw.get("vivado_path", _default_vivado_path()),
-        proj_name=raw.get("proj_name", "simplecpu_bus"),
+        proj_name=raw.get("proj_name", "simplecpu_soc"),
         device_part=raw.get("device_part", "xc7a200tfbg676-2"),
         memory=memory,
         rtl_path=rtl_path,

@@ -419,10 +419,20 @@ if {{ [catch {{current_project}} cur_proj] != 0 }} {{
         self.save_meta()
 
     def disk_mb(self) -> float:
-        """Return the total disk usage of the session directory in MiB."""
+        """Return allocated disk usage of the session directory in MiB.
+
+        XSim waveform databases are sparse files.  Counting their logical
+        ``st_size`` can reject a simulation even when the filesystem has ample
+        space, so resource admission must use allocated blocks instead.
+        """
         if not self.project_dir.is_dir():
             return 0.0
-        total = sum(f.stat().st_size for f in self.project_dir.rglob("*") if f.is_file())
+        total = 0
+        for path in self.project_dir.rglob("*"):
+            if not path.is_file():
+                continue
+            stat = path.stat()
+            total += getattr(stat, "st_blocks", (stat.st_size + 511) // 512) * 512
         return total / (1024 * 1024)
 
     def __repr__(self) -> str:

@@ -574,7 +574,7 @@ endtask
 //
 // Enable via Verilog defines at compile time:
 //   xvlog -sv -d DEBUG_TRACE ...
-//   xvlog -sv -d DEBUG_TRACE -d DEBUG_TRAP -d DEBUG_WAVE ...
+//   xvlog -sv -d DEBUG_TRACE -d DEBUG_TRAP ...
 //
 // Runtime control via plusargs:
 //   xsim ... +trace_enable=0 +trace_file=my_trace.log
@@ -759,15 +759,5 @@ endtask
             $fclose(dbg_spike_fd);
             $display("[DEBUG-SPIKE] Spike commit log closed: %0d instructions", dbg_spike_cycle);
         end
-    end
-`endif
-
-// ── 1.5 VCD waveform generation (DEBUG_WAVE) ─────────────────────────────────
-// Generates VCD dump for open-source waveform viewers (GTKWave, etc.)
-// XSim also generates WDB natively; this provides VCD for portability.
-`ifdef DEBUG_WAVE
-    initial begin
-        $dumpfile("sim_dump.vcd");
-        $dumpvars(0, u_soc);
     end
 `endif

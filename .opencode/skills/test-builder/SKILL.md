@@ -1,289 +1,152 @@
 ---
 name: test-builder
-description: |
-  Structured test system with self-checking protocol, declarative build configuration,
-  and batch compilation via test_builder.py. Use this skill when building test programs,
-  adding new tests, working with build.yaml, running test_builder.py, or understanding
-  the self-checking test protocol (x28/x29/x30/x31 registers, memory result area).
-  Trigger on: 'build test', 'test_builder', 'build.yaml', 'self-check', 'test protocol',
-  'add test', 'test framework', 'ISA test', 'MMU test', 'regression test'.
+description: Build, list, clean, debug, or extend this CPU project's bare-metal tests and applications. Use for tools/test_builder.py, src/program_source/build.yaml, rv2coe output, the x28-x31 self-check protocol, adding a test and its Vivado task/testbench, or diagnosing a failed ISA, privilege, MMU, Cache, MMIO, regression, or integration test.
 ---
 
-# 测试体系与 test_builder
+# Test builder
 
-结构化、自检、可扩展的测试体系，覆盖 ISA、异常/中断、特权级、MMU/TLB、Cache、MMIO、回归测试和集成测试。
+Use `tools/test_builder.py` as the only registry-driven entry for bare-metal tests and applications.
+Use `tools/rv2coe.py` directly only for an ad-hoc program or when debugging the compiler/linker step.
 
-## 核心设计
+## Locate the source of truth
 
-- **自检协议**: 每个子测试独立返回 PASS/FAIL，失败时精确定位到子测试 ID
-- **框架复用**: `framework/` 提供统一的初始化、运行、报告和陷阱处理
-- **声明式注册**: `build.yaml` 定义所有测试/应用及其依赖和构建参数
+- Read `src/program_source/build.yaml` for framework groups, categories, tests, applications and ISA.
+- Read `config/tasks.yaml` for explicit Vivado task-to-testbench and HEX/COE mappings.
+- Read `src/program_source/test-system.md` only when detailed framework or MMU layout rules are needed.
+- Keep task entries explicit; do not infer testbench and image fields from naming conventions.
 
-## 目录结构
+Generated test and application images remain under `src/program_source/` beside their sources and are
+ignored by Git. Normal SRAM simulation consumes HEX; FPGA/DDR boot paths may consume COE/BIN as named
+by the selected task.
 
-```
-dev/program_source/
-├── build.yaml                   # 统一编译配置（测试 + 应用）
-├── framework/                   # 测试框架 (公共)
-│   ├── test_framework.s         # 自检运行器 (test_init/test_run/test_report)
-│   ├── trap_handlers.s          # 陷阱处理器模板
-│   └── page_table_utils.s      # Sv32 页表构建工具
-├── test/                        # 测试程序
-│   ├── isa/                     # ISA 指令测试 (8 文件, 107 子测试)
-│   ├── exception/               # 异常/中断测试 (6 文件, 21 子测试)
-│   ├── privilege/               # 特权级测试 (3 文件, 21 子测试)
-│   ├── mmu/                     # MMU/TLB 测试 (12 文件, 80 子测试)
-│   ├── cache/                   # Cache 测试 (5 文件, 21 子测试)
-│   ├── mmio/                    # MMIO 测试 (2 文件, 8 子测试)
-│   ├── regression/              # 回归测试 (7 文件, 21 子测试)
-│   └── integration/             # 集成测试 (3 文件)
-├── app/                         # 应用程序
-├── lib/                         # 库
-├── link.ld                      # 链接脚本 (Von Neumann)
-└── link_harvard.ld              # 链接脚本 (Harvard)
-```
-
-## 自检协议
-
-### 寄存器约定
-
-| 寄存器 | 用途 | 说明 |
-|--------|------|------|
-| x28 | pass_count | 通过数 |
-| x29 | total_count | 总测试数 |
-| x30 | first_fail_id | 首个失败 ID (0=全过) |
-| x31 | current_test_id | 当前测试 ID (1-based) |
-| x10-x17 | 子测试自由使用 | Caller-saved |
-| x18-x21 | test_run 内部 | Callee-saved (框架内部) |
-| x22-x27 | trap_handler 输出 | mcause/mepc/mtval |
-
-### 内存结果区
-
-固定地址 `0x80007000` (BRAM 内，MMU 测试布局 page 7):
-
-| 偏移 | 内容 | 说明 |
-|------|------|------|
-| +0 | total_count | 总测试数 |
-| +4 | pass_count | 通过数 |
-| +8 | first_fail_id | 首个失败 ID |
-| +12 | reserved | 保留 |
-| +16 | test_1_result | 1=PASS, 0=FAIL |
-| +20 | test_2_result | ... |
-
-### Testbench 检查
-
-Testbench 读取 x28 (pass_count) 和 x30 (first_fail_id)：
-- `x28 == EXPECTED_TOTAL && x30 == 0` → ALL PASS
-- 否则报告具体失败信息
-
-## 构建系统 (test_builder.py)
+## Use the supported commands
 
 ```bash
-# 构建全部
-python tools/test_builder.py
+# Inspect without compiling
+python3 tools/test_builder.py --list
+python3 tools/test_builder.py --dry-run
 
-# 按类别构建
-python tools/test_builder.py --category mmu
+# Build
+python3 tools/test_builder.py
+python3 tools/test_builder.py --category mmu
+python3 tools/test_builder.py --test isa/m_ext
+python3 tools/test_builder.py --app uart_hello
 
-# 构建单个测试
-python tools/test_builder.py --test isa/alu
-
-# 列出所有测试
-python tools/test_builder.py --list
-
-# 生成 tasks.yaml 条目 (供 Vivado Orchestrator 使用)
-python tools/test_builder.py --gen-tasks
-
-# 清理产物
-python tools/test_builder.py --clean
-
-# 仅打印命令不执行
-python tools/test_builder.py --dry-run
+# Remove generated test and application HEX/COE files
+python3 tools/test_builder.py --clean
 ```
 
-### 构建流程
+Treat a nonzero exit status or a printed failed target as a build failure. Do not infer success merely
+from the presence of an older image.
 
-```
-build.yaml → test_builder.py → rv2coe.py (WSL 回退) → .hex + .coe
-```
+## Understand the registry
 
-每条测试自动拼接框架文件 + 测试源文件，调用 rv2coe.py 编译链接。
-
-### --gen-tasks 输出
-
-`--gen-tasks` 根据 `build.yaml` 自动推导任务条目：
-
-- `task_name`: 测试名中 `/` 替换为 `_`
-- `tb`: 推导为 `tb_{task_name}`
-- `blcoe`: 推导为 `test/{name}.coe`（正常仿真任务使用 `blhex` + `phex`，仅 DDR3/FPGA 任务使用 `blcoe`）
-- `runtime`: 按类别的 RUNTIME_MAP 推导
-
-RUNTIME_MAP 默认值：
-
-| 类别 | 默认仿真时间 |
-|------|-------------|
-| isa | 5ms |
-| exception | 5ms |
-| privilege | 20ms |
-| mmu | 20ms |
-| cache | 10ms |
-| cache_mmu | 20ms |
-| mmio | 10ms |
-| regression | 20ms |
-| integration | 10ms |
-
-### build.yaml 结构
+Use these `build.yaml` fields:
 
 ```yaml
+framework:
+  common:
+    - framework/test_framework.s
+    - framework/trap_handlers.s
+
 defaults:
   arch: rv32im_zicsr_zifencei
   abi: ilp32
   linker_script: link.ld
   depth: 8192
 
-framework:
-  common: [framework/common.s]
-
 categories:
-  isa:
-    tests: [isa/alu, isa/branch, isa/memory, ...]
-  isa_f:
-    arch: rv32imf_zicsr_zifencei
-    abi: ilp32f
-    tests: [isa_f/fadd, ...]
-  mmu:
-    framework: [framework/common.s, framework/mmu.s]
-    tests: [mmu/sv32_basic, mmu/tlb_basic, ...]
+  example:
+    framework: common
+    arch: rv32ima_zicsr_zifencei
+    tests:
+      - example/my_test
 
 apps:
-  led_marquee:
-    src_files: [app/led_marquee.s]
+  my_app:
+    src_files: [app/my_app.s]
     linker_script: null
-  calculator:
-    src_files: [lib/start.S, ..., app/calculator.c]
-    arch: rv32imaf_zicsr_zifencei
-    include_dirs: [lib/include]
 ```
 
-## 编写新测试
+Override `arch`, `abi`, `linker_script`, `depth` or `include_dirs` only where the target differs from
+the defaults. Select the `mmu` framework for page-table helpers. Select `none` only for a standalone
+integration program that intentionally supplies its own startup and reporting.
 
-### 模板
+`rv2coe.py` validates instructions against the selected ISA. Use `rv32ima_zicsr_zifencei` when a test
+contains LR/SC/AMO; do not rely on an unknown architecture string silently skipping validation.
+
+## Follow the self-check protocol
+
+Call the framework in this order:
 
 ```asm
-# ============================================================
-# 文件名: category/mytest.s
-# 类别:   <category>
-# 描述:   <brief description>
-# 子测试: N
-# ============================================================
+jal x1, test_init
 
-.section .text.start
-.globl _start
+la  x11, test_01_behavior
+jal x1, test_run
 
-_start:
-    la x10, mmu_trap_handler
-    csrw mtvec, x10
-    li x10, 0x1888
-    csrw mstatus, x10
-
-    jal x1, test_init
-
-    la x11, test_01_xxx
-    jal x1, test_run
-
-    jal x1, test_report
-
-end_loop:
-    j end_loop
-
-test_01_xxx:
-    li x14, 1                    # PASS
-    ret
+jal x1, test_report
+1:  j 1b
 ```
 
-### 注册
+Return each subtest result in `x14`: nonzero for PASS, zero for FAIL. Let `test_run` preserve and
+aggregate framework state.
 
-1. 在 `build.yaml` 的 `categories` 段添加条目
-2. 在 `tasks.yaml` 中添加任务（可使用 `--gen-tasks` 自动生成）
-3. 创建 testbench（`EXPECTED_TOTAL` = 子测试数）
+Interpret the compatibility registers only after `test_report` publishes them:
 
-## MMU 测试特殊约定
+| Register | Meaning |
+|---|---|
+| `x28` | passed subtests |
+| `x29` | total subtests and completion marker |
+| `x30` | first failing subtest ID, zero on success |
+| `x31` | current/final subtest ID |
 
-### 内存布局
+The summary and per-test results are also written at `0x80007000`. Keep MMU tests within their
+documented 32 KiB layout so page tables and result memory do not overlap.
 
-MMU 测试自约束使用前 32KB (8 页 × 4KB)：
+## Add a test end to end
 
-```
-0x80000000: 代码 (.text.start)     [page 0]
-0x80001000: L1 页表                [page 1]
-0x80002000: L0 页表                [page 2]
-0x80003000: 辅助代码/数据区         [page 3]
-0x80004000: 数据页 A               [page 4]
-0x80005000: 数据页 B               [page 5]
-0x80006000: 数据页 C               [page 6]
-0x80007000: TEST_RESULT_BASE       [page 7]
-```
-
-### M→S→M 特权级切换
-
-所有 Sv32 测试必须使用此模式 (M-mode 永远绕过 TLB)。
-
-### 注意事项
-
-- **fence.i 在 enable_sv32 前必需**
-- **数据区最小化**: 使用 `.word + .word 0`，`.balign 4096` 保证页对齐
-- **MMU 测试自约束 32KB**
-- **地址偏移用 li+add**: 大立即数超出 addi 12-bit 范围
-
-## 仿真
+1. Add `src/program_source/test/<category>/<name>.s` with small numbered subtests.
+2. Register `<category>/<name>` under the correct category in `build.yaml`.
+3. Build just that target and inspect the emitted command if it fails:
 
 ```bash
-# 单个测试仿真
-python -m tools.vivado_cli -task mmu_tlb_basic -create -sim
-
-# 批量仿真
-python -m tools.vivado_cli -batch "mmu_*" -create -sim --max-parallel 2
+python3 tools/test_builder.py --test <category/name> -v
 ```
 
-### 回归脚本
+4. Add or reuse a self-checking testbench under `src/tb/`. Set its expected total to the actual
+   subtest count and use the helpers in `tb_soc_includes.svh`.
+5. Add an explicit task to `config/tasks.yaml` with the correct `tb`, `blhex`, `phex` and `runtime`.
+6. Run the task and confirm both XSim completion and the semantic PASS marker:
 
 ```bash
-python -m tools.vivado_cli --tasks config/tasks.yaml -batch "*" -create -sim   # 全回归
-python -m tools.vivado_cli --tasks config/tasks.yaml -batch "mmu_*" -create -sim  # 按类别
-python -m tools.vivado_cli --tasks config/tasks.yaml -batch "*" -sim  # 仅仿真（复用会话）
+python3 -m tools.vivado_cli -task <task-name> -create -sim
 ```
 
-## 调试指南
+Do not treat `XSim completed` alone as a self-checking PASS.
 
-| 层级 | 方法 | 适用场景 |
-|------|------|----------|
-| L1: 子测试 ID | x30 (first_fail_id) 直接定位 | 大多数失败 |
-| L2: 陷阱记录 | x22 (mcause) + x23 (mepc) + x24 (mtval) | 异常相关失败 |
-| L3: PC 追踪 | testbench 中 wb_pc/wb_inst | 时序/流水线问题 |
-| L4: 波形 | Vivado XSim WDB | 硬件级问题 |
+## Diagnose a failure
 
-失败定位路径: `x30=5` → 查看源码 `test_05_xxx` → 5-10 行有效代码 → 直接定位出错指令。
+1. Read `x30` or the testbench's first-fail report and open that numbered subtest.
+2. Inspect `x22`–`x27` for trap-handler outputs when the failure involves an exception.
+3. Enable a text trace before enabling waves:
 
-## 测试覆盖总览
+```bash
+python3 -m tools.vivado_cli -task <task> -sim --debug trace,trap
+python3 -m tools.trace_analyzer find-fail instr_trace.log
+```
 
-| Phase | 类别 | 测试文件 | 子测试 | 状态 |
-|-------|------|---------|--------|------|
-| T1 | 框架搭建 | 1 | 20 | ✅ |
-| T2 | ISA | 7 | 107 | ✅ |
-| T2.5 | ISA-F (FPU) | 2 | 50 | ✅ |
-| T3 | 异常/中断 | 6 | 21 | ✅ |
-| T4 | MMU/TLB | 11 | 72 | ✅ |
-| T5 | Cache + MMIO | 7 | 29 | ✅ |
-| T6 | 回归测试 | 7 | 21 | ✅ |
-| T7 | 统一 MMU | 1 | 8 | ✅ |
-| T8 | 特权级 | 3 | 21 | ✅ |
-| T9 | 集成测试 | 3 | — | ✅ |
-| **合计** | | **48** | **329** | **ALL PASS** |
+4. Use `--debug wave:minimal` only when signal timing remains ambiguous.
+5. Rebuild after source changes and refresh the `coe` layer before reusing a Vivado session.
 
-## 相关技能
+## Run grouped validation
 
-| 技能 | 关系 |
-|------|------|
-| `vivado-orchestrator` | 仿真执行：`-task` 指定测试任务，`-batch` 批量仿真，`--gen-tasks` 生成任务条目 |
-| `vivado-sim-debug` | 仿真调试：`--debug trace` 启用指令追踪定位失败子测试 |
-| `coding-standards` | 编码规范：testbench 命名、timescale、复位约定 |
+Use category globs for focused work and the curated plan for routine full coverage:
+
+```bash
+python3 -m tools.vivado_cli -batch "mmu_*" -create -sim --max-parallel 2
+python3 -m tools.vivado_cli -batch-plan config/short_regression.yaml
+```
+
+The short plan deliberately excludes full Linux and DDR3 simulation. Keep those slow paths as
+separate milestones rather than adding them to every test cycle.

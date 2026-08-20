@@ -303,21 +303,26 @@ testbench 改为在自检协议完成后立即退出；普通模式未生成 WDB
 
 ### D1. 内容边界
 
-- [ ] `coding-standards`：只描述当前 SystemVerilog 风格、复位/CDC、握手、可综合边界和验证纪律。
-- [ ] `test-builder`：只描述 build/list/clean、测试注册、自检寄存器协议和新增测试流程。
-- [ ] `vivado-orchestrator`：只描述 session、create/refresh/sim、短回归、bitstream、显式波形和故障处理。
-- [ ] 将仍有价值的 `$fwrite`/波形调试方法放入 `vivado-orchestrator/references/simulation-debug.md`，按需读取。
-- [ ] 不在 skill 中复制任务全集、完整配置 schema 或大段项目文档。
-- [ ] 每个 `SKILL.md` 目标为 100–200 行，且不超过 500 行。
-- [ ] frontmatter 只保留 `name` 和可准确触发的 `description`。
+- [x] `coding-standards`：只描述当前 SystemVerilog 风格、复位/CDC、握手、可综合边界和验证纪律。
+- [x] `test-builder`：只描述 build/list/clean、测试注册、自检寄存器协议和新增测试流程。
+- [x] `vivado-orchestrator`：只描述 session、create/refresh/sim、短回归、bitstream、显式波形和故障处理。
+- [x] 将仍有价值的 `$fwrite`/波形调试方法放入 `vivado-orchestrator/references/simulation-debug.md`，按需读取。
+- [x] 不在 skill 中复制任务全集、完整配置 schema 或大段项目文档。
+- [x] 每个 `SKILL.md` 目标为 100–200 行，且不超过 500 行。
+- [x] frontmatter 只保留 `name` 和可准确触发的 `description`。
 
 ### D2. 验证与提交
 
-- [ ] 搜索并清除 `dev/`、根目录 `tasks.yaml`、`vivado_do.tcl`、旧 FPU 和 `log_all_objects=true` 等失效说明。
-- [ ] 使用 skill validator 检查全部三个 skill。
-- [ ] 逐条执行 skill 给出的核心命令或其安全只读形式。
-- [ ] 确认 skill 不指导用户使用已删除的 TUI/Tcl/PlantUML/Typst 能力。
+- [x] 搜索并清除 `dev/`、根目录 `tasks.yaml`、`vivado_do.tcl`、旧 FPU 和 `log_all_objects=true` 等失效说明。
+- [x] 使用 skill validator 检查全部三个 skill。
+- [x] 逐条执行 skill 给出的核心命令或其安全只读形式。
+- [x] 确认 skill 不指导用户使用已删除的 TUI/Tcl/PlantUML/Typst 能力。
 - [ ] 提交 skills 阶段。
+
+验证结果：三个 `SKILL.md` 分别为 114、152、150 行，均通过 `skill-creator`
+的 `quick_validate.py`；只读执行 CLI help/status、测试 list/dry-run 和 trace analyzer
+help 均成功。审计同时发现 testbench 曾在所有 wave 级别无条件生成全量 VCD，已删除
+该重复入口，波形范围统一由 `operations.py` 控制，留到最终集中 Vivado 验证复核。
 
 ## 6. 阶段 E：文档清理
 

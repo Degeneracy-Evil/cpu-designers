@@ -235,46 +235,52 @@ tools/vivado_core/tcl/build_with_ila.tcl
 tools/vivado_core/tcl/add_ila.tcl
 ```
 
-- [ ] `operations.py` 是 create/refresh/sim/bitstream/program/archive Tcl 的唯一实现。
-- [ ] 删除所有 “mirrors 某 Tcl 文件” 注释和哈希中对已删除模板的无效依赖。
-- [ ] `add_ila.tcl` 不含固定用户路径，只负责在已打开工程中创建 ILA IP；普通 CLI 不自动调用它。
-- [ ] 不保留另一份一键 ILA bitstream 流程。
+- [x] `operations.py` 是 create/refresh/sim/bitstream/program/archive Tcl 的唯一实现。
+- [x] 删除所有 “mirrors 某 Tcl 文件” 注释和哈希中对已删除模板的无效依赖。
+- [x] `add_ila.tcl` 不含固定用户路径，只负责在已打开工程中创建 ILA IP；普通 CLI 不自动调用它。
+- [x] 不保留另一份一键 ILA bitstream 流程。
 
 ### C2. 删除不受 RTL 支持的配置分支
 
-- [ ] 删除 `use_tag_bram`、`use_tlb_bram` 以及 tag/TLB BRAM IP 生成分支。
-- [ ] 删除只为上述分支存在的 byte-enable/width 配置字段。
-- [ ] Cache data BRAM、boot ROM、MIG 和 clk_wiz 配置继续保留。
-- [ ] 清理不存在目录对应的 `rtl_path` 字段；保留实际需要的最小路径集合。
-- [ ] 重新生成 `cache_def.svh`，确认内容与当前 2 路 Cache、2 路 TLB 一致。
+- [x] 删除 `use_tag_bram`、`use_tlb_bram` 以及 tag/TLB BRAM IP 生成分支。
+- [x] 删除只为上述分支存在的 byte-enable/width 配置字段。
+- [x] Cache data BRAM、boot ROM、MIG 和 clk_wiz 配置继续保留。
+- [x] 清理不存在目录对应的 `rtl_path` 字段；保留实际需要的最小路径集合。
+- [x] 重新生成 `cache_def.svh`，确认内容与当前 2 路 Cache、2 路 TLB 一致。
 
 ### C3. 简化测试构建与任务配置
 
-- [ ] `test_builder.py` 只负责读取 `build.yaml`、构建、列出和清理测试程序。
-- [ ] 删除会生成错误命名和过时 `blcoe` 字段的 `--gen-tasks` 功能；任务保持显式维护。
-- [ ] 清理重复的 Linux task：保留 kernel smoke、一个 SRAM 启动任务和一个 DDR3 启动任务。
-- [ ] 删除固定 16 MiB DTB 控制实验和历史 DDR3 指针回归任务。
-- [ ] 将 task 名称改为反映当前实现的名称，避免把 AXI 主路径继续称作 AHB；仅在改名不触及功能接口时执行。
-- [ ] 增加一份明确排除长 Linux/DDR3 任务的短回归 batch plan，作为日常完整回归入口。
+- [x] `test_builder.py` 只负责读取 `build.yaml`、构建、列出和清理测试程序。
+- [x] 删除会生成错误命名和过时 `blcoe` 字段的 `--gen-tasks` 功能；任务保持显式维护。
+- [x] 清理重复的 Linux task：保留 kernel smoke、一个 SRAM 启动任务和一个 DDR3 启动任务。
+- [x] 删除固定 16 MiB DTB 控制实验和历史 DDR3 指针回归任务。
+- [x] 将 task 名称改为反映当前实现的名称，避免把 AXI 主路径继续称作 AHB；仅在改名不触及功能接口时执行。
+- [x] 增加一份明确排除长 Linux/DDR3 任务的短回归 batch plan，作为日常完整回归入口。
 
 ### C4. 清理 Python 与 shell 实现
 
-- [ ] 删除重复 import、未使用变量、已失效兼容注释和无入口函数。
-- [ ] 修正 `session.py` 以文本模式读取 Vivado 输出，消除 binary line-buffering warning，同时保留实时日志和超时行为。
-- [ ] 保持 `rv2coe.py` 为编译/链接和 COE/HEX 生成核心；`bin2hex.py` 只做裸 BIN 转换。
-- [ ] 删除未被文档或测试使用的 `tools/examples/phase1_prog.S`。
-- [ ] 检查 kernel、musl 和 OpenSBI 脚本的输入/输出边界，不重新引入发行版安装、下载或其他隐式系统修改。
-- [ ] 不为了拆文件而拆分 `operations.py`；只有出现可独立测试的纯函数集合时才提取模块。
+- [x] 删除重复 import、未使用变量、已失效兼容注释和无入口函数。
+- [x] 修正 `session.py` 以文本模式读取 Vivado 输出，消除 binary line-buffering warning，同时保留实时日志和超时行为。
+- [x] 保持 `rv2coe.py` 为编译/链接和 COE/HEX 生成核心；`bin2hex.py` 只做裸 BIN 转换。
+- [x] 删除未被文档或测试使用的 `tools/examples/phase1_prog.S`。
+- [x] 检查 kernel、musl 和 OpenSBI 脚本的输入/输出边界，不重新引入发行版安装、下载或其他隐式系统修改。
+- [x] 不为了拆文件而拆分 `operations.py`；只有出现可独立测试的纯函数集合时才提取模块。
 
 ### C5. 工具验证与提交
 
-- [ ] Python compileall、shell `bash -n`、YAML 加载通过。
-- [ ] `test_builder --list`、单测试构建、分类构建和完整构建通过。
-- [ ] BIN→HEX 对齐、little-endian、尾部补零单元检查通过。
-- [ ] CLI create、refresh、sim、status 和 cleanup 在临时 session 上通过。
+- [x] Python compileall、shell `bash -n`、YAML 加载通过。
+- [x] `test_builder --list`、单测试构建、分类构建和完整构建通过。
+- [x] BIN→HEX 对齐、little-endian、尾部补零单元检查通过。
+- [x] CLI create、refresh、sim、status 和 cleanup 在临时 session 上通过。
 - [ ] 默认无 WDB；`--debug wave:minimal` 可显式生成波形；随后普通仿真能恢复无 WDB。
-- [ ] kernel smoke、短回归 batch plan 和 FPGA bitstream 通过。
+- [x] kernel smoke、短回归 batch plan 和 FPGA bitstream 通过。
 - [ ] 提交工具阶段。
+
+验证结果：52 个裸机程序构建成功，13 项短回归全部 PASS；PLIC/CLINT
+testbench 改为在自检协议完成后立即退出；普通模式未生成 WDB。FPGA bitstream
+在 Vivado 2018.3 中生成成功。随后将 MIG 的 8 位 AXI ID 与 CPU 的 4 位 ID
+边界改为显式适配，并明确留空连接 `device_temp`；该小改动留到最终集中 Vivado
+验证时复核，不为它单独启动一次耗时构建。
 
 ## 5. 阶段 D：skills 清理
 

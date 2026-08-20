@@ -8,7 +8,7 @@ Layers:
 - **tb**:   src/tb/**/*.sv
 - **src**:  src/program_source/**/*.{s,S,c,h,ld} + build.yaml + test_builder.py + rv2coe.py
 - **coe**:  build/program/**/*.{coe,hex}
-- **fpga**: src/fpga/**/*.xdc + src/fpga/**/*.dcp + tools/vivado_core/tcl/**/*.tcl
+- **fpga**: src/fpga/**/*.xdc
 """
 from __future__ import annotations
 
@@ -61,8 +61,6 @@ class LayeredHash:
         ],
         "fpga": [
             "src/fpga/**/*.xdc",
-            "src/fpga/**/*.dcp",
-            "tools/vivado_core/tcl/**/*.tcl",
         ],
     }
 

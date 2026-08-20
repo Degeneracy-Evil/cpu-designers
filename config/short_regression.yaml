@@ -1,0 +1,19 @@
+# Fast RTL regression: deliberately excludes full Linux and DDR3 simulation.
+max_parallel: 5
+on_error: continue
+operations: [create, sim]
+
+tasks:
+  - task: isa_m_ext
+  - task: isa_a_ext
+  - task: exception_interrupt_basic
+  - task: privilege_delegation
+  - task: mmu_permission
+  - task: mmu_tlb_replace
+  - task: cache_mmu_interact
+  - task: mmio_plic
+  - task: cpu_bus_bridge_unit
+  - task: dcache_writethrough_unit
+  - task: icache_blocking_unit
+  - task: regression_m_irq_precision
+  - task: kernel_tb_compile_smoke

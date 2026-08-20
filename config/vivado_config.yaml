@@ -37,9 +37,6 @@ memory:
     line_words: 8         # Words per cache line (line_width = line_words * 32)
     byte_enable: true     # Byte-write enable for data BRAM
     byte_size: 8          # Byte size for write-enable granularity
-    tag_bram_byte_enable: true   # Byte-write enable for tag BRAM
-    tag_bram_byte_size: 36      # Way stride = 36 for icache (V1+tag19=20 bits/way, padded to 36)
-    tag_bram_xilinx_byte_size: 9  # Xilinx BRAM Byte_Size param (Vivado 2018.3 only accepts 8 or 9)
 
   dcache:
     num_sets: 8
@@ -48,23 +45,10 @@ memory:
     line_words: 8
     byte_enable: true
     byte_size: 8
-    tag_bram_byte_enable: true   # Byte-write enable for tag BRAM
-    tag_bram_byte_size: 36      # Way stride = 36 for dcache (V1+D1+tag19=22 bits/way, padded to 36)
-    tag_bram_xilinx_byte_size: 9  # Xilinx BRAM Byte_Size param (Vivado 2018.3 only accepts 8 or 9)
-
-  # Tag storage: false = register arrays (current), true = BRAM IPs (icachet/dcachet)
-  use_tag_bram: false
 
   tlb:
     num_ways: 2           # Two-way set associative, 16 entries per ITLB/DTLB bank
     num_sets: 8
-    flag_byte_enable: true   # Byte-write enable for flag BRAM
-    flag_byte_size: 8        # Byte size = 8 (WEA width = 128/8 = 16, 4 bits per 32-bit way)
-    data_byte_enable: true   # Byte-write enable for data BRAM
-    data_byte_size: 8        # Byte size = 8 (WEA width = 128/8 = 16, 4 bits per 32-bit way)
-
-  # TLB storage: false = register array (current), true = BRAM IPs (tlb_flag/tlb_data)
-  use_tlb_bram: false
 
   # DDR3 main memory via MIG 7 Series (AXI4 native)
   ddr3:
@@ -105,12 +89,10 @@ rtl_path:
   mu: mu
   cpu_core: core
   common: common
-  ahb: axi
-  ahb_ip: axi/ip
+  axi: axi
   amba: amba
   ram_wrap: ram_wrap
   apb: apb
-  apb_header: apb/header
   apb_perips: apb/perips
   apb_uart16550: apb/perips/uart16550
   sys_rtl: ""                   # src/rtl root (empty = src/rtl itself)

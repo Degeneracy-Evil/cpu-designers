@@ -11,11 +11,16 @@ module tb_mmio_clint;
 
 
     reg [31:0] _val;
+    reg report_completed;
     initial begin
         pass_count = 0;
         fail_count = 0;
 
-        repeat (SIM_CYCLES) @(posedge clk);
+        wait_test_report(EXPECTED_TOTAL, SIM_CYCLES, report_completed);
+        if (!report_completed) begin
+            fail_count = fail_count + 1;
+            $display("  FAIL timeout waiting for test_report");
+        end
 
         $display("");
         $display("--- MMIO clint Results ---");

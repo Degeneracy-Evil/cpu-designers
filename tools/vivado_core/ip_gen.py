@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from .config import CacheConfig, Ddr3Config, ClkWizConfig, MemoryConfig, RomConfig, TlbConfig
+from .config import CacheConfig, ClkWizConfig, Ddr3Config, MemoryConfig, RomConfig
 
 
 # ---------------------------------------------------------------------------
@@ -115,99 +115,13 @@ def cache_data_to_bram(name: str, cfg: CacheConfig) -> BramConfig:
         Cache geometry configuration.
     """
     line_width = cfg.line_words * 32  # e.g. 8 * 32 = 256
-    depth = cfg.num_sets * cfg.num_ways  # e.g. 8 * 4 = 32
+    depth = cfg.num_sets * cfg.num_ways  # e.g. 8 sets * 2 ways = 16
     return BramConfig(
         name=name,
         data_width=line_width,
         depth=depth,
         byte_enable=cfg.byte_enable,
         byte_size=cfg.byte_size,
-        register_output=False,
-    )
-
-
-def cache_tag_to_bram(name: str, cfg: CacheConfig, has_dirty: bool = False) -> BramConfig:
-    """Derive BRAM config for a cache *tag* array (packed: all ways per set).
-
-    Each BRAM address corresponds to one Set's all 4 Ways packed together.
-    This enables single-read parallel tag comparison for the entire set.
-
-    Parameters
-    ----------
-    name:
-        IP instance name (``"icachet"`` or ``"dcachet"``).
-    cfg:
-        Cache geometry configuration.
-    has_dirty:
-        If true, tag entry includes a dirty bit (dcache).
-    """
-    # Tag entry per way: valid(1) [+ dirty(1)] + tag(tag_width)
-    extra_bits = 2 if has_dirty else 1
-    tag_entry_width = extra_bits + cfg.tag_width  # 20 for icache, 22 for dcache
-    # BRAM data width = num_ways * byte_size (byte_size from config, may pad each way)
-    packed_width = cfg.num_ways * cfg.tag_bram_byte_size  # 144 for both (4*36)
-    # Depth = number of sets (one BRAM address per set)
-    depth = cfg.num_sets
-    return BramConfig(
-        name=name,
-        data_width=packed_width,
-        depth=depth,
-        byte_enable=cfg.tag_bram_byte_enable,
-        byte_size=cfg.tag_bram_xilinx_byte_size,
-        register_output=False,
-    )
-
-
-def tlb_flag_to_bram(name: str, cfg: TlbConfig) -> BramConfig:
-    """Derive BRAM config for the TLB *flag* array (packed: all ways per set).
-
-    Each BRAM address corresponds to one Set's all 4 Ways packed together.
-    Per-way flag entry: V(1) + G(1) + ASID(9) + VPN(20) + mega(1) = 32 bits.
-    Packed width = num_ways × 32 = 128 bits. Depth = num_sets.
-
-    Parameters
-    ----------
-    name:
-        IP instance name (``"tlb_flag"``).
-    cfg:
-        TLB geometry configuration.
-    """
-    flag_entry_width = 1 + 1 + 9 + 20 + 1  # 32 bits per way
-    packed_width = cfg.num_ways * flag_entry_width  # 128 bits
-    depth = cfg.num_sets
-    return BramConfig(
-        name=name,
-        data_width=packed_width,
-        depth=depth,
-        byte_enable=cfg.flag_byte_enable,
-        byte_size=cfg.flag_byte_size,
-        register_output=False,
-    )
-
-
-def tlb_data_to_bram(name: str, cfg: TlbConfig) -> BramConfig:
-    """Derive BRAM config for the TLB *data* array (packed: all ways per set).
-
-    Each BRAM address corresponds to one Set's all 4 Ways packed together.
-    Per-way data entry: PPN(22) + R(1) + W(1) + X(1) + U(1) + A(1) + D(1) + pad(4) = 32 bits.
-    Packed width = num_ways × 32 = 128 bits. Depth = num_sets.
-
-    Parameters
-    ----------
-    name:
-        IP instance name (``"tlb_data"``).
-    cfg:
-        TLB geometry configuration.
-    """
-    data_entry_width = 22 + 1 + 1 + 1 + 1 + 1 + 1 + 4  # 32 bits per way (4 bits padding)
-    packed_width = cfg.num_ways * data_entry_width  # 128 bits
-    depth = cfg.num_sets
-    return BramConfig(
-        name=name,
-        data_width=packed_width,
-        depth=depth,
-        byte_enable=cfg.data_byte_enable,
-        byte_size=cfg.data_byte_size,
         register_output=False,
     )
 
@@ -233,10 +147,10 @@ def clkwiz_to_ip(cfg: ClkWizConfig) -> ClkWizIpConfig:
         mmcm_clkin_period=cfg.mmcm_clkin_period,
         mmcm_clkfbout_mult_f=cfg.mmcm_clkfbout_mult_f,
         mmcm_divclk_divide=cfg.mmcm_divclk_divide,
-    num_out_clks=cfg.num_out_clks,
-    clk_out1_freq=cfg.clk_out1_freq,
-    clk_out2_freq=cfg.clk_out2_freq,
-    clk_out3_freq=cfg.clk_out3_freq,
+        num_out_clks=cfg.num_out_clks,
+        clk_out1_freq=cfg.clk_out1_freq,
+        clk_out2_freq=cfg.clk_out2_freq,
+        clk_out3_freq=cfg.clk_out3_freq,
         reset_type=cfg.reset_type,
     )
 
@@ -373,11 +287,7 @@ export_ip_user_files -of_objects [get_ips {name}] -no_script -sync -force -quiet
 
 
 def get_bram_ip_names(mem: MemoryConfig) -> list[str]:
-    """Derive the list of BRAM IP names from the memory configuration.
-
-    This replaces the hardcoded ``["ROM", "icached", "dcached", ...]``
-    list, ensuring the BRAM simulation model set always matches the
-    actual IPs created by :func:`generate_all_ip_tcl`.
+    """Return the BRAM IPs instantiated by the current RTL.
 
     Parameters
     ----------
@@ -389,12 +299,8 @@ def get_bram_ip_names(mem: MemoryConfig) -> list[str]:
     list[str]
         Ordered list of BRAM IP instance names.
     """
-    names: list[str] = ["ROM", "icached", "dcached"]
-    if mem.use_tag_bram:
-        names.extend(["icachet", "dcachet"])
-    if mem.use_tlb_bram:
-        names.extend(["tlb_flag", "tlb_data"])
-    return names
+    del mem  # The set is fixed; the argument keeps the public API stable.
+    return ["ROM", "icached", "dcached"]
 
 
 def generate_all_ip_tcl(mem: MemoryConfig, ip_dir: str, base_dir: str = "") -> tuple[str, list[str]]:
@@ -434,24 +340,6 @@ def generate_all_ip_tcl(mem: MemoryConfig, ip_dir: str, base_dir: str = "") -> t
     cfg_dc = cache_data_to_bram("dcached", mem.dcache)
     parts.append(generate_bram_create_ip_tcl(cfg_dc, ip_dir))
     names.append(cfg_dc.name)
-
-    # Tag BRAMs (optional)
-    if mem.use_tag_bram:
-        cfg_ict = cache_tag_to_bram("icachet", mem.icache, has_dirty=False)
-        parts.append(generate_bram_create_ip_tcl(cfg_ict, ip_dir))
-        names.append(cfg_ict.name)
-        cfg_dct = cache_tag_to_bram("dcachet", mem.dcache, has_dirty=True)
-        parts.append(generate_bram_create_ip_tcl(cfg_dct, ip_dir))
-        names.append(cfg_dct.name)
-
-    # TLB BRAMs (optional)
-    if mem.use_tlb_bram:
-        cfg_tlb_flag = tlb_flag_to_bram("tlb_flag", mem.tlb)
-        parts.append(generate_bram_create_ip_tcl(cfg_tlb_flag, ip_dir))
-        names.append(cfg_tlb_flag.name)
-        cfg_tlb_data = tlb_data_to_bram("tlb_data", mem.tlb)
-        parts.append(generate_bram_create_ip_tcl(cfg_tlb_data, ip_dir))
-        names.append(cfg_tlb_data.name)
 
     # DDR3 / Clocking Wizard (when enabled)
     if mem.ddr3.enabled:

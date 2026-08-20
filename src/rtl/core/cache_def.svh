@@ -28,7 +28,7 @@
 
 `define CLK_WIZ_IP_NAME     "clk_wiz_0"
 `define CLK_WIZ_PRIM_IN_FREQ  100
-`define CLK_WIZ_DDR_REF_FREQ 100
+`define CLK_WIZ_DDR_REF_FREQ 200
 `define MIG_UI_CLK_FREQ     100
 
 // --- I-Cache ---
@@ -73,27 +73,10 @@
 `define DCACHE_SET_IDX_WIDTH 3
 `define DCACHE_WAY_WIDTH    1
 
-// --- Tag storage mode ---
-`define USE_TAG_BRAM 0
-
 // --- TLB geometry ---
-`define TLB_NUM_WAYS           2
-`define TLB_NUM_SETS          8
-`define TLB_SET_IDX_WIDTH     3
-`define TLB_WAY_WIDTH         1
-
-`define TLB_FLAG_ENTRY_WIDTH  32
-`define TLB_FLAG_BRAM_WIDTH   64
-`define TLB_FLAG_BRAM_DEPTH   8
-`define TLB_FLAG_BRAM_ADDR_WIDTH 3
-`define TLB_FLAG_BRAM_WEA_WIDTH  8
-`define TLB_FLAG_BRAM_BYTE_SIZE  8
-
-`define TLB_DATA_ENTRY_WIDTH  32
-`define TLB_DATA_BRAM_WIDTH   64
-`define TLB_DATA_BRAM_DEPTH   8
-`define TLB_DATA_BRAM_ADDR_WIDTH 3
-`define TLB_DATA_BRAM_WEA_WIDTH  8
-`define TLB_DATA_BRAM_BYTE_SIZE  8
+`define TLB_NUM_WAYS       2
+`define TLB_NUM_SETS       8
+`define TLB_SET_IDX_WIDTH  3
+`define TLB_WAY_WIDTH      1
 
 `endif // CACHE_DEF_SVH

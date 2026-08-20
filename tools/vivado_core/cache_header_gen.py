@@ -15,7 +15,6 @@ Address decomposition (32-bit physical address):
 """
 from __future__ import annotations
 
-import math
 from pathlib import Path
 
 from .config import CacheConfig, MemoryConfig, TlbConfig
@@ -104,91 +103,14 @@ def _derive_addr_slices(cfg: CacheConfig, prefix: str) -> list[str]:
     return lines
 
 
-def _derive_tag_bram_defines(cfg: CacheConfig, prefix: str, has_dirty: bool) -> list[str]:
-    """Derive tag BRAM ``define`` macros for one cache (when use_tag_bram=true).
-
-    Tag BRAM packs all ways of a set into one BRAM line:
-      - tag_entry_width = extra_bits + tag_width (actual bits used per way)
-      - data_width = num_ways * tag_bram_byte_size (BRAM line width, may include padding)
-      - depth = num_sets
-      - WEA width = packed_width / xilinx_byte_size
-      - WEA bits per way = tag_bram_byte_size / xilinx_byte_size
-
-    Two byte-size concepts:
-      - tag_bram_byte_size: way stride in the packed BRAM word (e.g. 36 bits/way)
-      - tag_bram_xilinx_byte_size: Xilinx BRAM Byte_Size parameter (e.g. 9)
-    Vivado 2018.3 blk_mem_gen v8.4 only accepts Byte_Size 8 or 9 for True Dual Port.
-    When tag_bram_byte_size > tag_entry_width, each way has unused padding bits.
-    """
-    extra_bits = 2 if has_dirty else 1
-    tag_entry_width = extra_bits + cfg.tag_width
-    # BRAM data width = num_ways * byte_size (byte_size from config, may pad each way)
-    packed_width = cfg.num_ways * cfg.tag_bram_byte_size
-    depth = cfg.num_sets
-    # WEA width uses the Xilinx byte size (not the way stride)
-    xilinx_bs = cfg.tag_bram_xilinx_byte_size
-    wea_width = packed_width // xilinx_bs
-    wea_bits_per_way = cfg.tag_bram_byte_size // xilinx_bs
-
-    lines: list[str] = []
-    p = prefix
-    lines.append(f"`define {p}_TAG_BRAM_WIDTH      {packed_width}")
-    lines.append(f"`define {p}_TAG_BRAM_DEPTH      {depth}")
-    lines.append(f"`define {p}_TAG_BRAM_ADDR_WIDTH {_clog2(depth)}")
-    lines.append(f"`define {p}_TAG_BRAM_WEA_WIDTH  {wea_width}")
-    # Per-way byte size within the packed BRAM line (way stride for extraction)
-    lines.append(f"`define {p}_TAG_BRAM_BYTE_SIZE  {cfg.tag_bram_byte_size}")
-    # Xilinx BRAM Byte_Size parameter (determines WEA granularity)
-    lines.append(f"`define {p}_TAG_BRAM_XILINX_BYTE_SIZE  {xilinx_bs}")
-    # WEA bits per way (used to construct per-way write-enable mask)
-    lines.append(f"`define {p}_TAG_BRAM_WEA_BITS_PER_WAY  {wea_bits_per_way}")
-
-    return lines
-
-
-def _derive_tlb_bram_defines(cfg: TlbConfig) -> list[str]:
-    """Derive TLB BRAM ``define`` macros (when use_tlb_bram=true).
-
-    TLB Flag BRAM: packed all ways per set.
-      - Per-way flag: V(1) + G(1) + ASID(9) + VPN(20) + mega(1) = 32 bits
-      - Packed width = num_ways × 32 = 128 bits
-      - Depth = num_sets
-
-    TLB Data BRAM: packed all ways per set.
-      - Per-way data: PPN(22) + R(1) + W(1) + X(1) + U(1) + A(1) + D(1) + pad(4) = 32 bits
-      - Packed width = num_ways × 32 = 128 bits
-      - Depth = num_sets
-    """
-    flag_entry_width = 1 + 1 + 9 + 20 + 1  # 32
-    data_entry_width = 22 + 1 + 1 + 1 + 1 + 1 + 1 + 4  # 32 (with 4-bit padding)
-    flag_packed_width = cfg.num_ways * flag_entry_width  # 128
-    data_packed_width = cfg.num_ways * data_entry_width  # 128
-    depth = cfg.num_sets
-    # WEA width = packed_width / byte_size (from config, not per-way entry width)
-    flag_wea_width = flag_packed_width // cfg.flag_byte_size
-    data_wea_width = data_packed_width // cfg.data_byte_size
-
-    lines: list[str] = []
-    lines.append(f"`define TLB_NUM_WAYS           {cfg.num_ways}")
-    lines.append(f"`define TLB_NUM_SETS          {cfg.num_sets}")
-    lines.append(f"`define TLB_SET_IDX_WIDTH     {_clog2(cfg.num_sets)}")
-    lines.append(f"`define TLB_WAY_WIDTH         {_clog2(cfg.num_ways)}")
-    lines.append(f"")
-    lines.append(f"`define TLB_FLAG_ENTRY_WIDTH  {flag_entry_width}")
-    lines.append(f"`define TLB_FLAG_BRAM_WIDTH   {flag_packed_width}")
-    lines.append(f"`define TLB_FLAG_BRAM_DEPTH   {depth}")
-    lines.append(f"`define TLB_FLAG_BRAM_ADDR_WIDTH {_clog2(depth)}")
-    lines.append(f"`define TLB_FLAG_BRAM_WEA_WIDTH  {flag_wea_width}")
-    lines.append(f"`define TLB_FLAG_BRAM_BYTE_SIZE  {cfg.flag_byte_size}")
-    lines.append(f"")
-    lines.append(f"`define TLB_DATA_ENTRY_WIDTH  {data_entry_width}")
-    lines.append(f"`define TLB_DATA_BRAM_WIDTH   {data_packed_width}")
-    lines.append(f"`define TLB_DATA_BRAM_DEPTH   {depth}")
-    lines.append(f"`define TLB_DATA_BRAM_ADDR_WIDTH {_clog2(depth)}")
-    lines.append(f"`define TLB_DATA_BRAM_WEA_WIDTH  {data_wea_width}")
-    lines.append(f"`define TLB_DATA_BRAM_BYTE_SIZE  {cfg.data_byte_size}")
-
-    return lines
+def _derive_tlb_defines(cfg: TlbConfig) -> list[str]:
+    """Derive only the geometry shared by the register-array TLBs."""
+    return [
+        f"`define TLB_NUM_WAYS       {cfg.num_ways}",
+        f"`define TLB_NUM_SETS       {cfg.num_sets}",
+        f"`define TLB_SET_IDX_WIDTH  {_clog2(cfg.num_sets)}",
+        f"`define TLB_WAY_WIDTH      {_clog2(cfg.num_ways)}",
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -223,7 +145,12 @@ def _derive_ddr3_defines(mem: MemoryConfig) -> list[str]:
     lines.append(f"")
     lines.append(f"`define CLK_WIZ_IP_NAME     \"{mem.clk_wiz.ip_name}\"")
     lines.append(f"`define CLK_WIZ_PRIM_IN_FREQ  {int(mem.clk_wiz.prim_in_freq)}")
-    lines.append(f"`define CLK_WIZ_DDR_REF_FREQ {int(mem.clk_wiz.clk_out2_freq)}")
+    ddr_ref_freq = (
+        mem.clk_wiz.clk_out3_freq
+        if mem.clk_wiz.num_out_clks >= 3
+        else mem.clk_wiz.clk_out2_freq
+    )
+    lines.append(f"`define CLK_WIZ_DDR_REF_FREQ {int(ddr_ref_freq)}")
     lines.append(f"`define MIG_UI_CLK_FREQ     {mem.ddr3.input_clk_freq}")
     return lines
 
@@ -274,33 +201,17 @@ def generate_cache_header(mem: MemoryConfig) -> str:
     # I-Cache
     lines.append("// --- I-Cache ---")
     lines.extend(_derive_addr_slices(mem.icache, "ICACHE"))
-    if mem.use_tag_bram:
-        lines.extend(_derive_tag_bram_defines(mem.icache, "ICACHE", has_dirty=False))
     lines.append("")
 
     # D-Cache
     lines.append("// --- D-Cache ---")
     lines.extend(_derive_addr_slices(mem.dcache, "DCACHE"))
-    if mem.use_tag_bram:
-        lines.extend(_derive_tag_bram_defines(mem.dcache, "DCACHE", has_dirty=True))
     lines.append("")
 
-    # Tag BRAM flag
-    lines.append("// --- Tag storage mode ---")
-    lines.append(f"`define USE_TAG_BRAM {1 if mem.use_tag_bram else 0}")
-    lines.append("")
-
-    # TLB BRAM
-    # Always generate TLB geometry defines (needed for ifdef blocks in RTL)
+    # TLB geometry
     lines.append("// --- TLB geometry ---")
-    lines.extend(_derive_tlb_bram_defines(mem.tlb))
+    lines.extend(_derive_tlb_defines(mem.tlb))
     lines.append("")
-
-    # TLB storage mode (only define when enabled, so ifdef works correctly)
-    if mem.use_tlb_bram:
-        lines.append("// --- TLB storage mode ---")
-        lines.append(f"`define USE_TLB_BRAM 1")
-        lines.append("")
 
     lines.append("`endif // CACHE_DEF_SVH")
     lines.append("")

@@ -5,11 +5,8 @@ If the file is absent, sensible defaults are used.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-import math
 import sys
-from dataclasses import fields
-
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
@@ -110,15 +107,6 @@ class CacheConfig:
     byte_size: int = 8
     """Byte size for write-enable granularity."""
 
-    tag_bram_byte_enable: bool = True
-    """Whether byte-write enable is active for tag BRAM (when use_tag_bram=true)."""
-
-    tag_bram_byte_size: int = 36
-    """Way stride in packed tag BRAM word (bits per way, must be multiple of xilinx_byte_size)."""
-
-    tag_bram_xilinx_byte_size: int = 9
-    """Xilinx BRAM Byte_Size parameter. Vivado 2018.3 only accepts 8 or 9 for True Dual Port."""
-
 
 @dataclass(frozen=True)
 class TlbConfig:
@@ -129,18 +117,6 @@ class TlbConfig:
 
     num_sets: int = 8
     """Number of TLB sets. Total entries = num_ways × num_sets."""
-
-    flag_byte_enable: bool = True
-    """Whether byte-write enable is active for flag BRAM."""
-
-    flag_byte_size: int = 8
-    """Byte size for flag BRAM write-enable granularity (8 → 16-bit WEA, 4 bits per 32-bit way)."""
-
-    data_byte_enable: bool = True
-    """Whether byte-write enable is active for data BRAM."""
-
-    data_byte_size: int = 8
-    """Byte size for data BRAM write-enable granularity (8 → 16-bit WEA, 4 bits per 32-bit way)."""
 
 
 @dataclass(frozen=True)
@@ -192,12 +168,6 @@ class MemoryConfig:
     tlb: TlbConfig = field(default_factory=TlbConfig)
     """TLB configuration."""
 
-    use_tag_bram: bool = False
-    """If true, use BRAM IPs (icachet/dcachet) for tag storage; otherwise register arrays."""
-
-    use_tlb_bram: bool = False
-    """If true, use BRAM IPs (tlb_flag/tlb_data) for TLB storage; otherwise register array."""
-
     ddr3: Ddr3Config = field(default_factory=Ddr3Config)
     """DDR3 main memory via MIG 7 Series configuration."""
 
@@ -219,12 +189,10 @@ class RtlPathsConfig:
     mu: str = "mu"
     cpu_core: str = "core"
     common: str = "common"
-    ahb: str = "axi"
-    ahb_ip: str = "axi/ip"
+    axi: str = "axi"
     amba: str = "amba"
     ram_wrap: str = "ram_wrap"
     apb: str = "apb"
-    apb_header: str = "apb/header"
     apb_perips: str = "apb/perips"
     apb_uart16550: str = "apb/perips/uart16550"
     sys_rtl: str = ""  # src/rtl itself (empty fragment → src/rtl)
@@ -328,9 +296,6 @@ def load_config(path: Path | str | None = None, base_dir: Path | str | None = No
         line_words=icache_raw.get("line_words", 8),
         byte_enable=icache_raw.get("byte_enable", True),
         byte_size=icache_raw.get("byte_size", 8),
-        tag_bram_byte_enable=icache_raw.get("tag_bram_byte_enable", True),
-        tag_bram_byte_size=icache_raw.get("tag_bram_byte_size", 36),
-        tag_bram_xilinx_byte_size=icache_raw.get("tag_bram_xilinx_byte_size", 9),
     )
     dcache = CacheConfig(
         num_sets=dcache_raw.get("num_sets", 8),
@@ -339,17 +304,10 @@ def load_config(path: Path | str | None = None, base_dir: Path | str | None = No
         line_words=dcache_raw.get("line_words", 8),
         byte_enable=dcache_raw.get("byte_enable", True),
         byte_size=dcache_raw.get("byte_size", 8),
-        tag_bram_byte_enable=dcache_raw.get("tag_bram_byte_enable", True),
-        tag_bram_byte_size=dcache_raw.get("tag_bram_byte_size", 36),
-        tag_bram_xilinx_byte_size=dcache_raw.get("tag_bram_xilinx_byte_size", 9),
     )
     tlb = TlbConfig(
         num_ways=tlb_raw.get("num_ways", 2),
         num_sets=tlb_raw.get("num_sets", 8),
-        flag_byte_enable=tlb_raw.get("flag_byte_enable", True),
-        flag_byte_size=tlb_raw.get("flag_byte_size", 8),
-        data_byte_enable=tlb_raw.get("data_byte_enable", True),
-        data_byte_size=tlb_raw.get("data_byte_size", 8),
     )
     ddr3_raw: dict = mem_raw.get("ddr3", {}) or {}
     clk_wiz_raw: dict = mem_raw.get("clk_wiz", {}) or {}
@@ -386,8 +344,6 @@ def load_config(path: Path | str | None = None, base_dir: Path | str | None = No
         icache=icache,
         dcache=dcache,
         tlb=tlb,
-        use_tag_bram=mem_raw.get("use_tag_bram", False),
-        use_tlb_bram=mem_raw.get("use_tlb_bram", False),
         ddr3=ddr3,
         clk_wiz=clk_wiz,
     )
@@ -399,12 +355,10 @@ def load_config(path: Path | str | None = None, base_dir: Path | str | None = No
         mu=rtl_raw.get("mu", "mu"),
         cpu_core=rtl_raw.get("cpu_core", "core"),
         common=rtl_raw.get("common", "common"),
-        ahb=rtl_raw.get("ahb", "axi"),
-        ahb_ip=rtl_raw.get("ahb_ip", "axi/ip"),
+        axi=rtl_raw.get("axi", "axi"),
         amba=rtl_raw.get("amba", "amba"),
         ram_wrap=rtl_raw.get("ram_wrap", "ram_wrap"),
         apb=rtl_raw.get("apb", "apb"),
-        apb_header=rtl_raw.get("apb_header", "apb/header"),
         apb_perips=rtl_raw.get("apb_perips", "apb/perips"),
         apb_uart16550=rtl_raw.get("apb_uart16550", "apb/perips/uart16550"),
         sys_rtl=rtl_raw.get("sys_rtl", ""),

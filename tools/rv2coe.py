@@ -2,7 +2,7 @@
 """Compile RISC-V ASM/C source into Xilinx COE instruction/data images.
 
 Default target matches this repository's embedded CPU project:
-- ISA: rv32i_zicsr_zifencei
+- ISA: rv32im_zicsr_zifencei
 - ABI: ilp32
 - COE format: memory_initialization_radix=16 + 32-bit words
 
@@ -90,7 +90,7 @@ _RV32IM_EXT: FrozenSet[str] = frozenset({
     "remu",
 })
 
-_RV32IA_EXT: FrozenSet[str] = frozenset({
+_RV32A_EXT: FrozenSet[str] = frozenset({
     "lr.w",
     "sc.w",
     "amoswap.w",
@@ -170,12 +170,18 @@ ISA_PROFILES: Dict[str, FrozenSet[str]] = {
     "rv32im": _RV32I_BASE | _RV32IM_EXT,
     "rv32im_zicsr": _RV32I_ZICSR | _RV32IM_EXT,
     "rv32im_zicsr_zifencei": _RV32I_ZIFENCEI | _RV32IM_EXT,
+    "rv32ia": _RV32I_BASE | _RV32A_EXT,
+    "rv32ia_zicsr": _RV32I_ZICSR | _RV32A_EXT,
+    "rv32ia_zicsr_zifencei": _RV32I_ZIFENCEI | _RV32A_EXT,
+    "rv32ima": _RV32I_BASE | _RV32IM_EXT | _RV32A_EXT,
+    "rv32ima_zicsr": _RV32I_ZICSR | _RV32IM_EXT | _RV32A_EXT,
+    "rv32ima_zicsr_zifencei": _RV32I_ZIFENCEI | _RV32IM_EXT | _RV32A_EXT,
     "rv32imc": _RV32I_BASE | _RV32IM_EXT | _RV32IC_EXT,
     "rv32imc_zicsr": _RV32I_ZICSR | _RV32IM_EXT | _RV32IC_EXT,
     "rv32imc_zicsr_zifencei": _RV32I_ZIFENCEI | _RV32IM_EXT | _RV32IC_EXT,
-    "rv32imac": _RV32I_BASE | _RV32IM_EXT | _RV32IA_EXT | _RV32IC_EXT,
-    "rv32imac_zicsr": _RV32I_ZICSR | _RV32IM_EXT | _RV32IA_EXT | _RV32IC_EXT,
-    "rv32imac_zicsr_zifencei": _RV32I_ZIFENCEI | _RV32IM_EXT | _RV32IA_EXT | _RV32IC_EXT,
+    "rv32imac": _RV32I_BASE | _RV32IM_EXT | _RV32A_EXT | _RV32IC_EXT,
+    "rv32imac_zicsr": _RV32I_ZICSR | _RV32IM_EXT | _RV32A_EXT | _RV32IC_EXT,
+    "rv32imac_zicsr_zifencei": _RV32I_ZIFENCEI | _RV32IM_EXT | _RV32A_EXT | _RV32IC_EXT,
     "rv32if": _RV32I_BASE | _RV32IF_EXT,
     "rv32if_zicsr": _RV32I_ZICSR | _RV32IF_EXT,
     "rv32if_zicsr_zifencei": _RV32I_ZIFENCEI | _RV32IF_EXT,
@@ -269,9 +275,9 @@ def parse_args() -> argparse.Namespace:
         help="Also output a plain hex file for $readmemh (one word per line)",
     )
     parser.add_argument(
-    "--text-base",
-    default="0x80000000",
-    help="Base address for the .text section (default: 0x80000000)"
+        "--text-base",
+        default="0x80000000",
+        help="Base address for the .text section",
     )
     sep_group = parser.add_argument_group("separate inst/data output", "For Harvard-architecture CPUs with split memories")
     sep_group.add_argument("--inst-coe", default="", help="Instruction COE file (.text section only)")
@@ -625,14 +631,13 @@ def main() -> int:
 
         src_kinds = [detect_lang(sp, args.lang) for sp in src_paths]
 
+        tmp_obj: tempfile.TemporaryDirectory[str] | None = None
         if args.keep_temp:
             tmp_root = Path(tempfile.mkdtemp(prefix="rv2coe_"))
             print(f"[INFO] Keeping temporary files in: {tmp_root}")
-            cleanup_tmp = False
         else:
             tmp_obj = tempfile.TemporaryDirectory(prefix="rv2coe_")
             tmp_root = Path(tmp_obj.name)
-            cleanup_tmp = True
 
         elf_path = tmp_root / "prog.elf"
         inst_bin_path = tmp_root / "prog.inst.bin"
@@ -718,8 +723,8 @@ def main() -> int:
             print(f"[INFO] Lang  : {lang_desc}")
             print(f"[INFO] March : {args.march}")
 
-        if cleanup_tmp:
-            tmp_obj.cleanup() # type: ignore
+        if tmp_obj is not None:
+            tmp_obj.cleanup()
         return 0
     except RuntimeError as exc:
         print(f"[ERROR] {exc}", file=sys.stderr)

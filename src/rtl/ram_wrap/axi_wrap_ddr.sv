@@ -196,6 +196,14 @@ wire [1 :0] mig_bresp  ;
 wire        mig_bvalid ;
 wire        mig_bready ;
 
+// The MIG is generated with an 8-bit AXI ID. The core only issues 4-bit IDs,
+// so extend requests explicitly and discard the known-zero upper response bits.
+wire [7 :0] mig_bid_wide;
+wire [7 :0] mig_rid_wide;
+
+assign mig_bid = mig_bid_wide[3:0];
+assign mig_rid = mig_rid_wide[3:0];
+
 wire ui_clk;
 wire ui_clk_sync_rst;
 wire init_calib_complete;
@@ -313,6 +321,7 @@ mig_axi_32 mig_axi (
     .sys_clk_i           (xtal_clk        ),
     .sys_rst             (button_resetn   ),                        
     .init_calib_complete (init_calib_complete),
+    .device_temp         (                ),
     .clk_ref_i           (ddr_clk_ref     ),
     .mmcm_locked         (                ),
 	
@@ -324,7 +333,7 @@ mig_axi_32 mig_axi (
     .app_zq_req          (1'b0            ),
     
     .aresetn             (ddr_aresetn     ),
-    .s_axi_awid          (mig_awid        ),
+    .s_axi_awid          ({4'b0, mig_awid}),
     .s_axi_awaddr        (mig_awaddr[26:0]),
     .s_axi_awlen         (mig_awlen       ),
     .s_axi_awsize        (mig_awsize      ),
@@ -340,11 +349,11 @@ mig_axi_32 mig_axi (
     .s_axi_wlast         (mig_wlast       ),
     .s_axi_wvalid        (mig_wvalid      ),
     .s_axi_wready        (mig_wready      ),
-    .s_axi_bid           (mig_bid         ),
+    .s_axi_bid           (mig_bid_wide    ),
     .s_axi_bresp         (mig_bresp       ),
     .s_axi_bvalid        (mig_bvalid      ),
     .s_axi_bready        (mig_bready      ),
-    .s_axi_arid          (mig_arid        ),
+    .s_axi_arid          ({4'b0, mig_arid}),
     .s_axi_araddr        (mig_araddr[26:0]),
     .s_axi_arlen         (mig_arlen       ),
     .s_axi_arsize        (mig_arsize      ),
@@ -355,7 +364,7 @@ mig_axi_32 mig_axi (
     .s_axi_arqos         (4'b0            ),
     .s_axi_arvalid       (mig_arvalid     ),
     .s_axi_arready       (mig_arready     ),
-    .s_axi_rid           (mig_rid         ),
+    .s_axi_rid           (mig_rid_wide    ),
     .s_axi_rdata         (mig_rdata       ),
     .s_axi_rresp         (mig_rresp       ),
     .s_axi_rlast         (mig_rlast       ),

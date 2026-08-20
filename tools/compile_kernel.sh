@@ -25,7 +25,7 @@ export FIRMWARE_HEX="${CPU_HOME}/build/program/firmware/fw_payload.hex"
 MUSL_TOOLCHAIN_BIN="${CPU_HOME}/linux/toolchains/riscv32ima-linux-musl/bin"
 export PATH="${MUSL_TOOLCHAIN_BIN}:${PATH}"
 
-for tool in make dtc cpio gzip grep nproc python3 sudo \
+for tool in make dtc cpio gzip grep nproc python3 \
             riscv32-linux-musl-gcc riscv64-linux-gnu-gcc; do
   if ! command -v "${tool}" >/dev/null 2>&1; then
     echo "error: required tool not found: ${tool}" >&2

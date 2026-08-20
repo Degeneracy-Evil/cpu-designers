@@ -541,6 +541,34 @@ task read_reg;
     end
 endtask
 
+// ----------------------------------------------------------------
+// wait_test_report — wait until framework/test_framework.s publishes x29.
+//   Framework tests leave x29 at zero while running and copy total_count into
+//   it only in test_report.  Polling this completion marker avoids simulating
+//   millions of idle cycles after the program has entered its end loop.
+// ----------------------------------------------------------------
+task wait_test_report;
+    input integer expected_total;
+    input integer max_cycles;
+    output completed;
+    integer cycles;
+    reg completed;
+    begin
+        completed = 1'b0;
+        force u_soc.rf_addr = 5'd29;
+        for (cycles = 0; cycles < max_cycles && !completed; cycles = cycles + 1) begin
+            @(posedge clk);
+            #1;
+            if (u_soc.rf_data === expected_total)
+                completed = 1'b1;
+        end
+        release u_soc.rf_addr;
+
+        if (completed)
+            repeat (10) @(posedge clk);
+    end
+endtask
+
 // ============================================================================
 // Debug trace infrastructure (conditional compilation — each feature independent)
 //

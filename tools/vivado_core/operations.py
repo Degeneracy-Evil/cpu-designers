@@ -8,14 +8,14 @@ from __future__ import annotations
 
 import logging
 import os
-import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 from .cache_header_gen import write_cache_header
 from .config import MemoryConfig, RtlPathsConfig
-from .exceptions import OperationError, StaleSessionError, VivadoProcessError
+from .exceptions import StaleSessionError
 from .hash import LayeredHash
 from .ip_gen import generate_all_ip_tcl, get_bram_ip_names
 from .session import ExecuteResult, Session, SessionManager
@@ -88,12 +88,10 @@ def _resolve_rtl_dirs(dev_dir: str, rtl: RtlPathsConfig) -> dict[str, str]:
         ("mu", rtl.mu),
         ("cpu_core", rtl.cpu_core),
         ("common", rtl.common),
-        ("ahb", rtl.ahb),
-        ("ahb_ip", rtl.ahb_ip),
+        ("axi", rtl.axi),
         ("amba", rtl.amba),
         ("ram_wrap", rtl.ram_wrap),
         ("apb", rtl.apb),
-        ("apb_header", rtl.apb_header),
         ("apb_perips", rtl.apb_perips),
         ("apb_uart16550", rtl.apb_uart16550),
     ):
@@ -111,20 +109,17 @@ def _tcl_create_project(
 ) -> str:
     """Generate TCL for project creation + RTL import + include dirs.
 
-    This mirrors the logic in ``tools/vivado_core/tcl/_create.tcl`` but with
-    all paths parameterised.
+    All paths are parameterised by the repository configuration.
     """
     d = _resolve_rtl_dirs(dev_dir, rtl)
     alu_rtl_dir = d["alu"]
     mu_rtl_dir = d["mu"]
     cpu_core_dir = d["cpu_core"]
     common_dir = d["common"]
-    ahb_dir = d["ahb"]
-    ahb_ip_dir = d["ahb_ip"]
+    axi_dir = d["axi"]
     amba_dir = d["amba"]
     ram_wrap_dir = d["ram_wrap"]
     apb_dir = d["apb"]
-    apb_header_dir = d["apb_header"]
     apb_perips_dir = d["apb_perips"]
     sys_rtl_dir = d["sys_rtl"]
     tb_dir = d["tb"]
@@ -147,7 +142,7 @@ add_files -scan_for_includes "{alu_rtl_dir}"
 add_files -scan_for_includes "{mu_rtl_dir}"
 add_files -scan_for_includes "{cpu_core_dir}"
 add_files -scan_for_includes "{common_dir}"
-add_files -scan_for_includes "{ahb_dir}"
+add_files -scan_for_includes "{axi_dir}"
 add_files -scan_for_includes "{amba_dir}"
 add_files -scan_for_includes "{ram_wrap_dir}"
 add_files -scan_for_includes "{apb_dir}"
@@ -165,12 +160,10 @@ set_property include_dirs [list \\
     "{mu_rtl_dir}" \\
     "{cpu_core_dir}" \\
     "{common_dir}" \\
-    "{ahb_dir}" \\
-    "{ahb_ip_dir}" \\
+    "{axi_dir}" \\
     "{amba_dir}" \\
     "{ram_wrap_dir}" \\
     "{apb_dir}" \\
-    "{apb_header_dir}" \\
     "{apb_perips_dir}" \\
     "{sys_rtl_dir}" \\
     "{tb_dir}" \\
@@ -237,10 +230,7 @@ update_compile_order -fileset sources_1
 
 
 def _tcl_add_constrs(base_dir: str) -> str:
-    """Generate TCL for adding constraint files.
-
-    Mirrors ``tools/vivado_core/tcl/_add_constrs.tcl``.
-    """
+    """Generate TCL for adding constraint files."""
     fpga_dir = f"{base_dir}/src/fpga"
     return f"""\
 # --- add constraints ---
@@ -484,10 +474,7 @@ def _tcl_add_tb(
     blcoe_file: str,
     rtl: RtlPathsConfig,
 ) -> str:
-    """Generate TCL for adding testbench and updating COE.
-
-    Mirrors ``tools/vivado_core/tcl/_add_tb.tcl``.
-    """
+    """Generate TCL for adding testbench and updating COE."""
     d = _resolve_rtl_dirs(dev_dir, rtl)
     tb_dir = d["tb"]
     ip_xci_dir = f"{proj_dir}/{proj_name}.srcs/sources_1/ip"
@@ -498,11 +485,10 @@ def _tcl_add_tb(
     mu_rtl_dir = d["mu"]
     cpu_core_dir = d["cpu_core"]
     common_dir = d["common"]
-    ahb_dir = d["ahb"]
+    axi_dir = d["axi"]
     amba_dir = d["amba"]
     ram_wrap_dir = d["ram_wrap"]
     apb_dir = d["apb"]
-    apb_header_dir = d["apb_header"]
     apb_perips_dir = d["apb_perips"]
     apb_uart16550_dir = d["apb_uart16550"]
     sys_rtl_dir = d["sys_rtl"]
@@ -550,8 +536,8 @@ foreach f [glob -nocomplain -directory "{cpu_core_dir}" *.svh] {{
     set_property file_type "Verilog Header" [get_files [file tail $f]]
 }}
 foreach f [glob -nocomplain -directory "{common_dir}" *.sv] {{ import_files -fileset sim_1 -norecurse $f }}
-foreach f [glob -nocomplain -directory "{ahb_dir}" *.sv] {{ import_files -fileset sim_1 -norecurse $f }}
-foreach f [glob -nocomplain -directory "{ahb_dir}" *.svh] {{
+foreach f [glob -nocomplain -directory "{axi_dir}" *.sv] {{ import_files -fileset sim_1 -norecurse $f }}
+foreach f [glob -nocomplain -directory "{axi_dir}" *.svh] {{
     import_files -fileset sim_1 -norecurse $f
     set_property file_type "Verilog Header" [get_files [file tail $f]]
 }}
@@ -566,10 +552,6 @@ foreach f [glob -nocomplain -directory "{apb_dir}" *.svh] {{
 foreach f [glob -nocomplain -directory "{apb_perips_dir}" *.sv] {{ import_files -fileset sim_1 -norecurse $f }}
 foreach f [glob -nocomplain -directory "{apb_uart16550_dir}" *.sv] {{ import_files -fileset sim_1 -norecurse $f }}
 foreach f [glob -nocomplain -directory "{apb_uart16550_dir}" *.svh] {{
-    import_files -fileset sim_1 -norecurse $f
-    set_property file_type "Verilog Header" [get_files [file tail $f]]
-}}
-foreach f [glob -nocomplain -directory "{apb_header_dir}" *.svh] {{
     import_files -fileset sim_1 -norecurse $f
     set_property file_type "Verilog Header" [get_files [file tail $f]]
 }}
@@ -649,8 +631,6 @@ def _tcl_run_sim(
     wave_level: str | None = None,
 ) -> str:
     """Generate TCL for launching simulation and reading the log.
-
-    Mirrors ``tools/vivado_core/tcl/_run_sim.tcl``.
 
     Parameters
     ----------
@@ -1322,7 +1302,6 @@ class Operations:
             logger.info("Vivado 2018.3 incr bug detected — restarting process and retrying sim")
             xsim_dir = Path(proj_dir) / f"{proj_name}.sim" / "sim_1" / "behav" / "xsim" / "xsim.dir"
             if xsim_dir.exists():
-                import shutil
                 shutil.rmtree(xsim_dir, ignore_errors=True)
             session.stop_vivado()
             tcl_sim_only = _tcl_run_sim(task.tb, sim_runtime, proj_dir, proj_name, wave_level=wave_level)

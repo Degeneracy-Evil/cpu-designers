@@ -32,7 +32,6 @@ import yaml
 
 from .exceptions import (
     SessionLimitError,
-    SessionNotFoundError,
     TaskNotFoundError,
     VivadoCoreError,
 )

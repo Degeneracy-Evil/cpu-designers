@@ -18,16 +18,6 @@
 #   FPGA上板   — bitstream generation + JTAG programming (top module, no tb)
 
 tasks:
-  # ── Linux 启动仿真 ──
-
-  linux_boot:
-    tb: tb_simple_cpu_top
-    blhex: boot/bootloader_phase1.hex
-    phex: firmware/fw_payload.hex
-    runtime: 60s
-    verilog_defines:
-      LINUX_BOOT: "TRUE"
-
   # ── 集成仿真 ──
 
   cpu_full:
@@ -394,7 +384,7 @@ tasks:
 
   # ── 单元仿真 ──
 
-  ahb_bus:
+  axi_bus:
     tb: tb_ahb_bus
     blhex: boot/bootloader_phase1.hex
     runtime: 5000ns
@@ -454,20 +444,10 @@ tasks:
       SIMU_DDR_MODE: 1
       sg125: 1
 
-  kernel_boot_sram_cdc:
+  kernel_boot_sram:
     tb: tb_kernel_boot
     blhex: boot/bootloader_phase1.hex
     phex: firmware/fw_payload.hex
-    runtime: 300s
-    verilog_defines:
-      SIMULATION: "TRUE"
-      SIMU_USE_DDR: 0
-      SIMU_USE_PLL: 0
-
-  kernel_boot_sram128_dtb16:
-    tb: tb_kernel_boot
-    blhex: boot/bootloader_phase1.hex
-    phex: firmware/fw_payload_16mb.hex
     runtime: 300s
     verilog_defines:
       SIMULATION: "TRUE"

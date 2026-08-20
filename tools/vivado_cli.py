@@ -36,23 +36,29 @@ import json
 import re
 import sys
 import time
-from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-
-# ---------------------------------------------------------------------------
-# Platform helpers
-# ---------------------------------------------------------------------------
-
-def _default_vivado_path() -> str:
-    """Return the default Vivado executable name for the current platform.
-
-    - Windows: ``vivado.bat``
-    - Linux / macOS: ``vivado``
-    """
-    return "vivado.bat" if sys.platform == "win32" else "vivado"
+from tools.vivado_core import (
+    LayeredHash,
+    Operations,
+    Session,
+    SessionManager,
+    SyncPolicy,
+    TaskConfig,
+    TaskRegistry,
+    VivadoCoreError,
+    load_config,
+)
+from tools.vivado_core.batch import (
+    BatchExecutor,
+    BatchSpec,
+    BatchTask,
+    expand_batch_spec,
+    load_batch_plan,
+)
+from tools.vivado_core.exceptions import SessionNotFoundError
 
 
 def _now_local() -> str:
@@ -102,95 +108,6 @@ def _parse_debug_arg(debug_str: str) -> dict[str, str]:
     return defines
 
 # ---------------------------------------------------------------------------
-# YAML loading — prefer PyYAML, fall back to minimal parser
-# ---------------------------------------------------------------------------
-try:
-    import yaml
-
-    def _load_yaml(path: Path) -> dict[str, Any]:
-        text = path.read_text(encoding="utf-8")
-        return yaml.safe_load(text) or {}
-
-except ImportError:
-
-    def _load_yaml(path: Path) -> dict[str, Any]:  # type: ignore[misc]
-        """Minimal YAML subset parser (keys/values only, no nested collections)."""
-        import re as _re
-
-        result: dict[str, Any] = {}
-        text = path.read_text(encoding="utf-8")
-        for line in text.splitlines():
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            m = _re.match(r"^(\w+)\s*:\s*(.+)$", line)
-            if m:
-                result[m.group(1)] = m.group(2).strip()
-        return result
-
-
-# ---------------------------------------------------------------------------
-# vivado_core import — graceful degradation when core is not yet built
-# ---------------------------------------------------------------------------
-try:
-    from tools.vivado_core import (
-        LayeredHash,
-        Operations,
-        SessionManager,
-        SyncPolicy,
-        TaskRegistry,
-        VivadoCoreError,
-    )
-    from tools.vivado_core.batch import (
-        BatchExecutor,
-        BatchResult,
-        BatchSpec,
-        BatchTask,
-        TaskResult,
-        expand_batch_spec,
-        load_batch_plan,
-    )
-    from tools.vivado_core.exceptions import SessionNotFoundError
-
-    _HAS_CORE = True
-except ImportError:
-    _HAS_CORE = False
-
-    class VivadoCoreError(Exception):  # type: ignore[no-redef]
-        """Placeholder when vivado_core is not available."""
-
-    class SessionManager:  # type: ignore[no-redef]
-        pass
-
-    class TaskRegistry:  # type: ignore[no-redef]
-        pass
-
-    class LayeredHash:  # type: ignore[no-redef]
-        pass
-
-    class SyncPolicy:  # type: ignore[no-redef]
-        pass
-
-    class Operations:  # type: ignore[no-redef]
-        pass
-
-    class BatchExecutor:  # type: ignore[no-redef]
-        pass
-
-    class BatchSpec:  # type: ignore[no-redef]
-        pass
-
-    class BatchTask:  # type: ignore[no-redef]
-        pass
-
-    class BatchResult:  # type: ignore[no-redef]
-        pass
-
-    class TaskResult:  # type: ignore[no-redef]
-        pass
-
-
-# ---------------------------------------------------------------------------
 # Exit codes
 # ---------------------------------------------------------------------------
 EXIT_OK = 0
@@ -198,108 +115,6 @@ EXIT_GENERAL = 1
 EXIT_CONFIG = 2
 EXIT_SESSION = 3
 EXIT_STALE = 4
-
-
-# ---------------------------------------------------------------------------
-# Configuration dataclasses
-# ---------------------------------------------------------------------------
-@dataclass
-class Limits:
-    max_sessions: int = 5
-    max_concurrent: int = 3
-    max_disk_gb: int = 20
-    idle_timeout_min: int = 60
-    create_timeout: float = 300.0
-    refresh_timeout: float = 300.0
-    sim_timeout: float = 600.0
-    sim_rerun_timeout: float = 3600.0
-    bitstream_timeout: float = 3600.0
-    program_timeout: float = 120.0
-    archive_timeout: float = 300.0
-
-
-@dataclass
-class VivadoConfig:
-    limits: Limits = field(default_factory=Limits)
-    vivado_path: str = field(default_factory=_default_vivado_path)
-    proj_name: str = "simplecpu_bus"
-    device_part: str = "xc7a200tfbg676-2"
-
-
-def load_config(path: Path) -> VivadoConfig:
-    """Load vivado_config.yaml into config object.
-
-    When vivado_core is available, delegates to the core's ``load_config``
-    which returns a ``GlobalConfig`` (with ``memory`` field).  Otherwise
-    falls back to the CLI's own ``VivadoConfig`` (without memory).
-    """
-    if _HAS_CORE:
-        from tools.vivado_core.config import load_config as core_load_config
-        return core_load_config(path)  # type: ignore[no-any-return]
-    if not path.exists():
-        print(f"WARNING: Config file not found: {path} — using defaults")
-        return VivadoConfig()
-    raw = _load_yaml(path)
-    limits_raw = raw.get("limits", {})
-    limits = Limits(
-        max_sessions=int(limits_raw.get("max_sessions", 5)),
-        max_concurrent=int(limits_raw.get("max_concurrent", 3)),
-        max_disk_gb=int(limits_raw.get("max_disk_gb", 20)),
-        idle_timeout_min=int(limits_raw.get("idle_timeout_min", 60)),
-        create_timeout=float(limits_raw.get("create_timeout", 300)),
-        refresh_timeout=float(limits_raw.get("refresh_timeout", 300)),
-        sim_timeout=float(limits_raw.get("sim_timeout", 600)),
-        sim_rerun_timeout=float(limits_raw.get("sim_rerun_timeout", 3600)),
-        bitstream_timeout=float(limits_raw.get("bitstream_timeout", 3600)),
-        program_timeout=float(limits_raw.get("program_timeout", 120)),
-        archive_timeout=float(limits_raw.get("archive_timeout", 300)),
-    )
-    return VivadoConfig(
-        limits=limits,
-        vivado_path=str(raw.get("vivado_path", _default_vivado_path())),
-        proj_name=str(raw.get("proj_name", "simplecpu_bus")),
-        device_part=str(raw.get("device_part", "xc7a200tfbg676-2")),
-    )
-
-
-# ---------------------------------------------------------------------------
-# Task definitions
-# ---------------------------------------------------------------------------
-@dataclass
-class TaskDef:
-    name: str
-    tb: str | None = None
-    top: str | None = None
-    blcoe: str | None = None
-    runtime: str | None = None
-
-    @property
-    def is_fpga(self) -> bool:
-        return self.top is not None
-
-
-def load_tasks(path: Path) -> dict[str, TaskDef]:
-    """Load tasks.yaml into a dict of TaskDef objects."""
-    if not path.exists():
-        print(f"ERROR: Tasks file not found: {path}", file=sys.stderr)
-        sys.exit(EXIT_CONFIG)
-    raw = _load_yaml(path)
-    tasks_raw = raw.get("tasks", {})
-    if not tasks_raw:
-        print(f"ERROR: No tasks defined in {path}", file=sys.stderr)
-        sys.exit(EXIT_CONFIG)
-    result: dict[str, TaskDef] = {}
-    for name, spec in tasks_raw.items():
-        if not isinstance(spec, dict):
-            continue
-        result[name] = TaskDef(
-            name=name,
-            tb=spec.get("tb"),
-            top=spec.get("top"),
-            blcoe=spec.get("blcoe"),
-            runtime=spec.get("runtime"),
-        )
-    return result
 
 
 # ---------------------------------------------------------------------------
@@ -382,57 +197,43 @@ def format_result_json(
     return json.dumps(result, indent=2, ensure_ascii=False)
 
 
-def format_status_text(sessions: list[Any]) -> str:
+def format_status_text(sessions: list[Session]) -> str:
     """Format session status as aligned text table."""
-    header = f"{'Session':<14}{'Task':<12}{'Status':<8}{'Stale Layers':<16}{'Vivado PID':<10}"
+    session_width = max([len("Session"), *(len(s.name) for s in sessions)]) + 2
+    task_width = max([len("Task"), *(len(s.meta.task) for s in sessions)]) + 2
+    header = (
+        f"{'Session':<{session_width}}"
+        f"{'Task':<{task_width}}"
+        f"{'Status':<8}{'Stale Layers':<24}{'Vivado PID':<10}"
+    )
     sep = "-" * len(header)
     rows = [header, sep]
     for s in sessions:
-        # Support both Session objects and dicts
-        name = s.name if hasattr(s, 'name') else s.get('name', '?')
-        task = s.meta.task if hasattr(s, 'meta') else s.get('task', '?')
-        status = s.meta.status if hasattr(s, 'meta') else s.get('status', '?')
-        pid = s.meta.vivado_pid if hasattr(s, 'meta') else s.get('vivado_pid')
-        stale_layers = getattr(s, '_stale_layers', None) or (s.get('stale_layers', []) if isinstance(s, dict) else [])
+        pid = s.meta.vivado_pid if s.is_alive() else None
+        stale_layers = getattr(s, "_stale_layers", [])
         stale = ",".join(stale_layers) or "-"
         pid_str = str(pid) if pid else "-"
         rows.append(
-            f"{name:<14}{task:<12}{status:<8}{stale:<16}{pid_str:<10}"
+            f"{s.name:<{session_width}}"
+            f"{s.meta.task:<{task_width}}"
+            f"{s.meta.status:<8}{stale:<24}{pid_str:<10}"
         )
     return "\n".join(rows)
 
 
-def format_status_json(sessions: list[Any]) -> str:
+def format_status_json(sessions: list[Session]) -> str:
     """Format session status as JSON."""
-    data = []
-    for s in sessions:
-        if hasattr(s, 'name'):
-            data.append({
-                "name": s.name,
-                "task": s.meta.task,
-                "status": s.meta.status,
-                "vivado_pid": s.meta.vivado_pid,
-                "stale_layers": getattr(s, '_stale_layers', []),
-            })
-        else:
-            data.append(s)
+    data = [
+        {
+            "name": s.name,
+            "task": s.meta.task,
+            "status": s.meta.status,
+            "vivado_pid": s.meta.vivado_pid if s.is_alive() else None,
+            "stale_layers": getattr(s, "_stale_layers", []),
+        }
+        for s in sessions
+    ]
     return json.dumps({"sessions": data}, indent=2, ensure_ascii=False)
-
-
-# ---------------------------------------------------------------------------
-# Core orchestration helpers (lightweight wrappers when vivado_core is absent)
-# ---------------------------------------------------------------------------
-def _require_core() -> None:
-    """Exit with helpful message if vivado_core is not available."""
-    if not _HAS_CORE:
-        print(
-            "ERROR: tools.vivado_core package is not yet implemented.\n"
-            "       The CLI frontend is ready, but the core orchestration\n"
-            "       engine (tools/vivado_core/) must be built first.\n"
-            "       Falling back to direct vivado_do.tcl invocation is recommended.",
-            file=sys.stderr,
-        )
-        sys.exit(EXIT_GENERAL)
 
 
 # ---------------------------------------------------------------------------
@@ -651,28 +452,30 @@ def main(argv: list[str] | None = None) -> int:
 
     # --- Load task definitions ---
     try:
-        task_defs = load_tasks(tasks_path)
-    except SystemExit as e:
-        return e.code if isinstance(e.code, int) else EXIT_CONFIG
+        task_registry = TaskRegistry(tasks_path)
+        task_registry.load()
+    except VivadoCoreError as e:
+        print(f"ERROR: Failed to load tasks from {tasks_path}: {e}", file=sys.stderr)
+        return EXIT_CONFIG
 
     if args.verbose:
         print(f"Config : {config_path}")
         print(f"Tasks  : {tasks_path}")
         print(f"Project: {config.proj_name}  Device: {config.device_part}")
-        print(f"Tasks defined: {', '.join(task_defs.keys())}")
+        print(f"Tasks defined: {', '.join(task_registry.list_names())}")
 
     # --- Validate -task argument ---
-    task_def: TaskDef | None = None
+    task_def: TaskConfig | None = None
     task_name: str | None = args.task
     if task_name:
-        if task_name not in task_defs:
+        if task_name not in task_registry:
             print(
                 f"ERROR: Unknown task '{task_name}'. "
-                f"Available: {', '.join(sorted(task_defs.keys()))}",
+                f"Available: {', '.join(task_registry.list_names())}",
                 file=sys.stderr,
             )
             return EXIT_CONFIG
-        task_def = task_defs[task_name]
+        task_def = task_registry.get(task_name)
 
     # --- Determine session name ---
     session_name: str | None = args.session or task_name
@@ -681,15 +484,11 @@ def main(argv: list[str] | None = None) -> int:
     # Batch execution path
     # =======================================================================
     if getattr(args, "batch", None) or getattr(args, "batch_plan", None):
-        _require_core()
-
         # --- Instantiate core components ---
         try:
-            task_registry = TaskRegistry(tasks_path)  # type: ignore[call-arg]
-            task_registry.load()  # type: ignore[attr-defined]
-            session_mgr = SessionManager(project_root, config)  # type: ignore[call-arg]
-            layered_hash = LayeredHash(project_root)  # type: ignore[call-arg]
-            sync = SyncPolicy(layered_hash)  # type: ignore[call-arg]
+            session_mgr = SessionManager(project_root, config)
+            layered_hash = LayeredHash(project_root)
+            sync = SyncPolicy(layered_hash)
         except VivadoCoreError as e:
             print(f"ERROR: Core initialization failed: {e}", file=sys.stderr)
             return EXIT_GENERAL
@@ -698,7 +497,7 @@ def main(argv: list[str] | None = None) -> int:
         if getattr(args, "batch_plan", None):
             # Load from YAML file
             try:
-                batch_spec = load_batch_plan(Path(args.batch_plan))  # type: ignore[attr-defined]
+                batch_spec = load_batch_plan(Path(args.batch_plan))
             except (FileNotFoundError, ValueError) as e:
                 print(f"ERROR: Invalid batch plan: {e}", file=sys.stderr)
                 return EXIT_CONFIG
@@ -707,7 +506,7 @@ def main(argv: list[str] | None = None) -> int:
             for bt in batch_spec.tasks:
                 if bt.task_name.startswith("__pattern__:"):
                     pattern = bt.task_name.split(":", 1)[1]
-                    names = expand_batch_spec(pattern, task_registry.list_names())  # type: ignore[attr-defined]
+                    names = expand_batch_spec(pattern, task_registry.list_names())
                     expanded_tasks.extend(BatchTask(task_name=n) for n in names)
                 else:
                     expanded_tasks.append(bt)
@@ -716,7 +515,7 @@ def main(argv: list[str] | None = None) -> int:
             # Build from -batch argument
             try:
                 task_names = expand_batch_spec(
-                    args.batch, task_registry.list_names()  # type: ignore[attr-defined]
+                    args.batch, task_registry.list_names()
                 )
             except VivadoCoreError as e:
                 print(f"ERROR: {e}", file=sys.stderr)
@@ -774,10 +573,10 @@ def main(argv: list[str] | None = None) -> int:
 
         # --- Validate batch tasks ---
         for bt in batch_spec.tasks:
-            if bt.task_name not in task_registry:  # type: ignore[attr-defined]
+            if bt.task_name not in task_registry:
                 print(
                     f"ERROR: Unknown task '{bt.task_name}' in batch. "
-                    f"Available: {', '.join(sorted(task_registry.list_names()))}",  # type: ignore[attr-defined]
+                    f"Available: {', '.join(task_registry.list_names())}",
                     file=sys.stderr,
                 )
                 return EXIT_CONFIG
@@ -803,7 +602,7 @@ def main(argv: list[str] | None = None) -> int:
 
         try:
             executor = BatchExecutor(
-                session_mgr, task_registry, sync, layered_hash, config,  # type: ignore[call-arg]
+                session_mgr, task_registry, sync, layered_hash, config,
                 output_callback=batch_callback,
             )
             batch_result = executor.execute(batch_spec)
@@ -827,11 +626,10 @@ def main(argv: list[str] | None = None) -> int:
     # --status: show all sessions
     # =======================================================================
     if args.status:
-        _require_core()
         try:
             layered_hash = LayeredHash(project_root)
-            session_mgr = SessionManager(project_root, config)  # type: ignore[call-arg]
-            sessions = session_mgr.list_sessions()  # type: ignore[attr-defined]
+            session_mgr = SessionManager(project_root, config)
+            sessions = session_mgr.list_sessions()
             for s in sessions:
                 staleness = layered_hash.compute_staleness(s.meta.hashes)
                 s._stale_layers = [k for k, v in staleness.items() if v]
@@ -849,18 +647,17 @@ def main(argv: list[str] | None = None) -> int:
     # --cleanup / --cleanup-all
     # =======================================================================
     if args.cleanup or args.cleanup_all:
-        _require_core()
         try:
-            session_mgr = SessionManager(project_root, config)  # type: ignore[call-arg]
+            session_mgr = SessionManager(project_root, config)
             if args.cleanup_all:
                 # --cleanup-all: Remove absolutely all existing sessions.
-                removed = session_mgr.cleanup(keep=0)  # type: ignore[attr-defined]
+                removed = session_mgr.cleanup(keep=0)
             else:
                 # --cleanup: Retain (max_sessions - 1) sessions, removing only the oldest ones.
                 # This ensures there is space to create exactly 1 new session before hitting the limit.
                 # Note: It does NOT wipe all idle sessions. Use --cleanup-all for a full wipe.
                 keep = config.limits.max_sessions - 1
-                removed = session_mgr.cleanup(keep=max(keep, 0))  # type: ignore[attr-defined]
+                removed = session_mgr.cleanup(keep=max(keep, 0))
         except VivadoCoreError as e:
             print(f"ERROR: {e}", file=sys.stderr)
             return EXIT_SESSION
@@ -878,15 +675,12 @@ def main(argv: list[str] | None = None) -> int:
     # --gen-config: regenerate cache_def.svh from YAML
     # =======================================================================
     if args.gen_config:
-        _require_core()
         try:
-            session_mgr = SessionManager(project_root, config)  # type: ignore[call-arg]
-            task_registry = TaskRegistry(tasks_path)  # type: ignore[call-arg]
-            task_registry.load()  # type: ignore[attr-defined]
-            layered_hash = LayeredHash(project_root)  # type: ignore[call-arg]
-            sync = SyncPolicy(layered_hash)  # type: ignore[call-arg]
-            ops = Operations(session_mgr, task_registry, sync, layered_hash)  # type: ignore[call-arg]
-            generated_path = ops.gen_config()  # type: ignore[attr-defined]
+            session_mgr = SessionManager(project_root, config)
+            layered_hash = LayeredHash(project_root)
+            sync = SyncPolicy(layered_hash)
+            ops = Operations(session_mgr, task_registry, sync, layered_hash)
+            generated_path = ops.gen_config()
         except VivadoCoreError as e:
             print(f"ERROR: {e}", file=sys.stderr)
             return EXIT_GENERAL
@@ -917,20 +711,15 @@ def main(argv: list[str] | None = None) -> int:
         parser.print_help()
         return EXIT_OK
 
-    # --- Require core for operations ---
-    _require_core()
-
     # task_name is guaranteed non-None here (checked above)
     assert task_name is not None
 
     # --- Instantiate core components ---
     try:
-        task_registry = TaskRegistry(tasks_path)  # type: ignore[call-arg]
-        task_registry.load()  # type: ignore[attr-defined]
-        session_mgr = SessionManager(project_root, config)  # type: ignore[call-arg]
-        layered_hash = LayeredHash(project_root)  # type: ignore[call-arg]
-        sync = SyncPolicy(layered_hash)  # type: ignore[call-arg]
-        ops = Operations(session_mgr, task_registry, sync, layered_hash)  # type: ignore[call-arg]
+        session_mgr = SessionManager(project_root, config)
+        layered_hash = LayeredHash(project_root)
+        sync = SyncPolicy(layered_hash)
+        ops = Operations(session_mgr, task_registry, sync, layered_hash)
     except VivadoCoreError as e:
         print(f"ERROR: Core initialization failed: {e}", file=sys.stderr)
         return EXIT_GENERAL
@@ -940,17 +729,16 @@ def main(argv: list[str] | None = None) -> int:
     assert task_def is not None
     try:
         if args.create:
-            session = session_mgr.get_or_create(task_name, session_name)  # type: ignore[attr-defined]
+            session = session_mgr.get_or_create(task_name, session_name)
         else:
             # Exact name match first, then most-recent session for the task.
             try:
-                session = session_mgr.get_session(session_name)  # type: ignore[attr-defined]
-            except SessionNotFoundError:  # type: ignore[name-defined]
-                from tools.vivado_core.exceptions import SessionNotFoundError as _SNFE  # type: ignore[attr-defined]
+                session = session_mgr.get_session(session_name)
+            except SessionNotFoundError:
                 try:
-                    session = session_mgr.find_session_for_task(task_name)  # type: ignore[attr-defined]
-                except _SNFE:
-                    raise _SNFE(
+                    session = session_mgr.find_session_for_task(task_name)
+                except SessionNotFoundError:
+                    raise SessionNotFoundError(
                         f"{session_name!r} (and no session found for task {task_name!r})"
                     )
     except VivadoCoreError as e:
@@ -1010,8 +798,8 @@ def main(argv: list[str] | None = None) -> int:
         t0 = time.monotonic()
         timed_out = False
         try:
-            task_obj = task_registry.get(task_name)  # type: ignore[attr-defined]
-            res = ops.create(session, task_obj)  # type: ignore[attr-defined]
+            task_obj = task_registry.get(task_name)
+            res = ops.create(session, task_obj)
             output, success, timed_out = res.output, res.success, res.timed_out
         except VivadoCoreError as e:
             output, success = str(e), False
@@ -1025,8 +813,8 @@ def main(argv: list[str] | None = None) -> int:
         t0 = time.monotonic()
         timed_out = False
         try:
-            preflight = sync.preflight_check(session, "refresh")  # type: ignore[attr-defined]
-            res = ops.refresh(session, layers=refresh_layers)  # type: ignore[attr-defined]
+            preflight = sync.preflight_check(session, "refresh")
+            res = ops.refresh(session, layers=refresh_layers)
             output, success, timed_out = res.output, res.success, res.timed_out
         except VivadoCoreError as e:
             output, success = str(e), False
@@ -1043,12 +831,12 @@ def main(argv: list[str] | None = None) -> int:
         staleness_dict = None
         timed_out = False
         try:
-            preflight = sync.preflight_check(session, "sim")  # type: ignore[attr-defined]
+            preflight = sync.preflight_check(session, "sim")
             if preflight.stale_layers:
                 print(f"WARNING: Stale layers detected: {', '.join(preflight.stale_layers)}")
             staleness_dict = {l: True for l in preflight.stale_layers}
-            task_obj = task_registry.get(task_name)  # type: ignore[attr-defined]
-            res = ops.sim(session, task_obj, runtime=runtime, debug_defines=debug_defines)  # type: ignore[attr-defined]
+            task_obj = task_registry.get(task_name)
+            res = ops.sim(session, task_obj, runtime=runtime, debug_defines=debug_defines)
             output, success, timed_out = res.output, res.success, res.timed_out
         except VivadoCoreError as e:
             output, success = str(e), False
@@ -1063,11 +851,11 @@ def main(argv: list[str] | None = None) -> int:
         staleness_dict = None
         timed_out = False
         try:
-            preflight = sync.preflight_check(session, "bitstream")  # type: ignore[attr-defined]
+            preflight = sync.preflight_check(session, "bitstream")
             if preflight.stale_layers:
                 print(f"WARNING: Stale layers detected: {', '.join(preflight.stale_layers)}")
             staleness_dict = {l: True for l in preflight.stale_layers}
-            res = ops.bitstream(session)  # type: ignore[attr-defined]
+            res = ops.bitstream(session)
             output, success, timed_out = res.output, res.success, res.timed_out
         except VivadoCoreError as e:
             output, success = str(e), False
@@ -1081,7 +869,7 @@ def main(argv: list[str] | None = None) -> int:
         t0 = time.monotonic()
         timed_out = False
         try:
-            res = ops.program(session)  # type: ignore[attr-defined]
+            res = ops.program(session)
             output, success, timed_out = res.output, res.success, res.timed_out
         except VivadoCoreError as e:
             output, success = str(e), False
@@ -1095,7 +883,7 @@ def main(argv: list[str] | None = None) -> int:
         t0 = time.monotonic()
         timed_out = False
         try:
-            res = ops.archive(session)  # type: ignore[attr-defined]
+            res = ops.archive(session)
             output, success, timed_out = res.output, res.success, res.timed_out
         except VivadoCoreError as e:
             output, success = str(e), False

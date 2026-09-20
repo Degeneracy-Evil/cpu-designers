@@ -15,6 +15,13 @@ module tb_dcache_writethrough_unit;
     reg [2:0] cpu_req_hsize;
     wire [31:0] cpu_req_rdata;
     wire cpu_req_ready;
+    reg ptw_req_valid;
+    reg [31:0] ptw_req_addr;
+    reg [31:0] ptw_req_wdata;
+    reg ptw_req_write;
+    wire [31:0] ptw_req_rdata;
+    wire ptw_req_done;
+    wire ptw_req_error;
     wire mmio_req;
     reg mmio_accept;
     wire [31:0] mmio_addr;
@@ -38,6 +45,10 @@ module tb_dcache_writethrough_unit;
         .cpu_req_wdata(cpu_req_wdata), .cpu_req_hwrite(cpu_req_hwrite),
         .cpu_req_hsize(cpu_req_hsize), .cpu_req_rdata(cpu_req_rdata),
         .cpu_req_ready(cpu_req_ready),
+        .ptw_req_valid(ptw_req_valid), .ptw_req_addr(ptw_req_addr),
+        .ptw_req_wdata(ptw_req_wdata), .ptw_req_write(ptw_req_write),
+        .ptw_req_rdata(ptw_req_rdata), .ptw_req_done(ptw_req_done),
+        .ptw_req_error(ptw_req_error),
         .mmio_req(mmio_req), .mmio_accept(mmio_accept),
         .mmio_addr(mmio_addr), .mmio_wdata(mmio_wdata),
         .mmio_hwrite(mmio_hwrite), .mmio_hsize(mmio_hsize),
@@ -45,9 +56,7 @@ module tb_dcache_writethrough_unit;
         .mmio_error(mmio_error),
         .refill_req(refill_req), .refill_addr(refill_addr),
         .refill_data(refill_data), .refill_valid(refill_valid),
-        .refill_done(refill_done), .refill_error(refill_error),
-        .snoop_write_valid(1'b0), .snoop_write_addr(32'b0),
-        .snoop_write_data(32'b0)
+        .refill_done(refill_done), .refill_error(refill_error)
     );
 
     reg [31:0] memory [0:1023];
@@ -92,6 +101,30 @@ module tb_dcache_writethrough_unit;
                 default: old_word = data;
             endcase
             memory[addr[11:2]] = old_word;
+        end
+    endtask
+
+    task ptw_access;
+        input [31:0] addr;
+        input write_en;
+        input [31:0] wdata_in;
+        output [31:0] rdata_out;
+        begin
+            @(posedge clk);
+            ptw_req_addr = addr;
+            ptw_req_write = write_en;
+            ptw_req_wdata = wdata_in;
+            ptw_req_valid = 1'b1;
+            while (!ptw_req_done) begin
+                @(posedge clk);
+                #1;
+            end
+            rdata_out = ptw_req_rdata;
+            check(!ptw_req_error, "PTW physical access completes without error");
+            @(posedge clk);
+            ptw_req_valid = 1'b0;
+            ptw_req_write = 1'b0;
+            repeat (2) @(posedge clk);
         end
     endtask
 
@@ -230,6 +263,10 @@ module tb_dcache_writethrough_unit;
         cpu_req_wdata = 0;
         cpu_req_hwrite = 0;
         cpu_req_hsize = `AXI_SIZE_WORD;
+        ptw_req_valid = 0;
+        ptw_req_addr = 0;
+        ptw_req_wdata = 0;
+        ptw_req_write = 0;
         pass_count = 0;
         fail_count = 0;
         for (i = 0; i < 1024; i = i + 1)
@@ -266,6 +303,16 @@ module tb_dcache_writethrough_unit;
         check(value == 32'h1234_5678 && refill_count == refills_before &&
               memory[ADDR_A[11:2]] == 32'h1234_5678,
               "store hit updates cache only after backing write completes");
+
+        refills_before = refill_count;
+        ptw_access(ADDR_A, 1'b0, 32'b0, value);
+        check(value == 32'h1234_5678 && refill_count == refills_before,
+              "PTW observes a CPU-updated cached PTE");
+        ptw_access(ADDR_A, 1'b1, 32'h1234_56F8, value);
+        cpu_access(ADDR_A, 1'b0, `AXI_SIZE_WORD, 0, value);
+        check(value == 32'h1234_56F8 && memory[ADDR_A[11:2]] == 32'h1234_56F8 &&
+              refill_count == refills_before,
+              "PTW A/D write updates backing memory and cached PTE");
 
         refills_before = refill_count;
         cpu_access(ADDR_D, 1'b1, `AXI_SIZE_BYTE, 32'h0000_00A5, value);

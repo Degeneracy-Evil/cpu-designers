@@ -22,6 +22,16 @@ module dcache_ctrl(
     output wire [31:0] cpu_req_rdata,
     output wire        cpu_req_ready,
 
+    // PTW physical request port. PTW requests never pass through the MMU and
+    // are serialized with CPU requests by this blocking cache.
+    input  wire        ptw_req_valid,
+    input  wire [31:0] ptw_req_addr,
+    input  wire [31:0] ptw_req_wdata,
+    input  wire        ptw_req_write,
+    output wire [31:0] ptw_req_rdata,
+    output wire        ptw_req_done,
+    output wire        ptw_req_error,
+
     output wire        mmio_req,
     input  wire        mmio_accept,
     output wire [31:0] mmio_addr,
@@ -37,14 +47,7 @@ module dcache_ctrl(
     input  wire [`DCACHE_LINE_WIDTH-1:0] refill_data,
     input  wire        refill_valid,
     input  wire        refill_done,
-    input  wire        refill_error,
-
-    // PTW writes A/D bits directly to memory. Because all tags are registers
-    // and PTW runs while the CPU data access is stalled, a one-cycle snoop can
-    // update an already-cached PTE without an invalidate/flush state machine.
-    input  wire        snoop_write_valid,
-    input  wire [31:0] snoop_write_addr,
-    input  wire [31:0] snoop_write_data
+    input  wire        refill_error
 );
     localparam NUM_SETS   = `DCACHE_NUM_SETS;
     localparam TAG_WIDTH  = `DCACHE_TAG_WIDTH;
@@ -77,6 +80,7 @@ module dcache_ctrl(
     reg [TAG_WIDTH-1:0] op_tag_r;
     reg [WAY_W-1:0] store_way_r;
     reg store_hit_r;
+    reg op_ptw_r;
 
     wire hit0 = valid_array[op_set_r][0] &&
                 (tag_array[op_set_r][0] == op_tag_r);
@@ -96,6 +100,10 @@ module dcache_ctrl(
     reg [31:0] refill_addr_r;
     reg [31:0] response_data_r;
     reg cpu_ready_r;
+    reg [31:0] ptw_rdata_r;
+    reg ptw_done_r;
+    reg ptw_error_r;
+    reg ptw_block_r;
 
     assign mmio_req = mmio_pending_r;
     assign mmio_addr = op_addr_r;
@@ -106,6 +114,9 @@ module dcache_ctrl(
     assign refill_addr = refill_addr_r;
     assign cpu_req_rdata = response_data_r;
     assign cpu_req_ready = cpu_ready_r;
+    assign ptw_req_rdata = ptw_rdata_r;
+    assign ptw_req_done = ptw_done_r;
+    assign ptw_req_error = ptw_error_r;
 
     wire [3:0] store_byte_we =
         (op_size_r == `AXI_SIZE_BYTE)  ? (4'b0001 << op_addr_r[1:0]) :
@@ -127,25 +138,8 @@ module dcache_ctrl(
                                       {op_set_r, hit_way};
     wire [LINE_WIDTH-1:0] data_a_out;
 
-    wire [SET_W-1:0] snoop_set = snoop_write_addr[`DCACHE_SET_IDX_HI:`DCACHE_SET_IDX_LO];
-    wire [TAG_WIDTH-1:0] snoop_tag = snoop_write_addr[`DCACHE_TAG_HI:`DCACHE_TAG_LO];
-    wire snoop_hit0 = valid_array[snoop_set][0] && (tag_array[snoop_set][0] == snoop_tag);
-    wire snoop_hit1 = valid_array[snoop_set][1] && (tag_array[snoop_set][1] == snoop_tag);
-    wire snoop_hit = snoop_hit0 || snoop_hit1;
-    wire [WAY_W-1:0] snoop_way = snoop_hit0 ? {WAY_W{1'b0}} : {{(WAY_W-1){1'b0}}, 1'b1};
-    wire [2:0] snoop_word = snoop_write_addr[`DCACHE_WORD_OFF_HI:`DCACHE_WORD_OFF_LO];
-    wire [WEA_W-1:0] snoop_line_we =
-        ({{(WEA_W-4){1'b0}}, 4'b1111} << (snoop_word * 4));
-    wire [LINE_WIDTH-1:0] snoop_line_data =
-        ({{(LINE_WIDTH-32){1'b0}}, snoop_write_data} << (snoop_word * 32));
-
     wire refill_write = (state == S_REFILL) && refill_valid;
-    wire snoop_write = snoop_write_valid && snoop_hit;
-    wire [ADDR_W-1:0] data_b_addr = refill_write ?
-                                      {op_set_r, fill_way} :
-                                      {snoop_set, snoop_way};
-    wire [WEA_W-1:0] data_b_we = refill_write ? {WEA_W{1'b1}} : snoop_line_we;
-    wire [LINE_WIDTH-1:0] data_b_in = refill_write ? refill_data : snoop_line_data;
+    wire [ADDR_W-1:0] data_b_addr = {op_set_r, fill_way};
     wire [LINE_WIDTH-1:0] data_b_out;
 
     dcached u_dcached(
@@ -156,10 +150,10 @@ module dcache_ctrl(
         .dina(data_a_store ? store_line_data : {LINE_WIDTH{1'b0}}),
         .douta(data_a_out),
         .clkb(clk),
-        .enb(refill_write || snoop_write),
-        .web(data_b_we),
+        .enb(refill_write),
+        .web({WEA_W{1'b1}}),
         .addrb(data_b_addr),
-        .dinb(data_b_in),
+        .dinb(refill_data),
         .doutb(data_b_out)
     );
 
@@ -177,12 +171,17 @@ module dcache_ctrl(
             op_tag_r <= {TAG_WIDTH{1'b0}};
             store_way_r <= {WAY_W{1'b0}};
             store_hit_r <= 1'b0;
+            op_ptw_r <= 1'b0;
             mmio_pending_r <= 1'b0;
             mmio_inflight_r <= 1'b0;
             refill_req_r <= 1'b0;
             refill_addr_r <= 32'b0;
             response_data_r <= 32'b0;
             cpu_ready_r <= 1'b0;
+            ptw_rdata_r <= 32'b0;
+            ptw_done_r <= 1'b0;
+            ptw_error_r <= 1'b0;
+            ptw_block_r <= 1'b0;
             for (s = 0; s < NUM_SETS; s = s + 1) begin
                 valid_array[s][0] <= 1'b0;
                 valid_array[s][1] <= 1'b0;
@@ -192,6 +191,11 @@ module dcache_ctrl(
             end
         end else begin
             cpu_ready_r <= 1'b0;
+            ptw_done_r <= 1'b0;
+            ptw_error_r <= 1'b0;
+
+            if (!ptw_req_valid)
+                ptw_block_r <= 1'b0;
 
             if (mmio_accept) begin
                 mmio_pending_r <= 1'b0;
@@ -201,7 +205,21 @@ module dcache_ctrl(
             case (state)
                 S_IDLE: begin
                     refill_req_r <= 1'b0;
-                    if (cpu_req_valid && mmu_ready && !cpu_ready_r) begin
+                    if (ptw_req_valid && !ptw_block_r) begin
+                        op_addr_r <= ptw_req_addr;
+                        op_vaddr_r <= ptw_req_addr;
+                        op_wdata_r <= ptw_req_wdata;
+                        op_write_r <= ptw_req_write;
+                        op_size_r <= `AXI_SIZE_WORD;
+                        op_set_r <= ptw_req_addr[`DCACHE_SET_IDX_HI:`DCACHE_SET_IDX_LO];
+                        op_word_r <= ptw_req_addr[`DCACHE_WORD_OFF_HI:`DCACHE_WORD_OFF_LO];
+                        op_tag_r <= ptw_req_addr[`DCACHE_TAG_HI:`DCACHE_TAG_LO];
+                        op_ptw_r <= 1'b1;
+                        if (~ptw_req_addr[31] || ptw_req_addr[30])
+                            state <= S_BYPASS_WAIT;
+                        else
+                            state <= S_LOOKUP;
+                    end else if (cpu_req_valid && mmu_ready && !cpu_ready_r) begin
                         op_addr_r <= cpu_req_addr;
                         op_vaddr_r <= cpu_req_vaddr;
                         op_wdata_r <= cpu_req_wdata;
@@ -210,6 +228,7 @@ module dcache_ctrl(
                         op_set_r <= cpu_req_vaddr[`DCACHE_SET_IDX_HI:`DCACHE_SET_IDX_LO];
                         op_word_r <= cpu_req_vaddr[`DCACHE_WORD_OFF_HI:`DCACHE_WORD_OFF_LO];
                         op_tag_r <= cpu_req_addr[`DCACHE_TAG_HI:`DCACHE_TAG_LO];
+                        op_ptw_r <= 1'b0;
                         if (cpu_is_mmio)
                             state <= S_BYPASS_WAIT;
                         else
@@ -233,8 +252,14 @@ module dcache_ctrl(
                 end
 
                 S_READ_HIT: begin
-                    response_data_r <= data_a_out[op_word_r*32 +: 32];
-                    cpu_ready_r <= 1'b1;
+                    if (op_ptw_r) begin
+                        ptw_rdata_r <= data_a_out[op_word_r*32 +: 32];
+                        ptw_done_r <= 1'b1;
+                        ptw_block_r <= 1'b1;
+                    end else begin
+                        response_data_r <= data_a_out[op_word_r*32 +: 32];
+                        cpu_ready_r <= 1'b1;
+                    end
                     victim_array[op_set_r] <= ~hit_way;
                     state <= S_IDLE;
                 end
@@ -244,13 +269,24 @@ module dcache_ctrl(
                     if (refill_done) begin
                         refill_req_r <= 1'b0;
                         if (refill_error) begin
+                            if (op_ptw_r) begin
+                                ptw_done_r <= 1'b1;
+                                ptw_error_r <= 1'b1;
+                                ptw_block_r <= 1'b1;
+                            end
                             state <= S_IDLE;
                         end else begin
                             valid_array[op_set_r][fill_way] <= 1'b1;
                             tag_array[op_set_r][fill_way] <= op_tag_r;
                             victim_array[op_set_r] <= ~fill_way;
-                            response_data_r <= refill_data[op_word_r*32 +: 32];
-                            cpu_ready_r <= 1'b1;
+                            if (op_ptw_r) begin
+                                ptw_rdata_r <= refill_data[op_word_r*32 +: 32];
+                                ptw_done_r <= 1'b1;
+                                ptw_block_r <= 1'b1;
+                            end else begin
+                                response_data_r <= refill_data[op_word_r*32 +: 32];
+                                cpu_ready_r <= 1'b1;
+                            end
                             state <= S_IDLE;
                         end
                     end
@@ -261,7 +297,13 @@ module dcache_ctrl(
                         mmio_inflight_r <= 1'b0;
                         if (store_hit_r && !mmio_error)
                             victim_array[op_set_r] <= ~store_way_r;
-                        cpu_ready_r <= 1'b1;
+                        if (op_ptw_r) begin
+                            ptw_done_r <= 1'b1;
+                            ptw_error_r <= mmio_error;
+                            ptw_block_r <= 1'b1;
+                        end else begin
+                            cpu_ready_r <= 1'b1;
+                        end
                         state <= S_IDLE;
                     end
                 end
@@ -271,8 +313,15 @@ module dcache_ctrl(
                         mmio_pending_r <= 1'b1;
                     if (mmio_valid) begin
                         mmio_inflight_r <= 1'b0;
-                        response_data_r <= mmio_rdata;
-                        cpu_ready_r <= 1'b1;
+                        if (op_ptw_r) begin
+                            ptw_rdata_r <= mmio_rdata;
+                            ptw_done_r <= 1'b1;
+                            ptw_error_r <= mmio_error;
+                            ptw_block_r <= 1'b1;
+                        end else begin
+                            response_data_r <= mmio_rdata;
+                            cpu_ready_r <= 1'b1;
+                        end
                         state <= S_IDLE;
                     end
                 end

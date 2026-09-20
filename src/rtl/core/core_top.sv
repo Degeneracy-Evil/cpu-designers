@@ -253,12 +253,11 @@ module core_top(
     wire        ptw_bus_done;
     wire        ptw_bus_error;
 
-    // Write-through DCache stores are already visible to the PTW, so page-table
-    // reads no longer require a whole-cache writeback. Completed hardware A/D
-    // writes explicitly snoop the matching clean DCache line.
-    wire ptw_req_to_bridge = ptw_bus_req;
-    wire ptw_dcache_snoop_valid = ptw_bus_req && ptw_bus_we &&
-                                   ptw_bus_done && !ptw_bus_error;
+    // The PTW uses the DCache physical request port. The bridge's legacy PTW
+    // client remains disconnected until the later bridge cleanup phase.
+    wire [31:0] bridge_ptw_rdata_unused;
+    wire        bridge_ptw_done_unused;
+    wire        bridge_ptw_error_unused;
 
     wire        mmu_sfence_done;
 
@@ -722,6 +721,9 @@ module core_top(
     wire        bridge_dcache_error;
     wire        bridge_dcache_error_is_store;
     wire [31:0] bridge_bus_error_addr;
+    // A DCache refill/bypass error owned by the PTW is returned through the
+    // MMU as the original access type's access fault, not as a CPU data fault.
+    wire        cpu_bridge_dcache_error = bridge_dcache_error && !ptw_bus_req;
     dcache_ctrl u_dcache_wrap (
         .clk(clk),
         .resetn(resetn),
@@ -735,6 +737,14 @@ module core_top(
         .cpu_req_hsize(mem_hsize),
         .cpu_req_rdata(readData_32_mux),
         .cpu_req_ready(data_valid_mux),
+
+        .ptw_req_valid(ptw_bus_req),
+        .ptw_req_addr(ptw_bus_addr),
+        .ptw_req_wdata(ptw_bus_wdata),
+        .ptw_req_write(ptw_bus_we),
+        .ptw_req_rdata(ptw_bus_rdata),
+        .ptw_req_done(ptw_bus_done),
+        .ptw_req_error(ptw_bus_error),
 
         .mmio_req(dcache_mmio_req),
         .mmio_accept(dcache_mmio_accept),
@@ -751,11 +761,7 @@ module core_top(
         .refill_data(dcache_refill_data),
         .refill_valid(dcache_refill_valid),
         .refill_done(dcache_refill_done),
-        .refill_error(dcache_refill_error),
-
-        .snoop_write_valid(ptw_dcache_snoop_valid),
-        .snoop_write_addr(ptw_bus_addr),
-        .snoop_write_data(ptw_bus_wdata)
+        .refill_error(dcache_refill_error)
     );
 
     cpu_mem u_mem(
@@ -861,13 +867,13 @@ module core_top(
         // them and couldn't handle them → MMU translation errors → kernel jump to BSS.
         .inst_access_fault(bridge_icache_error || (mmu_inst_page_fault && (mmu_inst_pf_cause == 4'd1))),
         .inst_access_fault_addr(bridge_icache_error ? bridge_bus_error_addr : mmu_inst_pf_vaddr),
-        .load_access_fault((bridge_dcache_error && !bridge_dcache_error_is_store) ||
+        .load_access_fault((cpu_bridge_dcache_error && !bridge_dcache_error_is_store) ||
                            (mmu_data_page_fault && (mmu_data_pf_cause == 4'd5))),
-        .load_access_fault_addr(bridge_dcache_error ? bridge_bus_error_addr : mmu_data_pf_vaddr),
-        .store_access_fault((bridge_dcache_error && bridge_dcache_error_is_store) ||
+        .load_access_fault_addr(cpu_bridge_dcache_error ? bridge_bus_error_addr : mmu_data_pf_vaddr),
+        .store_access_fault((cpu_bridge_dcache_error && bridge_dcache_error_is_store) ||
                             (mmu_data_page_fault && (mmu_data_pf_cause == 4'd7)) ||
                             pmp_data_violation),
-        .store_access_fault_addr(bridge_dcache_error ? bridge_bus_error_addr : mmu_data_pf_vaddr),
+        .store_access_fault_addr(cpu_bridge_dcache_error ? bridge_bus_error_addr : mmu_data_pf_vaddr),
         .mem_access_fault_pc(exe_pc),
         .inst_page_fault(mmu_inst_page_fault && (mmu_inst_pf_cause == 4'd12)),
         .inst_page_fault_vaddr(mmu_inst_pf_vaddr),
@@ -944,7 +950,7 @@ module core_top(
         .resetn(resetn),
         // i-side
         .i_vaddr(fetch_vaddr),
-        .i_translate_en(1'b1),             // inst MMU always translates
+        .i_translate_en(if_valid),          // request only while fetch is active
         .i_paddr(mmu_inst_paddr),
         .i_miss(mmu_inst_miss),
         .i_page_fault(mmu_inst_page_fault),
@@ -1033,13 +1039,13 @@ module core_top(
         .dcache_refill_valid (dcache_refill_valid),
         .dcache_refill_done (dcache_refill_done),
         .dcache_refill_error(dcache_refill_error),
-        .ptw_req           (ptw_req_to_bridge),
-        .ptw_addr          (ptw_bus_addr),
-        .ptw_we            (ptw_bus_we),
-        .ptw_wdata         (ptw_bus_wdata),
-        .ptw_rdata         (ptw_bus_rdata),
-        .ptw_done          (ptw_bus_done),
-        .ptw_error         (ptw_bus_error),
+        .ptw_req           (1'b0),
+        .ptw_addr          (32'b0),
+        .ptw_we            (1'b0),
+        .ptw_wdata         (32'b0),
+        .ptw_rdata         (bridge_ptw_rdata_unused),
+        .ptw_done          (bridge_ptw_done_unused),
+        .ptw_error         (bridge_ptw_error_unused),
         .awid              (awid),
         .awaddr            (awaddr),
         .awlen             (awlen),

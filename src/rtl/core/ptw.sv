@@ -93,10 +93,13 @@ module ptw(
     wire pte_leaf = pte_r_bit || pte_x_bit;
     wire pte_invalid = !pte_v || (!pte_r_bit && pte_w_bit);
 
-    wire [31:0] l1_pte_addr = {satp_r[19:0], 12'b0} +
-                              {20'b0, vpn1, 2'b0};
-    wire [31:0] l0_pte_addr = {pte_ppn[19:0], 12'b0} +
-                              {20'b0, vpn0, 2'b0};
+    // Sv32 page-table addresses are 34-bit. The current SoC has a 32-bit
+    // physical bus, so an unrepresentable address must fault instead of being
+    // silently truncated.
+    wire [34:0] l1_pte_addr = {1'b0, satp_r[21:0], 12'b0} +
+                              {23'b0, vpn1, 2'b0};
+    wire [34:0] l0_pte_addr = {1'b0, pte_ppn, 12'b0} +
+                              {23'b0, vpn0, 2'b0};
 
     reg perm_fault;
     always_comb begin
@@ -202,8 +205,13 @@ module ptw(
                     end
 
                     S_L1_REQUEST: begin
-                        pte_addr_r <= l1_pte_addr;
-                        state <= S_L1_WAIT;
+                        if (l1_pte_addr[34:32] != 3'b0) begin
+                            fault_kind_r <= FAULT_ACCESS;
+                            state <= S_FAULT;
+                        end else begin
+                            pte_addr_r <= l1_pte_addr[31:0];
+                            state <= S_L1_WAIT;
+                        end
                     end
 
                     S_L1_WAIT: begin
@@ -229,12 +237,19 @@ module ptw(
                             is_megapage_r <= 1'b1;
                             state <= S_PERM_CHECK;
                         end else begin
-                            pte_addr_r <= l0_pte_addr;
                             state <= S_L0_REQUEST;
                         end
                     end
 
-                    S_L0_REQUEST: state <= S_L0_WAIT;
+                    S_L0_REQUEST: begin
+                        if (l0_pte_addr[34:32] != 3'b0) begin
+                            fault_kind_r <= FAULT_ACCESS;
+                            state <= S_FAULT;
+                        end else begin
+                            pte_addr_r <= l0_pte_addr[31:0];
+                            state <= S_L0_WAIT;
+                        end
+                    end
 
                     S_L0_WAIT: begin
                         if (ptw_bus_error || ptw_bus_done) begin

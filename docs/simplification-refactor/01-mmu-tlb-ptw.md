@@ -43,7 +43,7 @@
                       |
                +------v------+
                | Unified TLB |
-               | 4 set x 4way|
+               | 16-entry FA |
                |  registers  |
                +------+------+
                     hit|miss
@@ -74,16 +74,13 @@ VA -> MMU -> PA -> Cache
 
 ### 3.1 组织
 
-保留真正的组相联 TLB：
+采用 **16-entry、全相联（fully associative）、寄存器实现的 Unified TLB**。
 
-```text
-16 entries
-= 4 sets x 4 ways
-```
+不再使用 4 set × 4 way。原因是只有 16 项时，全相联比较的资源代价很小，却能避免人为的 set conflict，尤其不会让同一 4 MiB 虚拟区域中的普通 4 KiB 页面只能竞争少数 way。
 
-但底层改为普通寄存器数组，不再使用 BRAM。
+TLB 对外接口只暴露 lookup / fill / flush，不让 MMU/PTW 依赖内部组织。以后若实际 profile 证明需要改成组相联，只替换 TLB 内部即可。
 
-采用 **Unified TLB**。当前 CPU 的 instruction fetch 与 data memory access 不并发，因此不需要 I-TLB / D-TLB 双端口并行查询。
+当前 CPU 的 instruction fetch 与 data memory access 不并发，因此不需要 I-TLB / D-TLB 双端口并行查询。
 
 每个 entry 至少包含：
 
@@ -99,25 +96,19 @@ megapage
 
 ### 3.2 Lookup
 
-每次只查询一个 set，并行比较 4 个 way。
+每次 lookup 对 16 个 entry 并行比较。
 
-当前建议：
+普通 4 KiB 页面比较完整 VPN；4 MiB megapage 按 Sv32 规则忽略 VPN0，并使用 PPN 中对应的 megapage 组成规则生成物理地址。
 
-```text
-set index = VPN1 的低 2 bit
-```
-
-这样 4 MiB megapage 在匹配时可以直接忽略 VPN0，而不需要把一个 megapage entry 复制到多个 set。
-
-代价是同一 4 MiB 区域内的 4 KiB 页面更容易产生 set conflict。当前阶段接受这一性能损失；如果以后实际 profile 证明 TLB thrashing 明显，再单独优化，不在本轮引入额外结构。
+因为不存在 set index，megapage 不需要复制 entry，也不会引入额外的 set-index 特例。
 
 ### 3.3 Replacement
 
 不使用 PLRU。
 
-每个 set 维护一个 2-bit round-robin victim pointer：
+整个 TLB 只维护一个全局 round-robin victim pointer：
 
-1. fill 时优先选择 invalid way；
+1. fill 时优先选择任意 invalid entry；
 2. 全部 valid 时选择 victim pointer；
 3. fill 完成后 victim pointer 循环加一。
 
@@ -146,13 +137,15 @@ MMU 每次只接受一个 translation request：
 req_valid
 req_vaddr
 req_access   // FETCH / LOAD / STORE
-req_priv
+req_priv     // current privilege
 ```
 
 输入还包括：
 
 ```text
 satp
+mstatus.MPRV
+mstatus.MPP
 mstatus.SUM
 mstatus.MXR
 ```
@@ -170,7 +163,40 @@ resp_fault_vaddr
 
 请求进入 MMU 后全部 latch，直到本次 translation 完成，不依赖上游 live signal。
 
-### 4.2 MMU FSM
+### 4.2 Effective privilege
+
+MMU 必须显式计算 effective privilege，不能只看 current privilege。
+
+Instruction fetch：
+
+```text
+effective_priv = current_priv
+```
+
+Data load/store/AMO：
+
+```text
+if current_priv == M && mstatus.MPRV == 1:
+    effective_priv = mstatus.MPP
+else:
+    effective_priv = current_priv
+```
+
+MPRV 不影响 instruction fetch。
+
+后续所有与地址翻译和页权限有关的判断都使用 effective privilege，包括：
+
+- 是否启用 Sv32；
+- U/S page permission；
+- SUM；
+- PTW permission check；
+- page fault determination。
+
+例如 M-mode 下 `MPRV=1, MPP=S` 的 load/store 必须按 S-mode effective privilege 经过 Sv32 translation。
+
+当前 `chp` 的 MMU 接口只显式接收 `priv_mode/SUM/MXR`，因此本轮实现时必须把 MPRV/MPP 纳入新的 MMU 接口，避免遗漏该架构语义。
+
+### 4.3 MMU FSM
 
 建议状态：
 
@@ -292,6 +318,8 @@ PTE 无效、权限失败、megapage 对齐错误等产生对应 page fault。
 
 这是本轮最重要的结构调整。
 
+该变化会触及 D-Cache 前端连接，因此 **Phase 1 允许增加最小的 CPU/PTW owner mux**。这一阶段仍不重构 D-Cache 的内部组织、replacement、refill、writeback 或 Cache policy。
+
 当前实现中：
 
 ```text
@@ -335,7 +363,14 @@ TLB miss
 PTW busy ? PTW request : CPU request
 ```
 
-不做 CPU/PTW 并行访问。
+owner mux 同时负责 request 与 response 归属。PTW active 时 CPU memory request 已经因当前 translation miss 被阻塞，因此不做真正的竞争仲裁，也不允许 CPU/PTW 并行访问。
+
+Phase 1 对 D-Cache 的修改边界仅限：
+
+- 增加 PTW physical read/write 请求入口；
+- 增加 CPU/PTW owner mux；
+- 将返回结果送回当前 owner；
+- 不改变 D-Cache 内部 Cache 结构与 miss/writeback/refill 算法。
 
 这样可以从结构上删除现有 PTW/DCache coherence 补丁。
 
@@ -411,7 +446,7 @@ FENCE.I
 
 本阶段不主动重构：
 
-- I-Cache / D-Cache 具体组织
+- I-Cache / D-Cache 具体组织（Phase 1 仅允许增加 PTW owner mux / physical request 接口）
 - AXI bus bridge
 - CSR
 - trap / interrupt
@@ -427,8 +462,8 @@ FENCE.I
 后续预计顺序：
 
 ```text
-Phase 1: MMU / TLB / PTW
-Phase 2: I-Cache / D-Cache
+Phase 1: MMU / TLB / PTW + D-Cache 前端最小 CPU/PTW owner mux
+Phase 2: I-Cache / D-Cache 内部简化
 Phase 3: memory transaction interface / AXI bridge
 Phase 4: core_top glue cleanup
 Phase 5: Linux bring-up regression
@@ -448,6 +483,9 @@ Phase 5: Linux bring-up regression
 - TLB hit / miss / fill / replacement
 - full flush
 - U/S permission
+- MPRV / MPP effective privilege
+- M-mode + MPRV=1 + MPP=S 的 data translation
+- MPRV 不影响 instruction fetch
 - SUM / MXR
 - R/W/X
 - invalid PTE

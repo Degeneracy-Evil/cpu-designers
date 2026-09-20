@@ -1,335 +1,102 @@
-`timescale 1ns / 1ps
+`timescale 1ns/1ps
 `include "axi4_def.svh"
-
 module tb_dcache_writethrough_unit;
-    reg clk = 1'b0;
-    reg resetn = 1'b0;
-    always #5 clk = ~clk;
-
-    reg cpu_req_valid;
-    reg [31:0] cpu_req_addr;
-    reg [31:0] cpu_req_vaddr;
-    reg mmu_ready;
-    reg [31:0] cpu_req_wdata;
-    reg cpu_req_hwrite;
-    reg [2:0] cpu_req_hsize;
-    wire [31:0] cpu_req_rdata;
-    wire cpu_req_ready;
-    reg ptw_req_valid;
-    reg [31:0] ptw_req_addr;
-    reg [31:0] ptw_req_wdata;
-    reg ptw_req_write;
-    wire [31:0] ptw_req_rdata;
-    wire ptw_req_done;
-    wire ptw_req_error;
-    wire mmio_req;
-    reg mmio_accept;
-    wire [31:0] mmio_addr;
-    wire [31:0] mmio_wdata;
-    wire mmio_hwrite;
-    wire [2:0] mmio_hsize;
-    reg [31:0] mmio_rdata;
-    reg mmio_valid;
-    reg mmio_error;
-    wire refill_req;
-    wire [31:0] refill_addr;
-    reg [255:0] refill_data;
-    reg refill_valid;
-    reg refill_done;
-    reg refill_error;
-
-    dcache_ctrl dut (
-        .clk(clk), .resetn(resetn),
-        .cpu_req_valid(cpu_req_valid), .cpu_req_addr(cpu_req_addr),
-        .cpu_req_vaddr(cpu_req_vaddr), .mmu_ready(mmu_ready),
-        .cpu_req_wdata(cpu_req_wdata), .cpu_req_hwrite(cpu_req_hwrite),
-        .cpu_req_hsize(cpu_req_hsize), .cpu_req_rdata(cpu_req_rdata),
-        .cpu_req_ready(cpu_req_ready),
-        .ptw_req_valid(ptw_req_valid), .ptw_req_addr(ptw_req_addr),
-        .ptw_req_wdata(ptw_req_wdata), .ptw_req_write(ptw_req_write),
-        .ptw_req_rdata(ptw_req_rdata), .ptw_req_done(ptw_req_done),
-        .ptw_req_error(ptw_req_error),
-        .mmio_req(mmio_req), .mmio_accept(mmio_accept),
-        .mmio_addr(mmio_addr), .mmio_wdata(mmio_wdata),
-        .mmio_hwrite(mmio_hwrite), .mmio_hsize(mmio_hsize),
-        .mmio_rdata(mmio_rdata), .mmio_valid(mmio_valid),
-        .mmio_error(mmio_error),
-        .refill_req(refill_req), .refill_addr(refill_addr),
-        .refill_data(refill_data), .refill_valid(refill_valid),
-        .refill_done(refill_done), .refill_error(refill_error)
-    );
-
-    reg [31:0] memory [0:1023];
-    integer pass_count;
-    integer fail_count;
-    integer refill_count;
-    integer i;
-
-    reg mmio_busy;
-    reg mmio_block;
-    integer mmio_delay;
-    reg [31:0] mmio_addr_r;
-    reg [31:0] mmio_wdata_r;
-    reg mmio_write_r;
-    reg [2:0] mmio_size_r;
-
-    reg refill_busy;
-    reg refill_block;
-    integer refill_delay;
-    reg [31:0] refill_addr_r;
-
-    task write_memory;
-        input [31:0] addr;
-        input [31:0] data;
-        input [2:0] size;
-        reg [31:0] old_word;
-        begin
-            old_word = memory[addr[11:2]];
-            case (size)
-                `AXI_SIZE_BYTE: begin
-                    case (addr[1:0])
-                        2'd0: old_word[7:0]   = data[7:0];
-                        2'd1: old_word[15:8]  = data[7:0];
-                        2'd2: old_word[23:16] = data[7:0];
-                        2'd3: old_word[31:24] = data[7:0];
-                    endcase
-                end
-                `AXI_SIZE_HWORD: begin
-                    if (addr[1]) old_word[31:16] = data[31:16];
-                    else         old_word[15:0]  = data[15:0];
-                end
-                default: old_word = data;
-            endcase
-            memory[addr[11:2]] = old_word;
-        end
-    endtask
-
-    task ptw_access;
-        input [31:0] addr;
-        input write_en;
-        input [31:0] wdata_in;
-        output [31:0] rdata_out;
-        begin
-            @(posedge clk);
-            ptw_req_addr = addr;
-            ptw_req_write = write_en;
-            ptw_req_wdata = wdata_in;
-            ptw_req_valid = 1'b1;
-            while (!ptw_req_done) begin
-                @(posedge clk);
-                #1;
-            end
-            rdata_out = ptw_req_rdata;
-            check(!ptw_req_error, "PTW physical access completes without error");
-            @(posedge clk);
-            ptw_req_valid = 1'b0;
-            ptw_req_write = 1'b0;
-            repeat (2) @(posedge clk);
-        end
-    endtask
-
-    // Delayed single-beat write/read responder used by the DCache bypass port.
-    always @(posedge clk or negedge resetn) begin
-        if (!resetn) begin
-            mmio_accept <= 1'b0;
-            mmio_valid <= 1'b0;
-            mmio_error <= 1'b0;
-            mmio_rdata <= 32'b0;
-            mmio_busy <= 1'b0;
-            mmio_block <= 1'b0;
-            mmio_delay <= 0;
-            mmio_addr_r <= 0;
-            mmio_wdata_r <= 0;
-            mmio_write_r <= 0;
-            mmio_size_r <= 0;
-        end else begin
-            mmio_accept <= 1'b0;
-            mmio_valid <= 1'b0;
-            if (!mmio_req)
-                mmio_block <= 1'b0;
-            if (mmio_req && !mmio_busy && !mmio_block) begin
-                mmio_accept <= 1'b1;
-                mmio_busy <= 1'b1;
-                mmio_addr_r <= mmio_addr;
-                mmio_wdata_r <= mmio_wdata;
-                mmio_write_r <= mmio_hwrite;
-                mmio_size_r <= mmio_hsize;
-                mmio_delay <= 3;
-            end else if (mmio_busy) begin
-                if (mmio_delay != 0)
-                    mmio_delay <= mmio_delay - 1;
+    reg clk=0,resetn=0;always #5 clk=~clk;
+    reg cpu_req_valid,cpu_req_write;reg [31:0] cpu_req_paddr,cpu_req_wdata;reg [2:0] cpu_req_size;
+    wire [31:0] cpu_req_rdata,cpu_req_error_addr;wire cpu_req_ready,cpu_req_error,cpu_req_error_is_store;
+    reg ptw_req_valid,ptw_req_write;reg [31:0] ptw_req_addr,ptw_req_wdata;
+    wire [31:0] ptw_req_rdata;wire ptw_req_done,ptw_req_error;
+    wire mem_req_valid,mem_req_write;reg mem_req_ready;wire [31:0] mem_req_addr,mem_req_wdata;
+    wire [2:0] mem_req_size;wire [7:0] mem_req_len;
+    reg mem_resp_valid,mem_resp_error;reg [255:0] mem_resp_data;
+    dcache_ctrl dut(.*);
+    reg [31:0] memory[0:1023];integer pass_count=0,fail_count=0,line_count=0,single_count=0;
+    integer i,delay;reg busy,fail_next;reg [31:0] addr_r,wdata_r;reg write_r;reg [2:0] size_r;reg [7:0] len_r;
+    task write_memory(input [31:0] addr,input [31:0] data,input [2:0] size);reg [31:0] old;begin
+        old=memory[addr[11:2]];
+        case(size)
+          `AXI_SIZE_BYTE: old[addr[1:0]*8+:8]=data[7:0];
+          `AXI_SIZE_HWORD: old[addr[1]*16+:16]=data[15:0];
+          default: old=data;
+        endcase
+        memory[addr[11:2]]=old;
+    end endtask
+    always @(posedge clk or negedge resetn)begin
+        if(!resetn)begin busy<=0;delay<=0;mem_resp_valid<=0;mem_resp_error<=0;mem_resp_data<=0;end
+        else begin
+            mem_resp_valid<=0;mem_resp_error<=0;
+            if(mem_req_valid&&mem_req_ready&&!busy)begin
+                busy<=1;addr_r<=mem_req_addr;wdata_r<=mem_req_wdata;write_r<=mem_req_write;
+                size_r<=mem_req_size;len_r<=mem_req_len;delay<=3;
+                if(mem_req_len==7)line_count<=line_count+1;else single_count<=single_count+1;
+            end else if(busy)begin
+                if(delay!=0)delay<=delay-1;
                 else begin
-                    if (mmio_write_r)
-                        write_memory(mmio_addr_r, mmio_wdata_r, mmio_size_r);
-                    mmio_rdata <= memory[mmio_addr_r[11:2]];
-                    mmio_valid <= 1'b1;
-                    mmio_busy <= 1'b0;
-                    mmio_block <= 1'b1;
+                    if(write_r&&!fail_next)write_memory(addr_r,wdata_r,size_r);
+                    for(i=0;i<8;i=i+1)mem_resp_data[i*32+:32]<=memory[(addr_r[11:2]+i)&10'h3ff];
+                    mem_resp_valid<=1;mem_resp_error<=fail_next;busy<=0;
                 end
             end
         end
     end
-
-    // Delayed 8-beat-equivalent line responder. The compatibility interface
-    // returns the assembled line in one pulse after the artificial delay.
-    always @(posedge clk or negedge resetn) begin
-        if (!resetn) begin
-            refill_data <= 256'b0;
-            refill_valid <= 1'b0;
-            refill_done <= 1'b0;
-            refill_error <= 1'b0;
-            refill_busy <= 1'b0;
-            refill_block <= 1'b0;
-            refill_delay <= 0;
-            refill_addr_r <= 0;
-            refill_count <= 0;
-        end else begin
-            refill_valid <= 1'b0;
-            refill_done <= 1'b0;
-            if (!refill_req)
-                refill_block <= 1'b0;
-            if (refill_req && !refill_busy && !refill_block) begin
-                refill_busy <= 1'b1;
-                refill_addr_r <= refill_addr;
-                refill_delay <= 5;
-                refill_count <= refill_count + 1;
-            end else if (refill_busy) begin
-                if (refill_delay != 0)
-                    refill_delay <= refill_delay - 1;
-                else begin
-                    for (i = 0; i < 8; i = i + 1)
-                        refill_data[i*32 +: 32] <= memory[(refill_addr_r[11:2] + i) & 10'h3ff];
-                    refill_valid <= 1'b1;
-                    refill_done <= 1'b1;
-                    refill_busy <= 1'b0;
-                    refill_block <= 1'b1;
-                end
-            end
-        end
-    end
-
-    task check;
-        input condition;
-        input [8*72-1:0] name;
-        begin
-            if (condition) begin
-                pass_count = pass_count + 1;
-                $display("  PASS %0s", name);
-            end else begin
-                fail_count = fail_count + 1;
-                $display("  FAIL %0s", name);
-            end
-        end
-    endtask
-
-    task cpu_access;
-        input [31:0] addr;
-        input write_en;
-        input [2:0] size;
-        input [31:0] wdata_in;
-        output [31:0] rdata_out;
-        begin
-            @(posedge clk);
-            cpu_req_addr = addr;
-            cpu_req_vaddr = addr;
-            cpu_req_hwrite = write_en;
-            cpu_req_hsize = size;
-            cpu_req_wdata = wdata_in;
-            cpu_req_valid = 1'b1;
-            while (!cpu_req_ready) begin
-                @(posedge clk);
-                #1;
-            end
-            rdata_out = cpu_req_rdata;
-            @(posedge clk);
-            cpu_req_valid = 1'b0;
-            cpu_req_hwrite = 1'b0;
-            repeat (2) @(posedge clk);
-        end
-    endtask
-
-    localparam [31:0] ADDR_A = 32'h8000_1000;
-    localparam [31:0] ADDR_B = 32'h8000_1100;
-    localparam [31:0] ADDR_C = 32'h8000_1200;
-    localparam [31:0] ADDR_D = 32'h8000_1300;
-    reg [31:0] value;
-    integer refills_before;
-
+    task check(input condition,input [8*72-1:0] name);begin
+        if(condition)begin pass_count=pass_count+1;$display("  PASS %0s",name);end
+        else begin fail_count=fail_count+1;$display("  FAIL %0s",name);end
+    end endtask
+    task cpu_access(input [31:0] addr,input wr,input [2:0] size,input [31:0] wd,output [31:0] rd);begin
+        @(negedge clk);cpu_req_paddr=addr;cpu_req_write=wr;cpu_req_size=size;cpu_req_wdata=wd;cpu_req_valid=1;
+        while(!cpu_req_ready)begin @(posedge clk);#1;end rd=cpu_req_rdata;
+        @(negedge clk);cpu_req_valid=0;cpu_req_write=0;repeat(2)@(posedge clk);
+    end endtask
+    task ptw_access(input [31:0] addr,input wr,input [31:0] wd,output [31:0] rd);begin
+        @(negedge clk);ptw_req_addr=addr;ptw_req_write=wr;ptw_req_wdata=wd;ptw_req_valid=1;
+        while(!ptw_req_done)begin @(posedge clk);#1;end rd=ptw_req_rdata;
+        check(!ptw_req_error,"PTW access completes without error");
+        @(negedge clk);ptw_req_valid=0;ptw_req_write=0;repeat(2)@(posedge clk);
+    end endtask
+    localparam [31:0] A=32'h80001000,B=32'h80001100,C=32'h80001200;
+    localparam [31:0] D=32'h80001303,E=32'h80001400;
+    reg [31:0] got;integer count_before;
     initial begin
-        cpu_req_valid = 0;
-        cpu_req_addr = 0;
-        cpu_req_vaddr = 0;
-        mmu_ready = 1;
-        cpu_req_wdata = 0;
-        cpu_req_hwrite = 0;
-        cpu_req_hsize = `AXI_SIZE_WORD;
-        ptw_req_valid = 0;
-        ptw_req_addr = 0;
-        ptw_req_wdata = 0;
-        ptw_req_write = 0;
-        pass_count = 0;
-        fail_count = 0;
-        for (i = 0; i < 1024; i = i + 1)
-            memory[i] = 32'h6000_0000 + i;
+        cpu_req_valid=0;cpu_req_paddr=0;cpu_req_wdata=0;cpu_req_write=0;cpu_req_size=`AXI_SIZE_WORD;
+        ptw_req_valid=0;ptw_req_addr=0;ptw_req_wdata=0;ptw_req_write=0;mem_req_ready=1;fail_next=0;
+        for(i=0;i<1024;i=i+1)memory[i]=32'h60000000+i;
+        repeat(5)@(posedge clk);resetn=1;repeat(2)@(posedge clk);
+        cpu_access(A,1,`AXI_SIZE_WORD,32'hdeadbeef,got);
+        check(memory[A[11:2]]==32'hdeadbeef&&!dut.valid_array[0][0],"store miss writes through without allocation");
+        cpu_access(A,0,`AXI_SIZE_WORD,0,got);check(got==32'hdeadbeef&&line_count==1,"load miss allocates one line");
+        cpu_access(B,0,`AXI_SIZE_WORD,0,got);check(dut.valid_array[0][0]&&dut.valid_array[0][1],"two ways hold two physical tags");
+        count_before=line_count;cpu_access(A,0,`AXI_SIZE_WORD,0,got);check(line_count==count_before,"load hit avoids memory request");
+        cpu_access(C,0,`AXI_SIZE_WORD,0,got);check(line_count==count_before+1,"third same-set load replaces one way");
 
-        repeat (5) @(posedge clk);
-        resetn = 1'b1;
-        repeat (3) @(posedge clk);
+        cpu_access(A,1,`AXI_SIZE_WORD,32'h12345678,got);
+        ptw_access(A,0,0,got);check(got==32'h12345678,"PTW observes latest CPU store to cached PTE");
+        cpu_access(A,1,`AXI_SIZE_HWORD,32'h0000a55a,got);
+        cpu_access(A,0,`AXI_SIZE_WORD,0,got);
+        check(got[15:0]==16'ha55a&&memory[A[11:2]][15:0]==16'ha55a,"halfword store hit updates memory and cached bytes");
+        ptw_access(A,0,0,got);check(got[15:0]==16'ha55a,"PTW shares coherent DCache contents");
 
-        cpu_access(ADDR_A, 1'b1, `AXI_SIZE_WORD, 32'hDEAD_BEEF, value);
-        check(memory[ADDR_A[11:2]] == 32'hDEAD_BEEF,
-              "store miss commits to backing memory");
-        check(!dut.valid_array[0][0] && !dut.valid_array[0][1],
-              "store miss does not allocate a cache way");
+        count_before=line_count;cpu_access(D,1,`AXI_SIZE_BYTE,32'h5a,got);
+        check(memory[D[11:2]][31:24]==8'h5a&&line_count==count_before,"byte store miss is write-through and no-allocate");
+        ptw_access(E,0,0,got);check(line_count==count_before+1,"PTW load miss refills through DCache");
+        ptw_access(E,1,32'h600005f8,got);cpu_access(E,0,`AXI_SIZE_WORD,0,got);
+        check(got==32'h600005f8&&memory[E[11:2]]==32'h600005f8,"PTW A/D write updates memory and cached PTE");
 
-        cpu_access(ADDR_A, 1'b0, `AXI_SIZE_WORD, 0, value);
-        check(value == 32'hDEAD_BEEF && refill_count == 1,
-              "first load miss refills way 0");
-        cpu_access(ADDR_B, 1'b0, `AXI_SIZE_WORD, 0, value);
-        check(refill_count == 2 && dut.valid_array[0][0] && dut.valid_array[0][1],
-              "second same-set tag fills way 1");
+        count_before=single_count;cpu_access(32'h88000000,0,`AXI_SIZE_WORD,0,got);
+        check(single_count==count_before+1&&line_count==4,"DDR upper limit is uncached");
 
-        refills_before = refill_count;
-        cpu_access(ADDR_A, 1'b0, `AXI_SIZE_WORD, 0, value);
-        check(value == 32'hDEAD_BEEF && refill_count == refills_before,
-              "way 0 remains a load hit");
-        cpu_access(ADDR_C, 1'b0, `AXI_SIZE_WORD, 0, value);
-        check(refill_count == refills_before + 1,
-              "third same-set tag replaces exactly one way");
+        fail_next=1;@(negedge clk);ptw_req_addr=32'h10000000;ptw_req_valid=1;
+        while(!ptw_req_done)begin @(posedge clk);#1;end
+        check(ptw_req_error,"memory error returns to PTW owner");
+        @(negedge clk);ptw_req_valid=0;repeat(2)@(posedge clk);fail_next=0;
 
-        refills_before = refill_count;
-        cpu_access(ADDR_A, 1'b1, `AXI_SIZE_WORD, 32'h1234_5678, value);
-        cpu_access(ADDR_A, 1'b0, `AXI_SIZE_WORD, 0, value);
-        check(value == 32'h1234_5678 && refill_count == refills_before &&
-              memory[ADDR_A[11:2]] == 32'h1234_5678,
-              "store hit updates cache only after backing write completes");
-
-        refills_before = refill_count;
-        ptw_access(ADDR_A, 1'b0, 32'b0, value);
-        check(value == 32'h1234_5678 && refill_count == refills_before,
-              "PTW observes a CPU-updated cached PTE");
-        ptw_access(ADDR_A, 1'b1, 32'h1234_56F8, value);
-        cpu_access(ADDR_A, 1'b0, `AXI_SIZE_WORD, 0, value);
-        check(value == 32'h1234_56F8 && memory[ADDR_A[11:2]] == 32'h1234_56F8 &&
-              refill_count == refills_before,
-              "PTW A/D write updates backing memory and cached PTE");
-
-        refills_before = refill_count;
-        cpu_access(ADDR_D, 1'b1, `AXI_SIZE_BYTE, 32'h0000_00A5, value);
-        check(refill_count == refills_before && memory[ADDR_D[11:2]][7:0] == 8'hA5,
-              "byte store miss is write-through and no-write-allocate");
-
-        $display("dcache write-through unit: pass=%0d fail=%0d", pass_count, fail_count);
-        if (fail_count == 0)
-            $display("ALL TESTS PASSED");
-        else
-            $display("TEST FAILED");
-        $finish;
+        fail_next=1;@(negedge clk);cpu_req_paddr=32'h10000004;cpu_req_write=1;
+        cpu_req_size=`AXI_SIZE_WORD;cpu_req_wdata=32'h1234;cpu_req_valid=1;
+        while(!cpu_req_error)begin @(posedge clk);#1;end
+        check(cpu_req_error_is_store&&cpu_req_error_addr==32'h10000004&&!cpu_req_ready,"store error preserves owner, type, and address");
+        @(negedge clk);cpu_req_valid=0;cpu_req_write=0;fail_next=0;
+        $display("dcache write-through unit: pass=%0d fail=%0d",pass_count,fail_count);
+        if(!fail_count)$display("ALL TESTS PASSED");else $display("TEST FAILED");$finish;
     end
-
-    initial begin
-        repeat (5000) @(posedge clk);
-        $display("TEST FAILED: timeout");
-        $finish;
-    end
+    initial begin repeat(5000)@(posedge clk);$display("TEST FAILED: timeout");$finish;end
 endmodule

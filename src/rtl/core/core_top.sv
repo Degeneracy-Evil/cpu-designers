@@ -253,12 +253,6 @@ module core_top(
     wire        ptw_bus_done;
     wire        ptw_bus_error;
 
-    // The PTW uses the DCache physical request port. The bridge's legacy PTW
-    // client remains disconnected until the later bridge cleanup phase.
-    wire [31:0] bridge_ptw_rdata_unused;
-    wire        bridge_ptw_done_unused;
-    wire        bridge_ptw_error_unused;
-
     wire        mmu_sfence_done;
 
     wire [4:0] rs1_addr;
@@ -277,8 +271,6 @@ module core_top(
 
     assign id_pc_plus4  = if_id_bus_r[95:64];
     assign exe_pc_plus4 = id_exe_bus_r[329:298];
-    assign wb_pc_plus4  = mem_wb_bus_r.pc_plus4;
-
     wire [31:0] actual_rf_wdata;
     assign actual_rf_wdata = wb_is_jal_like ? wb_pc_plus4 : rf_wdata;
 
@@ -500,19 +492,18 @@ module core_top(
 
     wire [31:0] instData_32_mux;
     wire        inst_valid_mux;
-    wire        icache_mmio_req;
-    wire        icache_mmio_accept;
-    wire [31:0] icache_mmio_addr;
-
-    wire [31:0] ahb_inst_data;
-    wire        ahb_inst_valid;
-
-    wire        icache_refill_req;
-    wire [31:0] icache_refill_addr;
-    wire [255:0] icache_refill_data;
-    wire        icache_refill_valid;
-    wire        icache_refill_done;
-    wire        icache_refill_error;
+    wire        icache_mem_req_valid;
+    wire        icache_mem_req_ready;
+    wire [31:0] icache_mem_req_addr;
+    wire        icache_mem_req_write;
+    wire [2:0]  icache_mem_req_size;
+    wire [7:0]  icache_mem_req_len;
+    wire [31:0] icache_mem_req_wdata;
+    wire        icache_mem_resp_valid;
+    wire [255:0] icache_mem_resp_data;
+    wire        icache_mem_resp_error;
+    wire        icache_cpu_error;
+    wire [31:0] icache_cpu_error_addr;
     wire [2:0]  icache_dbg_state;
 
     wire        icache_invalidate_req;
@@ -582,26 +573,24 @@ module core_top(
         .clk(clk),
         .resetn(resetn),
 
-        .cpu_req_valid(if_valid),
-        .cpu_req_addr(mmu_inst_paddr),
-        .cpu_req_vaddr(fetch_vaddr),
-        .mmu_ready(mmu_inst_ready),
+        .cpu_req_valid(if_valid && mmu_inst_ready),
+        .cpu_req_paddr(mmu_inst_paddr),
         .flush_req(icache_flush_req),
         .cpu_req_data(instData_32_mux),
         .cpu_req_ready(inst_valid_mux),
 
-        .mmio_req(icache_mmio_req),
-        .mmio_accept(icache_mmio_accept),
-        .mmio_addr(icache_mmio_addr),
-        .mmio_data(ahb_inst_data),
-        .mmio_valid(ahb_inst_valid),
-
-        .refill_req(icache_refill_req),
-        .refill_addr(icache_refill_addr),
-        .refill_data(icache_refill_data),
-        .refill_valid(icache_refill_valid),
-        .refill_done(icache_refill_done),
-        .refill_error(icache_refill_error),
+        .cpu_req_error(icache_cpu_error),
+        .cpu_req_error_addr(icache_cpu_error_addr),
+        .mem_req_valid(icache_mem_req_valid),
+        .mem_req_ready(icache_mem_req_ready),
+        .mem_req_addr(icache_mem_req_addr),
+        .mem_req_write(icache_mem_req_write),
+        .mem_req_size(icache_mem_req_size),
+        .mem_req_len(icache_mem_req_len),
+        .mem_req_wdata(icache_mem_req_wdata),
+        .mem_resp_valid(icache_mem_resp_valid),
+        .mem_resp_data(icache_mem_resp_data),
+        .mem_resp_error(icache_mem_resp_error),
 
         .invalidate_req(icache_invalidate_req),
         .invalidate_done(icache_invalidate_done),
@@ -701,40 +690,28 @@ module core_top(
     wire [31:0] readData_32_mux;
     wire        data_valid_mux;
 
-    wire [31:0] dcache_mmio_addr;
-    wire [31:0] dcache_mmio_wdata;
-    wire        dcache_mmio_hwrite;
-    wire [2:0]  dcache_mmio_hsize;
-    wire        dcache_mmio_req;
-    wire        dcache_mmio_accept;
-
-    wire [31:0] ahb_data_rdata;
-    wire        ahb_data_valid;
-    wire        dcache_refill_req;
-    wire [31:0] dcache_refill_addr;
-    wire [255:0] dcache_refill_data;
-    wire        dcache_refill_valid;
-    wire        dcache_refill_done;
-    wire        dcache_refill_error;
-
-    wire        bridge_icache_error;
-    wire        bridge_dcache_error;
-    wire        bridge_dcache_error_is_store;
-    wire [31:0] bridge_bus_error_addr;
-    // A DCache refill/bypass error owned by the PTW is returned through the
-    // MMU as the original access type's access fault, not as a CPU data fault.
-    wire        cpu_bridge_dcache_error = bridge_dcache_error && !ptw_bus_req;
+    wire        dcache_mem_req_valid;
+    wire        dcache_mem_req_ready;
+    wire [31:0] dcache_mem_req_addr;
+    wire        dcache_mem_req_write;
+    wire [2:0]  dcache_mem_req_size;
+    wire [7:0]  dcache_mem_req_len;
+    wire [31:0] dcache_mem_req_wdata;
+    wire        dcache_mem_resp_valid;
+    wire [255:0] dcache_mem_resp_data;
+    wire        dcache_mem_resp_error;
+    wire        dcache_cpu_error;
+    wire        dcache_cpu_error_is_store;
+    wire [31:0] dcache_cpu_error_addr;
     dcache_ctrl u_dcache_wrap (
         .clk(clk),
         .resetn(resetn),
 
-        .cpu_req_valid(mem_en),
-        .cpu_req_addr(mmu_data_paddr),
-        .cpu_req_vaddr(mem_dataAddr_32),
-        .mmu_ready(mmu_data_ready),
+        .cpu_req_valid(mem_en && mmu_data_ready),
+        .cpu_req_paddr(mmu_data_paddr),
         .cpu_req_wdata(mem_writeData_32),
-        .cpu_req_hwrite(mem_hwrite),
-        .cpu_req_hsize(mem_hsize),
+        .cpu_req_write(mem_hwrite),
+        .cpu_req_size(mem_hsize),
         .cpu_req_rdata(readData_32_mux),
         .cpu_req_ready(data_valid_mux),
 
@@ -746,22 +723,19 @@ module core_top(
         .ptw_req_done(ptw_bus_done),
         .ptw_req_error(ptw_bus_error),
 
-        .mmio_req(dcache_mmio_req),
-        .mmio_accept(dcache_mmio_accept),
-        .mmio_addr(dcache_mmio_addr),
-        .mmio_wdata(dcache_mmio_wdata),
-        .mmio_hwrite(dcache_mmio_hwrite),
-        .mmio_hsize(dcache_mmio_hsize),
-        .mmio_rdata(ahb_data_rdata),
-        .mmio_valid(ahb_data_valid),
-        .mmio_error(bridge_dcache_error),
-
-        .refill_req(dcache_refill_req),
-        .refill_addr(dcache_refill_addr),
-        .refill_data(dcache_refill_data),
-        .refill_valid(dcache_refill_valid),
-        .refill_done(dcache_refill_done),
-        .refill_error(dcache_refill_error)
+        .cpu_req_error(dcache_cpu_error),
+        .cpu_req_error_is_store(dcache_cpu_error_is_store),
+        .cpu_req_error_addr(dcache_cpu_error_addr),
+        .mem_req_valid(dcache_mem_req_valid),
+        .mem_req_ready(dcache_mem_req_ready),
+        .mem_req_addr(dcache_mem_req_addr),
+        .mem_req_write(dcache_mem_req_write),
+        .mem_req_size(dcache_mem_req_size),
+        .mem_req_len(dcache_mem_req_len),
+        .mem_req_wdata(dcache_mem_req_wdata),
+        .mem_resp_valid(dcache_mem_resp_valid),
+        .mem_resp_data(dcache_mem_resp_data),
+        .mem_resp_error(dcache_mem_resp_error)
     );
 
     cpu_mem u_mem(
@@ -865,15 +839,15 @@ module core_top(
         // to S-mode (kernel handles them). Original fix routed them as access faults
         // to M-mode, but MEDELEG doesn't delegate bits 1/5/7, so OpenSBI received
         // them and couldn't handle them → MMU translation errors → kernel jump to BSS.
-        .inst_access_fault(bridge_icache_error || (mmu_inst_page_fault && (mmu_inst_pf_cause == 4'd1))),
-        .inst_access_fault_addr(bridge_icache_error ? bridge_bus_error_addr : mmu_inst_pf_vaddr),
-        .load_access_fault((cpu_bridge_dcache_error && !bridge_dcache_error_is_store) ||
+        .inst_access_fault(icache_cpu_error || (mmu_inst_page_fault && (mmu_inst_pf_cause == 4'd1))),
+        .inst_access_fault_addr(icache_cpu_error ? icache_cpu_error_addr : mmu_inst_pf_vaddr),
+        .load_access_fault((dcache_cpu_error && !dcache_cpu_error_is_store) ||
                            (mmu_data_page_fault && (mmu_data_pf_cause == 4'd5))),
-        .load_access_fault_addr(cpu_bridge_dcache_error ? bridge_bus_error_addr : mmu_data_pf_vaddr),
-        .store_access_fault((cpu_bridge_dcache_error && bridge_dcache_error_is_store) ||
+        .load_access_fault_addr(dcache_cpu_error ? dcache_cpu_error_addr : mmu_data_pf_vaddr),
+        .store_access_fault((dcache_cpu_error && dcache_cpu_error_is_store) ||
                             (mmu_data_page_fault && (mmu_data_pf_cause == 4'd7)) ||
                             pmp_data_violation),
-        .store_access_fault_addr(cpu_bridge_dcache_error ? bridge_bus_error_addr : mmu_data_pf_vaddr),
+        .store_access_fault_addr(dcache_cpu_error ? dcache_cpu_error_addr : mmu_data_pf_vaddr),
         .mem_access_fault_pc(exe_pc),
         .inst_page_fault(mmu_inst_page_fault && (mmu_inst_pf_cause == 4'd12)),
         .inst_page_fault_vaddr(mmu_inst_pf_vaddr),
@@ -1014,38 +988,26 @@ module core_top(
     cpu_bus_bridge u_bus_bridge(
         .clk              (clk),
         .resetn            (resetn),
-        .icache_mmio_req  (icache_mmio_req),
-        .icache_mmio_accept(icache_mmio_accept),
-        .icache_mmio_addr (icache_mmio_addr),
-        .dcache_mmio_req  (dcache_mmio_req),
-        .dcache_mmio_accept(dcache_mmio_accept),
-        .dcache_mmio_addr (dcache_mmio_addr),
-        .dcache_mmio_wdata(dcache_mmio_wdata),
-        .dcache_mmio_hwrite(dcache_mmio_hwrite),
-        .dcache_mmio_hsize(dcache_mmio_hsize),
-        .ahb_inst_data    (ahb_inst_data),
-        .ahb_inst_valid   (ahb_inst_valid),
-        .ahb_data_rdata   (ahb_data_rdata),
-        .ahb_data_valid   (ahb_data_valid),
-        .icache_refill_req  (icache_refill_req),
-        .icache_refill_addr (icache_refill_addr),
-        .icache_refill_data (icache_refill_data),
-        .icache_refill_valid (icache_refill_valid),
-        .icache_refill_done (icache_refill_done),
-        .icache_refill_error(icache_refill_error),
-        .dcache_refill_req  (dcache_refill_req),
-        .dcache_refill_addr (dcache_refill_addr),
-        .dcache_refill_data (dcache_refill_data),
-        .dcache_refill_valid (dcache_refill_valid),
-        .dcache_refill_done (dcache_refill_done),
-        .dcache_refill_error(dcache_refill_error),
-        .ptw_req           (1'b0),
-        .ptw_addr          (32'b0),
-        .ptw_we            (1'b0),
-        .ptw_wdata         (32'b0),
-        .ptw_rdata         (bridge_ptw_rdata_unused),
-        .ptw_done          (bridge_ptw_done_unused),
-        .ptw_error         (bridge_ptw_error_unused),
+        .i_req_valid       (icache_mem_req_valid),
+        .i_req_ready       (icache_mem_req_ready),
+        .i_req_addr        (icache_mem_req_addr),
+        .i_req_write       (icache_mem_req_write),
+        .i_req_size        (icache_mem_req_size),
+        .i_req_len         (icache_mem_req_len),
+        .i_req_wdata       (icache_mem_req_wdata),
+        .i_resp_valid      (icache_mem_resp_valid),
+        .i_resp_data       (icache_mem_resp_data),
+        .i_resp_error      (icache_mem_resp_error),
+        .d_req_valid       (dcache_mem_req_valid),
+        .d_req_ready       (dcache_mem_req_ready),
+        .d_req_addr        (dcache_mem_req_addr),
+        .d_req_write       (dcache_mem_req_write),
+        .d_req_size        (dcache_mem_req_size),
+        .d_req_len         (dcache_mem_req_len),
+        .d_req_wdata       (dcache_mem_req_wdata),
+        .d_resp_valid      (dcache_mem_resp_valid),
+        .d_resp_data       (dcache_mem_resp_data),
+        .d_resp_error      (dcache_mem_resp_error),
         .awid              (awid),
         .awaddr            (awaddr),
         .awlen             (awlen),
@@ -1082,11 +1044,7 @@ module core_top(
         .rresp             (rresp),
         .rlast             (rlast),
         .rvalid            (rvalid),
-        .rready            (rready),
-        .icache_error     (bridge_icache_error),
-        .dcache_error     (bridge_dcache_error),
-        .dcache_error_is_store(bridge_dcache_error_is_store),
-        .bus_error_addr   (bridge_bus_error_addr)
+        .rready            (rready)
     );
 
     assign dbg_if_done = if_done;
@@ -1095,8 +1053,8 @@ module core_top(
     assign dbg_mmu_i_miss = mmu_inst_miss;
     assign dbg_i_page_fault = mmu_inst_page_fault;
     assign dbg_icache_state = icache_dbg_state;
-    assign dbg_icache_refill_req = icache_refill_req;
-    assign dbg_icache_refill_valid = icache_refill_valid;
+    assign dbg_icache_refill_req = icache_mem_req_valid && (icache_mem_req_len == 8'd7);
+    assign dbg_icache_refill_valid = icache_mem_resp_valid && !icache_mem_resp_error;
     assign dbg_ptw_walk_active = mmu_dbg_i_walk_active;
     assign dbg_pending_i_walk = mmu_dbg_pending_i_walk;
     assign dbg_mmu_i_state = mmu_dbg_i_state;

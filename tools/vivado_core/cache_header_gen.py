@@ -7,8 +7,7 @@ regenerating this header automatically keeps RTL and IP in sync.
 
 Address decomposition (32-bit physical address):
 
-    addr[31]       = is_mmio     (1 bit)
-    addr[TAG_HI:TAG_LO]   = tag        (TAG_WIDTH bits)
+    addr[31:TAG_LO] = tag        (TAG_WIDTH bits)
     addr[SET_IDX_HI:SET_IDX_LO] = set_idx  (log2(NUM_SETS) bits)
     addr[WORD_OFF_HI:WORD_OFF_LO] = word_off (log2(LINE_WORDS) bits)
     addr[1:0]      = byte_off   (2 bits, unused at word level)
@@ -17,7 +16,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .config import CacheConfig, MemoryConfig, TlbConfig
+from .config import CacheConfig, MemoryConfig
 
 
 # ---------------------------------------------------------------------------
@@ -62,20 +61,19 @@ def _derive_addr_slices(cfg: CacheConfig, prefix: str) -> list[str]:
     set_idx_lo = word_off_hi + 1
     set_idx_hi = set_idx_lo + log2_sets - 1
     tag_lo = set_idx_hi + 1
-    tag_hi = tag_lo + cfg.tag_width - 1
+    tag_hi = 31
+    tag_width = 32 - tag_lo
 
     # Tag entry widths (for register arrays)
-    # icache: valid(1) + tag(tag_width) = tag_width + 1
-    # dcache: valid(1) + dirty(1) + tag(tag_width) = tag_width + 2
-    icache_tag_entry = cfg.tag_width + 1
-    dcache_tag_entry = cfg.tag_width + 2
+    # Both caches are write-through and need only valid + complete physical tag.
+    tag_entry = tag_width + 1
 
     lines: list[str] = []
     p = prefix  # shorthand
 
     lines.append(f"`define {p}_NUM_SETS    {cfg.num_sets}")
     lines.append(f"`define {p}_NUM_WAYS    {cfg.num_ways}")
-    lines.append(f"`define {p}_TAG_WIDTH   {cfg.tag_width}")
+    lines.append(f"`define {p}_TAG_WIDTH   {tag_width}")
     lines.append(f"`define {p}_LINE_WORDS  {cfg.line_words}")
     lines.append(f"`define {p}_LINE_WIDTH  {line_width}")
     lines.append(f"`define {p}_DEPTH       {depth}")
@@ -92,25 +90,15 @@ def _derive_addr_slices(cfg: CacheConfig, prefix: str) -> list[str]:
 
     # Tag entry width (for register array declaration)
     if prefix == "ICACHE":
-        lines.append(f"`define {p}_TAG_ENTRY_WIDTH {icache_tag_entry}")
+        lines.append(f"`define {p}_TAG_ENTRY_WIDTH {tag_entry}")
     else:
-        lines.append(f"`define {p}_TAG_ENTRY_WIDTH {dcache_tag_entry}")
+        lines.append(f"`define {p}_TAG_ENTRY_WIDTH {tag_entry}")
 
     # Bit widths for set_idx and way (used in wire declarations)
     lines.append(f"`define {p}_SET_IDX_WIDTH {log2_sets}")
     lines.append(f"`define {p}_WAY_WIDTH    {_clog2(cfg.num_ways)}")
 
     return lines
-
-
-def _derive_tlb_defines(cfg: TlbConfig) -> list[str]:
-    """Derive only the geometry shared by the register-array TLBs."""
-    return [
-        f"`define TLB_NUM_WAYS       {cfg.num_ways}",
-        f"`define TLB_NUM_SETS       {cfg.num_sets}",
-        f"`define TLB_SET_IDX_WIDTH  {_clog2(cfg.num_sets)}",
-        f"`define TLB_WAY_WIDTH      {_clog2(cfg.num_ways)}",
-    ]
 
 
 # ---------------------------------------------------------------------------
@@ -206,11 +194,6 @@ def generate_cache_header(mem: MemoryConfig) -> str:
     # D-Cache
     lines.append("// --- D-Cache ---")
     lines.extend(_derive_addr_slices(mem.dcache, "DCACHE"))
-    lines.append("")
-
-    # TLB geometry
-    lines.append("// --- TLB geometry ---")
-    lines.extend(_derive_tlb_defines(mem.tlb))
     lines.append("")
 
     lines.append("`endif // CACHE_DEF_SVH")

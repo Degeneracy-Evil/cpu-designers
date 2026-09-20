@@ -40,18 +40,17 @@ module tb_simple_cpu_top;
             @(posedge clk);
             dbg_cnt = dbg_cnt + 1;
             if (dbg_cnt <= 5000) begin
-                // Show MMIO valid pulses from bus bridge
-                if (u_soc.cpu.u_bus_bridge.ahb_inst_valid_r) begin
-                    $display("[MMIO-VLD] cycle=%0d data=0x%08h addr_r=0x%08h is_inst=%b", dbg_cnt,
-                             u_soc.cpu.u_bus_bridge.ahb_inst_data_r,
-                             u_soc.cpu.u_bus_bridge.addr_r,
-                             u_soc.cpu.u_bus_bridge.is_inst_r);
+                // Show instruction-side memory responses from the unified bridge.
+                if (u_soc.cpu.u_bus_bridge.i_resp_valid_r) begin
+                    $display("[I-MEM-VLD] cycle=%0d data=0x%08h addr_r=0x%08h", dbg_cnt,
+                             u_soc.cpu.u_bus_bridge.resp_data_r[31:0],
+                             u_soc.cpu.u_bus_bridge.addr_r);
                 end
                 // Show IF→ID captures
                 if (u_soc.cpu.if_done) begin
-                    $display("[IF→ID] cycle=%0d PC=0x%08h inst=0x%08h mmio_v=%b mmio_d=0x%08h", dbg_cnt,
+                    $display("[IF→ID] cycle=%0d PC=0x%08h inst=0x%08h mem_v=%b mem_d=0x%08h", dbg_cnt,
                              u_soc.cpu.if_id_bus[63:32], u_soc.cpu.if_id_bus[31:0],
-                             u_soc.cpu.ahb_inst_valid, u_soc.cpu.ahb_inst_data);
+                             u_soc.cpu.icache_mem_resp_valid, u_soc.cpu.icache_mem_resp_data[31:0]);
                 end
                 // Show EX completions with branches
                 if (u_soc.cpu.exe_done && u_soc.cpu.exe_branch_taken) begin

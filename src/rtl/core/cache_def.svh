@@ -34,7 +34,7 @@
 // --- I-Cache ---
 `define ICACHE_NUM_SETS    8
 `define ICACHE_NUM_WAYS    2
-`define ICACHE_TAG_WIDTH   19
+`define ICACHE_TAG_WIDTH   24
 `define ICACHE_LINE_WORDS  8
 `define ICACHE_LINE_WIDTH  256
 `define ICACHE_DEPTH       16
@@ -47,15 +47,15 @@
 `define ICACHE_SET_IDX_LO 5
 `define ICACHE_SET_IDX_HI 7
 `define ICACHE_TAG_LO     8
-`define ICACHE_TAG_HI     26
-`define ICACHE_TAG_ENTRY_WIDTH 20
+`define ICACHE_TAG_HI     31
+`define ICACHE_TAG_ENTRY_WIDTH 25
 `define ICACHE_SET_IDX_WIDTH 3
 `define ICACHE_WAY_WIDTH    1
 
 // --- D-Cache ---
 `define DCACHE_NUM_SETS    8
 `define DCACHE_NUM_WAYS    2
-`define DCACHE_TAG_WIDTH   19
+`define DCACHE_TAG_WIDTH   24
 `define DCACHE_LINE_WORDS  8
 `define DCACHE_LINE_WIDTH  256
 `define DCACHE_DEPTH       16
@@ -68,15 +68,9 @@
 `define DCACHE_SET_IDX_LO 5
 `define DCACHE_SET_IDX_HI 7
 `define DCACHE_TAG_LO     8
-`define DCACHE_TAG_HI     26
-`define DCACHE_TAG_ENTRY_WIDTH 21
+`define DCACHE_TAG_HI     31
+`define DCACHE_TAG_ENTRY_WIDTH 25
 `define DCACHE_SET_IDX_WIDTH 3
 `define DCACHE_WAY_WIDTH    1
-
-// --- TLB geometry ---
-`define TLB_NUM_WAYS       2
-`define TLB_NUM_SETS       8
-`define TLB_SET_IDX_WIDTH  3
-`define TLB_WAY_WIDTH      1
 
 `endif // CACHE_DEF_SVH

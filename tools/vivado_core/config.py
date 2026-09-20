@@ -95,9 +95,6 @@ class CacheConfig:
     num_ways: int = 2
     """Associativity (ways per set)."""
 
-    tag_width: int = 19
-    """Tag field width in bits."""
-
     line_words: int = 8
     """Words per cache line.  line_width = line_words * 32."""
 
@@ -106,17 +103,6 @@ class CacheConfig:
 
     byte_size: int = 8
     """Byte size for write-enable granularity."""
-
-
-@dataclass(frozen=True)
-class TlbConfig:
-    """TLB geometry configuration (small register-array structure)."""
-
-    num_ways: int = 2
-    """Associativity (ways per set). The RTL currently implements two ways."""
-
-    num_sets: int = 8
-    """Number of TLB sets. Total entries = num_ways × num_sets."""
 
 
 @dataclass(frozen=True)
@@ -164,9 +150,6 @@ class MemoryConfig:
 
     dcache: CacheConfig = field(default_factory=CacheConfig)
     """D-cache configuration."""
-
-    tlb: TlbConfig = field(default_factory=TlbConfig)
-    """TLB configuration."""
 
     ddr3: Ddr3Config = field(default_factory=Ddr3Config)
     """DDR3 main memory via MIG 7 Series configuration."""
@@ -281,7 +264,6 @@ def load_config(path: Path | str | None = None, base_dir: Path | str | None = No
     rom_raw: dict = mem_raw.get("rom", {}) or {}
     icache_raw: dict = mem_raw.get("icache", {}) or {}
     dcache_raw: dict = mem_raw.get("dcache", {}) or {}
-    tlb_raw: dict = mem_raw.get("tlb", {}) or {}
 
     rom = RomConfig(
         data_width=rom_raw.get("data_width", 32),
@@ -292,7 +274,6 @@ def load_config(path: Path | str | None = None, base_dir: Path | str | None = No
     icache = CacheConfig(
         num_sets=icache_raw.get("num_sets", 8),
         num_ways=icache_raw.get("num_ways", 2),
-        tag_width=icache_raw.get("tag_width", 19),
         line_words=icache_raw.get("line_words", 8),
         byte_enable=icache_raw.get("byte_enable", True),
         byte_size=icache_raw.get("byte_size", 8),
@@ -300,14 +281,9 @@ def load_config(path: Path | str | None = None, base_dir: Path | str | None = No
     dcache = CacheConfig(
         num_sets=dcache_raw.get("num_sets", 8),
         num_ways=dcache_raw.get("num_ways", 2),
-        tag_width=dcache_raw.get("tag_width", 19),
         line_words=dcache_raw.get("line_words", 8),
         byte_enable=dcache_raw.get("byte_enable", True),
         byte_size=dcache_raw.get("byte_size", 8),
-    )
-    tlb = TlbConfig(
-        num_ways=tlb_raw.get("num_ways", 2),
-        num_sets=tlb_raw.get("num_sets", 8),
     )
     ddr3_raw: dict = mem_raw.get("ddr3", {}) or {}
     clk_wiz_raw: dict = mem_raw.get("clk_wiz", {}) or {}
@@ -343,7 +319,6 @@ def load_config(path: Path | str | None = None, base_dir: Path | str | None = No
         rom=rom,
         icache=icache,
         dcache=dcache,
-        tlb=tlb,
         ddr3=ddr3,
         clk_wiz=clk_wiz,
     )

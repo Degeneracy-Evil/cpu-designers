@@ -85,24 +85,14 @@ class RomConfig:
     """Byte size for write-enable granularity (only when byte_enable=true)."""
 
 
-@dataclass(frozen=True)
-class CacheConfig:
-    """Cache geometry configuration (applies to icache or dcache)."""
-
-    num_sets: int = 8
-    """Number of cache sets."""
-
-    num_ways: int = 2
-    """Associativity (ways per set)."""
-
-    line_words: int = 8
-    """Words per cache line.  line_width = line_words * 32."""
-
-    byte_enable: bool = True
-    """Whether byte-write enable is active for data BRAM."""
-
-    byte_size: int = 8
-    """Byte size for write-enable granularity."""
+# Cache geometry is an architectural constant, not a user configuration.
+# The RTL explicitly implements two ways and eight words per line; keeping
+# these values in YAML would imply unsupported configurability.
+CACHE_NUM_SETS = 8
+CACHE_NUM_WAYS = 2
+CACHE_LINE_WORDS = 8
+CACHE_BYTE_ENABLE = True
+CACHE_BYTE_SIZE = 8
 
 
 @dataclass(frozen=True)
@@ -144,12 +134,6 @@ class MemoryConfig:
 
     rom: RomConfig = field(default_factory=RomConfig)
     """Boot ROM configuration."""
-
-    icache: CacheConfig = field(default_factory=CacheConfig)
-    """I-cache configuration."""
-
-    dcache: CacheConfig = field(default_factory=CacheConfig)
-    """D-cache configuration."""
 
     ddr3: Ddr3Config = field(default_factory=Ddr3Config)
     """DDR3 main memory via MIG 7 Series configuration."""
@@ -261,29 +245,20 @@ def load_config(path: Path | str | None = None, base_dir: Path | str | None = No
 
     # --- memory sub-dict ---
     mem_raw: dict = raw.get("memory", {}) or {}
+    fixed_cache_sections = sorted({"icache", "dcache"}.intersection(mem_raw))
+    if fixed_cache_sections:
+        names = ", ".join(f"memory.{name}" for name in fixed_cache_sections)
+        raise ValueError(
+            f"{names} cannot be configured: both caches use the fixed "
+            "8-set, 2-way, 8-word-line architecture"
+        )
     rom_raw: dict = mem_raw.get("rom", {}) or {}
-    icache_raw: dict = mem_raw.get("icache", {}) or {}
-    dcache_raw: dict = mem_raw.get("dcache", {}) or {}
 
     rom = RomConfig(
         data_width=rom_raw.get("data_width", 32),
         depth=rom_raw.get("depth", 8192),
         byte_enable=rom_raw.get("byte_enable", False),
         byte_size=rom_raw.get("byte_size", 8),
-    )
-    icache = CacheConfig(
-        num_sets=icache_raw.get("num_sets", 8),
-        num_ways=icache_raw.get("num_ways", 2),
-        line_words=icache_raw.get("line_words", 8),
-        byte_enable=icache_raw.get("byte_enable", True),
-        byte_size=icache_raw.get("byte_size", 8),
-    )
-    dcache = CacheConfig(
-        num_sets=dcache_raw.get("num_sets", 8),
-        num_ways=dcache_raw.get("num_ways", 2),
-        line_words=dcache_raw.get("line_words", 8),
-        byte_enable=dcache_raw.get("byte_enable", True),
-        byte_size=dcache_raw.get("byte_size", 8),
     )
     ddr3_raw: dict = mem_raw.get("ddr3", {}) or {}
     clk_wiz_raw: dict = mem_raw.get("clk_wiz", {}) or {}
@@ -317,8 +292,6 @@ def load_config(path: Path | str | None = None, base_dir: Path | str | None = No
     )
     memory = MemoryConfig(
         rom=rom,
-        icache=icache,
-        dcache=dcache,
         ddr3=ddr3,
         clk_wiz=clk_wiz,
     )

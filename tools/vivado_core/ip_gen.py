@@ -9,7 +9,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from .config import CacheConfig, ClkWizConfig, Ddr3Config, MemoryConfig, RomConfig
+from .config import (
+    CACHE_BYTE_ENABLE,
+    CACHE_BYTE_SIZE,
+    CACHE_LINE_WORDS,
+    CACHE_NUM_SETS,
+    CACHE_NUM_WAYS,
+    ClkWizConfig,
+    Ddr3Config,
+    MemoryConfig,
+    RomConfig,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -21,7 +31,7 @@ class BramConfig:
     """Fully resolved blk_mem_gen IP configuration.
 
     All width/depth values are derived from the high-level
-    ``RomConfig`` / ``CacheConfig`` and are ready for TCL emission.
+    ROM settings or the fixed cache architecture and are ready for TCL emission.
     """
 
     name: str
@@ -104,24 +114,22 @@ def rom_to_bram(cfg: RomConfig) -> BramConfig:
     )
 
 
-def cache_data_to_bram(name: str, cfg: CacheConfig) -> BramConfig:
-    """Derive BRAM config for a cache *data* array.
+def cache_data_to_bram(name: str) -> BramConfig:
+    """Derive BRAM config for a fixed-architecture cache data array.
 
     Parameters
     ----------
     name:
         IP instance name (``"icached"`` or ``"dcached"``).
-    cfg:
-        Cache geometry configuration.
     """
-    line_width = cfg.line_words * 32  # e.g. 8 * 32 = 256
-    depth = cfg.num_sets * cfg.num_ways  # e.g. 8 sets * 2 ways = 16
+    line_width = CACHE_LINE_WORDS * 32
+    depth = CACHE_NUM_SETS * CACHE_NUM_WAYS
     return BramConfig(
         name=name,
         data_width=line_width,
         depth=depth,
-        byte_enable=cfg.byte_enable,
-        byte_size=cfg.byte_size,
+        byte_enable=CACHE_BYTE_ENABLE,
+        byte_size=CACHE_BYTE_SIZE,
         register_output=False,
     )
 
@@ -332,12 +340,12 @@ def generate_all_ip_tcl(mem: MemoryConfig, ip_dir: str, base_dir: str = "") -> t
     names.append(cfg_rom.name)
 
     # icached (I-cache data)
-    cfg_ic = cache_data_to_bram("icached", mem.icache)
+    cfg_ic = cache_data_to_bram("icached")
     parts.append(generate_bram_create_ip_tcl(cfg_ic, ip_dir))
     names.append(cfg_ic.name)
 
     # dcached (D-cache data)
-    cfg_dc = cache_data_to_bram("dcached", mem.dcache)
+    cfg_dc = cache_data_to_bram("dcached")
     parts.append(generate_bram_create_ip_tcl(cfg_dc, ip_dir))
     names.append(cfg_dc.name)
 

@@ -16,7 +16,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .config import CacheConfig, MemoryConfig
+from .config import (
+    CACHE_BYTE_ENABLE,
+    CACHE_BYTE_SIZE,
+    CACHE_LINE_WORDS,
+    CACHE_NUM_SETS,
+    CACHE_NUM_WAYS,
+    MemoryConfig,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -30,13 +37,11 @@ def _clog2(n: int) -> int:
     return (n - 1).bit_length()
 
 
-def _derive_addr_slices(cfg: CacheConfig, prefix: str) -> list[str]:
-    """Derive address bit-slice ``define`` macros for one cache.
+def _derive_addr_slices(prefix: str) -> list[str]:
+    """Generate macros for the fixed cache architecture.
 
     Parameters
     ----------
-    cfg:
-        Cache geometry.
     prefix:
         Macro prefix (``"ICACHE"`` or ``"DCACHE"``).
 
@@ -45,11 +50,11 @@ def _derive_addr_slices(cfg: CacheConfig, prefix: str) -> list[str]:
     list[str]
         Lines of ```define`` statements.
     """
-    log2_sets = _clog2(cfg.num_sets)
-    log2_line = _clog2(cfg.line_words)
-    depth = cfg.num_sets * cfg.num_ways
-    line_width = cfg.line_words * 32
-    wea_width = line_width // cfg.byte_size if cfg.byte_enable else 1
+    log2_sets = _clog2(CACHE_NUM_SETS)
+    log2_line = _clog2(CACHE_LINE_WORDS)
+    depth = CACHE_NUM_SETS * CACHE_NUM_WAYS
+    line_width = CACHE_LINE_WORDS * 32
+    wea_width = line_width // CACHE_BYTE_SIZE if CACHE_BYTE_ENABLE else 1
 
     # Bit positions (from LSB upward):
     #   [1:0]       byte_off   = 2 bits
@@ -71,10 +76,10 @@ def _derive_addr_slices(cfg: CacheConfig, prefix: str) -> list[str]:
     lines: list[str] = []
     p = prefix  # shorthand
 
-    lines.append(f"`define {p}_NUM_SETS    {cfg.num_sets}")
-    lines.append(f"`define {p}_NUM_WAYS    {cfg.num_ways}")
+    lines.append(f"`define {p}_NUM_SETS    {CACHE_NUM_SETS}")
+    lines.append(f"`define {p}_NUM_WAYS    {CACHE_NUM_WAYS}")
     lines.append(f"`define {p}_TAG_WIDTH   {tag_width}")
-    lines.append(f"`define {p}_LINE_WORDS  {cfg.line_words}")
+    lines.append(f"`define {p}_LINE_WORDS  {CACHE_LINE_WORDS}")
     lines.append(f"`define {p}_LINE_WIDTH  {line_width}")
     lines.append(f"`define {p}_DEPTH       {depth}")
     lines.append(f"`define {p}_ADDR_WIDTH  {_clog2(depth)}")
@@ -96,7 +101,7 @@ def _derive_addr_slices(cfg: CacheConfig, prefix: str) -> list[str]:
 
     # Bit widths for set_idx and way (used in wire declarations)
     lines.append(f"`define {p}_SET_IDX_WIDTH {log2_sets}")
-    lines.append(f"`define {p}_WAY_WIDTH    {_clog2(cfg.num_ways)}")
+    lines.append(f"`define {p}_WAY_WIDTH    {_clog2(CACHE_NUM_WAYS)}")
 
     return lines
 
@@ -188,12 +193,12 @@ def generate_cache_header(mem: MemoryConfig) -> str:
 
     # I-Cache
     lines.append("// --- I-Cache ---")
-    lines.extend(_derive_addr_slices(mem.icache, "ICACHE"))
+    lines.extend(_derive_addr_slices("ICACHE"))
     lines.append("")
 
     # D-Cache
     lines.append("// --- D-Cache ---")
-    lines.extend(_derive_addr_slices(mem.dcache, "DCACHE"))
+    lines.extend(_derive_addr_slices("DCACHE"))
     lines.append("")
 
     lines.append("`endif // CACHE_DEF_SVH")

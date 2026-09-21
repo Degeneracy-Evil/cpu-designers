@@ -30,20 +30,6 @@ memory:
     byte_enable: true     # Byte-write enable for ROM (4-bit WEA for byte/halfword writes)
     byte_size: 8          # Byte size (WEA width = data_width / byte_size = 4)
 
-  icache:
-    num_sets: 8           # Number of cache sets
-    num_ways: 2           # Blocking two-way set associative cache
-    line_words: 8         # Words per cache line (line_width = line_words * 32)
-    byte_enable: true     # Byte-write enable for data BRAM
-    byte_size: 8          # Byte size for write-enable granularity
-
-  dcache:
-    num_sets: 8
-    num_ways: 2           # Blocking 2-way write-through cache
-    line_words: 8
-    byte_enable: true
-    byte_size: 8
-
   # DDR3 main memory via MIG 7 Series (AXI4 native)
   ddr3:
     enabled: true

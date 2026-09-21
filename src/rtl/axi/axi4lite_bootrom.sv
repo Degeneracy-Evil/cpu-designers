@@ -10,6 +10,7 @@
  * Read channel: 1-cycle BRAM latency, then RVALID driven.
  */
 `include "axi4_def.svh"
+`include "soc_addr_map.svh"
 `timescale 1ns / 1ps
 
 module axi4lite_bootrom #(
@@ -166,7 +167,7 @@ module axi4lite_bootrom #(
     always @(posedge s_axi_aclk) begin
         if (rd_state == RD_DATA && s_axi_rvalid && s_axi_rready && rom_rd_cnt < 200) begin
             $display("[BOOTROM-RD] #%0d addr=0x%08h idx=%0d data=0x%08h",
-                     rom_rd_cnt, {latch_addra, 2'b00} + 32'hFC000000, latch_addra, bram_douta);
+                     rom_rd_cnt, {latch_addra, 2'b00} + `SOC_BOOTROM_BASE, latch_addra, bram_douta);
             rom_rd_cnt = rom_rd_cnt + 1;
         end
     end

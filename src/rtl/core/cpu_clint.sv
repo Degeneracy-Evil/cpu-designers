@@ -1,4 +1,5 @@
 `timescale 1ns / 1ps
+`include "core_bus_types.svh"
 
 module cpu_clint(
     input              clk,
@@ -16,7 +17,7 @@ module cpu_clint(
 
     input       [31:0] interrupt_pc,
 
-    input       [1:0]  priv_mode,
+    input       priv_mode_t priv_mode,
 
     input       [31:0] csr_mstatus,
     input       [31:0] csr_mie,
@@ -30,11 +31,11 @@ module cpu_clint(
     output             trap_enter,
     output             trap_return,
     output      [31:0] trap_pc,
-    output      [1:0]  target_priv,
+    output      priv_mode_t target_priv,
 
     output             hw_csr_wen,
     output             hw_trap_is_enter,
-    output      [1:0]  hw_target_priv,
+    output      priv_mode_t hw_target_priv,
     output      [31:0] hw_mepc_wdata,
     output      [31:0] hw_mcause_wdata,
     output      [31:0] hw_mtval_wdata,
@@ -44,10 +45,6 @@ module cpu_clint(
     output      [31:0] hw_stval_wdata,
     output      [31:0] hw_sstatus_wdata
 );
-    localparam PRIV_U = 2'b00;
-    localparam PRIV_S = 2'b01;
-    localparam PRIV_M = 2'b11;
-
     wire mie_bit    = csr_mstatus[3];
     wire sie_bit    = csr_mstatus[1];
     wire mpie_bit   = csr_mstatus[7];
@@ -96,7 +93,7 @@ module cpu_clint(
     assign trap_to_s = (exception_valid && exc_delegated && (priv_mode != PRIV_M)) ||
                        (!exception_valid && !m_interrupt_pending && s_interrupt_pending);
 
-    assign target_priv = trap_to_s ? PRIV_S : PRIV_M;
+    assign target_priv = priv_mode_t'(trap_to_s ? PRIV_S : PRIV_M);
 
     assign trap_enter  = exception_valid || m_interrupt_pending || s_interrupt_pending;
     assign trap_return = mret_req || sret_req;
@@ -108,7 +105,7 @@ module cpu_clint(
 
     assign hw_csr_wen = (trap_enter && trap_enter_valid) || trap_return;
     assign hw_trap_is_enter = trap_enter && trap_enter_valid;
-    assign hw_target_priv = trap_return ? priv_mode : target_priv;
+    assign hw_target_priv = priv_mode_t'(trap_return ? priv_mode : target_priv);
 
     assign hw_mepc_wdata = exception_valid ? exception_pc : interrupt_pc;
     assign hw_mcause_wdata = exception_valid ? exception_cause :

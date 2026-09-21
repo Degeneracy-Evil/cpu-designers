@@ -15,7 +15,7 @@ module tb_regression_m_irq_precision;
   always #5 clk = ~clk;
 
   logic trap_pending = 1'b0;
-  logic [329:0] id_exe_bus_r;
+  id_exe_bus_t id_exe_bus_r;
   logic exe_done;
   logic exe_valid;
   logic wb_valid;
@@ -69,7 +69,6 @@ module tb_regression_m_irq_precision;
     .resetn(resetn),
     .exe_valid(exe_valid),
     .id_exe_bus_r(id_exe_bus_r),
-    .csr_rdata(32'b0),
     .exe_done(exe_done),
     .exe_mem_bus(exe_mem_bus),
     .exe_branch_taken(),
@@ -81,10 +80,6 @@ module tb_regression_m_irq_precision;
     .exe_inst(),
     .exe_misalign_valid(),
     .exe_misalign_target(),
-    .exe_csr_wen(),
-    .exe_csr_waddr(),
-    .exe_csr_wdata(),
-    .exe_csr_old_val(),
     .dbg_mu_active(dbg_mu_active),
     .dbg_mu_req_valid(),
     .dbg_mu_ready(),
@@ -96,44 +91,17 @@ module tb_regression_m_irq_precision;
 
   initial begin
     // MULHU x5, x?, x?: 0xffffffff * 0xffffffff -> high word fffffffe.
-    id_exe_bus_r = {
-      32'h8000_0104, // pc_plus4
-      1'b1,         // valid_inst
-      1'b0,         // is_alu
-      1'b0,         // is_load
-      1'b0,         // is_store
-      1'b0,         // is_jal_like
-      1'b0,         // is_branch
-      1'b0,         // use_fixed_wb
-      1'b1,         // wb_we
-      5'd5,         // wb_rd
-      32'b0,        // wb_fixed_data
-      3'b010,       // mem_size
-      1'b0,         // mem_unsigned
-      16'b0,        // alu_control
-      1'b1,         // is_mu
-      3'b011,       // MULHU
-      32'hffff_ffff,// alu_src1
-      32'hffff_ffff,// alu_src2
-      32'hffff_ffff,// rs1_value
-      32'hffff_ffff,// rs2_value
-      3'b0,         // branch_funct3
-      1'b0,         // is_csr
-      1'b0,         // is_ecall
-      1'b0,         // is_ebreak
-      1'b0,         // is_mret
-      12'b0,        // csr_addr
-      3'b0,         // csr_funct3
-      5'b0,         // csr_uimm
-      32'h8000_0100,// pc
-      32'h0200_32b3,// representative MULHU encoding
-      1'b0,         // is_amo
-      1'b0,         // is_lr
-      1'b0,         // is_sc
-      5'b0,         // amo_funct5
-      1'b0,         // amo_aq
-      1'b0          // amo_rl
-    };
+    id_exe_bus_r = '0;
+    id_exe_bus_r.pc = 32'h8000_0100;
+    id_exe_bus_r.pc_plus4 = 32'h8000_0104;
+    id_exe_bus_r.inst = 32'h0200_32b3;
+    id_exe_bus_r.wb_we = 1'b1;
+    id_exe_bus_r.wb_rd = 5'd5;
+    id_exe_bus_r.is_mu = 1'b1;
+    id_exe_bus_r.mu_funct3 = 3'b011;
+    id_exe_bus_r.alu_src1 = 32'hffff_ffff;
+    id_exe_bus_r.alu_src2 = 32'hffff_ffff;
+    id_exe_bus_r.mem_kind = MEM_NONE;
 
     repeat (4) @(posedge clk);
     resetn = 1'b1;
@@ -151,8 +119,8 @@ module tb_regression_m_irq_precision;
 
     if (!exe_mem_bus.result_ok)
       $fatal(1, "MULHU completion was suppressed by pending interrupt");
-    if (exe_mem_bus.result_reg !== 32'hffff_fffe)
-      $fatal(1, "bad MULHU result: got %08x", exe_mem_bus.result_reg);
+    if (exe_mem_bus.result !== 32'hffff_fffe)
+      $fatal(1, "bad MULHU result: got %08x", exe_mem_bus.result);
 
     @(posedge clk);
     #1;

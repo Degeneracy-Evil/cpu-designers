@@ -129,12 +129,10 @@ def _derive_ddr3_defines(mem: MemoryConfig) -> list[str]:
     
     lines.append(f"`define DDR3_ENABLED        1")
     lines.append(f"`define DDR3_IP_NAME        \"{mem.ddr3.ip_name}\"")
-    lines.append(f"`define DDR3_MEM_SIZE       {mem.ddr3.mem_size}")
     lines.append(f"`define DDR3_AXI_ADDR_WIDTH {mem.ddr3.axi_addr_width}")
     lines.append(f"`define DDR3_AXI_DATA_WIDTH {mem.ddr3.axi_data_width}")
     lines.append(f"`define DDR3_AXI_ID_WIDTH   {mem.ddr3.axi_id_width}")
     lines.append(f"`define DDR3_DATA_RATE      {mem.ddr3.data_rate}")
-    lines.append(f"`define DDR3_BASE_ADDR      32'h8000_0000")
     lines.append(f"")
     lines.append(f"`define CLK_WIZ_IP_NAME     \"{mem.clk_wiz.ip_name}\"")
     lines.append(f"`define CLK_WIZ_PRIM_IN_FREQ  {int(mem.clk_wiz.prim_in_freq)}")

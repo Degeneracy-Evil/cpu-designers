@@ -19,12 +19,10 @@
 // --- DDR3 Main Memory (via MIG) ---
 `define DDR3_ENABLED        1
 `define DDR3_IP_NAME        "mig_axi_32"
-`define DDR3_MEM_SIZE       134217728
 `define DDR3_AXI_ADDR_WIDTH 27
 `define DDR3_AXI_DATA_WIDTH 32
 `define DDR3_AXI_ID_WIDTH   8
 `define DDR3_DATA_RATE      800
-`define DDR3_BASE_ADDR      32'h8000_0000
 
 `define CLK_WIZ_IP_NAME     "clk_wiz_0"
 `define CLK_WIZ_PRIM_IN_FREQ  100

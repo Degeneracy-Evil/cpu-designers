@@ -5,8 +5,7 @@ module cpu_execute(
     input              clk,
     input              resetn,
     input              exe_valid,
-    input      [329:0] id_exe_bus_r,
-    input      [31:0]  csr_rdata,
+    input      id_exe_bus_t id_exe_bus_r,
     output             exe_done,
     output     exe_mem_bus_t exe_mem_bus,
     output             exe_branch_taken,
@@ -21,10 +20,6 @@ module cpu_execute(
     output             exe_misalign_valid,
     output     [31:0]  exe_misalign_target,
 
-    output             exe_csr_wen,
-    output     [11:0]  exe_csr_waddr,
-    output     [31:0]  exe_csr_wdata,
-    output     [31:0]  exe_csr_old_val,
     output             dbg_mu_active,
     output             dbg_mu_req_valid,
     output             dbg_mu_ready,
@@ -34,16 +29,12 @@ module cpu_execute(
     output             dbg_exe_is_mu
 );
 
-    wire valid_inst;
-    wire is_alu;
-    wire is_load;
-    wire is_store;
     wire is_jal_like;
     wire is_branch;
     wire use_fixed_wb;
     wire wb_we;
     wire [4:0] wb_rd;
-    wire [31:0] wb_fixed_data;
+    wire [31:0] fixed_wb_data;
     wire [2:0] mem_size;
     wire mem_unsigned;
     wire [15:0] alu_control;
@@ -51,66 +42,42 @@ module cpu_execute(
     wire [31:0] alu_src2;
     wire [31:0] rs1_value;
     wire [31:0] rs2_value;
+    wire [31:0] store_data;
     wire [2:0]  branch_funct3;
-    wire is_csr;
-    wire is_ecall;
-    wire is_ebreak;
-    wire is_mret;
     wire is_mu;
     wire [2:0]  mu_funct3;
-    wire [11:0] csr_addr;
-    wire [2:0]  csr_funct3;
-    wire [4:0]  csr_uimm;
     wire [31:0] pc_plus4;
     wire [31:0] pc;
     wire [31:0] inst;
-    // A extension signals
-    wire        is_amo;
-    wire        is_lr;
-    wire        is_sc;
+    mem_kind_t  mem_kind;
     wire [4:0]  amo_funct5;
     wire        amo_aq;
     wire        amo_rl;
 
-    assign {
-        pc_plus4,
-        valid_inst,
-        is_alu,
-        is_load,
-        is_store,
-        is_jal_like,
-        is_branch,
-        use_fixed_wb,
-        wb_we,
-        wb_rd,
-        wb_fixed_data,
-        mem_size,
-        mem_unsigned,
-        alu_control,
-        is_mu,
-        mu_funct3,
-        alu_src1,
-        alu_src2,
-        rs1_value,
-        rs2_value,
-        branch_funct3,
-        is_csr,
-        is_ecall,
-        is_ebreak,
-        is_mret,
-        csr_addr,
-        csr_funct3,
-        csr_uimm,
-        pc,
-        inst,
-        // A extension
-        is_amo,
-        is_lr,
-        is_sc,
-        amo_funct5,
-        amo_aq,
-        amo_rl
-    } = id_exe_bus_r;
+    assign pc             = id_exe_bus_r.pc;
+    assign pc_plus4       = id_exe_bus_r.pc_plus4;
+    assign inst           = id_exe_bus_r.inst;
+    assign alu_control    = id_exe_bus_r.alu_control;
+    assign alu_src1       = id_exe_bus_r.alu_src1;
+    assign alu_src2       = id_exe_bus_r.alu_src2;
+    assign rs1_value      = id_exe_bus_r.csr_rs1_value;
+    assign rs2_value      = id_exe_bus_r.store_data;
+    assign is_branch      = id_exe_bus_r.is_branch;
+    assign is_jal_like    = id_exe_bus_r.is_jal_like;
+    assign branch_funct3  = id_exe_bus_r.branch_funct3;
+    assign use_fixed_wb   = id_exe_bus_r.use_fixed_wb;
+    assign fixed_wb_data  = id_exe_bus_r.fixed_wb_data;
+    assign wb_we          = id_exe_bus_r.wb_we;
+    assign wb_rd          = id_exe_bus_r.wb_rd;
+    assign is_mu          = id_exe_bus_r.is_mu;
+    assign mu_funct3      = id_exe_bus_r.mu_funct3;
+    assign mem_kind       = id_exe_bus_r.mem_kind;
+    assign mem_size       = id_exe_bus_r.mem_size;
+    assign mem_unsigned   = id_exe_bus_r.mem_unsigned;
+    assign store_data     = id_exe_bus_r.store_data;
+    assign amo_funct5     = id_exe_bus_r.amo_funct5;
+    assign amo_aq         = id_exe_bus_r.amo_aq;
+    assign amo_rl         = id_exe_bus_r.amo_rl;
 
     wire is_jalr;
     assign is_jalr = (inst[6:0] == 7'b1100111) && (inst[14:12] == 3'b000);
@@ -186,8 +153,8 @@ module cpu_execute(
             if (!mu_active && exe_valid && !exe_seen_valid) begin
                 exe_seen_valid <= 1'b1;
                 if (use_fixed_wb) begin
-                    result_reg <= wb_fixed_data;
-                    result_ok <= valid_inst;
+                    result_reg <= fixed_wb_data;
+                    result_ok <= 1'b1;
                     done_reg <= 1'b1;
                     branch_target_reg <= 32'b0;
                     branch_taken_reg <= 1'b0;
@@ -196,7 +163,7 @@ module cpu_execute(
                     mu_active <= 1'b1;
                 end else begin
                     result_reg <= alu_result;
-                    result_ok <= valid_inst;
+                    result_ok <= 1'b1;
                     done_reg <= 1'b1;
                     branch_target_reg <= is_jalr ? (alu_result & 32'hffff_fffe) : alu_result;
                     branch_taken_reg <= is_branch ? branch_cond_true : is_jal_like;
@@ -210,7 +177,7 @@ module cpu_execute(
                 if (mu_result_valid) begin
                     mu_result_got <= 1'b1;
                     result_reg <= mu_result;
-                    result_ok <= valid_inst;
+                    result_ok <= 1'b1;
                     done_reg <= 1'b1;
                     mu_active <= 1'b0;
                     mu_req_valid <= 1'b0;
@@ -235,30 +202,23 @@ module cpu_execute(
     assign dbg_exe_is_mu = is_mu;
     assign exe_is_ctrl_flow = is_branch | is_jal_like;
     assign exe_is_branch = is_branch;
-    assign exe_need_mem  = is_load | is_store | is_amo;
+    assign exe_need_mem  = (mem_kind != MEM_NONE);
 
     assign exe_misalign_valid = done_reg && exe_is_ctrl_flow && branch_taken_reg && (branch_target_reg[1:0] != 2'b00);
     assign exe_misalign_target = branch_target_reg;
 
     assign exe_mem_bus = '{
+        pc:            pc,
         pc_plus4:      pc_plus4,
+        inst:          inst,
         result_ok:     result_ok,
-        is_jal_like:   is_jal_like,
-        is_load:       is_load,
-        is_store:      is_store,
-        is_csr:        is_csr,
+        result:        is_jal_like ? pc_plus4 : result_reg,
         wb_we:         wb_we,
         wb_rd:         wb_rd,
-        result_reg:    result_reg,
+        mem_kind:      mem_kind,
         mem_size:      mem_size,
         mem_unsigned:  mem_unsigned,
-        rs2_value:     rs2_value,
-        csr_rdata:     csr_rdata,
-        pc:            pc,
-        inst:          inst,
-        is_amo:        is_amo,
-        is_lr:         is_lr,
-        is_sc:         is_sc,
+        store_data:    store_data,
         amo_funct5:    amo_funct5,
         amo_aq:        amo_aq,
         amo_rl:        amo_rl

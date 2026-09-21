@@ -1,4 +1,5 @@
 `timescale 1ns / 1ps
+`include "core_bus_types.svh"
 
 module cpu_csr(
     input              clk,
@@ -11,11 +12,11 @@ module cpu_csr(
     output             csr_addr_valid,
     output             csr_access_ok,
 
-    input       [1:0]  priv_mode,
+    input       priv_mode_t priv_mode,
 
     input              hw_csr_wen,
     input              hw_trap_is_enter,
-    input       [1:0]  hw_target_priv,
+    input       priv_mode_t hw_target_priv,
     input       [31:0] hw_mepc_wdata,
     input       [31:0] hw_mcause_wdata,
     input       [31:0] hw_mtval_wdata,
@@ -78,10 +79,6 @@ module cpu_csr(
     output      [31:0] csr_pmpaddr14,
     output      [31:0] csr_pmpaddr15
 );
-    localparam PRIV_U = 2'b00;
-    localparam PRIV_S = 2'b01;
-    localparam PRIV_M = 2'b11;
-
     localparam ADDR_SSTATUS     = 12'h100;
     localparam ADDR_SIE         = 12'h104;
     localparam ADDR_STVEC       = 12'h105;

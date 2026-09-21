@@ -1,4 +1,5 @@
 `timescale 1ns / 1ps
+`include "core_bus_types.svh"
 
 // Blocking Sv32 translation engine.
 //
@@ -21,7 +22,7 @@ module MMU #(
     output             i_ready,
 
     input       [31:0] d_vaddr,
-    input       [1:0]  d_access_type,
+    input       access_class_t d_access_type,
     input              d_translate_en,
     output      [31:0] d_paddr,
     output             d_miss,
@@ -30,10 +31,10 @@ module MMU #(
     output      [31:0] d_pf_vaddr,
     output             d_ready,
 
-    input       [1:0]  priv_mode,
+    input       priv_mode_t priv_mode,
     input       [31:0] satp,
     input              mstatus_mprv,
-    input       [1:0]  mstatus_mpp,
+    input       priv_mode_t mstatus_mpp,
     input              mstatus_sum,
     input              mstatus_mxr,
 
@@ -57,14 +58,6 @@ module MMU #(
     output wire        dbg_mmu_ptw_active,
     output wire        dbg_mmu_fault_from_ptw
 );
-    localparam [1:0] PRIV_U = 2'b00;
-    localparam [1:0] PRIV_S = 2'b01;
-    localparam [1:0] PRIV_M = 2'b11;
-
-    localparam [1:0] ACCESS_FETCH = 2'b00;
-    localparam [1:0] ACCESS_LOAD  = 2'b01;
-    localparam [1:0] ACCESS_STORE = 2'b10;
-
     localparam OWNER_I = 1'b0;
     localparam OWNER_D = 1'b1;
 
@@ -80,8 +73,8 @@ module MMU #(
     reg [3:0]  state;
     reg        owner_r;
     reg [31:0] req_vaddr_r;
-    reg [1:0]  req_access_r;
-    reg [1:0]  req_priv_r;
+    access_class_t req_access_r;
+    priv_mode_t req_priv_r;
     reg [31:0] req_satp_r;
     reg        req_translate_en_r;
     reg        req_sum_r;
@@ -97,8 +90,9 @@ module MMU #(
     reg        sfence_block_r;
     reg        sfence_done_r;
 
-    wire [1:0] d_effective_priv =
-        ((priv_mode == PRIV_M) && mstatus_mprv) ? mstatus_mpp : priv_mode;
+    priv_mode_t d_effective_priv;
+    assign d_effective_priv = priv_mode_t'(
+        ((priv_mode == PRIV_M) && mstatus_mprv) ? mstatus_mpp : priv_mode);
     wire req_sv32 = req_translate_en_r && req_satp_r[31] &&
                     (req_priv_r != PRIV_M);
 
@@ -205,7 +199,7 @@ module MMU #(
                             {ptw_ppn, req_vaddr_r[11:0]};
 
     function automatic [3:0] fault_cause;
-        input [1:0] access_type;
+        input access_class_t access_type;
         input       access_fault;
         begin
             if (access_fault) begin

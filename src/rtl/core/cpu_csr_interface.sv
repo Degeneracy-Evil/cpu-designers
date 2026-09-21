@@ -5,15 +5,14 @@ module cpu_csr_interface(
     input         clk,
     input         resetn,
 
-    input  [329:0] id_exe_bus_r,
-    input  [11:0]  dec_csr_addr,
+    input  id_exe_bus_t id_exe_bus_r,
     input          csr_valid,
 
-    input  [1:0]   priv_mode,
+    input  priv_mode_t priv_mode,
 
     input         hw_csr_wen,
     input         hw_trap_is_enter,
-    input  [1:0]  hw_target_priv,
+    input  priv_mode_t hw_target_priv,
     input  [31:0] hw_mepc_wdata,
     input  [31:0] hw_mcause_wdata,
     input  [31:0] hw_mtval_wdata,
@@ -90,14 +89,14 @@ module cpu_csr_interface(
     wire [31:0] csr_pc_bus;
     wire [31:0] csr_inst_bus;
 
-    assign csr_funct3_bus   = id_exe_bus_r[81:79];
-    assign csr_uimm_bus    = id_exe_bus_r[78:74];
-    assign csr_rs1_bus     = id_exe_bus_r[29:25];
-    assign csr_rs1_val_bus = id_exe_bus_r[164:133];
-    assign csr_rd_bus      = id_exe_bus_r[289:285];
-    assign csr_pc_plus4_bus= id_exe_bus_r[329:298];
-    assign csr_pc_bus      = id_exe_bus_r[73:42];
-    assign csr_inst_bus    = id_exe_bus_r[41:10];
+    assign csr_funct3_bus    = id_exe_bus_r.csr_funct3;
+    assign csr_uimm_bus      = id_exe_bus_r.csr_uimm;
+    assign csr_rs1_bus       = id_exe_bus_r.csr_rs1;
+    assign csr_rs1_val_bus   = id_exe_bus_r.csr_rs1_value;
+    assign csr_rd_bus        = id_exe_bus_r.wb_rd;
+    assign csr_pc_plus4_bus  = id_exe_bus_r.pc_plus4;
+    assign csr_pc_bus        = id_exe_bus_r.pc;
+    assign csr_inst_bus      = id_exe_bus_r.inst;
 
     assign csr_pc_plus4 = csr_pc_plus4_bus;
 
@@ -118,23 +117,16 @@ module cpu_csr_interface(
     wire csr_sw_wen;
     wire [31:0] csr_sw_wdata;
 
-    assign csr_sw_addr  = dec_csr_addr;
+    assign csr_sw_addr  = id_exe_bus_r.csr_addr;
     assign csr_sw_wen   = csr_valid && !csr_no_write;
     assign csr_sw_wdata = csr_new_val;
 
     assign csr_wb_bus = '{
-        pc_plus4:      csr_pc_plus4_bus,
-        is_jal_like:   1'b0,
-        is_csr:        1'b1,
         wb_we:         1'b1,
         wb_rd:         csr_rd_bus,
         wb_data:       csr_read_data,
-        csr_rdata:     csr_read_data,
         pc:            csr_pc_bus,
-        inst:          csr_inst_bus,
-        is_amo:        1'b0,
-        is_lr:         1'b0,
-        is_sc:         1'b0
+        inst:          csr_inst_bus
     };
 
     wire [31:0] csr_mscratch;

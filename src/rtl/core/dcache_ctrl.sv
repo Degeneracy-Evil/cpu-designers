@@ -1,6 +1,7 @@
 `timescale 1ns / 1ps
 `include "axi4_def.svh"
 `include "cache_def.svh"
+`include "soc_addr_map.svh"
 
 // Blocking two-way PIPT data cache. Loads allocate, stores are write-through
 // and do not allocate. The PTW is a second logical owner with fixed priority.
@@ -19,7 +20,7 @@ module dcache_ctrl(
     output wire mem_req_valid, input wire mem_req_ready,
     output wire [31:0] mem_req_addr, output wire mem_req_write,
     output wire [2:0] mem_req_size, output wire [7:0] mem_req_len,
-    output wire [31:0] mem_req_wdata,
+    output wire [31:0] mem_req_wdata, output wire [3:0] mem_req_wstrb,
     input wire mem_resp_valid, input wire [255:0] mem_resp_data,
     input wire mem_resp_error
 );
@@ -28,7 +29,7 @@ module dcache_ctrl(
     localparam WAY_W=`DCACHE_WAY_WIDTH, ADDR_W=`DCACHE_ADDR_WIDTH;
     localparam WEA_W=`DCACHE_WEA_WIDTH;
     localparam [2:0] S_IDLE=0,S_LOOKUP=1,S_READ_HIT=2,S_MEM_REQ=3,S_MEM_WAIT=4;
-    localparam [32:0] DDR_LIMIT={1'b0,`DDR3_BASE_ADDR}+`DDR3_MEM_SIZE;
+    localparam [32:0] DDR_LIMIT={1'b0,`SOC_DDR_BASE}+`SOC_DDR_SIZE;
 
     reg [2:0] state;
     reg valid_array[0:NUM_SETS-1][0:1];
@@ -45,9 +46,9 @@ module dcache_ctrl(
     reg cpu_ready_r,cpu_error_r,cpu_error_is_store_r;
     reg ptw_done_r,ptw_error_r,ptw_block_r;
 
-    wire cpu_cacheable=({1'b0,cpu_req_paddr}>={1'b0,`DDR3_BASE_ADDR})&&
+    wire cpu_cacheable=({1'b0,cpu_req_paddr}>={1'b0,`SOC_DDR_BASE})&&
                        ({1'b0,cpu_req_paddr}<DDR_LIMIT);
-    wire ptw_cacheable=({1'b0,ptw_req_addr}>={1'b0,`DDR3_BASE_ADDR})&&
+    wire ptw_cacheable=({1'b0,ptw_req_addr}>={1'b0,`SOC_DDR_BASE})&&
                        ({1'b0,ptw_req_addr}<DDR_LIMIT);
     wire hit0=valid_array[op_set_r][0]&&(tag_array[op_set_r][0]==op_tag_r);
     wire hit1=valid_array[op_set_r][1]&&(tag_array[op_set_r][1]==op_tag_r);
@@ -67,13 +68,13 @@ module dcache_ctrl(
     assign mem_req_write=op_write_r;
     assign mem_req_size=line_refill_r?`AXI_SIZE_WORD:op_size_r;
     assign mem_req_len=line_refill_r?8'd7:8'd0;
-    assign mem_req_wdata=op_wdata_r;
-
     wire [3:0] store_byte_we=(op_size_r==`AXI_SIZE_BYTE)?(4'b0001<<op_addr_r[1:0]):
         (op_size_r==`AXI_SIZE_HWORD)?(op_addr_r[1]?4'b1100:4'b0011):4'b1111;
     wire [31:0] store_word_data=(op_size_r==`AXI_SIZE_BYTE)?
         ({24'b0,op_wdata_r[7:0]}<<(op_addr_r[1:0]*8)):
         (op_size_r==`AXI_SIZE_HWORD)?({16'b0,op_wdata_r[15:0]}<<(op_addr_r[1]*16)):op_wdata_r;
+    assign mem_req_wdata=op_write_r?store_word_data:op_wdata_r;
+    assign mem_req_wstrb=op_write_r?store_byte_we:4'b0000;
     wire [WEA_W-1:0] store_line_we=({{(WEA_W-4){1'b0}},store_byte_we}<<(op_word_r*4));
     wire [LINE_WIDTH-1:0] store_line_data=({{(LINE_WIDTH-32){1'b0}},store_word_data}<<(op_word_r*32));
     wire data_a_read=(state==S_LOOKUP)&&!op_write_r&&cache_hit;

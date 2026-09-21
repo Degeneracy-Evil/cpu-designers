@@ -3,10 +3,10 @@
 module tb_cpu_bus_bridge_unit;
     reg clk=0,resetn=0; always #5 clk=~clk;
     reg i_req_valid,i_req_write; wire i_req_ready,i_resp_valid,i_resp_error;
-    reg [31:0] i_req_addr,i_req_wdata; reg [2:0] i_req_size; reg [7:0] i_req_len;
+    reg [31:0] i_req_addr,i_req_wdata; reg [3:0] i_req_wstrb; reg [2:0] i_req_size; reg [7:0] i_req_len;
     wire [255:0] i_resp_data;
     reg d_req_valid,d_req_write; wire d_req_ready,d_resp_valid,d_resp_error;
-    reg [31:0] d_req_addr,d_req_wdata; reg [2:0] d_req_size; reg [7:0] d_req_len;
+    reg [31:0] d_req_addr,d_req_wdata; reg [3:0] d_req_wstrb; reg [2:0] d_req_size; reg [7:0] d_req_len;
     wire [255:0] d_resp_data;
     wire [3:0] awid,awcache,awqos,awregion,wstrb,arid,arcache,arqos,arregion;
     wire [31:0] awaddr,wdata,araddr; wire [7:0] awlen,arlen;
@@ -37,8 +37,8 @@ module tb_cpu_bus_bridge_unit;
         end
     endtask
     initial begin
-        i_req_valid=0;i_req_addr=0;i_req_write=0;i_req_size=`AXI_SIZE_WORD;i_req_len=0;i_req_wdata=0;
-        d_req_valid=0;d_req_addr=0;d_req_write=0;d_req_size=`AXI_SIZE_WORD;d_req_len=0;d_req_wdata=0;
+        i_req_valid=0;i_req_addr=0;i_req_write=0;i_req_size=`AXI_SIZE_WORD;i_req_len=0;i_req_wdata=0;i_req_wstrb=0;
+        d_req_valid=0;d_req_addr=0;d_req_write=0;d_req_size=`AXI_SIZE_WORD;d_req_len=0;d_req_wdata=0;d_req_wstrb=0;
         awready=0;wready=0;bvalid=0;bresp=`AXI_RESP_OKAY;arready=0;rvalid=0;rdata=0;rresp=0;rlast=0;
         repeat(4) @(posedge clk); resetn=1; repeat(2) @(posedge clk);
 
@@ -60,10 +60,10 @@ module tb_cpu_bus_bridge_unit;
 
         // Narrow write with independent AW/W handshakes.
         @(negedge clk); d_req_valid=1;d_req_addr=32'h10000003;d_req_write=1;
-        d_req_size=`AXI_SIZE_BYTE;d_req_wdata=32'hc7;
+        d_req_size=`AXI_SIZE_BYTE;d_req_wdata=32'hc7000000;d_req_wstrb=4'b1000;
         while(!d_req_ready) @(posedge clk); @(posedge clk); #1; d_req_valid=0;
         while(!awvalid||!wvalid) @(posedge clk); #1;
-        check(wstrb==4'b1000&&wdata==32'hc7000000,"byte write data and strobe are aligned");
+        check(wstrb==d_req_wstrb&&wdata==d_req_wdata,"aligned write data and strobe pass through");
         awready=1; @(posedge clk); #1; awready=0;
         repeat(2) @(posedge clk); wready=1; @(posedge clk); #1; wready=0;
         while(!bready) @(posedge clk); bresp=`AXI_RESP_DECERR;bvalid=1;

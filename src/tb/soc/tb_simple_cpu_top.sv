@@ -49,7 +49,7 @@ module tb_simple_cpu_top;
                 // Show IF→ID captures
                 if (u_soc.cpu.if_done) begin
                     $display("[IF→ID] cycle=%0d PC=0x%08h inst=0x%08h mem_v=%b mem_d=0x%08h", dbg_cnt,
-                             u_soc.cpu.if_id_bus[63:32], u_soc.cpu.if_id_bus[31:0],
+                             u_soc.cpu.if_id_bus.pc, u_soc.cpu.if_id_bus.inst,
                              u_soc.cpu.icache_mem_resp_valid, u_soc.cpu.icache_mem_resp_data[31:0]);
                 end
                 // Show EX completions with branches

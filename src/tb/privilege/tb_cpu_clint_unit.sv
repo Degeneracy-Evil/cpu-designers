@@ -1,10 +1,7 @@
 `timescale 1ns / 1ps
+`include "core_bus_types.svh"
 
 module tb_cpu_clint_unit;
-    localparam [1:0] PRIV_U = 2'b00;
-    localparam [1:0] PRIV_S = 2'b01;
-    localparam [1:0] PRIV_M = 2'b11;
-
     reg         clk;
     reg         resetn;
     reg         exception_valid;
@@ -15,7 +12,7 @@ module tb_cpu_clint_unit;
     reg         sret_req;
     reg         trap_enter_valid;
     reg  [31:0] interrupt_pc;
-    reg  [1:0]  priv_mode;
+    reg  priv_mode_t priv_mode;
     reg  [31:0] csr_mstatus;
     reg  [31:0] csr_mie;
     reg  [31:0] csr_mtvec;
@@ -29,10 +26,10 @@ module tb_cpu_clint_unit;
     wire        trap_enter;
     wire        trap_return;
     wire [31:0] trap_pc;
-    wire [1:0]  target_priv;
+    wire priv_mode_t target_priv;
     wire        hw_csr_wen;
     wire        hw_trap_is_enter;
-    wire [1:0]  hw_target_priv;
+    wire priv_mode_t hw_target_priv;
     wire [31:0] hw_mepc_wdata;
     wire [31:0] hw_mcause_wdata;
     wire [31:0] hw_mtval_wdata;

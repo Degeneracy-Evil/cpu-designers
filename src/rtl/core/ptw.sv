@@ -1,14 +1,15 @@
 `timescale 1ns / 1ps
+`include "core_bus_types.svh"
 
 module ptw(
     input              clk,
     input              resetn,
 
     input       [31:0] satp,
-    input       [1:0]  priv_mode,
+    input       priv_mode_t priv_mode,
     input              mstatus_sum,
     input              mstatus_mxr,
-    input       [1:0]  access_type,
+    input       access_class_t access_type,
 
     input       [31:0] walk_vaddr,
     input              walk_req,
@@ -37,13 +38,6 @@ module ptw(
     input              ptw_bus_done,
     input              ptw_bus_error
 );
-    localparam [1:0] PRIV_U = 2'b00;
-    localparam [1:0] PRIV_S = 2'b01;
-
-    localparam [1:0] ACCESS_FETCH = 2'b00;
-    localparam [1:0] ACCESS_LOAD  = 2'b01;
-    localparam [1:0] ACCESS_STORE = 2'b10;
-
     localparam [1:0] FAULT_NONE   = 2'd0;
     localparam [1:0] FAULT_PAGE   = 2'd1;
     localparam [1:0] FAULT_ACCESS = 2'd2;
@@ -67,10 +61,10 @@ module ptw(
     // remain stable until completion or an acknowledged abort.
     reg [31:0] vaddr_r;
     reg [31:0] satp_r;
-    reg [1:0]  priv_r;
+    priv_mode_t priv_r;
     reg        sum_r;
     reg        mxr_r;
-    reg [1:0]  access_r;
+    access_class_t access_r;
 
     reg [31:0] pte_r;
     reg [31:0] pte_addr_r;
@@ -167,7 +161,7 @@ module ptw(
             state <= S_IDLE;
             vaddr_r <= 32'b0;
             satp_r <= 32'b0;
-            priv_r <= 2'b0;
+            priv_r <= PRIV_U;
             sum_r <= 1'b0;
             mxr_r <= 1'b0;
             access_r <= ACCESS_FETCH;

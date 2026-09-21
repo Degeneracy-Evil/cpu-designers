@@ -416,6 +416,14 @@ tasks:
     tb: tb_cpu_controller_unit
     blhex: boot/bootloader_phase1.hex
     runtime: 20us
+  cpu_mem_contract_unit:
+    tb: tb_cpu_mem_contract_unit
+    blhex: boot/bootloader_phase1.hex
+    runtime: 20us
+  exception_contract_unit:
+    tb: tb_exception_contract_unit
+    blhex: boot/bootloader_phase1.hex
+    runtime: 20us
   cpu_bus_bridge_unit:
     tb: tb_cpu_bus_bridge_unit
     blhex: boot/bootloader_phase1.hex

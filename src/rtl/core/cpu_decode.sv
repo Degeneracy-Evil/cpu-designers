@@ -1,8 +1,9 @@
 `timescale 1ns / 1ps
+`include "core_bus_types.svh"
 
 module cpu_decode(
     input              id_valid,
-    input      [95:0]  if_id_bus_r,
+    input      if_id_bus_t if_id_bus_r,
     input      [31:0]  rs1_value,
     input      [31:0]  rs2_value,
     output     [4:0]   rs1_addr,
@@ -11,7 +12,7 @@ module cpu_decode(
     output             illegal_inst,
     output             dec_is_branch,
     output             dec_need_exe,
-    output     [329:0] id_exe_bus,
+    output     id_exe_bus_t id_exe_bus,
 
     output     [31:0]  id_pc,
     output     [31:0]  id_inst,
@@ -24,20 +25,11 @@ module cpu_decode(
     output             dec_is_nop_like,
     output             dec_is_fencei,
     output             dec_is_sfence_vma,
-    output     [11:0]  dec_csr_addr,
-    output     [2:0]   dec_csr_funct3,
-    output             dec_csr_addr_valid,
-    output             dec_csr_access_ok,
-
-    input      [1:0]   priv_mode,
+    input      priv_mode_t priv_mode,
     input      [31:0]  csr_mstatus,
     input      [31:0]  csr_mcounteren,
     input      [31:0]  csr_scounteren
   );
-  localparam PRIV_U = 2'b00;
-  localparam PRIV_S = 2'b01;
-  localparam PRIV_M = 2'b11;
-
   localparam OPCODE_LUI    = 7'b0110111;
   localparam OPCODE_AUIPC  = 7'b0010111;
   localparam OPCODE_JAL    = 7'b1101111;
@@ -54,7 +46,9 @@ module cpu_decode(
   wire [31:0] pc_plus4;
   wire [31:0] pc;
   wire [31:0] inst;
-  assign {pc_plus4, pc, inst} = if_id_bus_r;
+  assign pc_plus4 = if_id_bus_r.pc_plus4;
+  assign pc       = if_id_bus_r.pc;
+  assign inst     = if_id_bus_r.inst;
 
   wire [6:0] opcode;
   wire [2:0] funct3;
@@ -281,6 +275,16 @@ wire inst_amomaxu  = (opcode == OPCODE_AMO) && (funct3 == 3'b010) && (funct5 == 
   wire is_sc = inst_sc_w;
   wire is_amo = is_amo_all | is_lr | is_sc;  // All A extension instructions
 
+  mem_kind_t mem_kind;
+  always_comb begin
+      if (is_load)         mem_kind = MEM_LOAD;
+      else if (is_store)   mem_kind = MEM_STORE;
+      else if (is_lr)      mem_kind = MEM_LR;
+      else if (is_sc)      mem_kind = MEM_SC;
+      else if (is_amo_all) mem_kind = MEM_AMO;
+      else                 mem_kind = MEM_NONE;
+  end
+
   wire use_fixed_wb;
   assign use_fixed_wb = inst_lui;
 
@@ -323,7 +327,8 @@ wire inst_amomaxu  = (opcode == OPCODE_AMO) && (funct3 == 3'b010) && (funct5 == 
          16'b0;
 
   wire wb_we;
-   assign wb_we = valid_inst && (is_alu | is_jal_like | is_csr | is_mu | is_amo);
+   assign wb_we = valid_inst && ((is_alu && !is_store) |
+                                 is_jal_like | is_csr | is_mu | is_amo);
 
   wire [2:0] mem_size;
   assign mem_size = (inst_lb | inst_lbu | inst_sb) ? 3'b000 :
@@ -465,7 +470,7 @@ wire inst_amomaxu  = (opcode == OPCODE_AMO) && (funct3 == 3'b010) && (funct5 == 
         end
     endfunction
 
-  assign dec_csr_addr_valid = is_s_csr(csr_addr) || is_m_csr(csr_addr) || is_u_csr(csr_addr);
+  wire csr_addr_valid = is_s_csr(csr_addr) || is_m_csr(csr_addr) || is_u_csr(csr_addr);
 
   wire [1:0] counter_enable_index =
       (csr_addr == CSR_CYCLE || csr_addr == CSR_CYCLEH) ? 2'd0 :
@@ -473,25 +478,24 @@ wire inst_amomaxu  = (opcode == OPCODE_AMO) && (funct3 == 3'b010) && (funct5 == 
   wire m_counter_enabled = csr_mcounteren[counter_enable_index];
   wire s_counter_enabled = csr_scounteren[counter_enable_index];
 
-  reg dec_csr_access_ok_r;
+  reg csr_access_ok_r;
   always_comb begin
       case (priv_mode)
           // mcounteren controls S-mode access.  U-mode additionally requires
           // the corresponding scounteren bit.
-          PRIV_U: dec_csr_access_ok_r = is_u_csr(csr_addr) && m_counter_enabled && s_counter_enabled;
-          PRIV_S: dec_csr_access_ok_r = is_s_csr(csr_addr) ||
-                                         (is_u_csr(csr_addr) && m_counter_enabled);
-          PRIV_M: dec_csr_access_ok_r = 1'b1;
-          default: dec_csr_access_ok_r = 1'b0;
+          PRIV_U: csr_access_ok_r = is_u_csr(csr_addr) && m_counter_enabled && s_counter_enabled;
+          PRIV_S: csr_access_ok_r = is_s_csr(csr_addr) ||
+                                     (is_u_csr(csr_addr) && m_counter_enabled);
+          PRIV_M: csr_access_ok_r = 1'b1;
+          default: csr_access_ok_r = 1'b0;
       endcase
   end
-  assign dec_csr_access_ok = dec_csr_access_ok_r;
 
-  wire csr_addr_invalid = is_csr && !dec_csr_addr_valid;
+  wire csr_addr_invalid = is_csr && !csr_addr_valid;
   // BUG-FIX: CSR privilege violation — S-mode accessing M-mode CSRs or U-mode
   // accessing S/M-mode CSRs must raise illegal instruction. dec_csr_access_ok
   // was computed but never fed into illegal_inst, causing silent permission bypass.
-  wire csr_priv_violation = is_csr && !dec_csr_access_ok;
+  wire csr_priv_violation = is_csr && !csr_access_ok_r;
   wire csr_read_only = (csr_addr[11:10] == 2'b11);
   wire csr_is_write   = (csr_funct3 == 3'b001) ||
                         (csr_funct3 == 3'b010 && rs1 != 5'd0) ||
@@ -535,48 +539,36 @@ wire inst_amomaxu  = (opcode == OPCODE_AMO) && (funct3 == 3'b010) && (funct5 == 
   assign dec_is_nop_like = id_valid && valid_inst && (is_nop_like && !wfi_priv_violation);
   assign dec_is_fencei   = id_valid && valid_inst && is_fencei;
   assign dec_is_sfence_vma = id_valid && valid_inst && is_sfence_vma && !sfence_tvm_violation;
-  assign dec_csr_addr  = csr_addr;
-  assign dec_csr_funct3 = csr_funct3;
-
-assign id_exe_bus = {
-           pc_plus4,
-           valid_inst,
-           is_alu,
-           is_load,
-           is_store,
-           is_jal_like,
-           is_branch,
-           use_fixed_wb,
-           wb_we,
-           rd,
-           wb_fixed_data,
-           mem_size,
-           mem_unsigned,
-           alu_control,
-           is_mu,
-           mu_funct3,
-           alu_src1,
-           alu_src2,
-           rs1_value,
-           rs2_value,
-           branch_funct3,
-           is_csr,
-           is_ecall,
-           is_ebreak,
-           is_mret,
-           csr_addr,
-           csr_funct3,
-           csr_uimm,
-           pc,
-           inst,
-           // --- A extension ---
-           is_amo,         // 1 bit
-           is_lr,          // 1 bit
-           is_sc,          // 1 bit
-           funct5,         // 5 bits (amo_funct5)
-           amo_aq,         // 1 bit
-           amo_rl          // 1 bit
-         };
+  assign id_exe_bus = '{
+      pc:            pc,
+      pc_plus4:      pc_plus4,
+      inst:          inst,
+      alu_control:   alu_control,
+      alu_src1:      alu_src1,
+      alu_src2:      alu_src2,
+      is_branch:     is_branch,
+      is_jal_like:   is_jal_like,
+      branch_funct3: branch_funct3,
+      use_fixed_wb:  use_fixed_wb,
+      fixed_wb_data: wb_fixed_data,
+      wb_we:         wb_we,
+      wb_rd:         rd,
+      is_mu:         is_mu,
+      mu_funct3:     mu_funct3,
+      mem_kind:      mem_kind,
+      mem_size:      mem_size,
+      mem_unsigned:  mem_unsigned,
+      store_data:    rs2_value,
+      amo_funct5:    funct5,
+      amo_aq:        amo_aq,
+      amo_rl:        amo_rl,
+      is_csr:        is_csr,
+      csr_addr:      csr_addr,
+      csr_funct3:    csr_funct3,
+      csr_uimm:      csr_uimm,
+      csr_rs1:       rs1,
+      csr_rs1_value: rs1_value
+  };
 
   assign id_pc = pc;
   assign id_inst = inst;

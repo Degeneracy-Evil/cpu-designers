@@ -1,6 +1,7 @@
 `timescale 1ns / 1ps
 `include "axi4_def.svh"
 `include "cache_def.svh"
+`include "soc_addr_map.svh"
 
 // Blocking two-way PIPT instruction cache. Redirects discard an accepted
 // request's result, but every external request is drained normally.
@@ -24,7 +25,7 @@ module icache_ctrl(
     localparam WAY_W=`ICACHE_WAY_WIDTH, ADDR_W=`ICACHE_ADDR_WIDTH;
     localparam WEA_W=`ICACHE_WEA_WIDTH;
     localparam [2:0] S_IDLE=0, S_LOOKUP=1, S_READ_HIT=2, S_MEM_REQ=3, S_MEM_WAIT=4;
-    localparam [32:0] DDR_LIMIT={1'b0,`DDR3_BASE_ADDR}+`DDR3_MEM_SIZE;
+    localparam [32:0] DDR_LIMIT={1'b0,`SOC_DDR_BASE}+`SOC_DDR_SIZE;
 
     reg [2:0] state;
     reg valid_array[0:NUM_SETS-1][0:1];
@@ -39,7 +40,7 @@ module icache_ctrl(
     reg [31:0] response_data_r, cpu_error_addr_r;
     reg cpu_ready_r, cpu_error_r, invalidate_done_r, invalidate_block_r;
 
-    wire request_cacheable=({1'b0,cpu_req_paddr}>={1'b0,`DDR3_BASE_ADDR})&&
+    wire request_cacheable=({1'b0,cpu_req_paddr}>={1'b0,`SOC_DDR_BASE})&&
                            ({1'b0,cpu_req_paddr}<DDR_LIMIT);
     wire hit0=valid_array[op_set_r][0]&&(tag_array[op_set_r][0]==op_tag_r);
     wire hit1=valid_array[op_set_r][1]&&(tag_array[op_set_r][1]==op_tag_r);

@@ -1,6 +1,7 @@
 `timescale 1ns / 1ps
 `include "soc_config.vh"
 `include "axi4_def.svh"
+`include "soc_addr_map.svh"
 
 module system_top(
     input         clk,
@@ -492,22 +493,24 @@ module system_top(
 
     // AW channel address decode (combinational)
     wire [2:0] aw_slave_sel_comb;
-    assign aw_slave_sel_comb = (cdc_awaddr[31:27] == 5'h10) ? 3'd0 :
-                               (cdc_awaddr[31:24] == 8'hFC) ? 3'd1 :
-                               (cdc_awaddr[31:24] == 8'h0C) ? 3'd2 :
-                               (cdc_awaddr[31:24] == 8'h02) ? 3'd3 :
-                               (cdc_awaddr[31:24] == 8'h10) ? 3'd4 :
-                               (cdc_awaddr[31:24] == 8'h04) ? 3'd5 :
+    assign aw_slave_sel_comb = (cdc_awaddr >= `SOC_DDR_BASE &&
+                                cdc_awaddr < (`SOC_DDR_BASE + `SOC_DDR_SIZE)) ? 3'd0 :
+                               ((cdc_awaddr & `SOC_BOOTROM_LEGACY_MASK) == `SOC_BOOTROM_LEGACY_VALUE) ? 3'd1 :
+                               ((cdc_awaddr & 32'hFF00_0000) == `SOC_PLIC_BASE) ? 3'd2 :
+                               ((cdc_awaddr & 32'hFF00_0000) == `SOC_CLINT_BASE) ? 3'd3 :
+                               ((cdc_awaddr & 32'hFF00_0000) == `SOC_APB_BASE) ? 3'd4 :
+                               ((cdc_awaddr & 32'hFF00_0000) == `SOC_SYSSTATUS_BASE) ? 3'd5 :
                                3'd6;
 
     // AR channel address decode (combinational)
     wire [2:0] ar_slave_sel_comb;
-    assign ar_slave_sel_comb = (cdc_araddr[31:27] == 5'h10) ? 3'd0 :
-                               (cdc_araddr[31:24] == 8'hFC) ? 3'd1 :
-                               (cdc_araddr[31:24] == 8'h0C) ? 3'd2 :
-                               (cdc_araddr[31:24] == 8'h02) ? 3'd3 :
-                               (cdc_araddr[31:24] == 8'h10) ? 3'd4 :
-                               (cdc_araddr[31:24] == 8'h04) ? 3'd5 :
+    assign ar_slave_sel_comb = (cdc_araddr >= `SOC_DDR_BASE &&
+                                cdc_araddr < (`SOC_DDR_BASE + `SOC_DDR_SIZE)) ? 3'd0 :
+                               ((cdc_araddr & `SOC_BOOTROM_LEGACY_MASK) == `SOC_BOOTROM_LEGACY_VALUE) ? 3'd1 :
+                               ((cdc_araddr & 32'hFF00_0000) == `SOC_PLIC_BASE) ? 3'd2 :
+                               ((cdc_araddr & 32'hFF00_0000) == `SOC_CLINT_BASE) ? 3'd3 :
+                               ((cdc_araddr & 32'hFF00_0000) == `SOC_APB_BASE) ? 3'd4 :
+                               ((cdc_araddr & 32'hFF00_0000) == `SOC_SYSSTATUS_BASE) ? 3'd5 :
                                3'd6;
 
     // Handshake-owned routing state.

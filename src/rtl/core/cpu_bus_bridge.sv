@@ -8,10 +8,12 @@ module cpu_bus_bridge(
     input wire i_req_valid,output wire i_req_ready,input wire [31:0] i_req_addr,
     input wire i_req_write,input wire [2:0] i_req_size,input wire [7:0] i_req_len,
     input wire [31:0] i_req_wdata,
+    input wire [3:0] i_req_wstrb,
     output wire i_resp_valid,output wire [255:0] i_resp_data,output wire i_resp_error,
     input wire d_req_valid,output wire d_req_ready,input wire [31:0] d_req_addr,
     input wire d_req_write,input wire [2:0] d_req_size,input wire [7:0] d_req_len,
     input wire [31:0] d_req_wdata,
+    input wire [3:0] d_req_wstrb,
     output wire d_resp_valid,output wire [255:0] d_resp_data,output wire d_resp_error,
     output logic [3:0] awid,output logic [31:0] awaddr,output logic [7:0] awlen,
     output logic [2:0] awsize,output logic [1:0] awburst,output logic awlock,
@@ -31,6 +33,7 @@ module cpu_bus_bridge(
     reg [2:0] state;
     reg owner_d_r;
     reg [31:0] addr_r,wdata_r;
+    reg [3:0] wstrb_r;
     reg [2:0] size_r,beat_r;
     reg [7:0] len_r;
     reg [255:0] read_data_r,resp_data_r;
@@ -50,18 +53,13 @@ module cpu_bus_bridge(
     wire b_error=(bresp==`AXI_RESP_SLVERR)||(bresp==`AXI_RESP_DECERR);
     wire [255:0] read_with_current=(read_data_r&~({224'b0,32'hffff_ffff}<<(beat_r*32)))|
                                    ({224'b0,rdata}<<(beat_r*32));
-    wire [3:0] single_wstrb=(size_r==`AXI_SIZE_1B)?(4'b0001<<addr_r[1:0]):
-                            (size_r==`AXI_SIZE_2B)?(4'b0011<<addr_r[1:0]):4'b1111;
-    wire [31:0] single_wdata=(size_r==`AXI_SIZE_1B)?
-        ({24'b0,wdata_r[7:0]}<<(addr_r[1:0]*8)):
-        (size_r==`AXI_SIZE_2B)?({16'b0,wdata_r[15:0]}<<(addr_r[1]*16)):wdata_r;
 
     always_comb begin
         awid=0; awaddr=addr_r; awlen=len_r; awsize=size_r; awburst=`AXI_BURST_INCR;
         awlock=`AXI_LOCK_NORMAL; awcache=(len_r!=0)?`AXI_CACHE_NORM_BUF:`AXI_CACHE_DEV_NONBUF;
         awprot=`AXI_PROT_DATA_PRIV_SECURE; awqos=0; awregion=0;
         awvalid=(state==S_WRITE_SEND)&&!aw_done_r;
-        wdata=single_wdata; wstrb=single_wstrb; wlast=1'b1;
+        wdata=wdata_r; wstrb=wstrb_r; wlast=1'b1;
         wvalid=(state==S_WRITE_SEND)&&!w_done_r; bready=(state==S_WRITE_RESP);
         arid=0; araddr=addr_r; arlen=len_r; arsize=size_r; arburst=`AXI_BURST_INCR;
         arlock=`AXI_LOCK_NORMAL; arcache=(len_r!=0)?`AXI_CACHE_NORM_BUF:`AXI_CACHE_DEV_NONBUF;
@@ -71,7 +69,7 @@ module cpu_bus_bridge(
 
     always_ff @(posedge clk or negedge resetn) begin
         if(!resetn) begin
-            state<=S_IDLE; owner_d_r<=0; addr_r<=0; wdata_r<=0; size_r<=`AXI_SIZE_4B;
+            state<=S_IDLE; owner_d_r<=0; addr_r<=0; wdata_r<=0; wstrb_r<=0; size_r<=`AXI_SIZE_4B;
             len_r<=0; beat_r<=0; read_data_r<=0; resp_data_r<=0; read_error_r<=0;
             aw_done_r<=0; w_done_r<=0; i_resp_valid_r<=0; i_resp_error_r<=0;
             d_resp_valid_r<=0; d_resp_error_r<=0;
@@ -81,11 +79,11 @@ module cpu_bus_bridge(
                 S_IDLE: begin
                     beat_r<=0; read_data_r<=0; read_error_r<=0; aw_done_r<=0; w_done_r<=0;
                     if(take_d) begin
-                        owner_d_r<=1; addr_r<=d_req_addr; wdata_r<=d_req_wdata;
+                        owner_d_r<=1; addr_r<=d_req_addr; wdata_r<=d_req_wdata; wstrb_r<=d_req_wstrb;
                         size_r<=d_req_size; len_r<=d_req_len;
                         state<=d_req_write?S_WRITE_SEND:S_READ_ADDR;
                     end else if(take_i) begin
-                        owner_d_r<=0; addr_r<=i_req_addr; wdata_r<=i_req_wdata;
+                        owner_d_r<=0; addr_r<=i_req_addr; wdata_r<=i_req_wdata; wstrb_r<=i_req_wstrb;
                         size_r<=i_req_size; len_r<=i_req_len;
                         state<=i_req_write?S_WRITE_SEND:S_READ_ADDR;
                     end

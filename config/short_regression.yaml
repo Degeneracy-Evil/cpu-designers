@@ -14,6 +14,8 @@ tasks:
   - task: cache_mmu_interact
   - task: mmio_plic
   - task: cpu_controller_unit
+  - task: cpu_mem_contract_unit
+  - task: exception_contract_unit
   - task: cpu_bus_bridge_unit
   - task: dcache_writethrough_unit
   - task: icache_blocking_unit

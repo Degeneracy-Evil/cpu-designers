@@ -7,18 +7,14 @@ module tb_dcache_writethrough_unit;
     reg ptw_req_valid,ptw_req_write;reg [31:0] ptw_req_addr,ptw_req_wdata;
     wire [31:0] ptw_req_rdata;wire ptw_req_done,ptw_req_error;
     wire mem_req_valid,mem_req_write;reg mem_req_ready;wire [31:0] mem_req_addr,mem_req_wdata;
-    wire [2:0] mem_req_size;wire [7:0] mem_req_len;
+    wire [2:0] mem_req_size;wire [7:0] mem_req_len;wire [3:0] mem_req_wstrb;
     reg mem_resp_valid,mem_resp_error;reg [255:0] mem_resp_data;
     dcache_ctrl dut(.*);
     reg [31:0] memory[0:1023];integer pass_count=0,fail_count=0,line_count=0,single_count=0;
-    integer i,delay;reg busy,fail_next;reg [31:0] addr_r,wdata_r;reg write_r;reg [2:0] size_r;reg [7:0] len_r;
-    task write_memory(input [31:0] addr,input [31:0] data,input [2:0] size);reg [31:0] old;begin
+    integer i,delay;reg busy,fail_next;reg [31:0] addr_r,wdata_r;reg [3:0] wstrb_r;reg write_r;reg [2:0] size_r;reg [7:0] len_r;
+    task write_memory(input [31:0] addr,input [31:0] data,input [3:0] strb);reg [31:0] old;integer b;begin
         old=memory[addr[11:2]];
-        case(size)
-          `AXI_SIZE_BYTE: old[addr[1:0]*8+:8]=data[7:0];
-          `AXI_SIZE_HWORD: old[addr[1]*16+:16]=data[15:0];
-          default: old=data;
-        endcase
+        for(b=0;b<4;b=b+1)if(strb[b])old[b*8+:8]=data[b*8+:8];
         memory[addr[11:2]]=old;
     end endtask
     always @(posedge clk or negedge resetn)begin
@@ -26,13 +22,13 @@ module tb_dcache_writethrough_unit;
         else begin
             mem_resp_valid<=0;mem_resp_error<=0;
             if(mem_req_valid&&mem_req_ready&&!busy)begin
-                busy<=1;addr_r<=mem_req_addr;wdata_r<=mem_req_wdata;write_r<=mem_req_write;
+                busy<=1;addr_r<=mem_req_addr;wdata_r<=mem_req_wdata;wstrb_r<=mem_req_wstrb;write_r<=mem_req_write;
                 size_r<=mem_req_size;len_r<=mem_req_len;delay<=3;
                 if(mem_req_len==7)line_count<=line_count+1;else single_count<=single_count+1;
             end else if(busy)begin
                 if(delay!=0)delay<=delay-1;
                 else begin
-                    if(write_r&&!fail_next)write_memory(addr_r,wdata_r,size_r);
+                    if(write_r&&!fail_next)write_memory(addr_r,wdata_r,wstrb_r);
                     for(i=0;i<8;i=i+1)mem_resp_data[i*32+:32]<=memory[(addr_r[11:2]+i)&10'h3ff];
                     mem_resp_valid<=1;mem_resp_error<=fail_next;busy<=0;
                 end

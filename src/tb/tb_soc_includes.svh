@@ -622,7 +622,7 @@ endtask
                 $fwrite(dbg_trace_fd, "\tN ");
             // WB register writeback
             if (u_soc.cpu.rf_wen && u_soc.cpu.rf_waddr != 5'd0)
-                $fwrite(dbg_trace_fd, "\tx%0d\t%08h", u_soc.cpu.rf_waddr, u_soc.cpu.actual_rf_wdata);
+                $fwrite(dbg_trace_fd, "\tx%0d\t%08h", u_soc.cpu.rf_waddr, u_soc.cpu.rf_wdata);
             else
                 $fwrite(dbg_trace_fd, "\t---\t--------");
             $fwrite(dbg_trace_fd, "\n");
@@ -746,7 +746,7 @@ endtask
                     u_soc.cpu.priv_mode, if_pc, if_inst);
             // Register writeback (Spike: rd val)
             if (u_soc.cpu.rf_wen && u_soc.cpu.rf_waddr != 5'd0) begin
-                $fwrite(dbg_spike_fd, " x%0d 0x%08h", u_soc.cpu.rf_waddr, u_soc.cpu.actual_rf_wdata);
+                $fwrite(dbg_spike_fd, " x%0d 0x%08h", u_soc.cpu.rf_waddr, u_soc.cpu.rf_wdata);
             end
             $fwrite(dbg_spike_fd, "\n");
             if (dbg_spike_cycle % 10000 == 0) $fflush(dbg_spike_fd);

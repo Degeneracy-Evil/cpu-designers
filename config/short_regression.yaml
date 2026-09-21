@@ -10,8 +10,10 @@ tasks:
   - task: privilege_delegation
   - task: mmu_permission
   - task: mmu_tlb_replace
+  - task: mmu_sfence_handshake_unit
   - task: cache_mmu_interact
   - task: mmio_plic
+  - task: cpu_controller_unit
   - task: cpu_bus_bridge_unit
   - task: dcache_writethrough_unit
   - task: icache_blocking_unit

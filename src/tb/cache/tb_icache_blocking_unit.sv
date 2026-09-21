@@ -8,6 +8,7 @@ module tb_icache_blocking_unit;
     reg mem_resp_valid,mem_resp_error; reg [255:0] mem_resp_data; wire [2:0] dbg_state;
     icache_ctrl dut(.*);
     integer pass_count=0,fail_count=0,line_count=0,single_count=0,i,delay;
+    integer invalidate_done_count=0;
     reg busy,fail_next; reg [31:0] addr_r; reg [7:0] len_r;
     function [31:0] value(input [31:0] base,input integer beat);
         value=(base+(beat*4))^32'h13579bdf;
@@ -27,6 +28,10 @@ module tb_icache_blocking_unit;
                 end
             end
         end
+    end
+    always @(posedge clk or negedge resetn) begin
+        if(!resetn) invalidate_done_count<=0;
+        else if(invalidate_done) invalidate_done_count<=invalidate_done_count+1;
     end
     task check(input condition,input [8*72-1:0] name);begin
         if(condition)begin pass_count=pass_count+1;$display("  PASS %0s",name);end
@@ -53,8 +58,16 @@ module tb_icache_blocking_unit;
         count_before=single_count;fetch(32'h88000000,got);
         check(single_count==count_before+1&&got==value(32'h88000000,0),"address at DDR limit is uncached single read");
 
-        @(negedge clk);invalidate_req=1;@(posedge clk);#1;
-        check(invalidate_done&& !dut.valid_array[0][0]&&!dut.valid_array[0][1],"invalidate clears all valid bits in one cycle");
+        @(negedge clk);invalidate_req=1;
+        while(!invalidate_done)begin @(posedge clk);#1;end
+        check(!dut.valid_array[0][0]&&!dut.valid_array[0][1],"invalidate clears all valid bits in one cycle");
+        repeat(4)@(posedge clk);#1;
+        check(invalidate_done_count==1,"held invalidate request completes only once");
+        @(negedge clk);invalidate_req=0;repeat(2)@(posedge clk);
+        @(negedge clk);invalidate_req=1;
+        while(!invalidate_done)begin @(posedge clk);#1;end
+        @(posedge clk);#1;
+        check(invalidate_done_count==2,"request drop rearms the next invalidate");
         @(negedge clk);invalidate_req=0;
 
         // Accepted refill is drained after a redirect and cannot answer the new address.

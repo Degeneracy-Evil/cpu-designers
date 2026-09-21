@@ -8,12 +8,8 @@ module cpu_controller(
     input        exe_done,
     input        mem_done,
     input        wb_done,
-    input        dec_is_branch,
     input        dec_need_exe,
-    input        dec_illegal,
     input        dec_is_csr,
-    input        dec_is_ecall,
-    input        dec_is_ebreak,
     input        dec_is_mret,
     input        dec_is_sret,
     input        dec_is_nop_like,
@@ -23,13 +19,8 @@ module cpu_controller(
     input        exe_need_mem,
     input        trap_pending,
     input        exception_at_decode,
-    input        inst_access_fault_pending,
-    input        data_access_fault_pending,
-    input        inst_page_fault_pending,
-    input        data_page_fault_pending,
-    input        mmu_inst_miss,
-    input        mmu_data_miss,
-    input        mem_data_access,
+    input        fetch_fault_pending,
+    input        data_fault_pending,
     input        init_sig,
     output       if_valid,
     output       id_valid,
@@ -80,10 +71,8 @@ module cpu_controller(
                     next_state = STATE_FETCH;
                 end
                 STATE_FETCH: begin
-                    if (inst_access_fault_pending || inst_page_fault_pending) begin
+                    if (fetch_fault_pending) begin
                         next_state = STATE_TRAP_ENTER;
-                    end else if (mmu_inst_miss) begin
-                        next_state = STATE_FETCH;
                     end else begin
                         next_state = if_done ? STATE_DECODE : STATE_FETCH;
                     end
@@ -121,10 +110,8 @@ module cpu_controller(
                     end
                 end
                 STATE_MEM: begin
-                    if (data_access_fault_pending || data_page_fault_pending) begin
+                    if (data_fault_pending) begin
                         next_state = STATE_TRAP_ENTER;
-                    end else if (mmu_data_miss && mem_data_access) begin
-                        next_state = STATE_MEM;
                     end else begin
                         next_state = mem_done ? STATE_WB : STATE_MEM;
                     end
@@ -147,7 +134,7 @@ module cpu_controller(
                 end
                 STATE_FENCEI: begin
                     if (fencei_done) begin
-                        next_state = (data_access_fault_pending || data_page_fault_pending || trap_pending) ?
+                        next_state = (data_fault_pending || trap_pending) ?
                                      STATE_TRAP_ENTER : STATE_FETCH;
                     end else begin
                         next_state = STATE_FENCEI;
@@ -155,7 +142,7 @@ module cpu_controller(
                 end
                 STATE_SFENCE_VMA: begin
                     if (sfence_vma_done) begin
-                        next_state = (data_access_fault_pending || data_page_fault_pending || trap_pending) ?
+                        next_state = (data_fault_pending || trap_pending) ?
                                      STATE_TRAP_ENTER : STATE_FETCH;
                     end else begin
                         next_state = STATE_SFENCE_VMA;

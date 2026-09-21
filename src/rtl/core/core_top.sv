@@ -58,31 +58,17 @@ module core_top(
     output [31:0] gpr_s3,            // x19 (s3) value
     output        dbg_if_done,
     output        dbg_inst_valid,
-    output        dbg_mmu_i_ready,
-    output        dbg_mmu_i_miss,
-    output        dbg_i_page_fault,
     output [2:0]  dbg_icache_state,
     output        dbg_icache_refill_req,
     output        dbg_icache_refill_valid,
-    output        dbg_ptw_walk_active,
-    output        dbg_pending_i_walk,
-    output [2:0]  dbg_mmu_i_state,
-    output        dbg_mmu_i_input_changed,
-    output [31:0] dbg_mmu_i_latched_vaddr,
-    output        dbg_mmu_i_sv32,
-    output        dbg_mmu_i_tlb_hit,
-    output        dbg_mmu_i_tlb_valid,
-    output        dbg_mmu_i_tlb_perm_fault,
-    output [1:0]  dbg_mmu_walk_state,
-    output [2:0]  dbg_mmu_d_state,
-    output        dbg_mmu_d_tlb_hit,
-    output        dbg_mmu_d_tlb_valid,
-    output        dbg_mmu_d_tlb_perm_fault,
-    output        dbg_mmu_d_input_changed,
-    output [31:0] dbg_mmu_d_latched_vaddr,
-    output        dbg_mmu_d_latched_sv32,
-    output        dbg_mmu_d_pf_from_ptw,
-    output        dbg_mmu_d_tlb_miss,
+    output [3:0]  dbg_mmu_state,
+    output        dbg_mmu_owner,
+    output [31:0] dbg_mmu_req_vaddr,
+    output        dbg_mmu_sv32,
+    output        dbg_mmu_tlb_hit,
+    output        dbg_mmu_tlb_perm_fault,
+    output        dbg_mmu_ptw_active,
+    output        dbg_mmu_fault_from_ptw,
     output        dbg_mu_active,
     output        dbg_mu_req_valid,
     output        dbg_mu_ready,
@@ -163,14 +149,10 @@ module core_top(
     wire wb_valid;
     wire csr_valid;
     wire exe_to_wb;
-    wire [3:0] fsm_state;
-
     wire        fencei_req;
-    wire        fencei_done;
+    wire        icache_invalidate_done;
     wire        sfence_vma_req;
-    wire        sfence_vma_done;
 
-    wire dec_is_branch;
     wire dec_need_exe;
     wire dec_illegal;
     wire dec_is_csr;
@@ -211,9 +193,6 @@ module core_top(
     wire [31:0] mmu_inst_paddr;
     wire [31:0] mmu_data_paddr;
 
-    wire        mmu_inst_miss;
-    wire        mmu_data_miss;
-    wire        mem_data_access;   // Combinational: is_load||is_store||is_amo (consumed by cpu_controller)
     wire        mmu_inst_page_fault;
     wire        mmu_data_page_fault;
     wire [3:0]  mmu_inst_pf_cause;
@@ -223,27 +202,6 @@ module core_top(
 
     wire        mmu_inst_ready;
     wire        mmu_data_ready;
-    wire        mmu_dbg_i_walk_active;
-    wire        mmu_dbg_pending_i_walk;
-    wire [2:0]  mmu_dbg_i_state;
-    wire        mmu_dbg_i_input_changed;
-    wire [31:0] mmu_dbg_i_latched_vaddr;
-    wire        mmu_dbg_i_sv32;
-    wire        mmu_dbg_i_tlb_hit;
-    wire        mmu_dbg_i_tlb_valid;
-    wire        mmu_dbg_i_tlb_perm_fault;
-    wire [1:0]  mmu_dbg_walk_state;
-    wire [2:0]  mmu_dbg_d_state;
-    wire        mmu_dbg_d_tlb_hit;
-    wire        mmu_dbg_d_tlb_valid;
-    wire        mmu_dbg_d_tlb_perm_fault;
-    wire        mmu_dbg_d_input_changed;
-    wire [31:0] mmu_dbg_d_latched_vaddr;
-    wire        mmu_dbg_d_latched_sv32;
-    wire        mmu_dbg_pending_d_walk;
-    wire        mmu_dbg_d_pf_from_ptw;
-    wire        mmu_dbg_d_tlb_miss;
-
     // Single PTW bus (unified MMU)
     wire        ptw_bus_req;
     wire [31:0] ptw_bus_addr;
@@ -307,6 +265,10 @@ module core_top(
     wire data_access_fault_pending;
     wire inst_page_fault_pending;
     wire data_page_fault_pending;
+    wire fetch_fault_pending = inst_access_fault_pending ||
+                               inst_page_fault_pending;
+    wire data_fault_pending = data_access_fault_pending ||
+                              data_page_fault_pending;
 
     wire cycle_en;
     assign cycle_en = ~init_sig;
@@ -316,8 +278,8 @@ module core_top(
     assign inst_retire = wb_done ||
                          (exe_valid && exe_done && exe_is_branch) ||
                          (id_valid && id_done && dec_is_nop_like) ||
-                         (fencei_req && fencei_done) ||
-                         (sfence_vma_req && sfence_vma_done) ||
+                         (fencei_req && icache_invalidate_done) ||
+                         (sfence_vma_req && mmu_sfence_done) ||
                          trap_return_valid;
 
     wire [31:0] csr_mstatus;
@@ -449,30 +411,21 @@ module core_top(
         .exe_done(exe_done),
         .mem_done(mem_done),
         .wb_done(wb_done),
-        .dec_is_branch(dec_is_branch),
         .dec_need_exe(dec_need_exe),
-        .dec_illegal(dec_illegal),
         .dec_is_csr(dec_is_csr),
-        .dec_is_ecall(dec_is_ecall),
-        .dec_is_ebreak(dec_is_ebreak),
         .dec_is_mret(dec_is_mret),
         .dec_is_sret(dec_is_sret),
         .dec_is_nop_like(dec_is_nop_like),
         .dec_is_fencei(dec_is_fencei),
         .dec_is_sfence_vma(dec_is_sfence_vma),
-        .fencei_done(fencei_done),
-        .sfence_vma_done(sfence_vma_done),
+        .fencei_done(icache_invalidate_done),
+        .sfence_vma_done(mmu_sfence_done),
         .exe_is_branch(exe_is_branch),
         .exe_need_mem(exe_need_mem),
         .trap_pending(trap_pending),
         .exception_at_decode(exception_at_decode),
-        .inst_access_fault_pending(inst_access_fault_pending),
-        .data_access_fault_pending(data_access_fault_pending),
-        .inst_page_fault_pending(inst_page_fault_pending),
-        .data_page_fault_pending(data_page_fault_pending),
-        .mmu_inst_miss(mmu_inst_miss),
-        .mmu_data_miss(mmu_data_miss),
-        .mem_data_access(mem_data_access),  // Combinational: instruction is load/store (not mem_en which is registered bus-active)
+        .fetch_fault_pending(fetch_fault_pending),
+        .data_fault_pending(data_fault_pending),
         .init_sig(init_sig),
         .if_valid(if_valid),
         .id_valid(id_valid),
@@ -485,7 +438,7 @@ module core_top(
         .exe_to_wb(exe_to_wb),
         .fencei_req(fencei_req),
         .sfence_vma_req(sfence_vma_req),
-        .state(fsm_state)
+        .state()
     );
 
     wire [31:0] fetch_vaddr;
@@ -506,66 +459,13 @@ module core_top(
     wire [31:0] icache_cpu_error_addr;
     wire [2:0]  icache_dbg_state;
 
-    wire        icache_invalidate_req;
-    wire        icache_invalidate_done;
     wire        icache_flush_req;
 
-    // ── fence.i sequencing ──
-    // Write-through stores have completed in memory before fence.i reaches
-    // decode, so fence.i only has to invalidate the ICache.
-    reg fencei_icache_inv_sent_r;
-
-    always_ff @(posedge clk or negedge resetn) begin
-        if (!resetn) begin
-            fencei_icache_inv_sent_r    <= 1'b0;
-        end else begin
-            if (!fencei_req) begin
-                fencei_icache_inv_sent_r    <= 1'b0;
-            end else begin
-                if (icache_invalidate_done && !fencei_icache_inv_sent_r)
-                    fencei_icache_inv_sent_r <= 1'b1;
-            end
-        end
-    end
-
-    // ── sfence.vma sequencing ──
-    // All prior stores are globally visible when they retire, so sfence.vma
-    // only needs the MMU/TLB flush.
-    reg sfence_tlb_flush_sent_r;
-
-    always_ff @(posedge clk or negedge resetn) begin
-        if (!resetn) begin
-            sfence_tlb_flush_sent_r     <= 1'b0;
-        end else begin
-            if (!sfence_vma_req) begin
-                sfence_tlb_flush_sent_r     <= 1'b0;
-            end else begin
-                if (mmu_sfence_done && !sfence_tlb_flush_sent_r)
-                    sfence_tlb_flush_sent_r <= 1'b1;
-            end
-        end
-    end
-
-    assign icache_invalidate_req = fencei_req && !fencei_icache_inv_sent_r;
+    // FENCE.I and SFENCE.VMA use held request / completion interfaces.
+    // The target modules suppress duplicate acceptance until request drops.
     assign icache_flush_req      = trap_enter_valid ||
                                    trap_return_valid ||
                                    (exe_valid && exe_done && exe_is_ctrl_flow && exe_branch_taken);
-
-    assign fencei_done     = fencei_icache_inv_sent_r;
-    assign sfence_vma_done = sfence_tlb_flush_sent_r;
-
-    // ── sfence.vma pulse to MMU ──
-    // Send one pulse to the MMU for each held sfence request.
-    reg sfence_tlb_pulse_sent_r;
-    always_ff @(posedge clk or negedge resetn) begin
-        if (!resetn)
-            sfence_tlb_pulse_sent_r <= 1'b0;
-        else if (!sfence_vma_req)
-            sfence_tlb_pulse_sent_r <= 1'b0;
-        else if (sfence_vma_req && !sfence_tlb_pulse_sent_r)
-            sfence_tlb_pulse_sent_r <= 1'b1;
-    end
-    wire sfence_vma_to_mmu_pulse = sfence_vma_req && !sfence_tlb_pulse_sent_r;
 
 
 
@@ -592,7 +492,7 @@ module core_top(
         .mem_resp_data(icache_mem_resp_data),
         .mem_resp_error(icache_mem_resp_error),
 
-        .invalidate_req(icache_invalidate_req),
+        .invalidate_req(fencei_req),
         .invalidate_done(icache_invalidate_done),
         .dbg_state(icache_dbg_state)
     );
@@ -621,7 +521,7 @@ module core_top(
         .rs2_addr(rs2_addr),
         .id_done(id_done),
         .illegal_inst(dec_illegal),
-        .dec_is_branch(dec_is_branch),
+        .dec_is_branch(),
         .dec_need_exe(dec_need_exe),
         .id_exe_bus(id_exe_bus),
         .id_pc(id_pc_wire),
@@ -758,7 +658,7 @@ module core_top(
         .mem_misalign_load(mem_misalign_load),
         .mem_misalign_store(mem_misalign_store),
         .mem_misalign_addr(mem_misalign_addr),
-        .mem_data_access(mem_data_access)
+        .mem_data_access()
     );
 
     cpu_wb u_wb(
@@ -926,7 +826,7 @@ module core_top(
         .i_vaddr(fetch_vaddr),
         .i_translate_en(if_valid),          // request only while fetch is active
         .i_paddr(mmu_inst_paddr),
-        .i_miss(mmu_inst_miss),
+        .i_miss(),
         .i_page_fault(mmu_inst_page_fault),
         .i_pf_cause(mmu_inst_pf_cause),
         .i_pf_vaddr(mmu_inst_pf_vaddr),
@@ -936,7 +836,7 @@ module core_top(
         .d_access_type(mem_hwrite ? 2'b10 : 2'b01),
         .d_translate_en(mem_en),           // data MMU only translates when address is valid
         .d_paddr(mmu_data_paddr),
-        .d_miss(mmu_data_miss),
+        .d_miss(),
         .d_page_fault(mmu_data_page_fault),
         .d_pf_cause(mmu_data_pf_cause),
         .d_pf_vaddr(mmu_data_pf_vaddr),
@@ -957,29 +857,17 @@ module core_top(
         .ptw_bus_done(ptw_bus_done),
         .ptw_bus_error(ptw_bus_error),
         // flush
-        .sfence_vma(sfence_vma_to_mmu_pulse),
+        .sfence_req(sfence_vma_req),
         // sfence completion
         .sfence_done(mmu_sfence_done),
-        .dbg_i_walk_active(mmu_dbg_i_walk_active),
-        .dbg_pending_i_walk(mmu_dbg_pending_i_walk),
-        .dbg_nb_i_state(mmu_dbg_i_state),
-        .dbg_nb_i_input_changed(mmu_dbg_i_input_changed),
-        .dbg_nb_i_latched_vaddr(mmu_dbg_i_latched_vaddr),
-        .dbg_nb_i_latched_sv32(mmu_dbg_i_sv32),
-        .dbg_i_tlb_hit(mmu_dbg_i_tlb_hit),
-        .dbg_i_tlb_valid(mmu_dbg_i_tlb_valid),
-        .dbg_i_tlb_perm_fault(mmu_dbg_i_tlb_perm_fault),
-        .dbg_walk_state(mmu_dbg_walk_state),
-        .dbg_nb_d_state(mmu_dbg_d_state),
-        .dbg_d_tlb_hit(mmu_dbg_d_tlb_hit),
-        .dbg_d_tlb_valid(mmu_dbg_d_tlb_valid),
-        .dbg_d_tlb_perm_fault(mmu_dbg_d_tlb_perm_fault),
-        .dbg_d_input_changed(mmu_dbg_d_input_changed),
-        .dbg_d_latched_vaddr(mmu_dbg_d_latched_vaddr),
-        .dbg_d_latched_sv32(mmu_dbg_d_latched_sv32),
-        .dbg_pending_d_walk(mmu_dbg_pending_d_walk),
-        .dbg_d_pf_from_ptw(mmu_dbg_d_pf_from_ptw),
-        .dbg_d_tlb_miss(mmu_dbg_d_tlb_miss)
+        .dbg_mmu_state(dbg_mmu_state),
+        .dbg_mmu_owner(dbg_mmu_owner),
+        .dbg_mmu_req_vaddr(dbg_mmu_req_vaddr),
+        .dbg_mmu_sv32(dbg_mmu_sv32),
+        .dbg_mmu_tlb_hit(dbg_mmu_tlb_hit),
+        .dbg_mmu_tlb_perm_fault(dbg_mmu_tlb_perm_fault),
+        .dbg_mmu_ptw_active(dbg_mmu_ptw_active),
+        .dbg_mmu_fault_from_ptw(dbg_mmu_fault_from_ptw)
     );
 
     // PMP enforcement is disabled (see pmp_data_violation below).
@@ -1049,31 +937,9 @@ module core_top(
 
     assign dbg_if_done = if_done;
     assign dbg_inst_valid = inst_valid_mux;
-    assign dbg_mmu_i_ready = mmu_inst_ready;
-    assign dbg_mmu_i_miss = mmu_inst_miss;
-    assign dbg_i_page_fault = mmu_inst_page_fault;
     assign dbg_icache_state = icache_dbg_state;
     assign dbg_icache_refill_req = icache_mem_req_valid && (icache_mem_req_len == 8'd7);
     assign dbg_icache_refill_valid = icache_mem_resp_valid && !icache_mem_resp_error;
-    assign dbg_ptw_walk_active = mmu_dbg_i_walk_active;
-    assign dbg_pending_i_walk = mmu_dbg_pending_i_walk;
-    assign dbg_mmu_i_state = mmu_dbg_i_state;
-    assign dbg_mmu_i_input_changed = mmu_dbg_i_input_changed;
-    assign dbg_mmu_i_latched_vaddr = mmu_dbg_i_latched_vaddr;
-    assign dbg_mmu_i_sv32 = mmu_dbg_i_sv32;
-    assign dbg_mmu_i_tlb_hit = mmu_dbg_i_tlb_hit;
-    assign dbg_mmu_i_tlb_valid = mmu_dbg_i_tlb_valid;
-    assign dbg_mmu_i_tlb_perm_fault = mmu_dbg_i_tlb_perm_fault;
-    assign dbg_mmu_walk_state = mmu_dbg_walk_state;
-    assign dbg_mmu_d_state          = mmu_dbg_d_state;
-    assign dbg_mmu_d_tlb_hit        = mmu_dbg_d_tlb_hit;
-    assign dbg_mmu_d_tlb_valid      = mmu_dbg_d_tlb_valid;
-    assign dbg_mmu_d_tlb_perm_fault = mmu_dbg_d_tlb_perm_fault;
-    assign dbg_mmu_d_input_changed  = mmu_dbg_d_input_changed;
-    assign dbg_mmu_d_latched_vaddr  = mmu_dbg_d_latched_vaddr;
-    assign dbg_mmu_d_latched_sv32   = mmu_dbg_d_latched_sv32;
-    assign dbg_mmu_d_pf_from_ptw    = mmu_dbg_d_pf_from_ptw;
-    assign dbg_mmu_d_tlb_miss       = mmu_dbg_d_tlb_miss;
     assign dbg_mu_active            = dbg_mu_active_w;
     assign dbg_mu_req_valid         = dbg_mu_req_valid_w;
     assign dbg_mu_ready             = dbg_mu_ready_w;

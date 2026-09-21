@@ -45,29 +45,17 @@ module MMU #(
     input              ptw_bus_done,
     input              ptw_bus_error,
 
-    input              sfence_vma,
+    input              sfence_req,
     output             sfence_done,
 
-    output wire        dbg_i_walk_active,
-    output wire        dbg_pending_i_walk,
-    output wire [2:0]  dbg_nb_i_state,
-    output wire        dbg_nb_i_input_changed,
-    output wire [31:0] dbg_nb_i_latched_vaddr,
-    output wire        dbg_nb_i_latched_sv32,
-    output wire        dbg_i_tlb_hit,
-    output wire        dbg_i_tlb_valid,
-    output wire        dbg_i_tlb_perm_fault,
-    output wire [1:0]  dbg_walk_state,
-    output wire [2:0]  dbg_nb_d_state,
-    output wire        dbg_d_tlb_hit,
-    output wire        dbg_d_tlb_valid,
-    output wire        dbg_d_tlb_perm_fault,
-    output wire        dbg_d_input_changed,
-    output wire [31:0] dbg_d_latched_vaddr,
-    output wire        dbg_d_latched_sv32,
-    output wire        dbg_pending_d_walk,
-    output wire        dbg_d_pf_from_ptw,
-    output wire        dbg_d_tlb_miss
+    output wire [3:0]  dbg_mmu_state,
+    output wire        dbg_mmu_owner,
+    output wire [31:0] dbg_mmu_req_vaddr,
+    output wire        dbg_mmu_sv32,
+    output wire        dbg_mmu_tlb_hit,
+    output wire        dbg_mmu_tlb_perm_fault,
+    output wire        dbg_mmu_ptw_active,
+    output wire        dbg_mmu_fault_from_ptw
 );
     localparam [1:0] PRIV_U = 2'b00;
     localparam [1:0] PRIV_S = 2'b01;
@@ -106,6 +94,7 @@ module MMU #(
 
     reg [31:0] satp_prev_r;
     reg        sfence_pending_r;
+    reg        sfence_block_r;
     reg        sfence_done_r;
 
     wire [1:0] d_effective_priv =
@@ -132,7 +121,9 @@ module MMU #(
     // A satp change is conservatively treated as a full TLB flush. Software
     // still uses SFENCE.VMA for architecturally ordered page-table updates.
     wire satp_changed = (satp != satp_prev_r);
-    wire flush_request = sfence_vma || satp_changed;
+    wire sfence_accept = sfence_req && !sfence_block_r &&
+                          (state != S_FLUSH);
+    wire flush_request = sfence_accept || satp_changed;
 
     wire        tlb_hit;
     wire [21:0] tlb_ppn;
@@ -287,13 +278,19 @@ module MMU #(
             fault_from_ptw_r <= 1'b0;
             satp_prev_r <= 32'b0;
             sfence_pending_r <= 1'b0;
+            sfence_block_r <= 1'b0;
             sfence_done_r <= 1'b0;
         end else begin
             satp_prev_r <= satp;
             sfence_done_r <= 1'b0;
 
-            if (sfence_vma)
+            if (!sfence_req)
+                sfence_block_r <= 1'b0;
+
+            if (sfence_accept) begin
                 sfence_pending_r <= 1'b1;
+                sfence_block_r <= 1'b1;
+            end
 
             if (flush_request && state != S_ABORT && state != S_FLUSH) begin
                 state <= S_ABORT;
@@ -431,35 +428,15 @@ module MMU #(
     assign sfence_done = sfence_done_r;
 
     wire lookup_active = (state == S_LOOKUP) && req_sv32;
-    assign dbg_i_walk_active = (owner_r == OWNER_I) &&
-                               ((state == S_WALK_START) ||
-                                (state == S_WALK_WAIT));
-    assign dbg_pending_i_walk = 1'b0;
-    assign dbg_nb_i_state = (owner_r == OWNER_I) ? state[2:0] : 3'b0;
-    assign dbg_nb_i_input_changed = (owner_r == OWNER_I) &&
-                                    !i_request_matches;
-    assign dbg_nb_i_latched_vaddr = req_vaddr_r;
-    assign dbg_nb_i_latched_sv32 = (owner_r == OWNER_I) && req_sv32;
-    assign dbg_i_tlb_hit = lookup_active && (owner_r == OWNER_I) && tlb_hit;
-    assign dbg_i_tlb_valid = lookup_active && (owner_r == OWNER_I);
-    assign dbg_i_tlb_perm_fault = lookup_active && (owner_r == OWNER_I) &&
-                                  tlb_hit && tlb_perm_fault;
-    assign dbg_walk_state = ((state == S_WALK_START) ||
-                             (state == S_WALK_WAIT)) ?
-                            ((owner_r == OWNER_D) ? 2'd1 : 2'd2) : 2'd0;
-
-    assign dbg_nb_d_state = (owner_r == OWNER_D) ? state[2:0] : 3'b0;
-    assign dbg_d_tlb_hit = lookup_active && (owner_r == OWNER_D) && tlb_hit;
-    assign dbg_d_tlb_valid = lookup_active && (owner_r == OWNER_D);
-    assign dbg_d_tlb_perm_fault = lookup_active && (owner_r == OWNER_D) &&
-                                  tlb_hit && tlb_perm_fault;
-    assign dbg_d_input_changed = (owner_r == OWNER_D) &&
-                                 !d_request_matches;
-    assign dbg_d_latched_vaddr = req_vaddr_r;
-    assign dbg_d_latched_sv32 = (owner_r == OWNER_D) && req_sv32;
-    assign dbg_pending_d_walk = 1'b0;
-    assign dbg_d_pf_from_ptw = (owner_r == OWNER_D) &&
-                               (state == S_FAULT) && fault_from_ptw_r;
-    assign dbg_d_tlb_miss = lookup_active && (owner_r == OWNER_D) &&
-                            (!tlb_hit || tlb_need_ad_update);
+    assign dbg_mmu_state = state;
+    assign dbg_mmu_owner = owner_r;
+    assign dbg_mmu_req_vaddr = req_vaddr_r;
+    assign dbg_mmu_sv32 = req_sv32;
+    assign dbg_mmu_tlb_hit = lookup_active && tlb_hit;
+    assign dbg_mmu_tlb_perm_fault = lookup_active && tlb_hit &&
+                                    tlb_perm_fault;
+    assign dbg_mmu_ptw_active = (state == S_WALK_START) ||
+                                (state == S_WALK_WAIT);
+    assign dbg_mmu_fault_from_ptw = (state == S_FAULT) &&
+                                    fault_from_ptw_r;
 endmodule

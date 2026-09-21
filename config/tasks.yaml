@@ -193,6 +193,10 @@ tasks:
     blhex: boot/bootloader_phase1.hex
     phex: test/mmu/tlb_flush.hex
     runtime: 20ms
+  mmu_sfence_handshake_unit:
+    tb: tb_mmu_sfence_handshake_unit
+    blhex: boot/bootloader_phase1.hex
+    runtime: 20us
 
   mmu_page_fault:
     tb: tb_mmu_page_fault
@@ -406,6 +410,10 @@ tasks:
 
   cpu_clint_unit:
     tb: tb_cpu_clint_unit
+    blhex: boot/bootloader_phase1.hex
+    runtime: 20us
+  cpu_controller_unit:
+    tb: tb_cpu_controller_unit
     blhex: boot/bootloader_phase1.hex
     runtime: 20us
   cpu_bus_bridge_unit:

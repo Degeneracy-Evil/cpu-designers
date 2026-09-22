@@ -57,27 +57,8 @@ module cpu_csr(
     output      [31:0] csr_mcounteren,
     output      [31:0] csr_scounteren,
 
-    // PMP config outputs (for future hardware enforcement)
-    output      [31:0] csr_pmpcfg0,
-    output      [31:0] csr_pmpcfg1,
-    output      [31:0] csr_pmpcfg2,
-    output      [31:0] csr_pmpcfg3,
-    output      [31:0] csr_pmpaddr0,
-    output      [31:0] csr_pmpaddr1,
-    output      [31:0] csr_pmpaddr2,
-    output      [31:0] csr_pmpaddr3,
-    output      [31:0] csr_pmpaddr4,
-    output      [31:0] csr_pmpaddr5,
-    output      [31:0] csr_pmpaddr6,
-    output      [31:0] csr_pmpaddr7,
-    output      [31:0] csr_pmpaddr8,
-    output      [31:0] csr_pmpaddr9,
-    output      [31:0] csr_pmpaddr10,
-    output      [31:0] csr_pmpaddr11,
-    output      [31:0] csr_pmpaddr12,
-    output      [31:0] csr_pmpaddr13,
-    output      [31:0] csr_pmpaddr14,
-    output      [31:0] csr_pmpaddr15
+    output     [127:0] pmpcfg_flat,
+    output     [511:0] pmpaddr_flat
 );
     localparam ADDR_SSTATUS     = 12'h100;
     localparam ADDR_SIE         = 12'h104;
@@ -319,53 +300,43 @@ module cpu_csr(
     end
     assign csr_access_ok = csr_access_ok_r;
 
-    // ── PMP lock-bit enforcement ──
-    // PMP config byte format: bit7=L, bit6:5=reserved(0), bit4:3=A, bit2=X, bit1=W, bit0=R
-    // When L=1 for a PMP entry, both pmpcfg and pmpaddr become read-only until reset.
-    // pmpcfg0 holds entries 0-3, pmpcfg1 holds 4-7, pmpcfg2 holds 8-11, pmpcfg3 holds 12-15.
-    wire pmp_entry0_locked  = r_pmpcfg0[7];    // entry 0: pmpcfg0 byte 0, bit 7
-    wire pmp_entry1_locked  = r_pmpcfg0[15];   // entry 1: pmpcfg0 byte 1, bit 7
-    wire pmp_entry2_locked  = r_pmpcfg0[23];   // entry 2: pmpcfg0 byte 2, bit 7
-    wire pmp_entry3_locked  = r_pmpcfg0[31];   // entry 3: pmpcfg0 byte 3, bit 7
-    wire pmp_entry4_locked  = r_pmpcfg1[7];
-    wire pmp_entry5_locked  = r_pmpcfg1[15];
-    wire pmp_entry6_locked  = r_pmpcfg1[23];
-    wire pmp_entry7_locked  = r_pmpcfg1[31];
-    wire pmp_entry8_locked  = r_pmpcfg2[7];
-    wire pmp_entry9_locked  = r_pmpcfg2[15];
-    wire pmp_entry10_locked = r_pmpcfg2[23];
-    wire pmp_entry11_locked = r_pmpcfg2[31];
-    wire pmp_entry12_locked = r_pmpcfg3[7];
-    wire pmp_entry13_locked = r_pmpcfg3[15];
-    wire pmp_entry14_locked = r_pmpcfg3[23];
-    wire pmp_entry15_locked = r_pmpcfg3[31];
+    // ── PMP WARL and lock semantics ──
+    function automatic [7:0] sanitize_pmpcfg_byte(input [7:0] value);
+        reg [7:0] sanitized;
+        begin
+            sanitized = value & 8'h9f;
+            if (!sanitized[0] && sanitized[1])
+                sanitized[1] = 1'b0;
+            sanitize_pmpcfg_byte = sanitized;
+        end
+    endfunction
 
-    // PMP config write masks: clear locked entries' bytes (L=1 → byte becomes read-only)
-    // Per RISC-V spec: A field is WARL (only OFF=00 and TOR=01 supported in minimal impl)
-    // Reserved bits [6:5] always read 0.
-    wire [31:0] pmpcfg0_wmask;
-    assign pmpcfg0_wmask = {(pmp_entry3_locked ? 8'b0 : (sw_csr_wdata[31:24] & 8'h9F)),  // L,A,X,W,R; bits[6:5]=0
-                            (pmp_entry2_locked ? 8'b0 : (sw_csr_wdata[23:16] & 8'h9F)),
-                            (pmp_entry1_locked ? 8'b0 : (sw_csr_wdata[15:8]  & 8'h9F)),
-                            (pmp_entry0_locked ? 8'b0 : (sw_csr_wdata[7:0]   & 8'h9F))};
+    function automatic [31:0] merge_pmpcfg(
+        input [31:0] old_value,
+        input [31:0] write_value
+    );
+        integer byte_index;
+        begin
+            for (byte_index = 0; byte_index < 4; byte_index = byte_index + 1) begin
+                merge_pmpcfg[byte_index*8 +: 8] =
+                    old_value[byte_index*8 + 7] ? old_value[byte_index*8 +: 8] :
+                    sanitize_pmpcfg_byte(write_value[byte_index*8 +: 8]);
+            end
+        end
+    endfunction
 
-    wire [31:0] pmpcfg1_wmask;
-    assign pmpcfg1_wmask = {(pmp_entry7_locked ? 8'b0 : (sw_csr_wdata[31:24] & 8'h9F)),
-                            (pmp_entry6_locked ? 8'b0 : (sw_csr_wdata[23:16] & 8'h9F)),
-                            (pmp_entry5_locked ? 8'b0 : (sw_csr_wdata[15:8]  & 8'h9F)),
-                            (pmp_entry4_locked ? 8'b0 : (sw_csr_wdata[7:0]   & 8'h9F))};
-
-    wire [31:0] pmpcfg2_wmask;
-    assign pmpcfg2_wmask = {(pmp_entry11_locked ? 8'b0 : (sw_csr_wdata[31:24] & 8'h9F)),
-                            (pmp_entry10_locked ? 8'b0 : (sw_csr_wdata[23:16] & 8'h9F)),
-                            (pmp_entry9_locked  ? 8'b0 : (sw_csr_wdata[15:8]  & 8'h9F)),
-                            (pmp_entry8_locked  ? 8'b0 : (sw_csr_wdata[7:0]   & 8'h9F))};
-
-    wire [31:0] pmpcfg3_wmask;
-    assign pmpcfg3_wmask = {(pmp_entry15_locked ? 8'b0 : (sw_csr_wdata[31:24] & 8'h9F)),
-                            (pmp_entry14_locked ? 8'b0 : (sw_csr_wdata[23:16] & 8'h9F)),
-                            (pmp_entry13_locked ? 8'b0 : (sw_csr_wdata[15:8]  & 8'h9F)),
-                            (pmp_entry12_locked ? 8'b0 : (sw_csr_wdata[7:0]   & 8'h9F))};
+    wire [15:0] pmpaddr_locked;
+    genvar pmp_lock_index;
+    generate
+        for (pmp_lock_index = 0; pmp_lock_index < 15;
+             pmp_lock_index = pmp_lock_index + 1) begin : gen_pmpaddr_lock
+            assign pmpaddr_locked[pmp_lock_index] =
+                pmpcfg_flat[pmp_lock_index*8 + 7] ||
+                (pmpcfg_flat[(pmp_lock_index+1)*8 + 7] &&
+                 (pmpcfg_flat[(pmp_lock_index+1)*8 + 3 +: 2] == 2'b01));
+        end
+    endgenerate
+    assign pmpaddr_locked[15] = pmpcfg_flat[15*8 + 7];
 
     // ── Counter access permission checks ──
     // mcounteren/scounteren bit mapping:
@@ -561,28 +532,26 @@ module cpu_csr(
                     end
                     ADDR_SATP:       r_satp      <= sw_csr_wdata;
 ADDR_SCOUNTEREN: if (priv_mode != PRIV_U) r_scounteren <= sw_csr_wdata;
-                    // PMP config writes: lock-bit enforcement via pmpcfg*_wmask
-                    ADDR_PMPCFG0:    r_pmpcfg0   <= pmpcfg0_wmask;
-                    ADDR_PMPCFG1:    r_pmpcfg1   <= pmpcfg1_wmask;
-                    ADDR_PMPCFG2:    r_pmpcfg2   <= pmpcfg2_wmask;
-                    ADDR_PMPCFG3:    r_pmpcfg3   <= pmpcfg3_wmask;
-                    // PMP address writes: locked entries cannot be modified
-                    ADDR_PMPADDR0:  if (!pmp_entry0_locked)  r_pmpaddr0  <= sw_csr_wdata;
-                    ADDR_PMPADDR1:  if (!pmp_entry1_locked)  r_pmpaddr1  <= sw_csr_wdata;
-                    ADDR_PMPADDR2:  if (!pmp_entry2_locked)  r_pmpaddr2  <= sw_csr_wdata;
-                    ADDR_PMPADDR3:  if (!pmp_entry3_locked)  r_pmpaddr3  <= sw_csr_wdata;
-                    ADDR_PMPADDR4:  if (!pmp_entry4_locked)  r_pmpaddr4  <= sw_csr_wdata;
-                    ADDR_PMPADDR5:  if (!pmp_entry5_locked)  r_pmpaddr5  <= sw_csr_wdata;
-                    ADDR_PMPADDR6:  if (!pmp_entry6_locked)  r_pmpaddr6  <= sw_csr_wdata;
-                    ADDR_PMPADDR7:  if (!pmp_entry7_locked)  r_pmpaddr7  <= sw_csr_wdata;
-                    ADDR_PMPADDR8:  if (!pmp_entry8_locked)  r_pmpaddr8  <= sw_csr_wdata;
-                    ADDR_PMPADDR9:  if (!pmp_entry9_locked)  r_pmpaddr9  <= sw_csr_wdata;
-                    ADDR_PMPADDR10: if (!pmp_entry10_locked) r_pmpaddr10 <= sw_csr_wdata;
-                    ADDR_PMPADDR11: if (!pmp_entry11_locked) r_pmpaddr11 <= sw_csr_wdata;
-                    ADDR_PMPADDR12: if (!pmp_entry12_locked) r_pmpaddr12 <= sw_csr_wdata;
-                    ADDR_PMPADDR13: if (!pmp_entry13_locked) r_pmpaddr13 <= sw_csr_wdata;
-                    ADDR_PMPADDR14: if (!pmp_entry14_locked) r_pmpaddr14 <= sw_csr_wdata;
-                    ADDR_PMPADDR15: if (!pmp_entry15_locked) r_pmpaddr15 <= sw_csr_wdata;
+                    ADDR_PMPCFG0: r_pmpcfg0 <= merge_pmpcfg(r_pmpcfg0, sw_csr_wdata);
+                    ADDR_PMPCFG1: r_pmpcfg1 <= merge_pmpcfg(r_pmpcfg1, sw_csr_wdata);
+                    ADDR_PMPCFG2: r_pmpcfg2 <= merge_pmpcfg(r_pmpcfg2, sw_csr_wdata);
+                    ADDR_PMPCFG3: r_pmpcfg3 <= merge_pmpcfg(r_pmpcfg3, sw_csr_wdata);
+                    ADDR_PMPADDR0:  if (!pmpaddr_locked[0])  r_pmpaddr0  <= sw_csr_wdata;
+                    ADDR_PMPADDR1:  if (!pmpaddr_locked[1])  r_pmpaddr1  <= sw_csr_wdata;
+                    ADDR_PMPADDR2:  if (!pmpaddr_locked[2])  r_pmpaddr2  <= sw_csr_wdata;
+                    ADDR_PMPADDR3:  if (!pmpaddr_locked[3])  r_pmpaddr3  <= sw_csr_wdata;
+                    ADDR_PMPADDR4:  if (!pmpaddr_locked[4])  r_pmpaddr4  <= sw_csr_wdata;
+                    ADDR_PMPADDR5:  if (!pmpaddr_locked[5])  r_pmpaddr5  <= sw_csr_wdata;
+                    ADDR_PMPADDR6:  if (!pmpaddr_locked[6])  r_pmpaddr6  <= sw_csr_wdata;
+                    ADDR_PMPADDR7:  if (!pmpaddr_locked[7])  r_pmpaddr7  <= sw_csr_wdata;
+                    ADDR_PMPADDR8:  if (!pmpaddr_locked[8])  r_pmpaddr8  <= sw_csr_wdata;
+                    ADDR_PMPADDR9:  if (!pmpaddr_locked[9])  r_pmpaddr9  <= sw_csr_wdata;
+                    ADDR_PMPADDR10: if (!pmpaddr_locked[10]) r_pmpaddr10 <= sw_csr_wdata;
+                    ADDR_PMPADDR11: if (!pmpaddr_locked[11]) r_pmpaddr11 <= sw_csr_wdata;
+                    ADDR_PMPADDR12: if (!pmpaddr_locked[12]) r_pmpaddr12 <= sw_csr_wdata;
+                    ADDR_PMPADDR13: if (!pmpaddr_locked[13]) r_pmpaddr13 <= sw_csr_wdata;
+                    ADDR_PMPADDR14: if (!pmpaddr_locked[14]) r_pmpaddr14 <= sw_csr_wdata;
+                    ADDR_PMPADDR15: if (!pmpaddr_locked[15]) r_pmpaddr15 <= sw_csr_wdata;
                     default: ;
                 endcase
             end
@@ -686,26 +655,10 @@ ADDR_SCOUNTEREN: if (priv_mode != PRIV_U) r_scounteren <= sw_csr_wdata;
     assign csr_mcounteren= r_mcounteren;
     assign csr_scounteren= r_scounteren;
 
-    // PMP config outputs
-    assign csr_pmpcfg0   = r_pmpcfg0;
-    assign csr_pmpcfg1   = r_pmpcfg1;
-    assign csr_pmpcfg2   = r_pmpcfg2;
-    assign csr_pmpcfg3   = r_pmpcfg3;
-    assign csr_pmpaddr0  = r_pmpaddr0;
-    assign csr_pmpaddr1  = r_pmpaddr1;
-    assign csr_pmpaddr2  = r_pmpaddr2;
-    assign csr_pmpaddr3  = r_pmpaddr3;
-    assign csr_pmpaddr4  = r_pmpaddr4;
-    assign csr_pmpaddr5  = r_pmpaddr5;
-    assign csr_pmpaddr6  = r_pmpaddr6;
-    assign csr_pmpaddr7  = r_pmpaddr7;
-    assign csr_pmpaddr8  = r_pmpaddr8;
-    assign csr_pmpaddr9  = r_pmpaddr9;
-    assign csr_pmpaddr10 = r_pmpaddr10;
-    assign csr_pmpaddr11 = r_pmpaddr11;
-    assign csr_pmpaddr12 = r_pmpaddr12;
-    assign csr_pmpaddr13 = r_pmpaddr13;
-    assign csr_pmpaddr14 = r_pmpaddr14;
-    assign csr_pmpaddr15 = r_pmpaddr15;
+    assign pmpcfg_flat = {r_pmpcfg3, r_pmpcfg2, r_pmpcfg1, r_pmpcfg0};
+    assign pmpaddr_flat = {r_pmpaddr15, r_pmpaddr14, r_pmpaddr13, r_pmpaddr12,
+                           r_pmpaddr11, r_pmpaddr10, r_pmpaddr9,  r_pmpaddr8,
+                           r_pmpaddr7,  r_pmpaddr6,  r_pmpaddr5,  r_pmpaddr4,
+                           r_pmpaddr3,  r_pmpaddr2,  r_pmpaddr1,  r_pmpaddr0};
 
 endmodule

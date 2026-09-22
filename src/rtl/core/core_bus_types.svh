@@ -26,6 +26,15 @@ typedef enum logic [1:0] {
     ACCESS_STORE = 2'd2
 } access_class_t;
 
+function automatic priv_mode_t effective_data_priv(
+    input priv_mode_t current_priv,
+    input logic       mstatus_mprv,
+    input priv_mode_t mstatus_mpp
+);
+    effective_data_priv = ((current_priv == PRIV_M) && mstatus_mprv) ?
+                          mstatus_mpp : current_priv;
+endfunction
+
 function automatic access_class_t mem_access_class(input mem_kind_t kind);
     case (kind)
         MEM_LOAD, MEM_LR: mem_access_class = ACCESS_LOAD;

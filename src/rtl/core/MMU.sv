@@ -91,8 +91,9 @@ module MMU #(
     reg        sfence_done_r;
 
     priv_mode_t d_effective_priv;
-    assign d_effective_priv = priv_mode_t'(
-        ((priv_mode == PRIV_M) && mstatus_mprv) ? mstatus_mpp : priv_mode);
+    assign d_effective_priv = effective_data_priv(priv_mode,
+                                                  mstatus_mprv,
+                                                  mstatus_mpp);
     wire req_sv32 = req_translate_en_r && req_satp_r[31] &&
                     (req_priv_r != PRIV_M);
 

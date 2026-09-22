@@ -14,6 +14,7 @@ module cpu_mem(
     output     [31:0]  mem_vaddr,
     output mem_kind_t  mem_kind,
     output access_class_t mem_access_type,
+    output     [2:0]   mem_access_size,
     input              mem_access_ready,
     input      [31:0]  mem_access_paddr,
 
@@ -308,6 +309,7 @@ module cpu_mem(
     assign mem_vaddr = addr_r;
     assign mem_kind = kind_r;
     assign mem_access_type = mem_access_class(kind_r);
+    assign mem_access_size = size_r;
     assign phys_req_valid = phys_valid_r;
     assign phys_req_paddr = checked_paddr_r;
     assign phys_req_write = phys_write_r;

@@ -40,6 +40,14 @@
 # 清零框架寄存器和结果区头部
 .globl test_init
 test_init:
+    # Most architectural tests intentionally exercise S/U mode but are not
+    # PMP tests.  Give them one standard all-address NAPOT entry; dedicated
+    # PMP unit tests program and verify the restrictive cases separately.
+    li   x10, -1
+    csrw pmpaddr0, x10
+    li   x10, 0x1F           # NAPOT, R/W/X, unlocked
+    csrw pmpcfg0, x10
+
     li   x8, 0               # pass_count = 0
     li   x9, 0               # total_count = 0
     li   x18, 0              # first_fail_id = 0

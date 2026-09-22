@@ -17,6 +17,7 @@ tasks:
   - task: cpu_mem_contract_unit
   - task: exception_contract_unit
   - task: stage_exception_unit
+  - task: pmp_pma_unit
   - task: cpu_trap_router_unit
   - task: cpu_bus_bridge_unit
   - task: dcache_writethrough_unit

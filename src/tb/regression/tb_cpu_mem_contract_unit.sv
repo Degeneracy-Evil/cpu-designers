@@ -13,7 +13,7 @@ module tb_cpu_mem_contract_unit;
     exe_mem_bus_t exe_mem_bus_r;
     wire mem_access_valid, phys_req_valid, phys_req_write, mem_done;
     wire [31:0] mem_vaddr, phys_req_paddr, phys_req_wdata, mem_pc, mem_inst;
-    wire [2:0] phys_req_size;
+    wire [2:0] mem_access_size, phys_req_size;
     mem_kind_t mem_kind;
     access_class_t mem_access_type;
     wb_bus_t mem_wb_bus;
@@ -75,6 +75,7 @@ module tb_cpu_mem_contract_unit;
 
         start_op(MEM_STORE,32'h80001003,32'h0000005a,`AXI_SIZE_BYTE,5'b0);
         check(mem_access_type==ACCESS_STORE,"ordinary store uses STORE architectural access");
+        check(mem_access_size==`AXI_SIZE_BYTE,"architectural access exposes its byte size");
         allow_access(32'h90001003);
         check(phys_req_valid&&phys_req_write&&phys_req_size==`AXI_SIZE_BYTE,
               "allowed store emits one physical byte write");

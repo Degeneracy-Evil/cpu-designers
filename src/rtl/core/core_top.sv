@@ -177,6 +177,7 @@ module core_top(
     wire [31:0] mem_vaddr;
     mem_kind_t mem_kind;
     access_class_t mem_access_type;
+    wire [2:0] mem_access_size;
     wire phys_req_valid;
     wire [31:0] phys_req_paddr;
 
@@ -200,6 +201,8 @@ module core_top(
     wire [31:0] ptw_bus_rdata;
     wire        ptw_bus_done;
     wire        ptw_bus_error;
+    wire        ptw_mem_done;
+    wire        ptw_mem_error;
 
     wire        mmu_sfence_done;
 
@@ -262,14 +265,8 @@ module core_top(
     wire [31:0] csr_sip;
     wire [31:0] csr_mcounteren;
     wire [31:0] csr_scounteren;
-    // PMP CSR wires
-    wire [31:0] csr_pmpcfg0, csr_pmpcfg1, csr_pmpcfg2, csr_pmpcfg3;
-    wire [31:0] csr_pmpaddr0,  csr_pmpaddr1,  csr_pmpaddr2,  csr_pmpaddr3;
-    wire [31:0] csr_pmpaddr4,  csr_pmpaddr5,  csr_pmpaddr6,  csr_pmpaddr7;
-    wire [31:0] csr_pmpaddr8,  csr_pmpaddr9,  csr_pmpaddr10, csr_pmpaddr11;
-    wire [31:0] csr_pmpaddr12, csr_pmpaddr13, csr_pmpaddr14, csr_pmpaddr15;
-    // PMP violation flags
-    wire pmp_data_violation;
+    wire [127:0] pmpcfg_flat;
+    wire [511:0] pmpaddr_flat;
     // Debug: CSR access permission from trap_csr (used internally; not consumed at core_top)
     wire csr_access_ok;
 
@@ -437,13 +434,35 @@ module core_top(
                                    trap_return_valid ||
                                    (exe_valid && exe_done && exe_is_ctrl_flow && exe_branch_taken);
 
+    wire fetch_pmp_allow;
+    wire fetch_pma_allow;
+    wire fetch_protection_deny = mmu_inst_ready &&
+                                 (!fetch_pmp_allow || !fetch_pma_allow);
+    pmp_checker u_fetch_pmp (
+        .paddr(mmu_inst_paddr),
+        .access_size(`AXI_SIZE_WORD),
+        .access_type(ACCESS_FETCH),
+        .effective_priv(priv_mode),
+        .pmpcfg_flat(pmpcfg_flat),
+        .pmpaddr_flat(pmpaddr_flat),
+        .allow(fetch_pmp_allow)
+    );
+    pma_checker u_fetch_pma (
+        .paddr(mmu_inst_paddr),
+        .access_type(ACCESS_FETCH),
+        .access_size(`AXI_SIZE_WORD),
+        .is_atomic(1'b0),
+        .is_ptw(1'b0),
+        .allow(fetch_pma_allow)
+    );
 
 
     icache_ctrl u_icache_wrap (
         .clk(clk),
         .resetn(resetn),
 
-        .cpu_req_valid(if_valid && mmu_inst_ready),
+        .cpu_req_valid(if_valid && mmu_inst_ready &&
+                       fetch_pmp_allow && fetch_pma_allow),
         .cpu_req_paddr(mmu_inst_paddr),
         .flush_req(icache_flush_req),
         .cpu_req_data(instData_32_mux),
@@ -560,9 +579,67 @@ module core_top(
     wire        dcache_mem_resp_error;
     wire        dcache_cpu_error;
 
+    priv_mode_t data_effective_priv;
+    assign data_effective_priv = effective_data_priv(
+        priv_mode, csr_mstatus[17], priv_mode_t'(csr_mstatus[12:11]));
+
+    wire data_pmp_allow;
+    wire data_pma_allow;
+    wire data_is_atomic = (mem_kind == MEM_LR) ||
+                          (mem_kind == MEM_SC) ||
+                          (mem_kind == MEM_AMO);
+    wire data_protection_deny = mmu_data_ready &&
+                                (!data_pmp_allow || !data_pma_allow);
+    wire mem_access_ready = mmu_data_ready &&
+                            data_pmp_allow && data_pma_allow;
+
+    pmp_checker u_data_pmp (
+        .paddr(mmu_data_paddr),
+        .access_size(mem_access_size),
+        .access_type(mem_access_type),
+        .effective_priv(data_effective_priv),
+        .pmpcfg_flat(pmpcfg_flat),
+        .pmpaddr_flat(pmpaddr_flat),
+        .allow(data_pmp_allow)
+    );
+    pma_checker u_data_pma (
+        .paddr(mmu_data_paddr),
+        .access_type(mem_access_type),
+        .access_size(mem_access_size),
+        .is_atomic(data_is_atomic),
+        .is_ptw(1'b0),
+        .allow(data_pma_allow)
+    );
+
+    wire ptw_pmp_allow;
+    wire ptw_pma_allow;
+    wire ptw_protection_deny = ptw_bus_req &&
+                               (!ptw_pmp_allow || !ptw_pma_allow);
+    pmp_checker u_ptw_pmp (
+        .paddr(ptw_bus_addr),
+        .access_size(`AXI_SIZE_WORD),
+        .access_type(ptw_bus_we ? ACCESS_STORE : ACCESS_LOAD),
+        .effective_priv(PRIV_S),
+        .pmpcfg_flat(pmpcfg_flat),
+        .pmpaddr_flat(pmpaddr_flat),
+        .allow(ptw_pmp_allow)
+    );
+    pma_checker u_ptw_pma (
+        .paddr(ptw_bus_addr),
+        .access_type(ptw_bus_we ? ACCESS_STORE : ACCESS_LOAD),
+        .access_size(`AXI_SIZE_WORD),
+        .is_atomic(1'b0),
+        .is_ptw(1'b1),
+        .allow(ptw_pma_allow)
+    );
+
+    assign ptw_bus_done = ptw_protection_deny ? 1'b1 : ptw_mem_done;
+    assign ptw_bus_error = ptw_protection_deny ? 1'b1 : ptw_mem_error;
+
     always_comb begin
         fetch_exception = '0;
-        if (if_valid && (mmu_inst_fault || icache_cpu_error)) begin
+        if (if_valid && (mmu_inst_fault || fetch_protection_deny ||
+                         icache_cpu_error)) begin
             fetch_exception.valid = 1'b1;
             fetch_exception.cause = mmu_inst_fault ?
                                     {28'b0, mmu_inst_fault_cause} : 32'd1;
@@ -572,8 +649,8 @@ module core_top(
         end
 
         mem_external_exception = '0;
-        if (mem_valid && (mmu_data_fault || dcache_cpu_error ||
-                          pmp_data_violation)) begin
+        if (mem_valid && (mmu_data_fault || data_protection_deny ||
+                          dcache_cpu_error)) begin
             mem_external_exception.valid = 1'b1;
             mem_external_exception.cause = mmu_data_fault ?
                     {28'b0, mmu_data_fault_cause} :
@@ -609,13 +686,13 @@ module core_top(
         .cpu_req_rdata(readData_32_mux),
         .cpu_req_ready(data_valid_mux),
 
-        .ptw_req_valid(ptw_bus_req),
+        .ptw_req_valid(ptw_bus_req && ptw_pmp_allow && ptw_pma_allow),
         .ptw_req_addr(ptw_bus_addr),
         .ptw_req_wdata(ptw_bus_wdata),
         .ptw_req_write(ptw_bus_we),
         .ptw_req_rdata(ptw_bus_rdata),
-        .ptw_req_done(ptw_bus_done),
-        .ptw_req_error(ptw_bus_error),
+        .ptw_req_done(ptw_mem_done),
+        .ptw_req_error(ptw_mem_error),
 
         .cpu_req_error(dcache_cpu_error),
         .cpu_req_error_is_store(),
@@ -643,7 +720,8 @@ module core_top(
         .mem_vaddr(mem_vaddr),
         .mem_kind(mem_kind),
         .mem_access_type(mem_access_type),
-        .mem_access_ready(mmu_data_ready),
+        .mem_access_size(mem_access_size),
+        .mem_access_ready(mem_access_ready),
         .mem_access_paddr(mmu_data_paddr),
         .phys_req_valid(phys_req_valid),
         .phys_req_paddr(phys_req_paddr),
@@ -743,26 +821,8 @@ module core_top(
         .csr_mcounteren   (csr_mcounteren),
         .csr_scounteren   (csr_scounteren),
         .csr_access_ok    (csr_access_ok),
-        .csr_pmpcfg0      (csr_pmpcfg0),
-        .csr_pmpcfg1      (csr_pmpcfg1),
-        .csr_pmpcfg2      (csr_pmpcfg2),
-        .csr_pmpcfg3      (csr_pmpcfg3),
-        .csr_pmpaddr0     (csr_pmpaddr0),
-        .csr_pmpaddr1     (csr_pmpaddr1),
-        .csr_pmpaddr2     (csr_pmpaddr2),
-        .csr_pmpaddr3     (csr_pmpaddr3),
-        .csr_pmpaddr4     (csr_pmpaddr4),
-        .csr_pmpaddr5     (csr_pmpaddr5),
-        .csr_pmpaddr6     (csr_pmpaddr6),
-        .csr_pmpaddr7     (csr_pmpaddr7),
-        .csr_pmpaddr8     (csr_pmpaddr8),
-        .csr_pmpaddr9     (csr_pmpaddr9),
-        .csr_pmpaddr10    (csr_pmpaddr10),
-        .csr_pmpaddr11    (csr_pmpaddr11),
-        .csr_pmpaddr12    (csr_pmpaddr12),
-        .csr_pmpaddr13    (csr_pmpaddr13),
-        .csr_pmpaddr14    (csr_pmpaddr14),
-        .csr_pmpaddr15    (csr_pmpaddr15),
+        .pmpcfg_flat      (pmpcfg_flat),
+        .pmpaddr_flat     (pmpaddr_flat),
         // Extended debug outputs
         .hw_trap_epc      (hw_trap_epc_w),
         .hw_trap_cause    (hw_trap_cause_w),
@@ -820,9 +880,6 @@ module core_top(
         .dbg_mmu_ptw_active(dbg_mmu_ptw_active),
         .dbg_mmu_fault_from_ptw(dbg_mmu_fault_from_ptw)
     );
-
-    // PMP enforcement is disabled (see pmp_data_violation below).
-    assign pmp_data_violation = 1'b0;
 
     cpu_bus_bridge u_bus_bridge(
         .clk              (clk),

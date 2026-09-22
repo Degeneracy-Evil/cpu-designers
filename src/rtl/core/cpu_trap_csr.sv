@@ -59,27 +59,8 @@ module cpu_trap_csr(
 
     output        csr_access_ok,
 
-    // PMP config outputs
-    output [31:0] csr_pmpcfg0,
-    output [31:0] csr_pmpcfg1,
-    output [31:0] csr_pmpcfg2,
-    output [31:0] csr_pmpcfg3,
-    output [31:0] csr_pmpaddr0,
-    output [31:0] csr_pmpaddr1,
-    output [31:0] csr_pmpaddr2,
-    output [31:0] csr_pmpaddr3,
-    output [31:0] csr_pmpaddr4,
-    output [31:0] csr_pmpaddr5,
-    output [31:0] csr_pmpaddr6,
-    output [31:0] csr_pmpaddr7,
-    output [31:0] csr_pmpaddr8,
-    output [31:0] csr_pmpaddr9,
-    output [31:0] csr_pmpaddr10,
-    output [31:0] csr_pmpaddr11,
-    output [31:0] csr_pmpaddr12,
-    output [31:0] csr_pmpaddr13,
-    output [31:0] csr_pmpaddr14,
-    output [31:0] csr_pmpaddr15
+    output [127:0] pmpcfg_flat,
+    output [511:0] pmpaddr_flat
 );
 
     wire        hw_csr_wen;
@@ -176,26 +157,8 @@ module cpu_trap_csr(
         .csr_mcounteren   (csr_mcounteren),
         .csr_scounteren   (csr_scounteren),
         .csr_access_ok    (csr_access_ok),
-        .csr_pmpcfg0      (csr_pmpcfg0),
-        .csr_pmpcfg1      (csr_pmpcfg1),
-        .csr_pmpcfg2      (csr_pmpcfg2),
-        .csr_pmpcfg3      (csr_pmpcfg3),
-        .csr_pmpaddr0     (csr_pmpaddr0),
-        .csr_pmpaddr1     (csr_pmpaddr1),
-        .csr_pmpaddr2     (csr_pmpaddr2),
-        .csr_pmpaddr3     (csr_pmpaddr3),
-        .csr_pmpaddr4     (csr_pmpaddr4),
-        .csr_pmpaddr5     (csr_pmpaddr5),
-        .csr_pmpaddr6     (csr_pmpaddr6),
-        .csr_pmpaddr7     (csr_pmpaddr7),
-        .csr_pmpaddr8     (csr_pmpaddr8),
-        .csr_pmpaddr9     (csr_pmpaddr9),
-        .csr_pmpaddr10    (csr_pmpaddr10),
-        .csr_pmpaddr11    (csr_pmpaddr11),
-        .csr_pmpaddr12    (csr_pmpaddr12),
-        .csr_pmpaddr13    (csr_pmpaddr13),
-        .csr_pmpaddr14    (csr_pmpaddr14),
-        .csr_pmpaddr15    (csr_pmpaddr15)
+        .pmpcfg_flat      (pmpcfg_flat),
+        .pmpaddr_flat     (pmpaddr_flat)
     );
 
     // Trap write-data outputs for debug latch

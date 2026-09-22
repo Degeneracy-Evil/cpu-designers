@@ -15,9 +15,11 @@ module cpu_mem(
     output mem_kind_t  mem_kind,
     output access_class_t mem_access_type,
     input              mem_access_ready,
+    input      [31:0]  mem_access_paddr,
 
     // Physical request: issued only after the architectural access is allowed.
     output             phys_req_valid,
+    output     [31:0]  phys_req_paddr,
     output             phys_req_write,
     output     [2:0]   phys_req_size,
     output     [31:0]  phys_req_wdata,
@@ -36,7 +38,6 @@ module cpu_mem(
     localparam [2:0] MEM_WRITE     = 3'd3;
     localparam [2:0] MEM_AMO_READ  = 3'd4;
     localparam [2:0] MEM_AMO_WRITE = 3'd5;
-    localparam [2:0] MEM_AMO_FENCE = 3'd6;
 
     wire [31:0] result       = exe_mem_bus_r.result;
     wire        wb_we        = exe_mem_bus_r.wb_we;
@@ -47,7 +48,6 @@ module cpu_mem(
     wire [31:0] pc           = exe_mem_bus_r.pc;
     wire [31:0] inst         = exe_mem_bus_r.inst;
     wire [4:0]  amo_funct5   = exe_mem_bus_r.amo_funct5;
-    wire        amo_ordered  = exe_mem_bus_r.amo_aq || exe_mem_bus_r.amo_rl;
 
     wire is_load = exe_mem_bus_r.mem_kind == MEM_LOAD;
     wire is_store = exe_mem_bus_r.mem_kind == MEM_STORE;
@@ -61,12 +61,12 @@ module cpu_mem(
 
     reg [2:0]  state_r;
     reg [31:0] addr_r;
+    reg [31:0] checked_paddr_r;
     mem_kind_t kind_r;
     reg [2:0]  size_r;
     reg        unsigned_r;
     reg [31:0] store_data_r;
     reg [4:0]  amo_funct5_r;
-    reg        amo_ordered_r;
 
     reg        access_valid_r;
     reg        phys_valid_r;
@@ -80,7 +80,7 @@ module cpu_mem(
     reg        done_r;
     reg        seen_valid_r;
 
-    reg [31:0] reservation_addr_r;
+    reg [29:0] reservation_word_r;
     reg        reservation_valid_r;
     reg [31:0] amo_loaded_r;
 
@@ -100,7 +100,7 @@ module cpu_mem(
         phys_resp_rdata;
 
     wire reservation_match = reservation_valid_r &&
-                             (reservation_addr_r == addr_r);
+                             (reservation_word_r == mem_access_paddr[31:2]);
 
     function automatic [31:0] amo_compute(
         input [4:0] funct5,
@@ -125,12 +125,12 @@ module cpu_mem(
         if (!resetn) begin
             state_r <= MEM_IDLE;
             addr_r <= 32'b0;
+            checked_paddr_r <= 32'b0;
             kind_r <= MEM_NONE;
             size_r <= `AXI_SIZE_WORD;
             unsigned_r <= 1'b0;
             store_data_r <= 32'b0;
             amo_funct5_r <= 5'b0;
-            amo_ordered_r <= 1'b0;
             access_valid_r <= 1'b0;
             phys_valid_r <= 1'b0;
             phys_write_r <= 1'b0;
@@ -141,7 +141,7 @@ module cpu_mem(
             wb_rd_r <= 5'b0;
             done_r <= 1'b0;
             seen_valid_r <= 1'b0;
-            reservation_addr_r <= 32'b0;
+            reservation_word_r <= 30'b0;
             reservation_valid_r <= 1'b0;
             amo_loaded_r <= 32'b0;
         end else begin
@@ -168,7 +168,6 @@ module cpu_mem(
                             unsigned_r <= op_unsigned;
                             store_data_r <= store_data;
                             amo_funct5_r <= amo_funct5;
-                            amo_ordered_r <= amo_ordered;
                             wb_rd_r <= wb_rd;
                             wb_we_r <= wb_we;
 
@@ -187,6 +186,7 @@ module cpu_mem(
 
                     MEM_ACCESS: begin
                         if (mem_access_ready) begin
+                            checked_paddr_r <= mem_access_paddr;
                             case (kind_r)
                                 MEM_LOAD: begin
                                     phys_write_r <= 1'b0;
@@ -223,12 +223,8 @@ module cpu_mem(
                                         access_valid_r <= 1'b0;
                                         wb_data_r <= 32'd1;
                                         wb_we_r <= 1'b1;
-                                        if (amo_ordered_r)
-                                            state_r <= MEM_AMO_FENCE;
-                                        else begin
-                                            done_r <= 1'b1;
-                                            state_r <= MEM_IDLE;
-                                        end
+                                        done_r <= 1'b1;
+                                        state_r <= MEM_IDLE;
                                     end
                                 end
                                 default: begin // MEM_AMO
@@ -269,17 +265,13 @@ module cpu_mem(
                             phys_valid_r <= 1'b0;
                             amo_loaded_r <= phys_resp_rdata;
                             if (kind_r == MEM_LR) begin
-                                reservation_addr_r <= addr_r;
+                                reservation_word_r <= checked_paddr_r[31:2];
                                 reservation_valid_r <= 1'b1;
                                 wb_data_r <= phys_resp_rdata;
                                 wb_we_r <= 1'b1;
                                 access_valid_r <= 1'b0;
-                                if (amo_ordered_r)
-                                    state_r <= MEM_AMO_FENCE;
-                                else begin
-                                    done_r <= 1'b1;
-                                    state_r <= MEM_IDLE;
-                                end
+                                done_r <= 1'b1;
+                                state_r <= MEM_IDLE;
                             end else begin
                                 // AMO keeps the checked PA/access contract while changing
                                 // only its physical phase from READ to WRITE.
@@ -301,18 +293,9 @@ module cpu_mem(
                             reservation_valid_r <= 1'b0;
                             wb_data_r <= (kind_r == MEM_SC) ? 32'd0 : amo_loaded_r;
                             wb_we_r <= 1'b1;
-                            if (amo_ordered_r)
-                                state_r <= MEM_AMO_FENCE;
-                            else begin
-                                done_r <= 1'b1;
-                                state_r <= MEM_IDLE;
-                            end
+                            done_r <= 1'b1;
+                            state_r <= MEM_IDLE;
                         end
-                    end
-
-                    MEM_AMO_FENCE: begin
-                        done_r <= 1'b1;
-                        state_r <= MEM_IDLE;
                     end
 
                     default: state_r <= MEM_IDLE;
@@ -326,6 +309,7 @@ module cpu_mem(
     assign mem_kind = kind_r;
     assign mem_access_type = mem_access_class(kind_r);
     assign phys_req_valid = phys_valid_r;
+    assign phys_req_paddr = checked_paddr_r;
     assign phys_req_write = phys_write_r;
     assign phys_req_size = phys_size_r;
     assign phys_req_wdata = phys_wdata_r;

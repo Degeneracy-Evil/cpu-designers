@@ -85,6 +85,13 @@ module tb_stage_exception_unit;
               "EBREAK produces cause 3 with zero TVAL");
         set_decode(32'h0000_0013,PRIV_M);
         check(id_done&&!decode_exception.valid,"legal ADDI completes Decode normally");
+
+        set_decode({5'b00000,1'b1,1'b1,5'd2,5'd1,3'b010,5'd3,7'b0101111},PRIV_M);
+        check(id_done&&!decode_exception.valid&&id_exe_bus.mem_kind==MEM_AMO,
+              "AMO accepts aq/rl annotations without extra stage state");
+        set_decode({5'b00010,1'b0,1'b0,5'd1,5'd1,3'b010,5'd3,7'b0101111},PRIV_M);
+        check(decode_exception.valid&&decode_exception.cause==2&&!id_done,
+              "LR.W with nonzero rs2 is illegal");
         id_valid=0;
 
         execute_bus_r='0;

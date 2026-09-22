@@ -178,6 +178,7 @@ module core_top(
     mem_kind_t mem_kind;
     access_class_t mem_access_type;
     wire phys_req_valid;
+    wire [31:0] phys_req_paddr;
 
     wire [31:0] mmu_inst_paddr;
     wire [31:0] mmu_data_paddr;
@@ -600,8 +601,8 @@ module core_top(
         .clk(clk),
         .resetn(resetn),
 
-        .cpu_req_valid(phys_req_valid && mmu_data_ready),
-        .cpu_req_paddr(mmu_data_paddr),
+        .cpu_req_valid(phys_req_valid),
+        .cpu_req_paddr(phys_req_paddr),
         .cpu_req_wdata(phys_req_wdata),
         .cpu_req_write(phys_req_write),
         .cpu_req_size(phys_req_size),
@@ -643,7 +644,9 @@ module core_top(
         .mem_kind(mem_kind),
         .mem_access_type(mem_access_type),
         .mem_access_ready(mmu_data_ready),
+        .mem_access_paddr(mmu_data_paddr),
         .phys_req_valid(phys_req_valid),
+        .phys_req_paddr(phys_req_paddr),
         .phys_req_write(phys_req_write),
         .phys_req_size(phys_req_size),
         .phys_req_wdata(phys_req_wdata),

@@ -175,11 +175,7 @@ assign inst_remu   = (opcode == OPCODE_OP) && (funct3 == 3'b111) && (funct7 == 7
 
   // A extension instruction matches
   wire [4:0] funct5;
-  wire amo_aq;
-  wire amo_rl;
   assign funct5 = inst[31:27];
-  assign amo_aq = inst[26];
-  assign amo_rl = inst[25];
 
   wire inst_lr_w     = (opcode == OPCODE_AMO) && (funct3 == 3'b010) && (funct5 == 5'b00010) && (rs2 == 5'd0);
   wire inst_sc_w     = (opcode == OPCODE_AMO) && (funct3 == 3'b010) && (funct5 == 5'b00011);
@@ -558,8 +554,6 @@ wire inst_amomaxu  = (opcode == OPCODE_AMO) && (funct3 == 3'b010) && (funct5 == 
       rs1_value:     rs1_value,
       rs2_value:     rs2_value,
       amo_funct5:    funct5,
-      amo_aq:        amo_aq,
-      amo_rl:        amo_rl,
       csr_addr:      csr_addr,
       csr_funct3:    csr_funct3,
       csr_uimm:      csr_uimm,

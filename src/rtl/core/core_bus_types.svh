@@ -69,8 +69,6 @@ typedef struct packed {
     logic [31:0] rs1_value;
     logic [31:0] rs2_value;
     logic [4:0]  amo_funct5;
-    logic        amo_aq;
-    logic        amo_rl;
     logic [11:0] csr_addr;
     logic [2:0]  csr_funct3;
     logic [4:0]  csr_uimm;
@@ -89,8 +87,6 @@ typedef struct packed {
     logic        mem_unsigned;
     logic [31:0] store_data;
     logic [4:0]  amo_funct5;
-    logic        amo_aq;
-    logic        amo_rl;
 } exe_mem_bus_t;
 
 typedef struct packed {

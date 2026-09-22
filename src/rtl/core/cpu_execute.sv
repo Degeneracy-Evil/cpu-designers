@@ -49,8 +49,6 @@ module cpu_execute(
     wire [31:0] inst;
     mem_kind_t  mem_kind;
     wire [4:0]  amo_funct5;
-    wire        amo_aq;
-    wire        amo_rl;
 
     assign pc             = id_exe_bus_r.pc;
     assign pc_plus4       = id_exe_bus_r.pc_plus4;
@@ -74,8 +72,6 @@ module cpu_execute(
     assign mem_unsigned   = id_exe_bus_r.mem_unsigned;
     assign store_data     = id_exe_bus_r.rs2_value;
     assign amo_funct5     = id_exe_bus_r.amo_funct5;
-    assign amo_aq         = id_exe_bus_r.amo_aq;
-    assign amo_rl         = id_exe_bus_r.amo_rl;
 
     wire is_jalr;
     assign is_jalr = (inst[6:0] == 7'b1100111) && (inst[14:12] == 3'b000);
@@ -218,9 +214,7 @@ module cpu_execute(
         mem_size:      mem_size,
         mem_unsigned:  mem_unsigned,
         store_data:    store_data,
-        amo_funct5:    amo_funct5,
-        amo_aq:        amo_aq,
-        amo_rl:        amo_rl
+        amo_funct5:    amo_funct5
     };
 
     assign exe_pc = pc;

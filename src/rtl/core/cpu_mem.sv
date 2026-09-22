@@ -28,9 +28,7 @@ module cpu_mem(
     output wb_bus_t     mem_wb_bus,
     output     [31:0]  mem_pc,
     output     [31:0]  mem_inst,
-    output             mem_misalign_load,
-    output             mem_misalign_store,
-    output     [31:0]  mem_misalign_addr
+    output exception_t mem_exception
 );
     localparam [2:0] MEM_IDLE      = 3'd0;
     localparam [2:0] MEM_ACCESS    = 3'd1;
@@ -40,7 +38,6 @@ module cpu_mem(
     localparam [2:0] MEM_AMO_WRITE = 3'd5;
     localparam [2:0] MEM_AMO_FENCE = 3'd6;
 
-    wire        result_ok    = exe_mem_bus_r.result_ok;
     wire [31:0] result       = exe_mem_bus_r.result;
     wire        wb_we        = exe_mem_bus_r.wb_we;
     wire [4:0]  wb_rd        = exe_mem_bus_r.wb_rd;
@@ -173,15 +170,14 @@ module cpu_mem(
                             amo_funct5_r <= amo_funct5;
                             amo_ordered_r <= amo_ordered;
                             wb_rd_r <= wb_rd;
-                            wb_we_r <= wb_we && result_ok;
+                            wb_we_r <= wb_we;
 
-                            if (!result_ok || !has_mem_access) begin
+                            if (!has_mem_access) begin
                                 wb_data_r <= result;
                                 done_r <= 1'b1;
                             end else if (misalign_addr) begin
                                 wb_data_r <= 32'b0;
                                 wb_we_r <= 1'b0;
-                                done_r <= 1'b1;
                             end else begin
                                 access_valid_r <= 1'b1;
                                 state_r <= MEM_ACCESS;
@@ -345,7 +341,10 @@ module cpu_mem(
 
     assign mem_pc = pc;
     assign mem_inst = inst;
-    assign mem_misalign_load = (is_load || is_lr) && misalign_addr;
-    assign mem_misalign_store = (is_store || is_sc || is_amo) && misalign_addr;
-    assign mem_misalign_addr = result;
+    assign mem_exception = '{
+        valid: mem_valid && has_mem_access && misalign_addr,
+        cause: (is_load || is_lr) ? 32'd4 : 32'd6,
+        epc:   pc,
+        tval:  result
+    };
 endmodule

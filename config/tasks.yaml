@@ -408,8 +408,8 @@ tasks:
     blhex: boot/bootloader_phase1.hex
     runtime: 20us
 
-  cpu_clint_unit:
-    tb: tb_cpu_clint_unit
+  cpu_trap_router_unit:
+    tb: tb_cpu_trap_router_unit
     blhex: boot/bootloader_phase1.hex
     runtime: 20us
   cpu_controller_unit:
@@ -422,6 +422,10 @@ tasks:
     runtime: 20us
   exception_contract_unit:
     tb: tb_exception_contract_unit
+    blhex: boot/bootloader_phase1.hex
+    runtime: 20us
+  stage_exception_unit:
+    tb: tb_stage_exception_unit
     blhex: boot/bootloader_phase1.hex
     runtime: 20us
   cpu_bus_bridge_unit:

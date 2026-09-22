@@ -66,23 +66,21 @@ typedef struct packed {
     mem_kind_t   mem_kind;
     logic [2:0]  mem_size;
     logic        mem_unsigned;
-    logic [31:0] store_data;
+    logic [31:0] rs1_value;
+    logic [31:0] rs2_value;
     logic [4:0]  amo_funct5;
     logic        amo_aq;
     logic        amo_rl;
-    logic        is_csr;
     logic [11:0] csr_addr;
     logic [2:0]  csr_funct3;
     logic [4:0]  csr_uimm;
     logic [4:0]  csr_rs1;
-    logic [31:0] csr_rs1_value;
 } id_exe_bus_t;
 
 typedef struct packed {
     logic [31:0] pc;
     logic [31:0] pc_plus4;
     logic [31:0] inst;
-    logic        result_ok;
     logic [31:0] result;
     logic        wb_we;
     logic [4:0]  wb_rd;

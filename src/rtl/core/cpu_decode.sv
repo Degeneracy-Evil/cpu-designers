@@ -9,8 +9,7 @@ module cpu_decode(
     output     [4:0]   rs1_addr,
     output     [4:0]   rs2_addr,
     output             id_done,
-    output             illegal_inst,
-    output             dec_is_branch,
+    output exception_t decode_exception,
     output             dec_need_exe,
     output     id_exe_bus_t id_exe_bus,
 
@@ -18,8 +17,6 @@ module cpu_decode(
     output     [31:0]  id_inst,
 
     output             dec_is_csr,
-    output             dec_is_ecall,
-    output             dec_is_ebreak,
     output             dec_is_mret,
     output             dec_is_sret,
     output             dec_is_nop_like,
@@ -354,8 +351,6 @@ wire inst_amomaxu  = (opcode == OPCODE_AMO) && (funct3 == 3'b010) && (funct5 == 
   assign csr_funct3 = funct3;
   assign csr_uimm   = inst[19:15];
 
-  assign id_done = id_valid;
-
    localparam CSR_SSTATUS    = 12'h100;
    localparam CSR_SIE        = 12'h104;
    localparam CSR_STVEC      = 12'h105;
@@ -492,9 +487,7 @@ wire inst_amomaxu  = (opcode == OPCODE_AMO) && (funct3 == 3'b010) && (funct5 == 
   end
 
   wire csr_addr_invalid = is_csr && !csr_addr_valid;
-  // BUG-FIX: CSR privilege violation — S-mode accessing M-mode CSRs or U-mode
-  // accessing S/M-mode CSRs must raise illegal instruction. dec_csr_access_ok
-  // was computed but never fed into illegal_inst, causing silent permission bypass.
+  // CSR privilege violations are illegal instructions.
   wire csr_priv_violation = is_csr && !csr_access_ok_r;
   wire csr_read_only = (csr_addr[11:10] == 2'b11);
   wire csr_is_write   = (csr_funct3 == 3'b001) ||
@@ -506,11 +499,7 @@ wire inst_amomaxu  = (opcode == OPCODE_AMO) && (funct3 == 3'b010) && (funct5 == 
   wire write_ro_csr   = is_csr && csr_read_only && csr_is_write;
 
   wire sret_priv_violation = is_sret && (priv_mode == PRIV_U);
-  // BUG-FIX (sub-issue ⑥): Per RISC-V Privileged Spec, mret from S-mode or
-  // U-mode must raise an illegal instruction exception. Without this check,
-  // S-mode could execute mret and silently drop to the privilege level in MPP
-  // (set to U-mode=0 by the previous mret), causing all subsequent S-mode CSR
-  // accesses to trap as illegal instructions → infinite re-trap loop.
+  // MRET is legal only in M-mode.
   wire mret_priv_violation = is_mret && (priv_mode != PRIV_M);
   wire tw_bit = csr_mstatus[21];
   wire wfi_priv_violation = inst_wfi && tw_bit && (priv_mode != PRIV_M);
@@ -522,18 +511,26 @@ wire inst_amomaxu  = (opcode == OPCODE_AMO) && (funct3 == 3'b010) && (funct5 == 
   // forms.  M-mode uses this to virtualize both observing and changing satp.
   wire satp_tvm_violation = is_csr && (csr_addr == CSR_SATP) && tvm_bit && (priv_mode == PRIV_S);
 
-  assign illegal_inst = id_valid && (!valid_inst || csr_addr_invalid || csr_priv_violation || write_ro_csr ||
-                                      sret_priv_violation || mret_priv_violation ||
-                                      wfi_priv_violation || sret_tsr_violation ||
-                                      sfence_tvm_violation || satp_tvm_violation);
+  wire illegal_inst = !valid_inst || csr_addr_invalid || csr_priv_violation || write_ro_csr ||
+                      sret_priv_violation || mret_priv_violation ||
+                      wfi_priv_violation || sret_tsr_violation ||
+                      sfence_tvm_violation || satp_tvm_violation;
+  wire decode_fault = illegal_inst || is_ecall || is_ebreak;
+
+  assign decode_exception = '{
+      valid: id_valid && decode_fault,
+      cause: illegal_inst ? 32'd2 :
+             is_ecall ? ((priv_mode == PRIV_U) ? 32'd8 :
+                         (priv_mode == PRIV_S) ? 32'd9 : 32'd11) : 32'd3,
+      epc:   pc,
+      tval:  illegal_inst ? inst : 32'b0
+  };
+  assign id_done = id_valid && !decode_fault;
   assign rs1_addr = rs1;
   assign rs2_addr = rs2;
-  assign dec_is_branch = id_valid && valid_inst && is_branch;
   assign dec_need_exe = id_valid && valid_inst && !is_nop_like && !is_fencei && !is_sfence_vma && !is_system_trap && !is_mret && !is_sret && !is_csr;
 
   assign dec_is_csr    = id_valid && valid_inst && is_csr;
-  assign dec_is_ecall  = id_valid && valid_inst && is_ecall;
-  assign dec_is_ebreak = id_valid && valid_inst && is_ebreak;
   assign dec_is_mret   = id_valid && valid_inst && is_mret;
   assign dec_is_sret   = id_valid && valid_inst && is_sret;
   assign dec_is_nop_like = id_valid && valid_inst && (is_nop_like && !wfi_priv_violation);
@@ -558,16 +555,15 @@ wire inst_amomaxu  = (opcode == OPCODE_AMO) && (funct3 == 3'b010) && (funct5 == 
       mem_kind:      mem_kind,
       mem_size:      mem_size,
       mem_unsigned:  mem_unsigned,
-      store_data:    rs2_value,
+      rs1_value:     rs1_value,
+      rs2_value:     rs2_value,
       amo_funct5:    funct5,
       amo_aq:        amo_aq,
       amo_rl:        amo_rl,
-      is_csr:        is_csr,
       csr_addr:      csr_addr,
       csr_funct3:    csr_funct3,
       csr_uimm:      csr_uimm,
-      csr_rs1:       rs1,
-      csr_rs1_value: rs1_value
+      csr_rs1:       rs1
   };
 
   assign id_pc = pc;

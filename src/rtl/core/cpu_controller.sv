@@ -17,10 +17,8 @@ module cpu_controller(
     input        dec_is_sfence_vma,
     input        exe_is_branch,
     input        exe_need_mem,
-    input        trap_pending,
-    input        exception_at_decode,
-    input        fetch_fault_pending,
-    input        data_fault_pending,
+    input        sync_exception_pending,
+    input        interrupt_pending,
     input        init_sig,
     output       if_valid,
     output       id_valid,
@@ -71,17 +69,17 @@ module cpu_controller(
                     next_state = STATE_FETCH;
                 end
                 STATE_FETCH: begin
-                    if (fetch_fault_pending) begin
+                    if (sync_exception_pending) begin
                         next_state = STATE_TRAP_ENTER;
                     end else begin
                         next_state = if_done ? STATE_DECODE : STATE_FETCH;
                     end
                 end
                 STATE_DECODE: begin
-                    if (!id_done) begin
-                        next_state = STATE_DECODE;
-                    end else if (exception_at_decode) begin
+                    if (sync_exception_pending) begin
                         next_state = STATE_TRAP_ENTER;
+                    end else if (!id_done) begin
+                        next_state = STATE_DECODE;
                     end else if (dec_is_mret || dec_is_sret) begin
                         next_state = STATE_TRAP_RETURN;
                     end else if (dec_is_fencei) begin
@@ -89,20 +87,22 @@ module cpu_controller(
                     end else if (dec_is_sfence_vma) begin
                         next_state = STATE_SFENCE_VMA;
                     end else if (dec_is_nop_like) begin
-                        next_state = STATE_FETCH;
+                        next_state = interrupt_pending ? STATE_TRAP_ENTER : STATE_FETCH;
                     end else if (dec_is_csr) begin
                         next_state = STATE_CSR_ACCESS;
                     end else if (!dec_need_exe) begin
-                        next_state = STATE_FETCH;
+                        next_state = interrupt_pending ? STATE_TRAP_ENTER : STATE_FETCH;
                     end else begin
                         next_state = STATE_EXEC;
                     end
                 end
                 STATE_EXEC: begin
-                    if (!exe_done) begin
+                    if (sync_exception_pending) begin
+                        next_state = STATE_TRAP_ENTER;
+                    end else if (!exe_done) begin
                         next_state = STATE_EXEC;
                     end else if (exe_is_branch) begin
-                        next_state = trap_pending ? STATE_TRAP_ENTER : STATE_FETCH;
+                        next_state = interrupt_pending ? STATE_TRAP_ENTER : STATE_FETCH;
                     end else if (exe_need_mem) begin
                         next_state = STATE_MEM;
                     end else begin
@@ -110,7 +110,7 @@ module cpu_controller(
                     end
                 end
                 STATE_MEM: begin
-                    if (data_fault_pending) begin
+                    if (sync_exception_pending) begin
                         next_state = STATE_TRAP_ENTER;
                     end else begin
                         next_state = mem_done ? STATE_WB : STATE_MEM;
@@ -118,7 +118,7 @@ module cpu_controller(
                 end
                 STATE_WB: begin
                     if (wb_done) begin
-                        next_state = trap_pending ? STATE_TRAP_ENTER : STATE_FETCH;
+                        next_state = interrupt_pending ? STATE_TRAP_ENTER : STATE_FETCH;
                     end else begin
                         next_state = STATE_WB;
                     end
@@ -134,16 +134,14 @@ module cpu_controller(
                 end
                 STATE_FENCEI: begin
                     if (fencei_done) begin
-                        next_state = (data_fault_pending || trap_pending) ?
-                                     STATE_TRAP_ENTER : STATE_FETCH;
+                        next_state = interrupt_pending ? STATE_TRAP_ENTER : STATE_FETCH;
                     end else begin
                         next_state = STATE_FENCEI;
                     end
                 end
                 STATE_SFENCE_VMA: begin
                     if (sfence_vma_done) begin
-                        next_state = (data_fault_pending || trap_pending) ?
-                                     STATE_TRAP_ENTER : STATE_FETCH;
+                        next_state = interrupt_pending ? STATE_TRAP_ENTER : STATE_FETCH;
                     end else begin
                         next_state = STATE_SFENCE_VMA;
                     end

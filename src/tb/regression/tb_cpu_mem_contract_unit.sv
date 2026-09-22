@@ -16,8 +16,7 @@ module tb_cpu_mem_contract_unit;
     mem_kind_t mem_kind;
     access_class_t mem_access_type;
     wb_bus_t mem_wb_bus;
-    wire mem_misalign_load, mem_misalign_store;
-    wire [31:0] mem_misalign_addr;
+    exception_t mem_exception;
 
     cpu_mem dut(.*);
 
@@ -39,7 +38,6 @@ module tb_cpu_mem_contract_unit;
         exe_mem_bus_r.pc=32'h80000100;
         exe_mem_bus_r.pc_plus4=32'h80000104;
         exe_mem_bus_r.inst=32'h00000013;
-        exe_mem_bus_r.result_ok=1;
         exe_mem_bus_r.result=addr;
         exe_mem_bus_r.wb_we=(kind!=MEM_STORE);
         exe_mem_bus_r.wb_rd=5'd5;
@@ -115,6 +113,25 @@ module tb_cpu_mem_contract_unit;
         complete_phys(0);
         check(mem_done&&mem_wb_bus.wb_data==0,"successful SC returns zero");
         finish_op();
+
+        @(negedge clk);
+        exe_mem_bus_r='0;
+        exe_mem_bus_r.pc=32'h80000500;
+        exe_mem_bus_r.result=32'h80005002;
+        exe_mem_bus_r.mem_kind=MEM_LOAD;
+        exe_mem_bus_r.mem_size=`AXI_SIZE_WORD;
+        mem_valid=1;
+        #1;
+        check(mem_exception.valid&&mem_exception.cause==4,
+              "misaligned load produces one architectural exception");
+        check(mem_exception.epc==32'h80000500&&mem_exception.tval==32'h80005002,
+              "memory exception preserves instruction PC and effective VA");
+        @(posedge clk);#1;
+        check(!mem_done&&!mem_access_valid&&!phys_req_valid,
+              "misaligned load does not complete or issue a request");
+        @(negedge clk);trap_enter=1;
+        @(posedge clk);#1;
+        @(negedge clk);trap_enter=0;mem_valid=0;
 
         $display("cpu_mem contract unit: pass=%0d fail=%0d",pass_count,fail_count);
         if(!fail_count)$display("ALL TESTS PASSED");else $display("TEST FAILED");

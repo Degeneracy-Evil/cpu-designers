@@ -92,7 +92,7 @@ module cpu_csr_interface(
     assign csr_funct3_bus    = id_exe_bus_r.csr_funct3;
     assign csr_uimm_bus      = id_exe_bus_r.csr_uimm;
     assign csr_rs1_bus       = id_exe_bus_r.csr_rs1;
-    assign csr_rs1_val_bus   = id_exe_bus_r.csr_rs1_value;
+    assign csr_rs1_val_bus   = id_exe_bus_r.rs1_value;
     assign csr_rd_bus        = id_exe_bus_r.wb_rd;
     assign csr_pc_plus4_bus  = id_exe_bus_r.pc_plus4;
     assign csr_pc_bus        = id_exe_bus_r.pc;

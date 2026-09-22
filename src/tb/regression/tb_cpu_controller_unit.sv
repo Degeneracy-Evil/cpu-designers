@@ -12,8 +12,8 @@ module tb_cpu_controller_unit;
     reg if_done, id_done, exe_done, mem_done, wb_done;
     reg dec_need_exe, dec_is_csr, dec_is_mret, dec_is_sret;
     reg dec_is_nop_like, dec_is_fencei, dec_is_sfence_vma;
-    reg exe_is_branch, exe_need_mem, trap_pending;
-    reg exception_at_decode, fetch_fault_pending, data_fault_pending;
+    reg exe_is_branch, exe_need_mem;
+    reg sync_exception_pending, interrupt_pending;
     reg init_sig, fencei_done, sfence_vma_done;
     wire if_valid, id_valid, exe_valid, mem_valid, wb_valid, csr_valid;
     wire trap_enter_valid, trap_return_valid, exe_to_wb;
@@ -42,8 +42,8 @@ module tb_cpu_controller_unit;
             if_done=0; id_done=0; exe_done=0; mem_done=0; wb_done=0;
             dec_need_exe=0; dec_is_csr=0; dec_is_mret=0; dec_is_sret=0;
             dec_is_nop_like=0; dec_is_fencei=0; dec_is_sfence_vma=0;
-            exe_is_branch=0; exe_need_mem=0; trap_pending=0;
-            exception_at_decode=0; fetch_fault_pending=0; data_fault_pending=0;
+            exe_is_branch=0; exe_need_mem=0;
+            sync_exception_pending=0; interrupt_pending=0;
             init_sig=0; fencei_done=0; sfence_vma_done=0;
         end
     endtask
@@ -111,8 +111,8 @@ module tb_cpu_controller_unit;
         check(state==S_WB, "CSR_ACCESS advances to WB");
 
         restart(); fetch_to_decode();
-        @(negedge clk); id_done=1; exception_at_decode=1;
-        @(posedge clk); #1; id_done=0; exception_at_decode=0;
+        @(negedge clk); sync_exception_pending=1;
+        @(posedge clk); #1; sync_exception_pending=0;
         check(state==S_TRAP && trap_enter_valid, "illegal/ecall/ebreak aggregate enters trap");
 
         restart(); fetch_to_decode();
@@ -125,23 +125,28 @@ module tb_cpu_controller_unit;
         check(state==S_RETURN, "sret enters TRAP_RETURN");
 
         restart();
-        @(negedge clk); fetch_fault_pending=1;
-        @(posedge clk); #1; fetch_fault_pending=0;
+        @(negedge clk); sync_exception_pending=1;
+        @(posedge clk); #1; sync_exception_pending=0;
         check(state==S_TRAP, "instruction access/page fault enters trap");
         restart(); fetch_to_decode(); decode_to_exec();
         @(negedge clk); exe_done=1; exe_need_mem=1;
         @(posedge clk); #1; exe_done=0; exe_need_mem=0;
-        @(negedge clk); data_fault_pending=1;
-        @(posedge clk); #1; data_fault_pending=0;
+        @(negedge clk); sync_exception_pending=1;
+        @(posedge clk); #1; sync_exception_pending=0;
         check(state==S_TRAP, "load/store access/page fault enters trap");
 
         restart(); fetch_to_decode(); decode_to_exec();
-        @(negedge clk); exe_done=1; trap_pending=1;
+        @(negedge clk); exe_done=1; interrupt_pending=1;
         @(posedge clk); #1; exe_done=0;
         check(state==S_WB, "interrupt does not cancel an executing instruction");
         @(negedge clk); wb_done=1;
-        @(posedge clk); #1; wb_done=0; trap_pending=0;
+        @(posedge clk); #1; wb_done=0; interrupt_pending=0;
         check(state==S_TRAP, "interrupt is taken after retirement");
+
+        restart(); fetch_to_decode();
+        @(negedge clk); id_done=1; dec_is_nop_like=1; interrupt_pending=1;
+        @(posedge clk); #1; id_done=0; dec_is_nop_like=0; interrupt_pending=0;
+        check(state==S_TRAP, "decode-only completion accepts pending interrupt");
 
         restart(); fetch_to_decode();
         @(negedge clk); id_done=1; dec_is_fencei=1;
@@ -154,6 +159,13 @@ module tb_cpu_controller_unit;
         check(state==S_FETCH && !fencei_req, "FENCE.I completion returns to FETCH");
 
         restart(); fetch_to_decode();
+        @(negedge clk); id_done=1; dec_is_fencei=1;
+        @(posedge clk); #1; id_done=0; dec_is_fencei=0;
+        @(negedge clk); fencei_done=1; interrupt_pending=1;
+        @(posedge clk); #1; fencei_done=0; interrupt_pending=0;
+        check(state==S_TRAP, "FENCE.I completion accepts pending interrupt");
+
+        restart(); fetch_to_decode();
         @(negedge clk); id_done=1; dec_is_sfence_vma=1;
         @(posedge clk); #1; id_done=0; dec_is_sfence_vma=0;
         check(state==S_SFENCE && sfence_vma_req, "SFENCE.VMA holds flush request");
@@ -162,6 +174,13 @@ module tb_cpu_controller_unit;
         @(negedge clk); sfence_vma_done=1;
         @(posedge clk); #1; sfence_vma_done=0;
         check(state==S_FETCH && !sfence_vma_req, "SFENCE.VMA completion returns to FETCH");
+
+        restart(); fetch_to_decode();
+        @(negedge clk); id_done=1; dec_is_sfence_vma=1;
+        @(posedge clk); #1; id_done=0; dec_is_sfence_vma=0;
+        @(negedge clk); sfence_vma_done=1; interrupt_pending=1;
+        @(posedge clk); #1; sfence_vma_done=0; interrupt_pending=0;
+        check(state==S_TRAP, "SFENCE.VMA completion accepts pending interrupt");
 
         $display("cpu_controller unit: pass=%0d fail=%0d", pass_count, fail_count);
         if (fail_count==0) $display("ALL TESTS PASSED");

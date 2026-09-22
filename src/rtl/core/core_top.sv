@@ -151,10 +151,7 @@ module core_top(
     wire        sfence_vma_req;
 
     wire dec_need_exe;
-    wire dec_illegal;
     wire dec_is_csr;
-    wire dec_is_ecall;
-    wire dec_is_ebreak;
     wire dec_is_mret;
     wire dec_is_sret;
     wire dec_is_nop_like;
@@ -165,9 +162,6 @@ module core_top(
     wire exe_is_ctrl_flow;
     wire exe_is_branch;
     wire exe_need_mem;
-
-    wire exe_misalign_valid;
-    wire [31:0] exe_misalign_target;
 
     if_id_bus_t  if_id_bus;
     id_exe_bus_t id_exe_bus;
@@ -188,12 +182,12 @@ module core_top(
     wire [31:0] mmu_inst_paddr;
     wire [31:0] mmu_data_paddr;
 
-    wire        mmu_inst_page_fault;
-    wire        mmu_data_page_fault;
-    wire [3:0]  mmu_inst_pf_cause;
-    wire [3:0]  mmu_data_pf_cause;
-    wire [31:0] mmu_inst_pf_vaddr;
-    wire [31:0] mmu_data_pf_vaddr;
+    wire        mmu_inst_fault;
+    wire        mmu_data_fault;
+    wire [3:0]  mmu_inst_fault_cause;
+    wire [3:0]  mmu_data_fault_cause;
+    wire [31:0] mmu_inst_fault_vaddr;
+    wire [31:0] mmu_data_fault_vaddr;
 
     wire        mmu_inst_ready;
     wire        mmu_data_ready;
@@ -224,33 +218,27 @@ module core_top(
 
     wb_bus_t      exe_wb_bus;
     assign exe_wb_bus = '{
-        wb_we:         exe_mem_bus.wb_we & exe_mem_bus.result_ok,
+        wb_we:         exe_mem_bus.wb_we,
         wb_rd:         exe_mem_bus.wb_rd,
         wb_data:       exe_mem_bus.result,
         pc:            exe_mem_bus.pc,
         inst:          exe_mem_bus.inst
     };
 
-    wire mem_misalign_load;
-    wire mem_misalign_store;
-    wire [31:0] mem_misalign_addr;
-
     wire [31:0] id_pc_wire;
     wire [31:0] id_inst_wire;
 
-    wire exception_at_decode;
-    wire trap_pending;
+    exception_t fetch_exception;
+    exception_t decode_exception;
+    exception_t exe_exception;
+    exception_t mem_local_exception;
+    exception_t mem_external_exception;
+    exception_t mem_exception;
+    exception_t sync_exception_now;
+    wire sync_exception_pending;
+    wire interrupt_pending;
     wb_bus_t      csr_wb_bus;
     wire [31:0] csr_pc_plus4_out;
-
-    wire inst_access_fault_pending;
-    wire data_access_fault_pending;
-    wire inst_page_fault_pending;
-    wire data_page_fault_pending;
-    wire fetch_fault_pending = inst_access_fault_pending ||
-                               inst_page_fault_pending;
-    wire data_fault_pending = data_access_fault_pending ||
-                              data_page_fault_pending;
 
     wire cycle_en;
     assign cycle_en = ~init_sig;
@@ -406,10 +394,8 @@ module core_top(
         .sfence_vma_done(mmu_sfence_done),
         .exe_is_branch(exe_is_branch),
         .exe_need_mem(exe_need_mem),
-        .trap_pending(trap_pending),
-        .exception_at_decode(exception_at_decode),
-        .fetch_fault_pending(fetch_fault_pending),
-        .data_fault_pending(data_fault_pending),
+        .sync_exception_pending(sync_exception_pending),
+        .interrupt_pending(interrupt_pending),
         .init_sig(init_sig),
         .if_valid(if_valid),
         .id_valid(id_valid),
@@ -503,15 +489,12 @@ module core_top(
         .rs1_addr(rs1_addr),
         .rs2_addr(rs2_addr),
         .id_done(id_done),
-        .illegal_inst(dec_illegal),
-        .dec_is_branch(),
+        .decode_exception(decode_exception),
         .dec_need_exe(dec_need_exe),
         .id_exe_bus(id_exe_bus),
         .id_pc(id_pc_wire),
         .id_inst(id_inst_wire),
         .dec_is_csr(dec_is_csr),
-        .dec_is_ecall(dec_is_ecall),
-        .dec_is_ebreak(dec_is_ebreak),
         .dec_is_mret(dec_is_mret),
         .dec_is_sret(dec_is_sret),
         .dec_is_nop_like(dec_is_nop_like),
@@ -546,8 +529,7 @@ module core_top(
         .exe_need_mem(exe_need_mem),
         .exe_pc(exe_pc),
         .exe_inst(exe_inst),
-        .exe_misalign_valid(exe_misalign_valid),
-        .exe_misalign_target(exe_misalign_target),
+        .exe_exception(exe_exception),
         .dbg_mu_active(dbg_mu_active_w),
         .dbg_mu_req_valid(dbg_mu_req_valid_w),
         .dbg_mu_ready(dbg_mu_ready_w),
@@ -576,6 +558,44 @@ module core_top(
     wire [255:0] dcache_mem_resp_data;
     wire        dcache_mem_resp_error;
     wire        dcache_cpu_error;
+
+    always_comb begin
+        fetch_exception = '0;
+        if (if_valid && (mmu_inst_fault || icache_cpu_error)) begin
+            fetch_exception.valid = 1'b1;
+            fetch_exception.cause = mmu_inst_fault ?
+                                    {28'b0, mmu_inst_fault_cause} : 32'd1;
+            fetch_exception.epc = fetch_vaddr;
+            fetch_exception.tval = mmu_inst_fault ?
+                                   mmu_inst_fault_vaddr : fetch_vaddr;
+        end
+
+        mem_external_exception = '0;
+        if (mem_valid && (mmu_data_fault || dcache_cpu_error ||
+                          pmp_data_violation)) begin
+            mem_external_exception.valid = 1'b1;
+            mem_external_exception.cause = mmu_data_fault ?
+                    {28'b0, mmu_data_fault_cause} :
+                    (mem_access_type == ACCESS_LOAD ? 32'd5 : 32'd7);
+            mem_external_exception.epc = mem_pc;
+            mem_external_exception.tval = mmu_data_fault ?
+                                           mmu_data_fault_vaddr : mem_vaddr;
+        end
+
+        mem_exception = mem_local_exception.valid ?
+                        mem_local_exception : mem_external_exception;
+
+        sync_exception_now = '0;
+        if (if_valid && fetch_exception.valid)
+            sync_exception_now = fetch_exception;
+        else if (id_valid && decode_exception.valid)
+            sync_exception_now = decode_exception;
+        else if (exe_valid && exe_exception.valid)
+            sync_exception_now = exe_exception;
+        else if (mem_valid && mem_exception.valid)
+            sync_exception_now = mem_exception;
+    end
+
     dcache_ctrl u_dcache_wrap (
         .clk(clk),
         .resetn(resetn),
@@ -633,9 +653,7 @@ module core_top(
         .mem_wb_bus(mem_wb_bus),
         .mem_pc(mem_pc),
         .mem_inst(mem_inst),
-        .mem_misalign_load(mem_misalign_load),
-        .mem_misalign_store(mem_misalign_store),
-        .mem_misalign_addr(mem_misalign_addr)
+        .mem_exception(mem_local_exception)
     );
 
     cpu_wb u_wb(
@@ -682,19 +700,7 @@ module core_top(
     cpu_trap_csr u_trap_csr(
         .clk              (clk),
         .resetn            (resetn),
-        .id_valid         (id_valid),
-        .id_done          (id_done),
-        .dec_illegal      (dec_illegal),
-        .dec_is_ecall     (dec_is_ecall),
-        .dec_is_ebreak    (dec_is_ebreak),
-        .id_pc            (id_pc_wire),
-        .id_inst          (id_inst_wire),
-        .mem_valid        (mem_valid),
-        .mem_done         (mem_done),
-        .mem_misalign_load(mem_misalign_load),
-        .mem_misalign_store(mem_misalign_store),
-        .mem_misalign_addr(mem_misalign_addr),
-        .mem_pc           (mem_pc),
+        .sync_exception_now(sync_exception_now),
         .id_exe_bus_r     (id_exe_bus_r),
         .csr_valid        (csr_valid),
         .trap_enter_valid (trap_enter_valid),
@@ -706,44 +712,14 @@ module core_top(
         .ext_msip_in      (ext_msip_in),
         .ext_mtime        (ext_mtime),
         .current_pc       (pc),
-        .exe_misalign_valid(exe_misalign_valid),
-        .exe_misalign_target(exe_misalign_target),
-        .exe_pc           (exe_pc),
-        // BUG-MMU-3 REVERTED: PTW access faults (cause 1/5/7) routed as page faults
-        // to S-mode (kernel handles them). Original fix routed them as access faults
-        // to M-mode, but MEDELEG doesn't delegate bits 1/5/7, so OpenSBI received
-        // them and couldn't handle them → MMU translation errors → kernel jump to BSS.
-        .inst_access_fault(icache_cpu_error || (mmu_inst_page_fault && (mmu_inst_pf_cause == 4'd1))),
-        .inst_access_fault_pc(fetch_vaddr),
-        .inst_access_fault_addr(icache_cpu_error ? fetch_vaddr : mmu_inst_pf_vaddr),
-        .load_access_fault((dcache_cpu_error && (mem_access_type == ACCESS_LOAD)) ||
-                           (mmu_data_page_fault && (mmu_data_pf_cause == 4'd5))),
-        .load_access_fault_addr(dcache_cpu_error ? mem_vaddr : mmu_data_pf_vaddr),
-        .store_access_fault((dcache_cpu_error && (mem_access_type == ACCESS_STORE)) ||
-                            (mmu_data_page_fault && (mmu_data_pf_cause == 4'd7)) ||
-                            pmp_data_violation),
-        .store_access_fault_addr(dcache_cpu_error ? mem_vaddr : mmu_data_pf_vaddr),
-        .mem_access_fault_pc(mem_pc),
-        .inst_page_fault(mmu_inst_page_fault && (mmu_inst_pf_cause == 4'd12)),
-        .inst_page_fault_pc(fetch_vaddr),
-        .inst_page_fault_vaddr(mmu_inst_pf_vaddr),
-        .load_page_fault(mmu_data_page_fault && (mmu_data_pf_cause == 4'd13)),
-        .load_page_fault_vaddr(mmu_data_pf_vaddr),
-        .store_page_fault(mmu_data_page_fault && (mmu_data_pf_cause == 4'd15)),
-        .store_page_fault_vaddr(mmu_data_pf_vaddr),
-        .mem_page_fault_pc(mem_pc),
         .cycle_en         (cycle_en),
         .inst_retire      (inst_retire),
-        .exception_at_decode(exception_at_decode),
-        .trap_pending     (trap_pending),
+        .sync_exception_pending(sync_exception_pending),
+        .interrupt_pending(interrupt_pending),
         .csr_wb_bus       (csr_wb_bus),
         .trap_pc          (trap_csr_pc),
         .csr_pc_plus4     (csr_pc_plus4_out),
         .target_priv      (target_priv),
-        .inst_access_fault_pending(inst_access_fault_pending),
-        .data_access_fault_pending(data_access_fault_pending),
-        .inst_page_fault_pending(inst_page_fault_pending),
-        .data_page_fault_pending(data_page_fault_pending),
         .csr_mstatus      (csr_mstatus),
         .csr_mie          (csr_mie),
         .csr_mtvec        (csr_mtvec),
@@ -799,9 +775,9 @@ module core_top(
         .i_translate_en(if_valid),          // request only while fetch is active
         .i_paddr(mmu_inst_paddr),
         .i_miss(),
-        .i_page_fault(mmu_inst_page_fault),
-        .i_pf_cause(mmu_inst_pf_cause),
-        .i_pf_vaddr(mmu_inst_pf_vaddr),
+        .i_fault(mmu_inst_fault),
+        .i_fault_cause(mmu_inst_fault_cause),
+        .i_fault_vaddr(mmu_inst_fault_vaddr),
         .i_ready(mmu_inst_ready),
         // d-side
         .d_vaddr(mem_vaddr),
@@ -809,9 +785,9 @@ module core_top(
         .d_translate_en(mem_access_valid),
         .d_paddr(mmu_data_paddr),
         .d_miss(),
-        .d_page_fault(mmu_data_page_fault),
-        .d_pf_cause(mmu_data_pf_cause),
-        .d_pf_vaddr(mmu_data_pf_vaddr),
+        .d_fault(mmu_data_fault),
+        .d_fault_cause(mmu_data_fault_cause),
+        .d_fault_vaddr(mmu_data_fault_vaddr),
         .d_ready(mmu_data_ready),
         // shared CSR
         .priv_mode(priv_mode),

@@ -16,9 +16,7 @@ module cpu_execute(
 
     output     [31:0]  exe_pc,
     output     [31:0]  exe_inst,
-
-    output             exe_misalign_valid,
-    output     [31:0]  exe_misalign_target,
+    output exception_t exe_exception,
 
     output             dbg_mu_active,
     output             dbg_mu_req_valid,
@@ -60,8 +58,8 @@ module cpu_execute(
     assign alu_control    = id_exe_bus_r.alu_control;
     assign alu_src1       = id_exe_bus_r.alu_src1;
     assign alu_src2       = id_exe_bus_r.alu_src2;
-    assign rs1_value      = id_exe_bus_r.csr_rs1_value;
-    assign rs2_value      = id_exe_bus_r.store_data;
+    assign rs1_value      = id_exe_bus_r.rs1_value;
+    assign rs2_value      = id_exe_bus_r.rs2_value;
     assign is_branch      = id_exe_bus_r.is_branch;
     assign is_jal_like    = id_exe_bus_r.is_jal_like;
     assign branch_funct3  = id_exe_bus_r.branch_funct3;
@@ -74,7 +72,7 @@ module cpu_execute(
     assign mem_kind       = id_exe_bus_r.mem_kind;
     assign mem_size       = id_exe_bus_r.mem_size;
     assign mem_unsigned   = id_exe_bus_r.mem_unsigned;
-    assign store_data     = id_exe_bus_r.store_data;
+    assign store_data     = id_exe_bus_r.rs2_value;
     assign amo_funct5     = id_exe_bus_r.amo_funct5;
     assign amo_aq         = id_exe_bus_r.amo_aq;
     assign amo_rl         = id_exe_bus_r.amo_rl;
@@ -125,7 +123,6 @@ module cpu_execute(
     );
 
     reg [31:0] result_reg;
-    reg        result_ok;
     reg        done_reg;
     reg [31:0] branch_target_reg;
     reg        branch_taken_reg;
@@ -138,7 +135,6 @@ module cpu_execute(
             mu_active <= 1'b0;
             exe_seen_valid <= 1'b0;
             result_reg <= 32'b0;
-            result_ok <= 1'b0;
             done_reg <= 1'b0;
             branch_target_reg <= 32'b0;
             branch_taken_reg <= 1'b0;
@@ -154,7 +150,6 @@ module cpu_execute(
                 exe_seen_valid <= 1'b1;
                 if (use_fixed_wb) begin
                     result_reg <= fixed_wb_data;
-                    result_ok <= 1'b1;
                     done_reg <= 1'b1;
                     branch_target_reg <= 32'b0;
                     branch_taken_reg <= 1'b0;
@@ -163,7 +158,6 @@ module cpu_execute(
                     mu_active <= 1'b1;
                 end else begin
                     result_reg <= alu_result;
-                    result_ok <= 1'b1;
                     done_reg <= 1'b1;
                     branch_target_reg <= is_jalr ? (alu_result & 32'hffff_fffe) : alu_result;
                     branch_taken_reg <= is_branch ? branch_cond_true : is_jal_like;
@@ -177,7 +171,6 @@ module cpu_execute(
                 if (mu_result_valid) begin
                     mu_result_got <= 1'b1;
                     result_reg <= mu_result;
-                    result_ok <= 1'b1;
                     done_reg <= 1'b1;
                     mu_active <= 1'b0;
                     mu_req_valid <= 1'b0;
@@ -190,7 +183,10 @@ module cpu_execute(
         end
     end
 
-    assign exe_done = done_reg;
+    wire control_flow_misaligned = exe_is_ctrl_flow && branch_taken_reg &&
+                                   (branch_target_reg[1:0] != 2'b00);
+
+    assign exe_done = done_reg && !control_flow_misaligned;
     assign exe_branch_taken = branch_taken_reg;
     assign exe_branch_target = branch_target_reg;
     assign dbg_mu_active = mu_active;
@@ -204,14 +200,17 @@ module cpu_execute(
     assign exe_is_branch = is_branch;
     assign exe_need_mem  = (mem_kind != MEM_NONE);
 
-    assign exe_misalign_valid = done_reg && exe_is_ctrl_flow && branch_taken_reg && (branch_target_reg[1:0] != 2'b00);
-    assign exe_misalign_target = branch_target_reg;
+    assign exe_exception = '{
+        valid: exe_valid && done_reg && control_flow_misaligned,
+        cause: 32'd0,
+        epc:   pc,
+        tval:  branch_target_reg
+    };
 
     assign exe_mem_bus = '{
         pc:            pc,
         pc_plus4:      pc_plus4,
         inst:          inst,
-        result_ok:     result_ok,
         result:        is_jal_like ? pc_plus4 : result_reg,
         wb_we:         wb_we,
         wb_rd:         wb_rd,

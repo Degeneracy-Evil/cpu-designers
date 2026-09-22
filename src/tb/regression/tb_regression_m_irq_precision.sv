@@ -14,7 +14,7 @@ module tb_regression_m_irq_precision;
   logic resetn = 1'b0;
   always #5 clk = ~clk;
 
-  logic trap_pending = 1'b0;
+  logic interrupt_pending = 1'b0;
   id_exe_bus_t id_exe_bus_r;
   logic exe_done;
   logic exe_valid;
@@ -43,10 +43,8 @@ module tb_regression_m_irq_precision;
     .dec_is_sfence_vma(1'b0),
     .exe_is_branch(exe_is_branch),
     .exe_need_mem(exe_need_mem),
-    .trap_pending(trap_pending),
-    .exception_at_decode(1'b0),
-    .fetch_fault_pending(1'b0),
-    .data_fault_pending(1'b0),
+    .sync_exception_pending(1'b0),
+    .interrupt_pending(interrupt_pending),
     .init_sig(1'b0),
     .if_valid(),
     .id_valid(),
@@ -78,8 +76,7 @@ module tb_regression_m_irq_precision;
     .exe_need_mem(exe_need_mem),
     .exe_pc(),
     .exe_inst(),
-    .exe_misalign_valid(),
-    .exe_misalign_target(),
+    .exe_exception(),
     .dbg_mu_active(dbg_mu_active),
     .dbg_mu_req_valid(),
     .dbg_mu_ready(),
@@ -108,7 +105,7 @@ module tb_regression_m_irq_precision;
 
     wait (dbg_mu_active);
     @(negedge clk);
-    trap_pending = 1'b1;
+    interrupt_pending = 1'b1;
 
     while (!exe_done) begin
       @(posedge clk);
@@ -117,8 +114,6 @@ module tb_regression_m_irq_precision;
         $fatal(1, "controller left EXEC while MULHU was active: state=%0d", state);
     end
 
-    if (!exe_mem_bus.result_ok)
-      $fatal(1, "MULHU completion was suppressed by pending interrupt");
     if (exe_mem_bus.result !== 32'hffff_fffe)
       $fatal(1, "bad MULHU result: got %08x", exe_mem_bus.result);
 

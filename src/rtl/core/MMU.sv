@@ -16,9 +16,9 @@ module MMU #(
     input              i_translate_en,
     output      [31:0] i_paddr,
     output             i_miss,
-    output             i_page_fault,
-    output      [3:0]  i_pf_cause,
-    output      [31:0] i_pf_vaddr,
+    output             i_fault,
+    output      [3:0]  i_fault_cause,
+    output      [31:0] i_fault_vaddr,
     output             i_ready,
 
     input       [31:0] d_vaddr,
@@ -26,9 +26,9 @@ module MMU #(
     input              d_translate_en,
     output      [31:0] d_paddr,
     output             d_miss,
-    output             d_page_fault,
-    output      [3:0]  d_pf_cause,
-    output      [31:0] d_pf_vaddr,
+    output             d_fault,
+    output      [3:0]  d_fault_cause,
+    output      [31:0] d_fault_vaddr,
     output             d_ready,
 
     input       priv_mode_t priv_mode,
@@ -411,14 +411,14 @@ module MMU #(
     assign d_miss = ((state == S_WALK_START) || (state == S_WALK_WAIT)) &&
                     (owner_r == OWNER_D);
 
-    assign i_page_fault = (state == S_FAULT) && (owner_r == OWNER_I) &&
-                          i_request_matches;
-    assign d_page_fault = (state == S_FAULT) && (owner_r == OWNER_D) &&
-                          d_request_matches;
-    assign i_pf_cause = i_page_fault ? fault_cause_r : 4'b0;
-    assign d_pf_cause = d_page_fault ? fault_cause_r : 4'b0;
-    assign i_pf_vaddr = i_page_fault ? fault_vaddr_r : 32'b0;
-    assign d_pf_vaddr = d_page_fault ? fault_vaddr_r : 32'b0;
+    assign i_fault = (state == S_FAULT) && (owner_r == OWNER_I) &&
+                     i_request_matches;
+    assign d_fault = (state == S_FAULT) && (owner_r == OWNER_D) &&
+                     d_request_matches;
+    assign i_fault_cause = i_fault ? fault_cause_r : 4'b0;
+    assign d_fault_cause = d_fault ? fault_cause_r : 4'b0;
+    assign i_fault_vaddr = i_fault ? fault_vaddr_r : 32'b0;
+    assign d_fault_vaddr = d_fault ? fault_vaddr_r : 32'b0;
     assign sfence_done = sfence_done_r;
 
     wire lookup_active = (state == S_LOOKUP) && req_sv32;

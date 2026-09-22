@@ -25,7 +25,7 @@ module tb_regression_reg_mmio_ready;
         $display("  dbg inst_valid_mux  = %0b", u_soc.cpu.inst_valid_mux);
         $display("  dbg ic_mem_req/rdy  = %0b/%0b", u_soc.cpu.icache_mem_req_valid, u_soc.cpu.icache_mem_req_ready);
         $display("  dbg ic_mem_resp     = %0b", u_soc.cpu.icache_mem_resp_valid);
-        $display("  dbg trap_pend/enter = %0b/%0b", u_soc.cpu.trap_pending, u_soc.cpu.trap_enter_valid);
+        $display("  dbg irq_pend/enter = %0b/%0b", u_soc.cpu.interrupt_pending, u_soc.cpu.trap_enter_valid);
         $display("");
         read_reg(5'd28, _val);
         if (_val === EXPECTED_TOTAL) begin pass_count = pass_count + 1; $display("  PASS pass_count = %0d", EXPECTED_TOTAL); end

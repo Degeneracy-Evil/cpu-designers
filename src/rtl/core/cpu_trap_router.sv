@@ -1,14 +1,8 @@
 `timescale 1ns / 1ps
 `include "core_bus_types.svh"
 
-module cpu_clint(
-    input              clk,
-    input              resetn,
-
-    input              exception_valid,
-    input       [31:0] exception_cause,
-    input       [31:0] exception_pc,
-    input       [31:0] exception_mtval,
+module cpu_trap_router(
+    input exception_t  exception,
 
     input              mret_req,
     input              sret_req,
@@ -29,6 +23,7 @@ module cpu_clint(
     input       [31:0] csr_stvec,
     input       [31:0] csr_sepc,
     output             trap_enter,
+    output             interrupt_pending,
     output             trap_return,
     output      [31:0] trap_pc,
     output      priv_mode_t target_priv,
@@ -78,24 +73,20 @@ module cpu_clint(
     wire [31:0] m_interrupt_cause = 32'h8000_0000 | {26'b0, m_int_idx};
     wire [31:0] s_interrupt_cause = 32'h8000_0000 | {26'b0, s_int_idx};
 
-    wire [5:0] exc_code_idx;
-    assign exc_code_idx = exception_cause[5:0];
+    wire [4:0] exc_code_idx;
+    assign exc_code_idx = exception.cause[4:0];
 
-    wire exc_delegated = exception_valid && csr_medeleg[exc_code_idx];
+    wire exc_delegated = exception.valid && csr_medeleg[exc_code_idx];
 
-    // BUG-FIX (sub-issue ④): Per RISC-V Privileged Spec §3.1.10, delegation only
-    // applies when the trap originates from a LOWER privilege level. Traps from
-    // M-mode must ALWAYS go to M-mode regardless of medeleg/mideleg settings.
-    // Without this gate, an M-mode exception (e.g., during OpenSBI's trap handler)
-    // with medeleg[cause]=1 would incorrectly trap to S-mode, bypassing OpenSBI
-    // and corrupting the S-mode context — causing immediate re-trap / crash.
+    // Delegation applies only to traps originating below M-mode.
     wire trap_to_s;
-    assign trap_to_s = (exception_valid && exc_delegated && (priv_mode != PRIV_M)) ||
-                       (!exception_valid && !m_interrupt_pending && s_interrupt_pending);
+    assign trap_to_s = (exception.valid && exc_delegated && (priv_mode != PRIV_M)) ||
+                       (!exception.valid && !m_interrupt_pending && s_interrupt_pending);
 
     assign target_priv = priv_mode_t'(trap_to_s ? PRIV_S : PRIV_M);
 
-    assign trap_enter  = exception_valid || m_interrupt_pending || s_interrupt_pending;
+    assign interrupt_pending = m_interrupt_pending || s_interrupt_pending;
+    assign trap_enter  = exception.valid || interrupt_pending;
     assign trap_return = mret_req || sret_req;
 
     assign trap_pc = sret_req ? csr_sepc :
@@ -107,10 +98,10 @@ module cpu_clint(
     assign hw_trap_is_enter = trap_enter && trap_enter_valid;
     assign hw_target_priv = priv_mode_t'(trap_return ? priv_mode : target_priv);
 
-    assign hw_mepc_wdata = exception_valid ? exception_pc : interrupt_pc;
-    assign hw_mcause_wdata = exception_valid ? exception_cause :
+    assign hw_mepc_wdata = exception.valid ? exception.epc : interrupt_pc;
+    assign hw_mcause_wdata = exception.valid ? exception.cause :
                             m_interrupt_cause;
-    assign hw_mtval_wdata = exception_valid ? exception_mtval : 32'b0;
+    assign hw_mtval_wdata = exception.valid ? exception.tval : 32'b0;
 
     wire [31:0] m_trap_status =
         {csr_mstatus[31:13], priv_mode, csr_mstatus[10:8], mie_bit, csr_mstatus[6:4], 1'b0, csr_mstatus[2:0]};
@@ -122,10 +113,10 @@ module cpu_clint(
                                         (m_return_status & ~32'h0002_0000);
     assign hw_mstatus_wdata = trap_enter ? m_trap_status : m_return_status_mprv;
 
-    assign hw_sepc_wdata = exception_valid ? exception_pc : interrupt_pc;
-    assign hw_scause_wdata = exception_valid ? exception_cause :
+    assign hw_sepc_wdata = exception.valid ? exception.epc : interrupt_pc;
+    assign hw_scause_wdata = exception.valid ? exception.cause :
                              s_interrupt_cause;
-    assign hw_stval_wdata = exception_valid ? exception_mtval : 32'b0;
+    assign hw_stval_wdata = exception.valid ? exception.tval : 32'b0;
 
     wire [31:0] s_trap_status =
         {csr_mstatus[31:9], priv_mode[0], csr_mstatus[7:6], sie_bit, csr_mstatus[4:2], 1'b0, csr_mstatus[0]};

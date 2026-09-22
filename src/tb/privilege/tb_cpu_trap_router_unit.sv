@@ -1,18 +1,13 @@
 `timescale 1ns / 1ps
 `include "core_bus_types.svh"
 
-module tb_cpu_clint_unit;
-    reg         clk;
-    reg         resetn;
-    reg         exception_valid;
-    reg  [31:0] exception_cause;
-    reg  [31:0] exception_pc;
-    reg  [31:0] exception_mtval;
+module tb_cpu_trap_router_unit;
+    exception_t exception;
     reg         mret_req;
     reg         sret_req;
     reg         trap_enter_valid;
     reg  [31:0] interrupt_pc;
-    reg  priv_mode_t priv_mode;
+    priv_mode_t priv_mode;
     reg  [31:0] csr_mstatus;
     reg  [31:0] csr_mie;
     reg  [31:0] csr_mtvec;
@@ -24,6 +19,7 @@ module tb_cpu_clint_unit;
     reg  [31:0] csr_sepc;
 
     wire        trap_enter;
+    wire        interrupt_pending;
     wire        trap_return;
     wire [31:0] trap_pc;
     wire priv_mode_t target_priv;
@@ -42,13 +38,8 @@ module tb_cpu_clint_unit;
     integer pass_count;
     integer fail_count;
 
-    cpu_clint dut (
-        .clk(clk),
-        .resetn(resetn),
-        .exception_valid(exception_valid),
-        .exception_cause(exception_cause),
-        .exception_pc(exception_pc),
-        .exception_mtval(exception_mtval),
+    cpu_trap_router dut (
+        .exception(exception),
         .mret_req(mret_req),
         .sret_req(sret_req),
         .trap_enter_valid(trap_enter_valid),
@@ -64,6 +55,7 @@ module tb_cpu_clint_unit;
         .csr_stvec(csr_stvec),
         .csr_sepc(csr_sepc),
         .trap_enter(trap_enter),
+        .interrupt_pending(interrupt_pending),
         .trap_return(trap_return),
         .trap_pc(trap_pc),
         .target_priv(target_priv),
@@ -96,10 +88,8 @@ module tb_cpu_clint_unit;
 
     task clear_inputs;
         begin
-            exception_valid = 1'b0;
-            exception_cause = 32'b0;
-            exception_pc = 32'h8000_0100;
-            exception_mtval = 32'b0;
+            exception = '0;
+            exception.epc = 32'h8000_0100;
             mret_req = 1'b0;
             sret_req = 1'b0;
             trap_enter_valid = 1'b1;
@@ -119,8 +109,6 @@ module tb_cpu_clint_unit;
     endtask
 
     initial begin
-        clk = 1'b0;
-        resetn = 1'b1;
         pass_count = 0;
         fail_count = 0;
 
@@ -165,8 +153,8 @@ module tb_cpu_clint_unit;
 
         clear_inputs();
         priv_mode = PRIV_M;
-        exception_valid = 1'b1;
-        exception_cause = 32'd8;
+        exception.valid = 1'b1;
+        exception.cause = 32'd8;
         csr_medeleg[8] = 1'b1;
         #1;
         check(trap_enter && target_priv == PRIV_M, "M-mode exception is never delegated");
@@ -198,7 +186,7 @@ module tb_cpu_clint_unit;
         check(hw_csr_wen && !hw_sstatus_wdata[17],
               "SRET clears stale MPRV state");
 
-        $display("cpu_clint unit: pass=%0d fail=%0d", pass_count, fail_count);
+        $display("cpu_trap_router unit: pass=%0d fail=%0d", pass_count, fail_count);
         if (fail_count == 0)
             $display("ALL TESTS PASSED");
         else

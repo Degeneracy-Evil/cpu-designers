@@ -141,7 +141,6 @@ module axi4lite_plic #(
 
     // --- Write path (latched wr_addr) ---
     wire wr_addr_is_prio   = (wr_addr_eff[23:12] == 12'h000);
-    wire wr_addr_is_pend   = (wr_addr_eff[23:12] == 12'h001);
     wire wr_addr_is_enable = (wr_addr_eff[23:12] == 12'h002);
     wire wr_addr_is_ctx    = (wr_addr_eff[23:20] == 4'h2);   // threshold or claim
     wire wr_addr_is_thresh = wr_addr_is_ctx && (wr_addr_eff[3:2] == 2'd0);
@@ -257,7 +256,7 @@ module axi4lite_plic #(
             r_rd_data <= 32'd0;
             rd_claim_id <= 8'd0;
             r_pending <= 32'd0;
-            r_gw_en   <= {(NUM_SRC){1'b1}};
+            r_gw_en   <= {{(NUM_SRC-1){1'b1}}, 1'b0};
             for (ii = 0; ii < NUM_SRC; ii = ii + 1)
                 r_prio[ii] <= {PRIO_WIDTH{1'b0}};
             for (ci = 0; ci < NUM_CTX; ci = ci + 1) begin
@@ -267,19 +266,17 @@ module axi4lite_plic #(
         end else begin
             // 1. Pending and gateway enable logic (shared, level-triggered)
             for (ii = 1; ii < NUM_SRC; ii = ii + 1) begin
-                if (r_gw_en[ii] && src_irq[ii])
+                if (r_gw_en[ii] && src_irq[ii]) begin
                     r_pending[ii] <= 1'b1;
-            end
-
-            for (ii = 1; ii < NUM_SRC; ii = ii + 1) begin
-                if (!src_irq[ii])
-                    r_gw_en[ii] <= 1'b1;
+                    r_gw_en[ii] <= 1'b0;
+                end
             end
 
             // 2. AXI4-Lite write operations (WSTRB-aware)
 
             // Priority write (shared)
-            if (wr_fire && wr_addr_is_prio && (wr_addr_eff[7:2] < NUM_SRC))
+            if (wr_fire && wr_addr_is_prio &&
+                (wr_addr_eff[7:2] >= 1) && (wr_addr_eff[7:2] < NUM_SRC))
                 r_prio[wr_addr_eff[7:2]] <= wdata_prio_masked;
 
             // Enable write (per-context)
@@ -298,7 +295,7 @@ module axi4lite_plic #(
                 end
             end
 
-            // Claim/Complete write (per-context): Complete re-enables gateway
+            // Claim/Complete write (per-context): only completion re-arms a gateway.
             if (wr_fire && wr_addr_is_claim) begin
                 if (wr_wstrb_eff[0] && (wr_wdata_eff[7:0] >= 1) && (wr_wdata_eff[7:0] < NUM_SRC))
                     r_gw_en[wr_wdata_eff[7:0]] <= 1'b1;
@@ -316,13 +313,11 @@ module axi4lite_plic #(
                                 rd_claim_id <= highest_id[0];
                                 if (any_pending[0]) begin
                                     r_pending[highest_id[0]] <= 1'b0;
-                                    r_gw_en[highest_id[0]]   <= 1'b0;
                                 end
                             end else if ((NUM_CTX > 1) && (s_axi_araddr[15:12] == 4'd1)) begin
                                 rd_claim_id <= highest_id[1];
                                 if (any_pending[1]) begin
                                     r_pending[highest_id[1]] <= 1'b0;
-                                    r_gw_en[highest_id[1]]   <= 1'b0;
                                 end
                             end
                         end

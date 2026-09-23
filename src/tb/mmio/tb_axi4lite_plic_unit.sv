@@ -199,6 +199,10 @@ module tb_axi4lite_plic_unit;
         resetn = 1'b1;
         repeat (2) @(posedge clk);
 
+        axi_write(32'h0000_0000, 32'd7, 4'hF, WR_SAME_CYC);
+        axi_read(32'h0000_0000, rd_val);
+        check("PLIC source zero priority is reserved", rd_val, 32'd0);
+
         axi_write(32'h0000_000C, 32'd7, 4'hF, WR_AW_FIRST);
         axi_write(32'h0000_0014, 32'd7, 4'hF, WR_W_FIRST);
         axi_write(32'h0C00_2000, 32'h0000_0028, 4'hF, WR_SAME_CYC);
@@ -218,6 +222,19 @@ module tb_axi4lite_plic_unit;
 
         src_irq[3] = 1'b0;
         src_irq[5] = 1'b0;
+        repeat (2) @(posedge clk);
+
+        src_irq[3] = 1'b1;
+        repeat (2) @(posedge clk);
+        check("PLIC source deassertion does not rearm gateway", {31'd0, o_eip[0]}, 32'd0);
+        axi_write(32'h0C20_0004, 32'd3, 4'hF, WR_SAME_CYC);
+        repeat (2) @(posedge clk);
+        check("PLIC completion rearms asserted source", {31'd0, o_eip[0]}, 32'd1);
+        axi_read(32'h0C20_0004, rd_val);
+        check("PLIC rearmed source can be claimed again", rd_val, 32'd3);
+        src_irq[3] = 1'b0;
+        axi_write(32'h0C20_0004, 32'd3, 4'hF, WR_SAME_CYC);
+        axi_write(32'h0C20_0004, 32'd5, 4'hF, WR_SAME_CYC);
         repeat (2) @(posedge clk);
 
         axi_write(32'h0000_0008, 32'd3, 4'hF, WR_SAME_CYC);

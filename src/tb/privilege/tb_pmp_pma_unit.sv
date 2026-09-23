@@ -48,6 +48,8 @@ module tb_pmp_pma_unit;
         .sw_csr_addr(sw_csr_addr),
         .sw_csr_wen(sw_csr_wen),
         .sw_csr_wdata(sw_csr_wdata),
+        .sw_csr_funct3(3'b001),
+        .sw_csr_operand(sw_csr_wdata),
         .sw_csr_rdata(sw_csr_rdata),
         .hw_csr_wen(1'b0),
         .hw_trap_is_enter(1'b0),

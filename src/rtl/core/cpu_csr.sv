@@ -9,6 +9,8 @@ module cpu_csr(
     input       [11:0] sw_csr_addr,
     input              sw_csr_wen,
     input       [31:0] sw_csr_wdata,
+    input       [2:0]  sw_csr_funct3,
+    input       [31:0] sw_csr_operand,
     output     [31:0] sw_csr_rdata,
 
     input              hw_csr_wen,
@@ -106,6 +108,8 @@ module cpu_csr(
     wire [31:0] w_sstatus;
     wire [31:0] w_sie;
     wire [31:0] w_sip;
+    localparam [31:0] MIP_SW_WRITABLE_MASK = 32'h0000_0222;
+    localparam [31:0] SIP_SW_WRITABLE_MASK = 32'h0000_0002;
     assign w_mip = (ext_meip ? 32'h0000_0800 : 32'b0) |
                    ((ext_seip | r_sip_sw[9]) ? 32'h0000_0200 : 32'b0) |
                    (ext_mtip ? 32'h0000_0080 : 32'b0) |
@@ -117,6 +121,28 @@ module cpu_csr(
     // independent banks of enable and pending bits.
     assign w_sie = r_mie & r_mideleg & `CSR_MIDELEG_MASK;
     assign w_sip = w_mip & r_mideleg & `CSR_MIDELEG_MASK;
+
+    function automatic [31:0] update_pending_sw(
+        input [31:0] old_value,
+        input [31:0] writable_mask,
+        input [2:0] funct3,
+        input [31:0] operand
+    );
+        reg [31:0] operand_masked;
+        begin
+            operand_masked = operand & writable_mask;
+            case (funct3)
+                3'b001, 3'b101:
+                    update_pending_sw = (old_value & ~writable_mask) | operand_masked;
+                3'b010, 3'b110:
+                    update_pending_sw = old_value | operand_masked;
+                3'b011, 3'b111:
+                    update_pending_sw = old_value & ~operand_masked;
+                default:
+                    update_pending_sw = old_value;
+            endcase
+        end
+    endfunction
 
     // ── PMP WARL and lock semantics ──
     function automatic [7:0] sanitize_pmpcfg_byte(input [7:0] value);
@@ -269,7 +295,10 @@ module cpu_csr(
                     `CSR_MEDELEG:    r_medeleg   <= medeleg_wmask;
                     `CSR_MIDELEG:    r_mideleg   <= mideleg_wmask;
                     `CSR_MIP: begin
-                        r_sip_sw <= sw_csr_wdata & `CSR_MIDELEG_MASK;
+                        r_sip_sw <= update_pending_sw(
+                            r_sip_sw, MIP_SW_WRITABLE_MASK,
+                            sw_csr_funct3, sw_csr_operand
+                        );
                     end
                     `CSR_MCOUNTEREN: r_mcounteren <= sw_csr_wdata & `CSR_COUNTEREN_MASK;
                     `CSR_MCYCLE:     r_mcycle[31:0]  <= sw_csr_wdata;
@@ -289,8 +318,12 @@ module cpu_csr(
                     `CSR_SCAUSE:     r_scause    <= sw_csr_wdata;
                     `CSR_STVAL:      r_stval     <= sw_csr_wdata;
                     `CSR_SIP: begin
-                        r_sip_sw <= (r_sip_sw & ~(r_mideleg & `CSR_MIDELEG_MASK)) |
-                                    (sw_csr_wdata & r_mideleg & `CSR_MIDELEG_MASK);
+                        r_sip_sw <= update_pending_sw(
+                            r_sip_sw,
+                            SIP_SW_WRITABLE_MASK & r_mideleg,
+                            sw_csr_funct3,
+                            sw_csr_operand
+                        );
                     end
                     `CSR_SATP:       r_satp <= sw_csr_wdata[31] ? sw_csr_wdata : 32'b0;
                     `CSR_SCOUNTEREN: r_scounteren <= sw_csr_wdata & `CSR_COUNTEREN_MASK;

@@ -235,7 +235,7 @@ module system_top(
     // 64-bit mtime CDC: Gray-code synchronizer (sys_clk → cpu_clk)
     // Multi-bit shift-register sync would tear; Gray code guarantees
     // only 1 bit flips per increment, so 2-stage per-bit sync is safe.
-    wire [63:0] clint_mtime_gray;       // Gray-coded mtime (sys_clk domain)
+    logic [63:0] clint_mtime_gray_r;     // Registered Gray-coded mtime (sys_clk domain)
     logic [63:0] clint_mtime_gray_sync1, clint_mtime_gray_sync2;  // 2-stage sync (cpu_clk domain)
     wire [63:0] clint_mtime_cpuclk;     // Decoded binary mtime (cpu_clk domain)
     wire        gpio_irq;
@@ -244,8 +244,14 @@ module system_top(
 
     wire        cpu_uart_tx;
 
-    // Gray encoder: binary → Gray code (combinational, sys_clk domain)
-    assign clint_mtime_gray = clint_mtime ^ (clint_mtime >> 1);
+    // Register the Gray encoder output before CDC so binary-counter bit skew
+    // cannot appear as a combinational Gray-code glitch at the synchronizer.
+    always_ff @(posedge sys_clk or negedge sys_resetn) begin
+        if (!sys_resetn)
+            clint_mtime_gray_r <= 64'b0;
+        else
+            clint_mtime_gray_r <= clint_mtime ^ (clint_mtime >> 1);
+    end
 
     always_ff @(posedge cpu_clk or negedge cpu_resetn) begin
         if (!cpu_resetn) begin
@@ -268,7 +274,7 @@ module system_top(
             clint_mtip_cpuclk_ff2 <= clint_mtip_cpuclk_ff1;
             clint_msip_cpuclk_ff1 <= clint_msip;
             clint_msip_cpuclk_ff2 <= clint_msip_cpuclk_ff1;
-            clint_mtime_gray_sync1 <= clint_mtime_gray;
+            clint_mtime_gray_sync1 <= clint_mtime_gray_r;
             clint_mtime_gray_sync2 <= clint_mtime_gray_sync1;
         end
     end

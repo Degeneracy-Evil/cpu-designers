@@ -44,7 +44,7 @@ module dcache_ctrl(
     reg store_hit_r;
     reg [31:0] response_data_r,cpu_error_addr_r,ptw_rdata_r;
     reg cpu_ready_r,cpu_error_r,cpu_error_is_store_r;
-    reg ptw_done_r,ptw_error_r,ptw_block_r;
+    reg ptw_done_r,ptw_error_r,ptw_block_r,cpu_block_r;
 
     wire cpu_cacheable=({1'b0,cpu_req_paddr}>={1'b0,`SOC_DDR_BASE})&&
                        ({1'b0,cpu_req_paddr}<DDR_LIMIT);
@@ -96,6 +96,7 @@ module dcache_ctrl(
                 ptw_rdata_r<=data; ptw_done_r<=1; ptw_error_r<=error; ptw_block_r<=1;
             end else if(error) begin
                 cpu_error_r<=1; cpu_error_is_store_r<=op_write_r; cpu_error_addr_r<=op_addr_r;
+                cpu_block_r<=1;
             end else begin response_data_r<=data; cpu_ready_r<=1; end
         end
     endtask
@@ -108,7 +109,7 @@ module dcache_ctrl(
             fill_way_r<=0; store_way_r<=0; store_hit_r<=0; line_refill_r<=0;
             op_ptw_r<=0; response_data_r<=0; cpu_ready_r<=0; cpu_error_r<=0;
             cpu_error_is_store_r<=0; cpu_error_addr_r<=0; ptw_rdata_r<=0;
-            ptw_done_r<=0; ptw_error_r<=0; ptw_block_r<=0;
+            ptw_done_r<=0; ptw_error_r<=0; ptw_block_r<=0; cpu_block_r<=0;
             for(s=0;s<NUM_SETS;s=s+1) begin
                 valid_array[s][0]<=0; valid_array[s][1]<=0;
                 tag_array[s][0]<=0; tag_array[s][1]<=0; victim_array[s]<=0;
@@ -116,6 +117,7 @@ module dcache_ctrl(
         end else begin
             cpu_ready_r<=0; cpu_error_r<=0; ptw_done_r<=0; ptw_error_r<=0;
             if(!ptw_req_valid) ptw_block_r<=0;
+            if(!cpu_req_valid) cpu_block_r<=0;
             case(state)
                 S_IDLE: begin
                     if(ptw_req_valid&&!ptw_block_r) begin
@@ -127,7 +129,7 @@ module dcache_ctrl(
                         op_tag_r<=ptw_req_addr[`DCACHE_TAG_HI:`DCACHE_TAG_LO];
                         op_ptw_r<=1; line_refill_r<=!ptw_req_write&&ptw_cacheable;
                         state<=ptw_cacheable?S_LOOKUP:S_MEM_REQ;
-                    end else if(cpu_req_valid&&!cpu_ready_r&&!cpu_error_r) begin
+                    end else if(cpu_req_valid&&!cpu_block_r&&!cpu_ready_r&&!cpu_error_r) begin
                         store_hit_r<=0;
                         op_addr_r<=cpu_req_paddr; op_wdata_r<=cpu_req_wdata;
                         op_write_r<=cpu_req_write; op_size_r<=cpu_req_size;

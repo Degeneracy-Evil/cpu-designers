@@ -9,6 +9,8 @@ module tb_csr_privileged_unit;
     reg [11:0] sw_csr_addr;
     reg sw_csr_wen;
     reg [31:0] sw_csr_wdata;
+    reg [2:0] sw_csr_funct3;
+    reg [31:0] sw_csr_operand;
     wire [31:0] sw_csr_rdata;
     reg ext_meip,ext_seip,ext_mtip,ext_msip;
     wire [31:0] csr_mstatus,csr_mip,csr_sstatus,csr_sip,csr_satp;
@@ -19,6 +21,7 @@ module tb_csr_privileged_unit;
         .clk(clk),.resetn(resetn),
         .sw_csr_addr(sw_csr_addr),.sw_csr_wen(sw_csr_wen),
         .sw_csr_wdata(sw_csr_wdata),.sw_csr_rdata(sw_csr_rdata),
+        .sw_csr_funct3(sw_csr_funct3),.sw_csr_operand(sw_csr_operand),
         .hw_csr_wen(1'b0),.hw_trap_is_enter(1'b0),.hw_status_priv(PRIV_M),
         .hw_mepc_wdata(0),.hw_mcause_wdata(0),.hw_mtval_wdata(0),
         .hw_mstatus_wdata(0),.hw_sepc_wdata(0),.hw_scause_wdata(0),
@@ -39,13 +42,25 @@ module tb_csr_privileged_unit;
     end endtask
 
     task csr_write(input [11:0] addr,input [31:0] value);begin
-        @(negedge clk);sw_csr_addr=addr;sw_csr_wdata=value;sw_csr_wen=1;
+        @(negedge clk);sw_csr_addr=addr;sw_csr_wdata=value;
+        sw_csr_funct3=3'b001;sw_csr_operand=value;sw_csr_wen=1;
+        @(posedge clk);#1;
+        @(negedge clk);sw_csr_wen=0;#1;
+    end endtask
+
+    task csr_rmw(input [11:0] addr,input [2:0] funct3,input [31:0] operand);begin
+        @(negedge clk);sw_csr_addr=addr;sw_csr_funct3=funct3;
+        sw_csr_operand=operand;
+        sw_csr_wdata=(funct3==3'b010)?(sw_csr_rdata|operand):
+                     (funct3==3'b011)?(sw_csr_rdata&~operand):operand;
+        sw_csr_wen=1;
         @(posedge clk);#1;
         @(negedge clk);sw_csr_wen=0;#1;
     end endtask
 
     initial begin
         sw_csr_addr=0;sw_csr_wen=0;sw_csr_wdata=0;
+        sw_csr_funct3=3'b001;sw_csr_operand=0;
         ext_meip=0;ext_seip=0;ext_mtip=0;ext_msip=0;
         repeat(3)@(posedge clk);@(negedge clk);resetn=1;
 
@@ -89,6 +104,20 @@ module tb_csr_privileged_unit;
         csr_write(`CSR_MIP,0);
         check(csr_mip==32'h0000_0a88,
               "mip writes cannot clear hardware pending sources");
+
+        csr_rmw(`CSR_MIP,3'b010,32'h0000_0002);
+        ext_seip=0;#1;
+        check(csr_mip==32'h0000_088a,
+              "mip CSRRS does not latch external SEIP into software state");
+
+        ext_meip=0;ext_mtip=0;ext_msip=0;
+        csr_write(`CSR_MIP,32'h0000_0222);
+        csr_write(`CSR_SIP,32'h0000_0000);
+        check(csr_mip==32'h0000_0220,
+              "sip write changes only delegated SSIP software state");
+        csr_write(`CSR_SIP,32'hffff_ffff);
+        check(csr_mip==32'h0000_0222,
+              "sip cannot overwrite STIP or SEIP software state");
 
         $display("csr privileged unit: pass=%0d fail=%0d",pass_count,fail_count);
         if(fail_count==0)$display("ALL TESTS PASSED");else $display("TEST FAILED");

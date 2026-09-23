@@ -86,11 +86,17 @@ module tb_dcache_writethrough_unit;
         check(ptw_req_error,"memory error returns to PTW owner");
         @(negedge clk);ptw_req_valid=0;repeat(2)@(posedge clk);fail_next=0;
 
+        count_before=single_count;
         fail_next=1;@(negedge clk);cpu_req_paddr=32'h10000004;cpu_req_write=1;
         cpu_req_size=`AXI_SIZE_WORD;cpu_req_wdata=32'h1234;cpu_req_valid=1;
         while(!cpu_req_error)begin @(posedge clk);#1;end
         check(cpu_req_error_is_store&&cpu_req_error_addr==32'h10000004&&!cpu_req_ready,"store error preserves owner, type, and address");
+        repeat(5)begin @(posedge clk);#1;end
+        check(single_count==count_before+1,"held CPU request is blocked after memory error");
         @(negedge clk);cpu_req_valid=0;cpu_req_write=0;fail_next=0;
+        repeat(2)@(posedge clk);
+        cpu_access(32'h10000008,0,`AXI_SIZE_WORD,0,got);
+        check(single_count==count_before+2,"dropping CPU valid releases the error block");
         $display("dcache write-through unit: pass=%0d fail=%0d",pass_count,fail_count);
         if(!fail_count)$display("ALL TESTS PASSED");else $display("TEST FAILED");$finish;
     end

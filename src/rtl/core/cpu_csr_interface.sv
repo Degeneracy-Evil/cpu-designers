@@ -115,6 +115,8 @@ module cpu_csr_interface(
         .sw_csr_addr(csr_sw_addr),
         .sw_csr_wen(csr_sw_wen),
         .sw_csr_wdata(csr_sw_wdata),
+        .sw_csr_funct3(csr_funct3_bus),
+        .sw_csr_operand((csr_funct3_bus[2]) ? {27'b0, csr_uimm_bus} : csr_rs1_val_bus),
         .sw_csr_rdata(csr_read_data),
         .hw_csr_wen(hw_csr_wen),
         .hw_trap_is_enter(hw_trap_is_enter),

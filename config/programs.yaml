@@ -1,11 +1,11 @@
 # ============================================================
-# build.yaml — 统一编译配置（测试 + 应用）
+# programs.yaml — 统一编译配置（测试 + 应用）
 # ============================================================
 #
 # 声明式定义所有测试程序和应用目标的依赖、构建参数。
 # test_builder.py 读取此文件驱动构建。
 #
-# 路径约定: 相对于 src/program_source/
+# 测试路径相对于 test/program/，应用路径相对于 software/。
 #
 # ============================================================
 
@@ -31,7 +31,7 @@ framework:
 defaults:
   arch: rv32im_zicsr_zifencei
   abi: ilp32
-  linker_script: link.ld
+  linker_script: linker/ram.ld
   depth: 8192
 
 # ── 测试类别 ──
@@ -134,7 +134,7 @@ categories:
 # ── 应用目标 ──
 #
 # 每个应用指定:
-#   src_files:       源文件列表（相对于 src/program_source/）
+#   src_files:       源文件列表（相对于 software/）
 #   arch:            目标架构（缺省继承 defaults.arch）
 #   abi:             ABI（缺省继承 defaults.abi）
 #   linker_script:   链接脚本（缺省继承 defaults.linker_script；设为 null 显式禁用）
@@ -144,23 +144,23 @@ categories:
 apps:
   led_marquee:
     src_files:
-      - app/led_marquee.s
+      - apps/led_marquee.s
     linker_script: null
 
   uart_hello:
     src_files:
-      - app/uart_hello.s
+      - apps/uart_hello.s
     linker_script: null
 
   uart_echo:
     src_files:
-      - app/uart_echo.s
+      - apps/uart_echo.s
     linker_script: null
 
   uart_echo_c_lib:
     src_files:
-      - lib/start.S
-      - lib/uart.c
-      - app/uart_echo_c_lib.c
+      - library/start.S
+      - library/uart.c
+      - apps/uart_echo_c_lib.c
     include_dirs:
-      - lib/include
+      - library/include

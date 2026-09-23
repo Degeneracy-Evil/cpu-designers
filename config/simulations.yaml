@@ -1,21 +1,6 @@
-# Task definitions for Vivado orchestration
-# Each task maps to a testbench + optional program image + runtime
-# For FPGA-only tasks (bitstream), specify 'top' instead of 'tb'
-#
-# ⚠ COE field in simulation:
-#   The `coe` field is used ONLY for FPGA bitstream generation (BRAM IP initialization).
-#   In simulation, `ifdef SIMULATION` bypasses COE loading entirely — the RTL uses
-#   $readmemh("prog.hex") to load the hex file directly instead (see axi_wrap_ram.sv,
-#   axi4lite_bootrom.sv).  The `hex_file` field (or auto-derived from `coe` by
-#   replacing .coe → .hex) is what actually takes effect during simulation.
-#   The `coe` field still serves two indirect purposes in simulation:
-#     1. Auto-derivation of hex_file path (if hex_file is not explicitly set)
-#     2. COE-layer hash staleness detection for incremental refresh
-#
-# Task categories (annotated per section):
-#   仿真       — behavioral simulation (SIMULATION=TRUE auto-injected)
-#   DDR3仿真   — DDR3 model simulation (sim_mode: ddr3, SIMULATION in verilog_defines)
-#   FPGA上板   — bitstream generation + JTAG programming (top module, no tb)
+# Simulation and FPGA task definitions.
+# Paths for blhex, phex and blcoe are relative to build/program/.
+# A simulation task names a testbench module; an FPGA task names a synthesis top.
 
 tasks:
   # ── 集成仿真 ──
@@ -498,3 +483,29 @@ tasks:
       SIMULATION: "TRUE"
       SIMU_USE_DDR: 0
       SIMU_USE_PLL: 0
+
+groups:
+  short:
+    - isa_m_ext
+    - isa_a_ext
+    - exception_interrupt_basic
+    - privilege_delegation
+    - mmu_permission
+    - mmu_tlb_replace
+    - mmu_sfence_handshake_unit
+    - cache_mmu_interact
+    - mmio_plic
+    - axi_bus
+    - cpu_controller_unit
+    - cpu_mem_contract_unit
+    - exception_contract_unit
+    - stage_exception_unit
+    - pmp_pma_unit
+    - cpu_trap_router_unit
+    - csr_privileged_unit
+    - ptw_global_unit
+    - cpu_bus_bridge_unit
+    - dcache_writethrough_unit
+    - icache_blocking_unit
+    - regression_m_irq_precision
+    - kernel_tb_compile_smoke

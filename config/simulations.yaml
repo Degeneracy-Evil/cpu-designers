@@ -6,7 +6,7 @@ tasks:
   # ── 集成仿真 ──
 
   cpu_full:
-    tb: tb_simple_cpu_top
+    tb: tb_cpu_full
     blhex: boot/bootloader_phase1.hex
     phex: test/integration/cpu_full.hex
     runtime: 50s
@@ -14,7 +14,7 @@ tasks:
   # ── DDR3仿真 ──
 
   cpu_full_ddr3:
-    tb: tb_simple_cpu_top
+    tb: tb_cpu_full
     blhex: boot/bootloader.hex
     sim_mode: ddr3
     verilog_defines:
@@ -28,13 +28,13 @@ tasks:
     runtime: 1s
 
   cpu_compute:
-    tb: tb_simple_cpu_compute
+    tb: tb_cpu_compute
     blhex: boot/bootloader_phase1.hex
     phex: test/integration/cpu_compute.hex
     runtime: 5ms
 
   cpu_trap:
-    tb: tb_simple_cpu_trap
+    tb: tb_cpu_trap
     blhex: boot/bootloader_phase1.hex
     phex: test/integration/cpu_trap.hex
     runtime: 3ms
@@ -42,87 +42,89 @@ tasks:
   # ── ISA 仿真 ──
 
   isa_alu:
-    tb: tb_isa_alu
+    tb: tb_program
     blhex: boot/bootloader_phase1.hex
     phex: test/isa/alu.hex
     runtime: 5ms
 
   isa_branch:
-    tb: tb_isa_branch
+    tb: tb_program
     blhex: boot/bootloader_phase1.hex
     phex: test/isa/branch.hex
     runtime: 5ms
 
   isa_memory:
-    tb: tb_isa_memory
+    tb: tb_program
     blhex: boot/bootloader_phase1.hex
     phex: test/isa/memory.hex
     runtime: 5ms
 
   isa_upper_imm:
-    tb: tb_isa_upper_imm
+    tb: tb_program
     blhex: boot/bootloader_phase1.hex
     phex: test/isa/upper_imm.hex
     runtime: 5ms
 
   isa_jump:
-    tb: tb_isa_jump
+    tb: tb_program
     blhex: boot/bootloader_phase1.hex
     phex: test/isa/jump.hex
     runtime: 5ms
 
   isa_csr:
-    tb: tb_isa_csr
+    tb: tb_program
     blhex: boot/bootloader_phase1.hex
     phex: test/isa/csr.hex
     runtime: 5ms
 
   isa_m_ext:
-    tb: tb_isa_m_ext
+    tb: tb_program
     blhex: boot/bootloader_phase1.hex
     phex: test/isa/m_ext.hex
     runtime: 5ms
 
   isa_a_ext:
-    tb: tb_isa_a_ext
+    tb: tb_program
     blhex: boot/bootloader_phase1.hex
     phex: test/isa/a_ext.hex
     runtime: 200ms
+    verilog_defines:
+      TB_MAX_CYCLES: 2000000
 
   # ── 异常仿真 ──
 
   exception_ecall:
-    tb: tb_exception_ecall
+    tb: tb_program
     blhex: boot/bootloader_phase1.hex
     phex: test/exception/ecall.hex
     runtime: 5ms
 
   exception_ebreak:
-    tb: tb_exception_ebreak
+    tb: tb_program
     blhex: boot/bootloader_phase1.hex
     phex: test/exception/ebreak.hex
     runtime: 5ms
 
   exception_illegal_inst:
-    tb: tb_exception_illegal_inst
+    tb: tb_program
     blhex: boot/bootloader_phase1.hex
     phex: test/exception/illegal_inst.hex
     runtime: 5ms
 
   exception_access_fault:
-    tb: tb_exception_access_fault
+    tb: tb_program
     blhex: boot/bootloader_phase1.hex
     phex: test/exception/access_fault.hex
     runtime: 5ms
 
   exception_timer_irq:
-    tb: tb_exception_timer_irq
+    tb: tb_program
     blhex: boot/bootloader_phase1.hex
     phex: test/exception/timer_irq.hex
     runtime: 10ms
 
   exception_interrupt_basic:
-    tb: tb_exception_interrupt_basic
+    tb: tb_program
     blhex: boot/bootloader_phase1.hex
     phex: test/exception/interrupt_basic.hex
     runtime: 10ms
@@ -130,31 +132,31 @@ tasks:
   # ── 特权仿真 ──
 
   privilege_priv_transition:
-    tb: tb_privilege_priv_transition
+    tb: tb_program
     blhex: boot/bootloader_phase1.hex
     phex: test/privilege/priv_transition.hex
     runtime: 20ms
 
   privilege_delegation:
-    tb: tb_privilege_delegation
+    tb: tb_program
     blhex: boot/bootloader_phase1.hex
     phex: test/privilege/delegation.hex
     runtime: 20ms
 
   privilege_csr_access_priv:
-    tb: tb_privilege_csr_access_priv
+    tb: tb_program
     blhex: boot/bootloader_phase1.hex
     phex: test/privilege/csr_access_priv.hex
     runtime: 10ms
 
   privilege_wfi:
-    tb: tb_privilege_wfi
+    tb: tb_program
     blhex: boot/bootloader_phase1.hex
     phex: test/privilege/wfi.hex
     runtime: 10ms
 
   privilege_counter_access:
-    tb: tb_privilege_counter_access
+    tb: tb_program
     blhex: boot/bootloader_phase1.hex
     phex: test/privilege/counter_access.hex
     runtime: 10ms
@@ -162,109 +164,111 @@ tasks:
   # ── MMU 仿真 ──
 
   mmu_sv32_basic:
-    tb: tb_mmu_sv32_basic
+    tb: tb_program
     blhex: boot/bootloader_phase1.hex
     phex: test/mmu/sv32_basic.hex
     runtime: 20ms
 
   mmu_tlb_basic:
-    tb: tb_mmu_tlb_basic
+    tb: tb_program
     blhex: boot/bootloader_phase1.hex
     phex: test/mmu/tlb_basic.hex
     runtime: 20ms
 
   mmu_tlb_flush:
-    tb: tb_mmu_tlb_flush
+    tb: tb_program
     blhex: boot/bootloader_phase1.hex
     phex: test/mmu/tlb_flush.hex
     runtime: 20ms
   mmu_sfence_handshake_unit:
-    tb: tb_mmu_sfence_handshake_unit
+    tb: tb_sfence
     blhex: boot/bootloader_phase1.hex
     runtime: 20us
 
   mmu_page_fault:
-    tb: tb_mmu_page_fault
+    tb: tb_program
     blhex: boot/bootloader_phase1.hex
     phex: test/mmu/page_fault.hex
     runtime: 20ms
 
   mmu_permission:
-    tb: tb_mmu_permission
+    tb: tb_program
     blhex: boot/bootloader_phase1.hex
     phex: test/mmu/permission.hex
     runtime: 20ms
 
   mmu_tlb_replace:
-    tb: tb_mmu_tlb_replace
+    tb: tb_program
     blhex: boot/bootloader_phase1.hex
     phex: test/mmu/tlb_replace.hex
     runtime: 20ms
 
   mmu_tlb_asid:
-    tb: tb_mmu_tlb_asid
+    tb: tb_program
     blhex: boot/bootloader_phase1.hex
     phex: test/mmu/tlb_asid.hex
     runtime: 20ms
 
   mmu_tlb_megapage:
-    tb: tb_mmu_tlb_megapage
+    tb: tb_program
     blhex: boot/bootloader_phase1.hex
     phex: test/mmu/tlb_megapage.hex
     runtime: 20ms
 
   mmu_tlb_stress:
-    tb: tb_mmu_tlb_stress
+    tb: tb_program
     blhex: boot/bootloader_phase1.hex
     phex: test/mmu/tlb_stress.hex
     runtime: 20ms
 
   mmu_ptw_walk:
-    tb: tb_mmu_ptw_walk
+    tb: tb_program
     blhex: boot/bootloader_phase1.hex
     phex: test/mmu/ptw_walk.hex
     runtime: 20ms
 
   mmu_sv32_edge:
-    tb: tb_mmu_sv32_edge
+    tb: tb_program
     blhex: boot/bootloader_phase1.hex
     phex: test/mmu/sv32_edge.hex
     runtime: 20ms
 
   mmu_unified_mmu:
-    tb: tb_mmu_unified
+    tb: tb_program
     blhex: boot/bootloader_phase1.hex
     phex: test/mmu/unified_mmu.hex
     runtime: 150ms
+    verilog_defines:
+      TB_MAX_CYCLES: 2000000
 
   # ── Cache 仿真 ──
 
   cache_icache_basic:
-    tb: tb_cache_icache_basic
+    tb: tb_program
     blhex: boot/bootloader_phase1.hex
     phex: test/cache/icache_basic.hex
     runtime: 5ms
 
   cache_dcache_basic:
-    tb: tb_cache_dcache_basic
+    tb: tb_program
     blhex: boot/bootloader_phase1.hex
     phex: test/cache/dcache_basic.hex
     runtime: 5ms
 
   cache_dcache_dirty:
-    tb: tb_cache_dcache_dirty
+    tb: tb_program
     blhex: boot/bootloader_phase1.hex
     phex: test/cache/dcache_dirty.hex
     runtime: 5ms
 
   cache_fencei:
-    tb: tb_cache_fencei
+    tb: tb_program
     blhex: boot/bootloader_phase1.hex
     phex: test/cache/fencei.hex
     runtime: 10ms
 
   cache_mmu_interact:
-    tb: tb_cache_mmu_interact
+    tb: tb_program
     blhex: boot/bootloader_phase1.hex
     phex: test/cache/cache_mmu_interact.hex
     runtime: 20ms
@@ -272,81 +276,85 @@ tasks:
   # ── MMIO 仿真 ──
 
   mmio_clint:
-    tb: tb_mmio_clint
+    tb: tb_program
     blhex: boot/bootloader_phase1.hex
     phex: test/mmio/clint.hex
-    runtime: 150ms
+    runtime: 160ms
+    verilog_defines:
+      TB_MAX_CYCLES: 15000000
 
   mmio_plic:
-    tb: tb_mmio_plic
+    tb: tb_program
     blhex: boot/bootloader_phase1.hex
     phex: test/mmio/plic.hex
-    runtime: 150ms
+    runtime: 160ms
+    verilog_defines:
+      TB_MAX_CYCLES: 15000000
 
   # ── 回归仿真 ──
 
   reg_tlb_fill_way:
-    tb: tb_regression_reg_tlb_fill_way
+    tb: tb_program
     blhex: boot/bootloader_phase1.hex
     phex: test/regression/reg_tlb_fill_way.hex
     runtime: 20ms
 
   reg_ptw_fault_latch:
-    tb: tb_regression_reg_ptw_fault_latch
+    tb: tb_program
     blhex: boot/bootloader_phase1.hex
     phex: test/regression/reg_ptw_fault_latch.hex
     runtime: 20ms
 
   reg_sfence_during_walk:
-    tb: tb_regression_reg_sfence_during_walk
+    tb: tb_program
     blhex: boot/bootloader_phase1.hex
     phex: test/regression/reg_sfence_during_walk.hex
     runtime: 20ms
 
   reg_stale_paddr:
-    tb: tb_regression_reg_stale_paddr
+    tb: tb_program
     blhex: boot/bootloader_phase1.hex
     phex: test/regression/reg_stale_paddr.hex
     runtime: 20ms
 
   reg_bare_no_miss:
-    tb: tb_regression_reg_bare_no_miss
+    tb: tb_program
     blhex: boot/bootloader_phase1.hex
     phex: test/regression/reg_bare_no_miss.hex
     runtime: 10ms
 
   reg_mmio_ready:
-    tb: tb_regression_reg_mmio_ready
+    tb: tb_program
     blhex: boot/bootloader_phase1.hex
     phex: test/regression/reg_mmio_ready.hex
     runtime: 60ms
 
   reg_dcache_refill_error:
-    tb: tb_regression_reg_dcache_refill_error
+    tb: tb_dcache_refill_error
     blhex: boot/bootloader_phase1.hex
     phex: test/regression/reg_dcache_refill_error.hex
     runtime: 20ms
 
   reg_dcache_store_error:
-    tb: tb_regression_reg_dcache_store_error
+    tb: tb_dcache_store_error
     blhex: boot/bootloader_phase1.hex
     phex: test/regression/reg_dcache_store_error.hex
     runtime: 20ms
 
   reg_pf_latch:
-    tb: tb_regression_reg_pf_latch
+    tb: tb_program
     blhex: boot/bootloader_phase1.hex
     phex: test/regression/reg_pf_latch.hex
     runtime: 20ms
 
   reg_linux_ptr_reload:
-    tb: tb_regression_reg_linux_ptr_reload
+    tb: tb_program
     blhex: boot/bootloader_phase1.hex
     phex: test/regression/reg_linux_ptr_reload.hex
     runtime: 20ms
 
   reg_linux_field_values:
-    tb: tb_regression_reg_linux_field_values
+    tb: tb_program
     blhex: boot/bootloader_phase1.hex
     phex: test/regression/reg_linux_field_values.hex
     runtime: 20ms
@@ -373,72 +381,72 @@ tasks:
 
   # ── 单元仿真 ──
 
-  axi_bus:
-    tb: tb_ahb_bus
+  axi_interconnect:
+    tb: tb_axi_interconnect
     blhex: boot/bootloader_phase1.hex
     runtime: 5000ns
 
-  apb_perips:
-    tb: tb_apb_perips
+  apb_peripherals:
+    tb: tb_apb_peripherals
     blhex: boot/bootloader_phase1.hex
     runtime: 200us
 
   axi4lite_plic_unit:
-    tb: tb_axi4lite_plic_unit
+    tb: tb_plic
     blhex: boot/bootloader_phase1.hex
     runtime: 20us
 
   axi4lite_clint_unit:
-    tb: tb_axi4lite_clint_unit
+    tb: tb_clint
     blhex: boot/bootloader_phase1.hex
     runtime: 20us
 
   cpu_trap_router_unit:
-    tb: tb_cpu_trap_router_unit
+    tb: tb_trap_router
     blhex: boot/bootloader_phase1.hex
     runtime: 20us
   csr_privileged_unit:
-    tb: tb_csr_privileged_unit
+    tb: tb_csr
     blhex: boot/bootloader_phase1.hex
     runtime: 20us
   ptw_global_unit:
-    tb: tb_ptw_global_unit
+    tb: tb_ptw
     blhex: boot/bootloader_phase1.hex
     runtime: 20us
   cpu_controller_unit:
-    tb: tb_cpu_controller_unit
+    tb: tb_cpu_controller
     blhex: boot/bootloader_phase1.hex
     runtime: 20us
   cpu_mem_contract_unit:
-    tb: tb_cpu_mem_contract_unit
+    tb: tb_memory_contract
     blhex: boot/bootloader_phase1.hex
     runtime: 20us
   exception_contract_unit:
-    tb: tb_exception_contract_unit
+    tb: tb_exception
     blhex: boot/bootloader_phase1.hex
     runtime: 20us
   stage_exception_unit:
-    tb: tb_stage_exception_unit
+    tb: tb_stage_exception
     blhex: boot/bootloader_phase1.hex
     runtime: 20us
   pmp_pma_unit:
-    tb: tb_pmp_pma_unit
+    tb: tb_pmp_pma
     blhex: boot/bootloader_phase1.hex
     runtime: 20us
   cpu_bus_bridge_unit:
-    tb: tb_cpu_bus_bridge_unit
+    tb: tb_cpu_bus_bridge
     blhex: boot/bootloader_phase1.hex
     runtime: 100us
   dcache_writethrough_unit:
-    tb: tb_dcache_writethrough_unit
+    tb: tb_dcache
     blhex: boot/bootloader_phase1.hex
     runtime: 100us
   regression_m_irq_precision:
-    tb: tb_regression_m_irq_precision
+    tb: tb_interrupt_precision
     blhex: boot/bootloader_phase1.hex
     runtime: 20us
   icache_blocking_unit:
-    tb: tb_icache_blocking_unit
+    tb: tb_icache
     blhex: boot/bootloader_phase1.hex
     runtime: 100us
   fpga:
@@ -495,7 +503,7 @@ groups:
     - mmu_sfence_handshake_unit
     - cache_mmu_interact
     - mmio_plic
-    - axi_bus
+    - axi_interconnect
     - cpu_controller_unit
     - cpu_mem_contract_unit
     - exception_contract_unit

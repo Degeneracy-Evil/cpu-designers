@@ -1,0 +1,349 @@
+`timescale 1ns / 1ps
+
+module tb_apb_peripherals;
+
+    // ----------------------------------------------------------------
+    // Clock / reset regs
+    // ----------------------------------------------------------------
+    reg         clk;
+    reg         resetn;
+    reg         uart_rx;
+    wire        uart_tx;
+    wire [15:0] gpio_io;
+    wire        axi_mst_clk;
+
+    // ----------------------------------------------------------------
+    // Inout wires for DDR3 and peripheral ports (cannot connect constants to inout)
+    // ----------------------------------------------------------------
+    wire [15:0] ddr3_dq_wire;
+    wire [1:0]  ddr3_dqs_p_wire;
+    wire [1:0]  ddr3_dqs_n_wire;
+
+    // ----------------------------------------------------------------
+    // system_top instantiation (replaces ahb_lite_bus)
+    // ----------------------------------------------------------------
+    system_top u_soc (
+        .clk              (clk),
+        .resetn           (resetn),
+        .clk_system_bypass(1'b0),
+        .clk_ddr_ref_bypass(1'b0),
+        .clk_wiz_locked_bypass(1'b0),
+        .uart_rx          (uart_rx),
+        .uart_tx          (uart_tx),
+        .spi_miso         (1'b0),
+        .spi_mosi         (),
+        .spi_ss           (),
+        .spi_clk          (),
+        .gpio_ctrl_out    (),
+        .gpio_data_out    (),
+        .gpio_io          (gpio_io),
+        .ddr3_addr        (),
+        .ddr3_ba          (),
+        .ddr3_ras_n       (),
+        .ddr3_cas_n       (),
+        .ddr3_we_n        (),
+        .ddr3_reset_n     (),
+        .ddr3_ck_p        (),
+        .ddr3_ck_n        (),
+        .ddr3_cke         (),
+        .ddr3_dm          (),
+        .ddr3_dq          (ddr3_dq_wire),
+        .ddr3_dqs_p       (ddr3_dqs_p_wire),
+        .ddr3_dqs_n       (ddr3_dqs_n_wire),
+        .ddr3_odt         ()
+    );
+
+    assign axi_mst_clk = u_soc.cpu_clk;
+
+    // ----------------------------------------------------------------
+    // Clock generation — 100 MHz
+    // ----------------------------------------------------------------
+    initial begin
+        clk = 1'b0;
+        forever #5 clk = ~clk;
+    end
+
+    integer pass_count;
+    integer fail_count;
+
+    localparam integer UART_DIVISOR = 16;
+    localparam integer UART_BIT_CYCLES = UART_DIVISOR * 16;
+
+    // ----------------------------------------------------------------
+    // AXI4-Lite Master BFM: Write task
+    // Forces CPU-side AXI4 master signals.
+    // This interface is in u_soc.cpu_clk domain, not the top-level clk domain.
+    // ----------------------------------------------------------------
+    task axi4_write_ex;
+        input [31:0] addr;
+        input [31:0] data;
+        input [3:0]  strb;
+        input integer order_mode;
+        reg aw_seen;
+        reg w_seen;
+        reg aw_started;
+        reg w_started;
+        begin
+            force u_soc.cpu_wdata   = data;
+            force u_soc.cpu_wstrb   = strb;
+            force u_soc.cpu_wlast   = 1'b1;
+            force u_soc.cpu_awaddr  = addr;
+            force u_soc.cpu_awlen   = 8'h00;
+            force u_soc.cpu_awsize  = 3'b010;
+            force u_soc.cpu_awburst = 2'b01;
+
+            aw_seen = 1'b0;
+            w_seen = 1'b0;
+            aw_started = 1'b0;
+            w_started = 1'b0;
+
+            case (order_mode)
+                0: begin
+                    force u_soc.cpu_awvalid = 1'b1;
+                    force u_soc.cpu_wvalid  = 1'b0;
+                    aw_started = 1'b1;
+                end
+                1: begin
+                    force u_soc.cpu_awvalid = 1'b0;
+                    force u_soc.cpu_wvalid  = 1'b1;
+                    w_started = 1'b1;
+                end
+                default: begin
+                    force u_soc.cpu_awvalid = 1'b1;
+                    force u_soc.cpu_wvalid  = 1'b1;
+                    aw_started = 1'b1;
+                    w_started = 1'b1;
+                end
+            endcase
+
+            while (!aw_seen || !w_seen) begin
+                @(posedge axi_mst_clk);
+                if (!aw_seen && u_soc.cpu_awvalid && u_soc.cpu_awready) begin
+                    aw_seen = 1'b1;
+                    force u_soc.cpu_awvalid = 1'b0;
+                end
+                if (!w_seen && u_soc.cpu_wvalid && u_soc.cpu_wready) begin
+                    w_seen = 1'b1;
+                    force u_soc.cpu_wvalid = 1'b0;
+                end
+                if ((order_mode == 0) && aw_seen && !w_started) begin
+                    force u_soc.cpu_wvalid = 1'b1;
+                    w_started = 1'b1;
+                end
+                if ((order_mode == 1) && w_seen && !aw_started) begin
+                    force u_soc.cpu_awvalid = 1'b1;
+                    aw_started = 1'b1;
+                end
+            end
+
+            // B channel: wait for write response
+            force u_soc.cpu_bready = 1'b1;
+            wait (u_soc.cpu_bvalid == 1'b1);
+            @(posedge axi_mst_clk);
+            force u_soc.cpu_bready = 1'b0;
+        end
+    endtask
+
+    task axi4_write;
+        input [31:0] addr;
+        input [31:0] data;
+        begin
+            axi4_write_ex(addr, data, 4'hF, 0);
+        end
+    endtask
+
+    // ----------------------------------------------------------------
+    // AXI4-Lite Master BFM: Read task
+    // Forces CPU's AXI4 master outputs to perform a single read
+    // ----------------------------------------------------------------
+    task axi4_read;
+        input  [31:0] addr;
+        output [31:0] data;
+        begin
+            // AR channel: drive address
+            force u_soc.cpu_araddr  = addr;
+            force u_soc.cpu_arlen   = 8'h00;
+            force u_soc.cpu_arsize  = 3'b010;
+            force u_soc.cpu_arburst = 2'b01;
+            force u_soc.cpu_arvalid = 1'b1;
+
+            // R channel: ready to accept
+            force u_soc.cpu_rready = 1'b1;
+
+            // Wait for AR handshake
+            wait (u_soc.cpu_arready == 1'b1);
+            @(posedge axi_mst_clk);
+            force u_soc.cpu_arvalid = 1'b0;
+
+            // Wait for R data
+            wait (u_soc.cpu_rvalid == 1'b1);
+            #1;
+            data = u_soc.cpu_rdata;
+            @(posedge axi_mst_clk);
+            force u_soc.cpu_rready = 1'b0;
+        end
+    endtask
+
+    // ----------------------------------------------------------------
+    // Check helper task
+    // ----------------------------------------------------------------
+    task check;
+        input [255:0] name;
+        input [31:0]  actual;
+        input [31:0]  expected;
+        begin
+            if (actual === expected) begin
+                pass_count = pass_count + 1;
+                $display("PASS %0s = 0x%08h", name, actual);
+            end else begin
+                fail_count = fail_count + 1;
+                $display("FAIL %0s expected=0x%08h got=0x%08h", name, expected, actual);
+            end
+        end
+    endtask
+
+    task uart_send_byte;
+        input [7:0] data;
+        integer bit_idx;
+        begin
+            uart_rx = 1'b1;
+            repeat (UART_BIT_CYCLES) @(posedge clk);
+            uart_rx = 1'b0;
+            repeat (UART_BIT_CYCLES) @(posedge clk);
+            for (bit_idx = 0; bit_idx < 8; bit_idx = bit_idx + 1) begin
+                uart_rx = data[bit_idx];
+                repeat (UART_BIT_CYCLES) @(posedge clk);
+            end
+            uart_rx = 1'b1;
+            repeat (UART_BIT_CYCLES) @(posedge clk);
+        end
+    endtask
+
+    task uart_expect_tx_byte;
+        input [7:0] expected;
+        reg [7:0] observed;
+        integer bit_idx;
+        begin
+            observed = 8'h00;
+            wait (uart_tx == 1'b0);
+            repeat (UART_BIT_CYCLES + (UART_BIT_CYCLES / 2)) @(posedge clk);
+            for (bit_idx = 0; bit_idx < 8; bit_idx = bit_idx + 1) begin
+                observed[bit_idx] = uart_tx;
+                repeat (UART_BIT_CYCLES) @(posedge clk);
+            end
+            check("UART TX byte", observed, expected);
+        end
+    endtask
+
+    // ----------------------------------------------------------------
+    // Main test sequence
+    // ----------------------------------------------------------------
+    initial begin
+        reg [31:0] rd_val;
+
+        pass_count = 0;
+        fail_count = 0;
+
+        uart_rx = 1'b1;   // idle
+        resetn  = 1'b0;
+
+        // Force ddr_data_init so system reset can release when resetn deasserts
+        force u_soc.ddr_data_init = 1'b1;
+
+        // Force CPU AXI4 outputs to idle before reset deasserts.
+        // This prevents the CPU from driving the bus when it comes out
+        // of reset — the CPU is effectively "bus-quiesced".
+        force u_soc.cpu_awvalid = 1'b0;
+        force u_soc.cpu_wvalid  = 1'b0;
+        force u_soc.cpu_arvalid = 1'b0;
+        force u_soc.cpu_bready  = 1'b0;
+        force u_soc.cpu_rready  = 1'b0;
+
+        repeat (5) @(posedge clk);
+        resetn = 1'b1;
+
+        // Wait for system reset to deassert
+        wait (u_soc.sys_resetn == 1'b1);
+        repeat (10) @(posedge clk);
+
+        // GPIO test
+        begin : gpio_test
+            axi4_write(32'h10000000, 32'h0000FFFF);
+            axi4_read(32'h10000000, rd_val);
+            check("GPIO_CTRL write/read", rd_val, 32'h0000FFFF);
+
+            axi4_write(32'h10000004, 32'h0000AAAA);
+            axi4_read(32'h10000004, rd_val);
+            check("GPIO_DATA write/read", rd_val, 32'h0000AAAA);
+
+            // GPIO IRQ_EN register
+            axi4_write(32'h10000008, 32'h000000FF);
+            axi4_read(32'h10000008, rd_val);
+            check("GPIO_IRQ_EN write/read", rd_val, 32'h000000FF);
+
+            // GPIO IRQ_STAT register
+            axi4_read(32'h1000000C, rd_val);
+            check("GPIO_IRQ_STAT initial", rd_val, 32'h00000000);
+        end
+
+        // UART test
+        begin : uart_test
+            axi4_write_ex(32'h1000800C, 32'h00000080, 4'h1, 2); // LCR.DLAB = 1
+            axi4_write_ex(32'h10008000, UART_DIVISOR, 4'h1, 1); // DLL
+            axi4_write_ex(32'h10008004, 32'h00000000, 4'h1, 0); // DLM
+            axi4_write_ex(32'h1000800C, 32'h00000003, 4'h1, 0); // 8N1, DLAB = 0
+
+            axi4_write_ex(32'h1000801C, 32'h0000005A, 4'h1, 0); // SCR low byte valid
+            axi4_read(32'h1000801C, rd_val);
+            check("UART SCR lane0 write/read", rd_val, 32'h0000005A);
+
+            axi4_write_ex(32'h1000801C, 32'hAA000000, 4'h8, 1); // upper-byte write is ignored
+            axi4_read(32'h1000801C, rd_val);
+            check("UART upper-byte write is no-op", rd_val, 32'h0000005A);
+
+            axi4_read(32'h10008014, rd_val); // LSR
+            check("UART LSR TX empty bits", rd_val[6:5], 2'b11);
+
+            axi4_write_ex(32'h10008004, 32'h00000001, 4'h1, 2); // IER: RX available interrupt enable
+            uart_send_byte(8'h33);
+            wait (u_soc.u_apb_perips.o_uart_irq == 1'b1);
+            axi4_read(32'h10008014, rd_val);
+            check("UART LSR data-ready after RX", rd_val[0], 1'b1);
+            axi4_read(32'h10008000, rd_val);
+            check("UART RX byte", rd_val, 32'h00000033);
+
+            axi4_write_ex(32'h10008000, 32'h00000041, 4'h1, 0); // THR = 'A'
+            uart_expect_tx_byte(8'h41);
+        end
+
+        // SPI test
+        begin : spi_test
+            axi4_write(32'h1000C000, 32'h0000000F);
+            axi4_read(32'h1000C000, rd_val);
+            check("SPI_CTRL write/read", rd_val, 32'h0000000F);
+
+            axi4_write(32'h1000C004, 32'h000000AB);
+            axi4_read(32'h1000C004, rd_val);
+            check("SPI_DATA write/read", rd_val, 32'h000000AB);
+
+            axi4_read(32'h1000C008, rd_val);
+            check("SPI_STATUS read", rd_val[1:0], 2'b00); // not busy, no irq pending
+        end
+
+        $display("========================================");
+        $display("APB peripherals test summary");
+        $display("pass=%0d fail=%0d", pass_count, fail_count);
+        if (fail_count == 0) begin
+            $display("ALL TESTS PASSED");
+        end else begin
+            $fatal(1, "TEST FAILED");
+        end
+        $display("========================================");
+        $finish;
+    end
+
+    initial begin
+        repeat (18000) @(posedge clk);
+        $fatal(1, "TEST FAILED: timeout");
+    end
+endmodule

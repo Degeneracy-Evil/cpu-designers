@@ -112,6 +112,9 @@ module tb_stage_exception_unit;
         set_decode(32'h3010_1073,PRIV_M);
         check(decode_exception.valid&&decode_exception.cause==2,
               "CSR metadata rejects writes to read-only misa");
+        set_decode(32'h3100_1073,PRIV_M);
+        check(id_done&&!decode_exception.valid,
+              "mstatush writes are legal even though all fields are fixed zero");
         csr_mstatus[20]=1'b1;
         set_decode(32'h1800_2073,PRIV_S);
         check(decode_exception.valid&&decode_exception.cause==2,

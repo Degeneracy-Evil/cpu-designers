@@ -66,8 +66,7 @@ module apb_perips #(
         .o_irq     (o_gpio_irq)
     );
 
-    // APB Timer (slot 1, 0x1000_4000) removed — Linux relies on CLINT mtime/mtimecmp.
-    // slot1 is left unmapped (returns OKAY/zero) so UART/SPI slot addresses stay intact.
+    // Slot 1 remains physically present only to preserve UART/SPI slot numbering.
 
     uart_16550a #(
         .FIFO_DEPTH (UART_FIFO_DEPTH)
@@ -109,10 +108,10 @@ module apb_perips #(
         .o_irq    (o_spi_irq)
     );
 
-    // Slot 1 (0x1000_4000) is the removed APB Timer — benign OKAY/zero response
-    // for robustness if software ever touches the reserved address.
+    // The top-level exact decoder cannot route the removed timer window here.
+    // Return an error defensively if another master ever reaches this slot.
     assign slave_PREADY [1] = 1'b1;
-    assign slave_PSLVERR[1] = 1'b0;
+    assign slave_PSLVERR[1] = 1'b1;
     assign slave1_PRDATA    = 32'd0;
 
 endmodule

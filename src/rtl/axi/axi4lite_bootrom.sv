@@ -4,9 +4,9 @@
  * Migrated from ahb_bootrom_slave.sv (AHB-Lite → AXI4-Lite).
  * Same BRAM content and address mapping; only the bus interface changed.
  *
- * Address map: 0xFC00_0000 (decoded by crossbar as HADDR[31:24]==8'hFC)
+ * Address map: 0xFC00_0000 .. 0xFC00_7FFF.
  *
- * Write channel: silently acknowledged with OKAY (ROM is read-only).
+ * Write channel: completed with SLVERR (ROM is read-only).
  * Read channel: 1-cycle BRAM latency, then RVALID driven.
  */
 `include "axi4_def.svh"
@@ -54,10 +54,10 @@ module axi4lite_bootrom #(
     localparam INDEX_WIDTH = $clog2(MEM_DEPTH);
 
     // =========================================================================
-    // Write Channel — read-only slave, writes acknowledged with OKAY
+    // Write Channel — read-only slave, writes complete with SLVERR
     // =========================================================================
     // AW and W channels are independent; latch each handshake separately.
-    // When both complete, drive BVALID with OKAY.
+    // When both complete, drive BVALID with SLVERR.
     reg  aw_latch, w_latch;
     wire aw_done = aw_latch || (s_axi_awready && s_axi_awvalid);
     wire w_done  = w_latch  || (s_axi_wready  && s_axi_wvalid);
@@ -67,7 +67,7 @@ module axi4lite_bootrom #(
             aw_latch     <= 1'b0;
             w_latch      <= 1'b0;
             s_axi_bvalid <= 1'b0;
-            s_axi_bresp  <= `AXI_RESP_OKAY;
+            s_axi_bresp  <= `AXI_RESP_SLVERR;
         end else begin
             if (s_axi_bvalid && s_axi_bready) begin
                 s_axi_bvalid <= 1'b0;
@@ -140,12 +140,7 @@ module axi4lite_bootrom #(
 
 `ifdef SIMULATION
     reg [DATA_WIDTH-1:0] mem [0:MEM_DEPTH-1];
-    // BUG-55 fix: Initialize mem array to zero in simulation.
-    // Without this, the entire 8K-entry array starts as X, causing the CPU
-    // to fetch X instructions → X propagates through the entire pipeline
-    // every cycle → massive event storm in XSim (5000x slowdown).
-    // Then load bootloader.hex (placed by orchestrator into xsim dir) so
-    // the CPU fetches real instructions from Boot ROM on reset.
+    // Initialize simulation storage before loading the selected boot image.
     initial begin
         for (integer i = 0; i < MEM_DEPTH; i = i + 1)
             mem[i] = {DATA_WIDTH{1'b0}};
@@ -160,10 +155,8 @@ module axi4lite_bootrom #(
     // Debug: log every read transaction (address, index, data)
     integer rom_rd_cnt;
     initial rom_rd_cnt = 0;
-    // BUG-4 fix: simulation-only debug log — uses `always` (not `always_ff`)
-    // because `rom_rd_cnt` is also driven by `initial`, and xvlog prohibits
-    // mixed `initial`+`always_ff` drivers (VRFC 10-3818). This block is
-    // inside `ifdef SIMULATION` and never reaches synthesis/FPGA.
+    // This simulation-only counter is also initialized above, so use `always`
+    // rather than an `always_ff` block with mixed procedural drivers.
     always @(posedge s_axi_aclk) begin
         if (rd_state == RD_DATA && s_axi_rvalid && s_axi_rready && rom_rd_cnt < 200) begin
             $display("[BOOTROM-RD] #%0d addr=0x%08h idx=%0d data=0x%08h",

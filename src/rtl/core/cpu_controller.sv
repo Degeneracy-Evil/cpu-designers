@@ -49,6 +49,7 @@ module cpu_controller(
     localparam STATE_TRAP_RETURN= 4'd8;
     localparam STATE_FENCEI     = 4'd9;
     localparam STATE_SFENCE_VMA = 4'd10;
+    localparam STATE_RETURN_BOUNDARY = 4'd11;
 
     reg [3:0] state_r;
     reg [3:0] next_state;
@@ -142,7 +143,10 @@ module cpu_controller(
                     next_state = STATE_FETCH;
                 end
                 STATE_TRAP_RETURN: begin
-                    next_state = STATE_FETCH;
+                    next_state = STATE_RETURN_BOUNDARY;
+                end
+                STATE_RETURN_BOUNDARY: begin
+                    next_state = interrupt_pending ? STATE_TRAP_ENTER : STATE_FETCH;
                 end
                 STATE_FENCEI: begin
                     if (fencei_done) begin

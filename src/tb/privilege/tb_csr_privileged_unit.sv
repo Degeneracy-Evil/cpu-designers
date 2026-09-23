@@ -55,6 +55,10 @@ module tb_csr_privileged_unit;
         check(csr_mstatus[31]==0&&csr_mstatus[16:13]==0,
               "SD VS XS and FS are fixed zero");
 
+        csr_write(`CSR_MSTATUSH,32'hffff_ffff);
+        sw_csr_addr=`CSR_MSTATUSH;#1;
+        check(sw_csr_rdata==0,"mstatush accepts writes and remains fixed zero");
+
         csr_write(`CSR_MSTATUS,32'h0000_1000);
         check(csr_mstatus[12:11]==PRIV_U,
               "reserved MPP encoding legalizes to U");

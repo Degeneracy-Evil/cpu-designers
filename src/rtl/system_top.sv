@@ -482,35 +482,66 @@ module system_top(
     // ========================================================================
     // Manual Address Decoder + Slave Mux (sys_clk domain, after CDC)
     // ========================================================================
-    // Slave indices:
-    //   0: DDR3/RAM   (addr[31:27] == 5'h10, 0x8000_0000~0x87FF_FFFF = 128MB)
-    //   1: Boot ROM   (addr[31:24] == 8'hFC)
-    //   2: PLIC       (addr[31:24] == 8'h0C)
-    //   3: CLINT      (addr[31:24] == 8'h02)
-    //   4: APB Bridge (addr[31:24] == 8'h10)
-    //   5: Sys Status (addr[31:24] == 8'h04)
+    // Slave indices follow the exact base/size regions in soc_addr_map.svh:
+    //   0: DDR3/RAM
+    //   1: Boot ROM
+    //   2: PLIC
+    //   3: CLINT
+    //   4: APB Bridge (GPIO, UART, or SPI only)
+    //   5: Sys Status
     //   6: Default    (none of the above)
+
+    function automatic logic addr_in_region(
+        input logic [31:0] addr,
+        input logic [31:0] base,
+        input logic [31:0] size
+    );
+        logic [32:0] endpoint;
+        begin
+            endpoint = {1'b0, base} + {1'b0, size};
+            addr_in_region = ({1'b0, addr} >= {1'b0, base}) &&
+                             ({1'b0, addr} < endpoint);
+        end
+    endfunction
+
+    wire aw_is_ddr       = addr_in_region(cdc_awaddr, `SOC_DDR_BASE, `SOC_DDR_SIZE);
+    wire aw_is_bootrom   = addr_in_region(cdc_awaddr, `SOC_BOOTROM_BASE, `SOC_BOOTROM_SIZE);
+    wire aw_is_plic      = addr_in_region(cdc_awaddr, `SOC_PLIC_BASE, `SOC_PLIC_SIZE);
+    wire aw_is_clint     = addr_in_region(cdc_awaddr, `SOC_CLINT_BASE, `SOC_CLINT_SIZE);
+    wire aw_is_gpio      = addr_in_region(cdc_awaddr, `SOC_APB_GPIO_BASE, `SOC_APB_GPIO_SIZE);
+    wire aw_is_uart      = addr_in_region(cdc_awaddr, `SOC_APB_UART_BASE, `SOC_APB_UART_SIZE);
+    wire aw_is_spi       = addr_in_region(cdc_awaddr, `SOC_APB_SPI_BASE, `SOC_APB_SPI_SIZE);
+    wire aw_is_sysstatus = addr_in_region(cdc_awaddr, `SOC_SYSSTATUS_BASE, `SOC_SYSSTATUS_SIZE);
+    wire aw_is_apb       = aw_is_gpio || aw_is_uart || aw_is_spi;
+
+    wire ar_is_ddr       = addr_in_region(cdc_araddr, `SOC_DDR_BASE, `SOC_DDR_SIZE);
+    wire ar_is_bootrom   = addr_in_region(cdc_araddr, `SOC_BOOTROM_BASE, `SOC_BOOTROM_SIZE);
+    wire ar_is_plic      = addr_in_region(cdc_araddr, `SOC_PLIC_BASE, `SOC_PLIC_SIZE);
+    wire ar_is_clint     = addr_in_region(cdc_araddr, `SOC_CLINT_BASE, `SOC_CLINT_SIZE);
+    wire ar_is_gpio      = addr_in_region(cdc_araddr, `SOC_APB_GPIO_BASE, `SOC_APB_GPIO_SIZE);
+    wire ar_is_uart      = addr_in_region(cdc_araddr, `SOC_APB_UART_BASE, `SOC_APB_UART_SIZE);
+    wire ar_is_spi       = addr_in_region(cdc_araddr, `SOC_APB_SPI_BASE, `SOC_APB_SPI_SIZE);
+    wire ar_is_sysstatus = addr_in_region(cdc_araddr, `SOC_SYSSTATUS_BASE, `SOC_SYSSTATUS_SIZE);
+    wire ar_is_apb       = ar_is_gpio || ar_is_uart || ar_is_spi;
 
     // AW channel address decode (combinational)
     wire [2:0] aw_slave_sel_comb;
-    assign aw_slave_sel_comb = (cdc_awaddr >= `SOC_DDR_BASE &&
-                                cdc_awaddr < (`SOC_DDR_BASE + `SOC_DDR_SIZE)) ? 3'd0 :
-                               ((cdc_awaddr & `SOC_BOOTROM_LEGACY_MASK) == `SOC_BOOTROM_LEGACY_VALUE) ? 3'd1 :
-                               ((cdc_awaddr & 32'hFF00_0000) == `SOC_PLIC_BASE) ? 3'd2 :
-                               ((cdc_awaddr & 32'hFF00_0000) == `SOC_CLINT_BASE) ? 3'd3 :
-                               ((cdc_awaddr & 32'hFF00_0000) == `SOC_APB_BASE) ? 3'd4 :
-                               ((cdc_awaddr & 32'hFF00_0000) == `SOC_SYSSTATUS_BASE) ? 3'd5 :
+    assign aw_slave_sel_comb = aw_is_ddr       ? 3'd0 :
+                               aw_is_bootrom   ? 3'd1 :
+                               aw_is_plic      ? 3'd2 :
+                               aw_is_clint     ? 3'd3 :
+                               aw_is_apb       ? 3'd4 :
+                               aw_is_sysstatus ? 3'd5 :
                                3'd6;
 
     // AR channel address decode (combinational)
     wire [2:0] ar_slave_sel_comb;
-    assign ar_slave_sel_comb = (cdc_araddr >= `SOC_DDR_BASE &&
-                                cdc_araddr < (`SOC_DDR_BASE + `SOC_DDR_SIZE)) ? 3'd0 :
-                               ((cdc_araddr & `SOC_BOOTROM_LEGACY_MASK) == `SOC_BOOTROM_LEGACY_VALUE) ? 3'd1 :
-                               ((cdc_araddr & 32'hFF00_0000) == `SOC_PLIC_BASE) ? 3'd2 :
-                               ((cdc_araddr & 32'hFF00_0000) == `SOC_CLINT_BASE) ? 3'd3 :
-                               ((cdc_araddr & 32'hFF00_0000) == `SOC_APB_BASE) ? 3'd4 :
-                               ((cdc_araddr & 32'hFF00_0000) == `SOC_SYSSTATUS_BASE) ? 3'd5 :
+    assign ar_slave_sel_comb = ar_is_ddr       ? 3'd0 :
+                               ar_is_bootrom   ? 3'd1 :
+                               ar_is_plic      ? 3'd2 :
+                               ar_is_clint     ? 3'd3 :
+                               ar_is_apb       ? 3'd4 :
+                               ar_is_sysstatus ? 3'd5 :
                                3'd6;
 
     // Handshake-owned routing state.

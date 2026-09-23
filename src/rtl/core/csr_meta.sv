@@ -25,7 +25,7 @@ module csr_meta(
             `CSR_SSCRATCH, `CSR_SEPC, `CSR_SCAUSE, `CSR_STVAL,
             `CSR_SIP, `CSR_SATP: min_priv_r = PRIV_S;
 
-            `CSR_MSTATUS, `CSR_MEDELEG, `CSR_MIDELEG, `CSR_MIE,
+            `CSR_MSTATUS, `CSR_MSTATUSH, `CSR_MEDELEG, `CSR_MIDELEG, `CSR_MIE,
             `CSR_MTVEC, `CSR_MCOUNTEREN, `CSR_MSCRATCH, `CSR_MEPC,
             `CSR_MCAUSE, `CSR_MTVAL, `CSR_MIP, `CSR_MCYCLE,
             `CSR_MINSTRET, `CSR_MCYCLEH, `CSR_MINSTRETH,
@@ -36,7 +36,7 @@ module csr_meta(
             `CSR_PMPADDR12, `CSR_PMPADDR13, `CSR_PMPADDR14, `CSR_PMPADDR15:
                 min_priv_r = PRIV_M;
 
-            `CSR_MISA, `CSR_MSTATUSH, `CSR_MVENDORID, `CSR_MARCHID,
+            `CSR_MISA, `CSR_MVENDORID, `CSR_MARCHID,
             `CSR_MIMPID, `CSR_MHARTID, `CSR_MCONFIGPTR: begin
                 min_priv_r = PRIV_M;
                 read_only = 1'b1;

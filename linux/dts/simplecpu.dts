@@ -144,20 +144,12 @@
         /*
          * 下面这些外设先不打开。
          * 第一阶段只需要 UART console。
-         * GPIO / SPI / APB Timer 等后续等 kernel 能启动后再补。
+         * GPIO / SPI 等后续等 kernel 能启动后再补。
          */
 
         gpio0: gpio@10000000 {
             compatible = "simplecpu,gpio";
             reg = <0x10000000 0x1000>;
-            status = "disabled";
-        };
-
-        apb_timer0: timer@10004000 {
-            compatible = "simplecpu,apb-timer";
-            reg = <0x10004000 0x1000>;
-            interrupt-parent = <&plic>;
-            interrupts = <1>;
             status = "disabled";
         };
 

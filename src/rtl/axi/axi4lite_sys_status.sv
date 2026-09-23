@@ -4,7 +4,7 @@
  * Migrated from ahb_sys_status.sv (AHB-Lite → AXI4-Lite).
  * Same register map and status inputs; only the bus interface changed.
  *
- * Address map: 0x0400_0000 (decoded by crossbar as HADDR[31:24]==8'h04)
+ * Address map: 0x0400_0000 .. 0x0400_0FFF.
  *
  * Register map (offset from base):
  *   0x00: STATUS register (read-only)
@@ -13,7 +13,7 @@
  *         [2]   clk_wiz_locked       — Clocking Wizard locked
  *         [31:3] reserved (0)
  *
- * Write channel: silently acknowledged with OKAY (status is read-only).
+ * Write channel: completed with SLVERR (status is read-only).
  * Read channel: combinational status mux, 1-cycle latency (AR → R).
  */
 `include "axi4_def.svh"
@@ -62,7 +62,7 @@ module axi4lite_sys_status #(
 );
 
     // =========================================================================
-    // Write Channel — read-only slave, writes acknowledged with OKAY
+    // Write Channel — read-only slave, writes complete with SLVERR
     // =========================================================================
     reg  aw_latch, w_latch;
     wire aw_done = aw_latch || (s_axi_awready && s_axi_awvalid);
@@ -73,7 +73,7 @@ module axi4lite_sys_status #(
             aw_latch     <= 1'b0;
             w_latch      <= 1'b0;
             s_axi_bvalid <= 1'b0;
-            s_axi_bresp  <= `AXI_RESP_OKAY;
+            s_axi_bresp  <= `AXI_RESP_SLVERR;
         end else begin
             if (s_axi_bvalid && s_axi_bready) begin
                 s_axi_bvalid <= 1'b0;
@@ -96,25 +96,19 @@ module axi4lite_sys_status #(
     // =========================================================================
     // Read Channel — combinational status register, 1-cycle latency
     // =========================================================================
-    // Latch address during AR handshake, then drive RVALID with muxed data.
-    reg [ADDR_WIDTH-1:0] latch_araddr;
-
     always_ff @(posedge s_axi_aclk or negedge s_axi_aresetn) begin
         if (!s_axi_aresetn) begin
             s_axi_rvalid  <= 1'b0;
             s_axi_rresp   <= `AXI_RESP_OKAY;
             s_axi_rdata   <= {DATA_WIDTH{1'b0}};
-            latch_araddr  <= {ADDR_WIDTH{1'b0}};
         end else begin
             if (s_axi_rvalid && s_axi_rready) begin
                 s_axi_rvalid <= 1'b0;
             end else if (!s_axi_rvalid && s_axi_arvalid) begin
                 s_axi_rvalid <= 1'b1;
                 s_axi_rresp  <= `AXI_RESP_OKAY;
-                latch_araddr <= s_axi_araddr;
-                // Combinational mux based on latched address
-                case (s_axi_araddr[3:0])
-                    4'h0: s_axi_rdata <= {29'b0,
+                case (s_axi_araddr[11:0])
+                    12'h000: s_axi_rdata <= {29'b0,
                                            i_clk_wiz_locked,
                                            i_mig_mmcm_locked,
                                            i_init_calib_complete};

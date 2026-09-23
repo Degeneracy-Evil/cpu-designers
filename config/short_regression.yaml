@@ -13,6 +13,7 @@ tasks:
   - task: mmu_sfence_handshake_unit
   - task: cache_mmu_interact
   - task: mmio_plic
+  - task: axi_bus
   - task: cpu_controller_unit
   - task: cpu_mem_contract_unit
   - task: exception_contract_unit

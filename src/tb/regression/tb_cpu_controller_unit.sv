@@ -4,7 +4,8 @@
 module tb_cpu_controller_unit;
     localparam [3:0] S_IDLE=0, S_FETCH=1, S_DECODE=2, S_EXEC=3,
                      S_MEM=4, S_WB=5, S_CSR=6, S_TRAP=7,
-                     S_RETURN=8, S_FENCEI=9, S_SFENCE=10;
+                     S_RETURN=8, S_FENCEI=9, S_SFENCE=10,
+                     S_RETURN_BOUNDARY=11;
 
     reg clk = 1'b0;
     reg resetn = 1'b0;
@@ -122,11 +123,26 @@ module tb_cpu_controller_unit;
         @(posedge clk); #1; id_done=0; dec_is_mret=0;
         check(state==S_RETURN && trap_return_valid && trap_return_kind==RET_M,
               "mret enters TRAP_RETURN with explicit kind");
+        @(posedge clk); #1;
+        check(state==S_RETURN_BOUNDARY && !trap_return_valid &&
+              !if_valid && !id_valid && !exe_valid && !mem_valid &&
+              !wb_valid && !csr_valid && !trap_enter_valid,
+              "return boundary issues no functional request");
+        @(posedge clk); #1;
+        check(state==S_FETCH,"return boundary fetches when no interrupt is pending");
+
         restart(); fetch_to_decode();
         @(negedge clk); id_done=1; dec_is_sret=1;
         @(posedge clk); #1; id_done=0; dec_is_sret=0;
         check(state==S_RETURN && trap_return_kind==RET_S,
               "sret enters TRAP_RETURN with explicit kind");
+        @(negedge clk); interrupt_pending=1;
+        @(posedge clk); #1;
+        check(state==S_RETURN_BOUNDARY && !trap_return_valid,
+              "sret reaches explicit return boundary");
+        @(posedge clk); #1; interrupt_pending=0;
+        check(state==S_TRAP && trap_enter_valid,
+              "return boundary immediately accepts a pending interrupt");
 
         restart();
         @(negedge clk); sync_exception_pending=1;

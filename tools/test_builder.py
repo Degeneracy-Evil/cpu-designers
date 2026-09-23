@@ -15,7 +15,7 @@ import yaml
 ROOT = Path(__file__).resolve().parent.parent
 CONFIG = ROOT / "config" / "programs.yaml"
 TEST_ROOT = ROOT / "test" / "program"
-SOFTWARE_ROOT = ROOT / "software"
+SOFTWARE_ROOT = ROOT / "software" / "baremetal"
 OUTPUT_ROOT = ROOT / "build" / "program"
 RV2COE = ROOT / "tools" / "rv2coe.py"
 

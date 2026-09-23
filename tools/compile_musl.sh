@@ -6,7 +6,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 CPU_HOME="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
-TOOLCHAINS_HOME="${CPU_HOME}/linux/toolchains"
+TOOLCHAINS_HOME="${CPU_HOME}/software/system/toolchains"
 MUSL_CROSS_HOME="${TOOLCHAINS_HOME}/musl-cross-make"
 export MUSL_HOME="${TOOLCHAINS_HOME}/riscv32ima-linux-musl"
 

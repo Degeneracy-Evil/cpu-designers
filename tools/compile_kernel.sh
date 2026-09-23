@@ -8,21 +8,22 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 CPU_HOME="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 export CPU_HOME
-export DTS_HOME="${CPU_HOME}/linux/dts"
+export SYSTEM_SOFTWARE_HOME="${CPU_HOME}/software/system"
+export DTS_HOME="${SYSTEM_SOFTWARE_HOME}/platform/dts"
 export DTB_BUILD="${CPU_HOME}/build/dtb"
 export DTB_OUT="${DTB_BUILD}/simplecpu.dtb"
-export KERNEL_HOME="${CPU_HOME}/linux/linux-7.1"
+export KERNEL_HOME="${SYSTEM_SOFTWARE_HOME}/kernel/linux-7.1"
 export KERNEL_BUILD="${CPU_HOME}/build/kernel"
 export KERNEL_IMG="${KERNEL_BUILD}/arch/riscv/boot/Image"
-export OPENSBI_HOME="${CPU_HOME}/linux/opensbi"
+export OPENSBI_HOME="${SYSTEM_SOFTWARE_HOME}/firmware/opensbi"
 export OPENSBI_BUILD="${CPU_HOME}/build/opensbi"
 export OPENSBI_DEFCONFIG="${CPU_HOME}/config/opensbi_simplecpu_defconfig"
-export BUSYBOX_HOME="${CPU_HOME}/linux/busybox-1.36.1"
+export BUSYBOX_HOME="${SYSTEM_SOFTWARE_HOME}/userland/busybox-1.36.1"
 export ROOTFS_BUILD="${CPU_HOME}/build/rootfs"
 export INITRAMFS_IMG="${CPU_HOME}/build/initramfs.cpio.gz"
 export FIRMWARE_HEX="${CPU_HOME}/build/program/firmware/fw_payload.hex"
 
-MUSL_TOOLCHAIN_BIN="${CPU_HOME}/linux/toolchains/riscv32ima-linux-musl/bin"
+MUSL_TOOLCHAIN_BIN="${SYSTEM_SOFTWARE_HOME}/toolchains/riscv32ima-linux-musl/bin"
 export PATH="${MUSL_TOOLCHAIN_BIN}:${PATH}"
 
 for tool in make dtc cpio gzip grep nproc python3 \

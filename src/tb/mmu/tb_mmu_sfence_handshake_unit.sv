@@ -1,4 +1,5 @@
 `timescale 1ns / 1ps
+`include "core_bus_types.svh"
 
 module tb_mmu_sfence_handshake_unit;
     reg clk=1'b0, resetn=1'b0;
@@ -6,7 +7,8 @@ module tb_mmu_sfence_handshake_unit;
 
     reg [31:0] i_vaddr, d_vaddr;
     reg i_translate_en, d_translate_en;
-    reg [1:0] d_access_type, priv_mode, mstatus_mpp;
+    access_class_t d_access_type;
+    priv_mode_t priv_mode, mstatus_mpp;
     reg [31:0] satp;
     reg mstatus_mprv, mstatus_sum, mstatus_mxr;
     wire [31:0] i_paddr, d_paddr;
@@ -48,8 +50,8 @@ module tb_mmu_sfence_handshake_unit;
     endtask
 
     initial begin
-        i_vaddr=0;i_translate_en=0;d_vaddr=0;d_access_type=2'b01;d_translate_en=0;
-        priv_mode=2'b11;satp=0;mstatus_mprv=0;mstatus_mpp=2'b11;
+        i_vaddr=0;i_translate_en=0;d_vaddr=0;d_access_type=ACCESS_LOAD;d_translate_en=0;
+        priv_mode=PRIV_M;satp=0;mstatus_mprv=0;mstatus_mpp=PRIV_M;
         mstatus_sum=0;mstatus_mxr=0;ptw_bus_rdata=0;ptw_bus_done=0;ptw_bus_error=0;
         sfence_req=0;
         repeat(4)@(posedge clk);@(negedge clk);resetn=1;repeat(2)@(posedge clk);
@@ -79,7 +81,7 @@ module tb_mmu_sfence_handshake_unit;
         // Start a real Sv32 walk and hold its first memory transaction.  A
         // concurrent SFENCE must wait for that transaction to drain before it
         // flushes the TLB and reports completion.
-        @(negedge clk);satp=32'h80000001;priv_mode=2'b01;
+        @(negedge clk);satp=32'h80000001;priv_mode=PRIV_S;
         while(dbg_mmu_state!=0)begin @(posedge clk);#1;end
         @(negedge clk);i_vaddr=32'h80403020;i_translate_en=1;
         while(!ptw_bus_req)begin @(posedge clk);#1;end
@@ -96,7 +98,7 @@ module tb_mmu_sfence_handshake_unit;
         check(done_count==3,"SFENCE completes once after PTW drain and flush");
         repeat(6)@(posedge clk);#1;
         check(done_count==3,"held post-drain SFENCE is not accepted twice");
-        @(negedge clk);sfence_req=0;i_translate_en=0;satp=0;priv_mode=2'b11;
+        @(negedge clk);sfence_req=0;i_translate_en=0;satp=0;priv_mode=PRIV_M;
 
         $display("mmu sfence handshake unit: pass=%0d fail=%0d",pass_count,fail_count);
         if(!fail_count)$display("ALL TESTS PASSED");else $display("TEST FAILED");

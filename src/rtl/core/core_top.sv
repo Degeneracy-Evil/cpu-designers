@@ -157,6 +157,7 @@ module core_top(
     wire dec_is_nop_like;
     wire dec_is_fencei;
     wire dec_is_sfence_vma;
+    trap_return_kind_t trap_return_kind;
     wire exe_branch_taken;
     wire [31:0] exe_branch_target;
     wire exe_is_ctrl_flow;
@@ -267,9 +268,6 @@ module core_top(
     wire [31:0] csr_scounteren;
     wire [127:0] pmpcfg_flat;
     wire [511:0] pmpaddr_flat;
-    // Debug: CSR access permission from trap_csr (used internally; not consumed at core_top)
-    wire csr_access_ok;
-
     // Extended debug wires
     wire [31:0] hw_trap_epc_w;
     wire [31:0] hw_trap_cause_w;
@@ -312,11 +310,6 @@ module core_top(
     assign exe_is_load   = (exe_mem_bus.mem_kind == MEM_LOAD) ||
                            (exe_mem_bus.mem_kind == MEM_LR);
 
-    priv_mode_t mpp_field;
-    assign mpp_field = priv_mode_t'(csr_mstatus[12:11]);
-    wire spp_field;
-    assign spp_field = csr_mstatus[8];
-
     always_ff @(posedge clk or negedge resetn) begin
         if (!resetn) begin
             pc <= `SOC_BOOTROM_BASE;
@@ -352,11 +345,7 @@ module core_top(
                 if_id_bus_r <= '0;
                 id_exe_bus_r <= '0;
                 pc <= trap_csr_pc;
-                if (priv_mode == PRIV_M) begin
-                    priv_mode <= mpp_field;
-                end else begin
-                    priv_mode <= spp_field ? PRIV_S : PRIV_U;
-                end
+                priv_mode <= target_priv;
             end else if (exe_valid && exe_done) begin
                 if (exe_is_ctrl_flow && exe_branch_taken) begin
                     if_id_bus_r <= '0;
@@ -403,6 +392,7 @@ module core_top(
         .csr_valid(csr_valid),
         .trap_enter_valid(trap_enter_valid),
         .trap_return_valid(trap_return_valid),
+        .trap_return_kind (trap_return_kind),
         .exe_to_wb(exe_to_wb),
         .fencei_req(fencei_req),
         .sfence_vma_req(sfence_vma_req),
@@ -786,6 +776,7 @@ module core_top(
         .csr_valid        (csr_valid),
         .trap_enter_valid (trap_enter_valid),
         .trap_return_valid(trap_return_valid),
+        .trap_return_kind (trap_return_kind),
         .priv_mode        (priv_mode),
         .timer_irq        (timer_irq),
         .ext_meip_in      (ext_meip_in),
@@ -820,7 +811,6 @@ module core_top(
         .csr_satp         (csr_satp),
         .csr_mcounteren   (csr_mcounteren),
         .csr_scounteren   (csr_scounteren),
-        .csr_access_ok    (csr_access_ok),
         .pmpcfg_flat      (pmpcfg_flat),
         .pmpaddr_flat     (pmpaddr_flat),
         // Extended debug outputs

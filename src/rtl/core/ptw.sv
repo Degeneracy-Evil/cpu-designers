@@ -70,6 +70,7 @@ module ptw(
     reg [31:0] pte_addr_r;
     reg [31:0] ad_wdata_r;
     reg        is_megapage_r;
+    reg        global_seen_r;
     reg [1:0]  fault_kind_r;
     reg        abort_pending_r;
 
@@ -144,7 +145,7 @@ module ptw(
     assign walk_u = pte_u_bit;
     assign walk_a = pte_a_bit;
     assign walk_d = pte_d_bit;
-    assign walk_g = pte_g_bit;
+    assign walk_g = global_seen_r | pte_g_bit;
     assign walk_is_megapage = is_megapage_r;
 
     // The request remains asserted for the entire WAIT state. There is no
@@ -169,6 +170,7 @@ module ptw(
             pte_addr_r <= 32'b0;
             ad_wdata_r <= 32'b0;
             is_megapage_r <= 1'b0;
+            global_seen_r <= 1'b0;
             fault_kind_r <= FAULT_NONE;
             abort_pending_r <= 1'b0;
         end else begin
@@ -194,6 +196,7 @@ module ptw(
                             mxr_r <= mstatus_mxr;
                             access_r <= access_type;
                             is_megapage_r <= 1'b0;
+                            global_seen_r <= 1'b0;
                             state <= S_L1_REQUEST;
                         end
                     end
@@ -231,6 +234,7 @@ module ptw(
                             is_megapage_r <= 1'b1;
                             state <= S_PERM_CHECK;
                         end else begin
+                            global_seen_r <= global_seen_r | pte_g_bit;
                             state <= S_L0_REQUEST;
                         end
                     end

@@ -4,8 +4,8 @@
 module cpu_trap_router(
     input exception_t  exception,
 
-    input              mret_req,
-    input              sret_req,
+    input              trap_return_valid,
+    input trap_return_kind_t trap_return_kind,
 
     input              trap_enter_valid,
 
@@ -30,7 +30,7 @@ module cpu_trap_router(
 
     output             hw_csr_wen,
     output             hw_trap_is_enter,
-    output      priv_mode_t hw_target_priv,
+    output      priv_mode_t hw_status_priv,
     output      [31:0] hw_mepc_wdata,
     output      [31:0] hw_mcause_wdata,
     output      [31:0] hw_mtval_wdata,
@@ -42,8 +42,6 @@ module cpu_trap_router(
 );
     wire mie_bit    = csr_mstatus[3];
     wire sie_bit    = csr_mstatus[1];
-    wire mpie_bit   = csr_mstatus[7];
-    wire spie_bit   = csr_mstatus[5];
     wire [31:0] enabled_pending = csr_mip & csr_mie;
     wire [31:0] supported_interrupts = 32'h0000_0AAA;
 
@@ -83,47 +81,72 @@ module cpu_trap_router(
     assign trap_to_s = (exception.valid && exc_delegated && (priv_mode != PRIV_M)) ||
                        (!exception.valid && !m_interrupt_pending && s_interrupt_pending);
 
-    assign target_priv = priv_mode_t'(trap_to_s ? PRIV_S : PRIV_M);
+    wire return_m = trap_return_valid && (trap_return_kind == RET_M);
+    wire return_s = trap_return_valid && (trap_return_kind == RET_S);
+
+    reg [31:0] mstatus_on_trap_to_m;
+    reg [31:0] mstatus_on_trap_to_s;
+    reg [31:0] mstatus_on_mret;
+    reg [31:0] mstatus_on_sret;
+
+    always_comb begin
+        mstatus_on_trap_to_m = csr_mstatus;
+        mstatus_on_trap_to_m[12:11] = priv_mode;
+        mstatus_on_trap_to_m[7] = csr_mstatus[3];
+        mstatus_on_trap_to_m[3] = 1'b0;
+
+        mstatus_on_trap_to_s = csr_mstatus;
+        mstatus_on_trap_to_s[8] = (priv_mode == PRIV_S);
+        mstatus_on_trap_to_s[5] = csr_mstatus[1];
+        mstatus_on_trap_to_s[1] = 1'b0;
+
+        mstatus_on_mret = csr_mstatus;
+        mstatus_on_mret[3] = csr_mstatus[7];
+        mstatus_on_mret[7] = 1'b1;
+        mstatus_on_mret[12:11] = PRIV_U;
+        if (csr_mstatus[12:11] != PRIV_M)
+            mstatus_on_mret[17] = 1'b0;
+
+        mstatus_on_sret = csr_mstatus;
+        mstatus_on_sret[1] = csr_mstatus[5];
+        mstatus_on_sret[5] = 1'b1;
+        mstatus_on_sret[8] = 1'b0;
+        mstatus_on_sret[17] = 1'b0;
+    end
+
+    assign target_priv = return_m ? priv_mode_t'(csr_mstatus[12:11]) :
+                         return_s ? priv_mode_t'(csr_mstatus[8] ? PRIV_S : PRIV_U) :
+                         priv_mode_t'(trap_to_s ? PRIV_S : PRIV_M);
 
     assign interrupt_pending = m_interrupt_pending || s_interrupt_pending;
     assign trap_enter  = exception.valid || interrupt_pending;
-    assign trap_return = mret_req || sret_req;
+    assign trap_return = return_m || return_s;
 
-    assign trap_pc = sret_req ? csr_sepc :
-                     mret_req ? csr_mepc :
+    assign trap_pc = return_s ? csr_sepc :
+                     return_m ? csr_mepc :
                      trap_to_s ? {csr_stvec[31:2], 2'b00} :
                      {csr_mtvec[31:2], 2'b00};
 
     assign hw_csr_wen = (trap_enter && trap_enter_valid) || trap_return;
     assign hw_trap_is_enter = trap_enter && trap_enter_valid;
-    assign hw_target_priv = priv_mode_t'(trap_return ? priv_mode : target_priv);
+    assign hw_status_priv = return_m ? PRIV_M :
+                            return_s ? PRIV_S :
+                            priv_mode_t'(trap_to_s ? PRIV_S : PRIV_M);
 
     assign hw_mepc_wdata = exception.valid ? exception.epc : interrupt_pc;
     assign hw_mcause_wdata = exception.valid ? exception.cause :
                             m_interrupt_cause;
     assign hw_mtval_wdata = exception.valid ? exception.tval : 32'b0;
 
-    wire [31:0] m_trap_status =
-        {csr_mstatus[31:13], priv_mode, csr_mstatus[10:8], mie_bit, csr_mstatus[6:4], 1'b0, csr_mstatus[2:0]};
-    wire [31:0] m_return_status =
-        {csr_mstatus[31:13], PRIV_U, csr_mstatus[10:8], 1'b1, csr_mstatus[6:4], mpie_bit, csr_mstatus[2:0]};
-    // MRET clears MPRV whenever it returns below M-mode.
-    wire [31:0] m_return_status_mprv = (csr_mstatus[12:11] == PRIV_M) ?
-                                        m_return_status :
-                                        (m_return_status & ~32'h0002_0000);
-    assign hw_mstatus_wdata = trap_enter ? m_trap_status : m_return_status_mprv;
+    assign hw_mstatus_wdata = trap_enter ? mstatus_on_trap_to_m :
+                              mstatus_on_mret;
 
     assign hw_sepc_wdata = exception.valid ? exception.epc : interrupt_pc;
     assign hw_scause_wdata = exception.valid ? exception.cause :
                              s_interrupt_cause;
     assign hw_stval_wdata = exception.valid ? exception.tval : 32'b0;
 
-    wire [31:0] s_trap_status =
-        {csr_mstatus[31:9], priv_mode[0], csr_mstatus[7:6], sie_bit, csr_mstatus[4:2], 1'b0, csr_mstatus[0]};
-    wire [31:0] s_return_status =
-        {csr_mstatus[31:9], 1'b0, csr_mstatus[7:6], 1'b1, csr_mstatus[4:2], spie_bit, csr_mstatus[0]};
-    // SRET always executes below M-mode; clear any stale machine MPRV state.
-    assign hw_sstatus_wdata = trap_enter ? s_trap_status :
-                              (s_return_status & ~32'h0002_0000);
+    assign hw_sstatus_wdata = trap_enter ? mstatus_on_trap_to_s :
+                              mstatus_on_sret;
 
 endmodule

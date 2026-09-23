@@ -11,6 +11,27 @@ typedef enum logic [1:0] {
     PRIV_M = 2'b11
 } priv_mode_t;
 
+typedef enum logic [1:0] {
+    RET_NONE = 2'd0,
+    RET_M    = 2'd1,
+    RET_S    = 2'd2
+} trap_return_kind_t;
+
+function automatic logic priv_at_least(
+    input priv_mode_t current,
+    input priv_mode_t required
+);
+    case (current)
+        PRIV_M: priv_at_least = (required == PRIV_M) ||
+                                (required == PRIV_S) ||
+                                (required == PRIV_U);
+        PRIV_S: priv_at_least = (required == PRIV_S) ||
+                                (required == PRIV_U);
+        PRIV_U: priv_at_least = (required == PRIV_U);
+        default: priv_at_least = 1'b0;
+    endcase
+endfunction
+
 typedef enum logic [2:0] {
     MEM_NONE  = 3'd0,
     MEM_LOAD  = 3'd1,

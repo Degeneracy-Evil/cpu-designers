@@ -8,6 +8,7 @@ module cpu_trap_manager(
     input exception_t sync_exception_now,
     input         trap_enter_valid,
     input         trap_return_valid,
+    input trap_return_kind_t trap_return_kind,
 
     input priv_mode_t priv_mode,
     input  [31:0] csr_mstatus,
@@ -28,7 +29,7 @@ module cpu_trap_manager(
 
     output        hw_csr_wen,
     output        hw_trap_is_enter,
-    output priv_mode_t hw_target_priv,
+    output priv_mode_t hw_status_priv,
     output [31:0] hw_mepc_wdata,
     output [31:0] hw_mcause_wdata,
     output [31:0] hw_mtval_wdata,
@@ -54,8 +55,8 @@ module cpu_trap_manager(
 
     cpu_trap_router u_trap_router(
         .exception(exception_r),
-        .mret_req(trap_return_valid && (priv_mode == PRIV_M)),
-        .sret_req(trap_return_valid && (priv_mode == PRIV_S)),
+        .trap_return_valid(trap_return_valid),
+        .trap_return_kind(trap_return_kind),
         .trap_enter_valid(trap_enter_valid),
         .interrupt_pc(current_pc),
         .priv_mode(priv_mode),
@@ -75,7 +76,7 @@ module cpu_trap_manager(
         .target_priv(target_priv),
         .hw_csr_wen(hw_csr_wen),
         .hw_trap_is_enter(hw_trap_is_enter),
-        .hw_target_priv(hw_target_priv),
+        .hw_status_priv(hw_status_priv),
         .hw_mepc_wdata(hw_mepc_wdata),
         .hw_mcause_wdata(hw_mcause_wdata),
         .hw_mtval_wdata(hw_mtval_wdata),

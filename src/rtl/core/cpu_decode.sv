@@ -1,5 +1,6 @@
 `timescale 1ns / 1ps
 `include "core_bus_types.svh"
+`include "csr_defs.svh"
 
 module cpu_decode(
     input              id_valid,
@@ -347,145 +348,32 @@ wire inst_amomaxu  = (opcode == OPCODE_AMO) && (funct3 == 3'b010) && (funct5 == 
   assign csr_funct3 = funct3;
   assign csr_uimm   = inst[19:15];
 
-   localparam CSR_SSTATUS    = 12'h100;
-   localparam CSR_SIE        = 12'h104;
-   localparam CSR_STVEC      = 12'h105;
-  localparam CSR_SCOUNTEREN = 12'h106;
-  localparam CSR_SSCRATCH   = 12'h140;
-  localparam CSR_SEPC       = 12'h141;
-  localparam CSR_SCAUSE     = 12'h142;
-  localparam CSR_STVAL      = 12'h143;
-  localparam CSR_SIP        = 12'h144;
-  localparam CSR_SATP       = 12'h180;
+  wire csr_addr_valid;
+  priv_mode_t csr_min_priv;
+  wire csr_read_only;
+  wire csr_is_counter_alias;
+  wire [1:0] counter_enable_index;
+  csr_meta u_csr_meta (
+      .addr(csr_addr),
+      .implemented(csr_addr_valid),
+      .min_priv(csr_min_priv),
+      .read_only(csr_read_only),
+      .is_counter_alias(csr_is_counter_alias),
+      .counter_index(counter_enable_index)
+  );
 
-  localparam CSR_MSTATUS    = 12'h300;
-  localparam CSR_MISA       = 12'h301;
-  localparam CSR_MEDELEG    = 12'h302;
-  localparam CSR_MIDELEG    = 12'h303;
-  localparam CSR_MIE        = 12'h304;
-  localparam CSR_MTVEC      = 12'h305;
-  localparam CSR_MCOUNTEREN = 12'h306;
-  localparam CSR_MSTATUSH   = 12'h310;
-  localparam CSR_MSCRATCH   = 12'h340;
-  localparam CSR_MEPC       = 12'h341;
-  localparam CSR_MCAUSE     = 12'h342;
-  localparam CSR_MTVAL      = 12'h343;
-  localparam CSR_MIP        = 12'h344;
-  localparam CSR_MCYCLE     = 12'hB00;
-  localparam CSR_MINSTRET   = 12'hB02;
-  localparam CSR_MCYCLEH    = 12'hB80;
-  localparam CSR_MINSTRETH  = 12'hB82;
-
-  // U-mode counter aliases
-  localparam CSR_CYCLE      = 12'hC00;
-  localparam CSR_TIME       = 12'hC01;
-  localparam CSR_INSTRET    = 12'hC02;
-  localparam CSR_CYCLEH     = 12'hC80;
-  localparam CSR_TIMEH      = 12'hC81;
-  localparam CSR_INSTRETH   = 12'hC82;
-  localparam CSR_MVENDORID  = 12'hF11;
-  localparam CSR_MARCHID    = 12'hF12;
-  localparam CSR_MIMPID     = 12'hF13;
-  localparam CSR_MHARTID    = 12'hF14;
-  localparam CSR_MCONFIGPTR = 12'hF15;
-
-  // PMP CSRs
-  localparam CSR_PMPCFG0    = 12'h3A0;
-  localparam CSR_PMPCFG1    = 12'h3A1;
-  localparam CSR_PMPCFG2    = 12'h3A2;
-  localparam CSR_PMPCFG3    = 12'h3A3;
-  localparam CSR_PMPADDR0   = 12'h3B0;
-  localparam CSR_PMPADDR1   = 12'h3B1;
-  localparam CSR_PMPADDR2   = 12'h3B2;
-  localparam CSR_PMPADDR3   = 12'h3B3;
-  localparam CSR_PMPADDR4   = 12'h3B4;
-  localparam CSR_PMPADDR5   = 12'h3B5;
-  localparam CSR_PMPADDR6   = 12'h3B6;
-  localparam CSR_PMPADDR7   = 12'h3B7;
-  localparam CSR_PMPADDR8   = 12'h3B8;
-  localparam CSR_PMPADDR9   = 12'h3B9;
-  localparam CSR_PMPADDR10  = 12'h3BA;
-  localparam CSR_PMPADDR11  = 12'h3BB;
-  localparam CSR_PMPADDR12  = 12'h3BC;
-  localparam CSR_PMPADDR13  = 12'h3BD;
-  localparam CSR_PMPADDR14  = 12'h3BE;
-  localparam CSR_PMPADDR15  = 12'h3BF;
-
-  function is_s_csr;
-      input [11:0] addr;
-      begin
-          is_s_csr = (addr == CSR_SSTATUS)   || (addr == CSR_SIE)       ||
-                     (addr == CSR_STVEC)     || (addr == CSR_SSCRATCH)  ||
-                     (addr == CSR_SEPC)      || (addr == CSR_SCAUSE)    ||
-                     (addr == CSR_STVAL)     || (addr == CSR_SIP)       ||
-                     (addr == CSR_SATP)      || (addr == CSR_SCOUNTEREN);
-      end
-  endfunction
-
-    function is_m_csr;
-        input [11:0] addr;
-        begin
-            is_m_csr = (addr == CSR_MSTATUS)    || (addr == CSR_MISA)       ||
-                       (addr == CSR_MEDELEG)   || (addr == CSR_MIDELEG)    ||
-                       (addr == CSR_MIE)       || (addr == CSR_MTVEC)      ||
-                       (addr == CSR_MCOUNTEREN)|| (addr == CSR_MSTATUSH)   ||
-                       (addr == CSR_MSCRATCH)  || (addr == CSR_MEPC)       ||
-                       (addr == CSR_MCAUSE)    || (addr == CSR_MTVAL)      ||
-                       (addr == CSR_MIP)       || (addr == CSR_MCYCLE)     ||
-                       (addr == CSR_MINSTRET)  || (addr == CSR_MCYCLEH)   ||
-                       (addr == CSR_MINSTRETH) || (addr == CSR_MVENDORID) ||
-                       (addr == CSR_MARCHID)   || (addr == CSR_MIMPID)    ||
-                       (addr == CSR_MHARTID)   || (addr == CSR_MCONFIGPTR)||
-                       (addr == CSR_TIME)      || (addr == CSR_TIMEH)      ||
-                       // PMP CSRs
-                       (addr == CSR_PMPCFG0)   || (addr == CSR_PMPCFG1)   ||
-                       (addr == CSR_PMPCFG2)   || (addr == CSR_PMPCFG3)   ||
-                       (addr == CSR_PMPADDR0)  || (addr == CSR_PMPADDR1)  ||
-                       (addr == CSR_PMPADDR2)  || (addr == CSR_PMPADDR3)  ||
-                       (addr == CSR_PMPADDR4)  || (addr == CSR_PMPADDR5)  ||
-                       (addr == CSR_PMPADDR6)  || (addr == CSR_PMPADDR7)  ||
-                       (addr == CSR_PMPADDR8)  || (addr == CSR_PMPADDR9)  ||
-                       (addr == CSR_PMPADDR10) || (addr == CSR_PMPADDR11) ||
-                       (addr == CSR_PMPADDR12) || (addr == CSR_PMPADDR13) ||
-                       (addr == CSR_PMPADDR14) || (addr == CSR_PMPADDR15);
-        end
-    endfunction
-
-    function is_u_csr;
-        input [11:0] addr;
-        begin
-            is_u_csr = (addr == CSR_CYCLE)    || (addr == CSR_TIME)      ||
-                       (addr == CSR_INSTRET)  ||
-                       (addr == CSR_CYCLEH)   || (addr == CSR_TIMEH)    ||
-                       (addr == CSR_INSTRETH);
-        end
-    endfunction
-
-  wire csr_addr_valid = is_s_csr(csr_addr) || is_m_csr(csr_addr) || is_u_csr(csr_addr);
-
-  wire [1:0] counter_enable_index =
-      (csr_addr == CSR_CYCLE || csr_addr == CSR_CYCLEH) ? 2'd0 :
-      (csr_addr == CSR_TIME || csr_addr == CSR_TIMEH) ? 2'd1 : 2'd2;
   wire m_counter_enabled = csr_mcounteren[counter_enable_index];
   wire s_counter_enabled = csr_scounteren[counter_enable_index];
-
-  reg csr_access_ok_r;
-  always_comb begin
-      case (priv_mode)
-          // mcounteren controls S-mode access.  U-mode additionally requires
-          // the corresponding scounteren bit.
-          PRIV_U: csr_access_ok_r = is_u_csr(csr_addr) && m_counter_enabled && s_counter_enabled;
-          PRIV_S: csr_access_ok_r = is_s_csr(csr_addr) ||
-                                     (is_u_csr(csr_addr) && m_counter_enabled);
-          PRIV_M: csr_access_ok_r = 1'b1;
-          default: csr_access_ok_r = 1'b0;
-      endcase
-  end
+  wire counter_access_allowed = !csr_is_counter_alias ||
+                                (priv_mode == PRIV_M) ||
+                                ((priv_mode == PRIV_S) && m_counter_enabled) ||
+                                ((priv_mode == PRIV_U) && m_counter_enabled &&
+                                 s_counter_enabled);
 
   wire csr_addr_invalid = is_csr && !csr_addr_valid;
-  // CSR privilege violations are illegal instructions.
-  wire csr_priv_violation = is_csr && !csr_access_ok_r;
-  wire csr_read_only = (csr_addr[11:10] == 2'b11);
+  wire csr_priv_violation = is_csr &&
+                            (!priv_at_least(priv_mode, csr_min_priv) ||
+                             !counter_access_allowed);
   wire csr_is_write   = (csr_funct3 == 3'b001) ||
                         (csr_funct3 == 3'b010 && rs1 != 5'd0) ||
                         (csr_funct3 == 3'b011 && rs1 != 5'd0) ||
@@ -502,15 +390,17 @@ wire inst_amomaxu  = (opcode == OPCODE_AMO) && (funct3 == 3'b010) && (funct5 == 
   wire tsr_bit = csr_mstatus[22];
   wire sret_tsr_violation = is_sret && tsr_bit && (priv_mode == PRIV_S);
   wire tvm_bit = csr_mstatus[20];
+  wire sfence_priv_violation = is_sfence_vma && (priv_mode == PRIV_U);
   wire sfence_tvm_violation = is_sfence_vma && tvm_bit && (priv_mode == PRIV_S);
   // TVM traps every S-mode access to satp, including read-only CSRRS/CSRRC
   // forms.  M-mode uses this to virtualize both observing and changing satp.
-  wire satp_tvm_violation = is_csr && (csr_addr == CSR_SATP) && tvm_bit && (priv_mode == PRIV_S);
+  wire satp_tvm_violation = is_csr && (csr_addr == `CSR_SATP) && tvm_bit && (priv_mode == PRIV_S);
 
   wire illegal_inst = !valid_inst || csr_addr_invalid || csr_priv_violation || write_ro_csr ||
                       sret_priv_violation || mret_priv_violation ||
                       wfi_priv_violation || sret_tsr_violation ||
-                      sfence_tvm_violation || satp_tvm_violation;
+                      sfence_priv_violation || sfence_tvm_violation ||
+                      satp_tvm_violation;
   wire decode_fault = illegal_inst || is_ecall || is_ebreak;
 
   assign decode_exception = '{
@@ -531,7 +421,8 @@ wire inst_amomaxu  = (opcode == OPCODE_AMO) && (funct3 == 3'b010) && (funct5 == 
   assign dec_is_sret   = id_valid && valid_inst && is_sret;
   assign dec_is_nop_like = id_valid && valid_inst && (is_nop_like && !wfi_priv_violation);
   assign dec_is_fencei   = id_valid && valid_inst && is_fencei;
-  assign dec_is_sfence_vma = id_valid && valid_inst && is_sfence_vma && !sfence_tvm_violation;
+  assign dec_is_sfence_vma = id_valid && valid_inst && is_sfence_vma &&
+                             !sfence_priv_violation && !sfence_tvm_violation;
   assign id_exe_bus = '{
       pc:            pc,
       pc_plus4:      pc_plus4,

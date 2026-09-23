@@ -412,6 +412,14 @@ tasks:
     tb: tb_cpu_trap_router_unit
     blhex: boot/bootloader_phase1.hex
     runtime: 20us
+  csr_privileged_unit:
+    tb: tb_csr_privileged_unit
+    blhex: boot/bootloader_phase1.hex
+    runtime: 20us
+  ptw_global_unit:
+    tb: tb_ptw_global_unit
+    blhex: boot/bootloader_phase1.hex
+    runtime: 20us
   cpu_controller_unit:
     tb: tb_cpu_controller_unit
     blhex: boot/bootloader_phase1.hex

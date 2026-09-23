@@ -3,8 +3,8 @@
 
 module tb_cpu_trap_router_unit;
     exception_t exception;
-    reg         mret_req;
-    reg         sret_req;
+    reg         trap_return_valid;
+    trap_return_kind_t trap_return_kind;
     reg         trap_enter_valid;
     reg  [31:0] interrupt_pc;
     priv_mode_t priv_mode;
@@ -25,7 +25,7 @@ module tb_cpu_trap_router_unit;
     wire priv_mode_t target_priv;
     wire        hw_csr_wen;
     wire        hw_trap_is_enter;
-    wire priv_mode_t hw_target_priv;
+    wire priv_mode_t hw_status_priv;
     wire [31:0] hw_mepc_wdata;
     wire [31:0] hw_mcause_wdata;
     wire [31:0] hw_mtval_wdata;
@@ -40,8 +40,8 @@ module tb_cpu_trap_router_unit;
 
     cpu_trap_router dut (
         .exception(exception),
-        .mret_req(mret_req),
-        .sret_req(sret_req),
+        .trap_return_valid(trap_return_valid),
+        .trap_return_kind(trap_return_kind),
         .trap_enter_valid(trap_enter_valid),
         .interrupt_pc(interrupt_pc),
         .priv_mode(priv_mode),
@@ -61,7 +61,7 @@ module tb_cpu_trap_router_unit;
         .target_priv(target_priv),
         .hw_csr_wen(hw_csr_wen),
         .hw_trap_is_enter(hw_trap_is_enter),
-        .hw_target_priv(hw_target_priv),
+        .hw_status_priv(hw_status_priv),
         .hw_mepc_wdata(hw_mepc_wdata),
         .hw_mcause_wdata(hw_mcause_wdata),
         .hw_mtval_wdata(hw_mtval_wdata),
@@ -90,8 +90,8 @@ module tb_cpu_trap_router_unit;
         begin
             exception = '0;
             exception.epc = 32'h8000_0100;
-            mret_req = 1'b0;
-            sret_req = 1'b0;
+            trap_return_valid = 1'b0;
+            trap_return_kind = RET_NONE;
             trap_enter_valid = 1'b1;
             interrupt_pc = 32'h8000_0200;
             priv_mode = PRIV_M;
@@ -166,7 +166,8 @@ module tb_cpu_trap_router_unit;
 
         clear_inputs();
         priv_mode = PRIV_M;
-        mret_req = 1'b1;
+        trap_return_valid = 1'b1;
+        trap_return_kind = RET_M;
         csr_mstatus[17] = 1'b1;
         csr_mstatus[12:11] = PRIV_S;
         #1;
@@ -179,12 +180,17 @@ module tb_cpu_trap_router_unit;
               "MRET to M-mode preserves MPRV");
 
         clear_inputs();
-        priv_mode = PRIV_S;
-        sret_req = 1'b1;
+        priv_mode = PRIV_M;
+        trap_return_valid = 1'b1;
+        trap_return_kind = RET_S;
         csr_mstatus[17] = 1'b1;
+        csr_mstatus[8] = 1'b1;
+        csr_sepc = 32'h8000_4000;
         #1;
-        check(hw_csr_wen && !hw_sstatus_wdata[17],
-              "SRET clears stale MPRV state");
+        check(hw_csr_wen && !hw_sstatus_wdata[17] &&
+              hw_status_priv == PRIV_S && target_priv == PRIV_S &&
+              trap_pc == csr_sepc,
+              "M-mode SRET updates S stack and returns through sepc");
 
         $display("cpu_trap_router unit: pass=%0d fail=%0d", pass_count, fail_count);
         if (fail_count == 0)

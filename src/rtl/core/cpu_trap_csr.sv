@@ -12,6 +12,7 @@ module cpu_trap_csr(
     input         csr_valid,
     input         trap_enter_valid,
     input         trap_return_valid,
+    input trap_return_kind_t trap_return_kind,
 
     input  priv_mode_t priv_mode,
 
@@ -57,15 +58,13 @@ module cpu_trap_csr(
     output [31:0] hw_trap_cause,     // raw cause (mcause/scause write value)
     output [31:0] hw_trap_tval,      // trap value (mtval/stval write value)
 
-    output        csr_access_ok,
-
     output [127:0] pmpcfg_flat,
     output [511:0] pmpaddr_flat
 );
 
     wire        hw_csr_wen;
     wire        hw_trap_is_enter;
-    priv_mode_t hw_target_priv;
+    priv_mode_t hw_status_priv;
     wire [31:0] hw_mepc_wdata;
     wire [31:0] hw_mcause_wdata;
     wire [31:0] hw_mtval_wdata;
@@ -82,6 +81,7 @@ module cpu_trap_csr(
         .sync_exception_now(sync_exception_now),
         .trap_enter_valid (trap_enter_valid),
         .trap_return_valid(trap_return_valid),
+        .trap_return_kind (trap_return_kind),
         .priv_mode        (priv_mode),
         .csr_mstatus      (csr_mstatus),
         .csr_mie          (csr_mie),
@@ -99,7 +99,7 @@ module cpu_trap_csr(
         .target_priv      (target_priv),
         .hw_csr_wen       (hw_csr_wen),
         .hw_trap_is_enter (hw_trap_is_enter),
-        .hw_target_priv   (hw_target_priv),
+        .hw_status_priv   (hw_status_priv),
         .hw_mepc_wdata    (hw_mepc_wdata),
         .hw_mcause_wdata  (hw_mcause_wdata),
         .hw_mtval_wdata   (hw_mtval_wdata),
@@ -115,10 +115,9 @@ module cpu_trap_csr(
         .resetn            (resetn),
         .id_exe_bus_r     (id_exe_bus_r),
         .csr_valid        (csr_valid),
-        .priv_mode        (priv_mode),
         .hw_csr_wen       (hw_csr_wen),
         .hw_trap_is_enter (hw_trap_is_enter),
-        .hw_target_priv   (hw_target_priv),
+        .hw_status_priv   (hw_status_priv),
         .hw_mepc_wdata    (hw_mepc_wdata),
         .hw_mcause_wdata  (hw_mcause_wdata),
         .hw_mtval_wdata   (hw_mtval_wdata),
@@ -156,7 +155,6 @@ module cpu_trap_csr(
         .csr_satp         (csr_satp),
         .csr_mcounteren   (csr_mcounteren),
         .csr_scounteren   (csr_scounteren),
-        .csr_access_ok    (csr_access_ok),
         .pmpcfg_flat      (pmpcfg_flat),
         .pmpaddr_flat     (pmpaddr_flat)
     );

@@ -5,12 +5,13 @@ module tb_exception_contract_unit;
     reg clk=0,resetn=0;always #5 clk=~clk;
     exception_t sync_exception_now;
     reg trap_enter_valid,trap_return_valid;
+    trap_return_kind_t trap_return_kind;
     priv_mode_t priv_mode;
     reg [31:0] csr_mstatus,csr_mie,csr_mtvec,csr_mepc,csr_mip;
     reg [31:0] csr_medeleg,csr_mideleg,csr_stvec,csr_sepc,current_pc;
     wire sync_exception_pending,interrupt_pending;
     wire [31:0] trap_pc;
-    wire priv_mode_t target_priv,hw_target_priv;
+    wire priv_mode_t target_priv,hw_status_priv;
     wire hw_csr_wen,hw_trap_is_enter;
     wire [31:0] hw_mepc_wdata,hw_mcause_wdata,hw_mtval_wdata,hw_mstatus_wdata;
     wire [31:0] hw_sepc_wdata,hw_scause_wdata,hw_stval_wdata,hw_sstatus_wdata;
@@ -38,6 +39,7 @@ module tb_exception_contract_unit;
 
     initial begin
         sync_exception_now='0;trap_enter_valid=0;trap_return_valid=0;
+        trap_return_kind=RET_NONE;
         priv_mode=PRIV_M;csr_mstatus=0;csr_mie=0;csr_mtvec=32'h80001000;
         csr_mepc=0;csr_mip=0;csr_medeleg=0;csr_mideleg=0;
         csr_stvec=32'h80002000;csr_sepc=0;current_pc=32'h80000400;

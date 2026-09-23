@@ -8,11 +8,9 @@ module cpu_csr_interface(
     input  id_exe_bus_t id_exe_bus_r,
     input          csr_valid,
 
-    input  priv_mode_t priv_mode,
-
     input         hw_csr_wen,
     input         hw_trap_is_enter,
-    input  priv_mode_t hw_target_priv,
+    input  priv_mode_t hw_status_priv,
     input  [31:0] hw_mepc_wdata,
     input  [31:0] hw_mcause_wdata,
     input  [31:0] hw_mtval_wdata,
@@ -54,8 +52,6 @@ module cpu_csr_interface(
     output [31:0] csr_satp,
     output [31:0] csr_mcounteren,
     output [31:0] csr_scounteren,
-
-    output        csr_access_ok,
 
     output [127:0] pmpcfg_flat,
     output [511:0] pmpaddr_flat
@@ -120,12 +116,9 @@ module cpu_csr_interface(
         .sw_csr_wen(csr_sw_wen),
         .sw_csr_wdata(csr_sw_wdata),
         .sw_csr_rdata(csr_read_data),
-        .csr_addr_valid(),
-        .csr_access_ok(csr_access_ok),
-        .priv_mode(priv_mode),
         .hw_csr_wen(hw_csr_wen),
         .hw_trap_is_enter(hw_trap_is_enter),
-        .hw_target_priv(hw_target_priv),
+        .hw_status_priv(hw_status_priv),
         .hw_mepc_wdata(hw_mepc_wdata),
         .hw_mcause_wdata(hw_mcause_wdata),
         .hw_mtval_wdata(hw_mtval_wdata),

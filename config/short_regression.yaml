@@ -19,6 +19,8 @@ tasks:
   - task: stage_exception_unit
   - task: pmp_pma_unit
   - task: cpu_trap_router_unit
+  - task: csr_privileged_unit
+  - task: ptw_global_unit
   - task: cpu_bus_bridge_unit
   - task: dcache_writethrough_unit
   - task: icache_blocking_unit

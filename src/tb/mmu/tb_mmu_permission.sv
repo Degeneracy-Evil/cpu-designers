@@ -29,7 +29,7 @@ module tb_mmu_permission;
         read_reg(5'd18, _val);
         $display("  x18 (live first_fail)  = %0d", _val);
         $display("  PC=0x%08h state=%0d priv=%0d mcause=0x%08h",
-                 if_pc, u_soc.cpu.fsm_state, u_soc.cpu.priv_mode,
+                 if_pc, u_soc.cpu.u_ctrl.state_r, u_soc.cpu.priv_mode,
                  u_soc.cpu.csr_mcause);
 
         read_reg(5'd28, _val);

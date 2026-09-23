@@ -1,4 +1,5 @@
 `timescale 1ns / 1ps
+`include "core_bus_types.svh"
 
 module cpu_controller(
     input        clk,
@@ -28,6 +29,7 @@ module cpu_controller(
     output       csr_valid,
     output       trap_enter_valid,
     output       trap_return_valid,
+    output trap_return_kind_t trap_return_kind,
     output       exe_to_wb,
     output       fencei_req,
     input        fencei_done,
@@ -50,12 +52,22 @@ module cpu_controller(
 
     reg [3:0] state_r;
     reg [3:0] next_state;
+    trap_return_kind_t trap_return_kind_r;
 
     always_ff @(posedge clk or negedge resetn) begin
         if (!resetn) begin
             state_r <= STATE_IDLE;
+            trap_return_kind_r <= RET_NONE;
         end else begin
             state_r <= next_state;
+            if (init_sig)
+                trap_return_kind_r <= RET_NONE;
+            else if ((state_r == STATE_DECODE) && id_done) begin
+                if (dec_is_mret)
+                    trap_return_kind_r <= RET_M;
+                else if (dec_is_sret)
+                    trap_return_kind_r <= RET_S;
+            end
         end
     end
 
@@ -161,6 +173,7 @@ module cpu_controller(
     assign csr_valid        = (state_r == STATE_CSR_ACCESS) && !init_sig;
     assign trap_enter_valid = (state_r == STATE_TRAP_ENTER) && !init_sig;
     assign trap_return_valid= (state_r == STATE_TRAP_RETURN) && !init_sig;
+    assign trap_return_kind = trap_return_valid ? trap_return_kind_r : RET_NONE;
     assign exe_to_wb        = (state_r == STATE_EXEC) && exe_done && !exe_is_branch && !exe_need_mem && !init_sig;
     assign fencei_req       = (state_r == STATE_FENCEI) && !init_sig;
     assign sfence_vma_req   = (state_r == STATE_SFENCE_VMA) && !init_sig;

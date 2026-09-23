@@ -1,4 +1,5 @@
 `timescale 1ns / 1ps
+`include "core_bus_types.svh"
 
 module tb_cpu_controller_unit;
     localparam [3:0] S_IDLE=0, S_FETCH=1, S_DECODE=2, S_EXEC=3,
@@ -17,6 +18,7 @@ module tb_cpu_controller_unit;
     reg init_sig, fencei_done, sfence_vma_done;
     wire if_valid, id_valid, exe_valid, mem_valid, wb_valid, csr_valid;
     wire trap_enter_valid, trap_return_valid, exe_to_wb;
+    trap_return_kind_t trap_return_kind;
     wire fencei_req, sfence_vma_req;
     wire [3:0] state;
 
@@ -118,11 +120,13 @@ module tb_cpu_controller_unit;
         restart(); fetch_to_decode();
         @(negedge clk); id_done=1; dec_is_mret=1;
         @(posedge clk); #1; id_done=0; dec_is_mret=0;
-        check(state==S_RETURN && trap_return_valid, "mret enters TRAP_RETURN");
+        check(state==S_RETURN && trap_return_valid && trap_return_kind==RET_M,
+              "mret enters TRAP_RETURN with explicit kind");
         restart(); fetch_to_decode();
         @(negedge clk); id_done=1; dec_is_sret=1;
         @(posedge clk); #1; id_done=0; dec_is_sret=0;
-        check(state==S_RETURN, "sret enters TRAP_RETURN");
+        check(state==S_RETURN && trap_return_kind==RET_S,
+              "sret enters TRAP_RETURN with explicit kind");
 
         restart();
         @(negedge clk); sync_exception_pending=1;

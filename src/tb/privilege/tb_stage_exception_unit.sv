@@ -86,6 +86,37 @@ module tb_stage_exception_unit;
         set_decode(32'h0000_0013,PRIV_M);
         check(id_done&&!decode_exception.valid,"legal ADDI completes Decode normally");
 
+        set_decode(32'h1200_0073,PRIV_U);
+        check(decode_exception.valid&&decode_exception.cause==2,
+              "U-mode SFENCE.VMA is illegal");
+        csr_mstatus[20]=1'b1;
+        set_decode(32'h1200_0073,PRIV_S);
+        check(decode_exception.valid&&decode_exception.cause==2,
+              "TVM blocks S-mode SFENCE.VMA");
+        set_decode(32'h1200_0073,PRIV_M);
+        check(id_done&&!decode_exception.valid,
+              "M-mode SFENCE.VMA ignores TVM");
+
+        csr_mstatus[22]=1'b1;
+        set_decode(32'h1020_0073,PRIV_M);
+        check(id_done&&!decode_exception.valid&&dec_is_sret,
+              "M-mode SRET is legal even when TSR is set");
+        set_decode(32'h1020_0073,PRIV_S);
+        check(decode_exception.valid&&decode_exception.cause==2,
+              "TSR blocks only S-mode SRET");
+
+        csr_mstatus=0;
+        set_decode(32'h3010_2073,PRIV_S);
+        check(decode_exception.valid&&decode_exception.cause==2,
+              "CSR metadata enforces misa minimum privilege");
+        set_decode(32'h3010_1073,PRIV_M);
+        check(decode_exception.valid&&decode_exception.cause==2,
+              "CSR metadata rejects writes to read-only misa");
+        csr_mstatus[20]=1'b1;
+        set_decode(32'h1800_2073,PRIV_S);
+        check(decode_exception.valid&&decode_exception.cause==2,
+              "TVM blocks read-only S-mode satp access");
+
         set_decode({5'b00000,1'b1,1'b1,5'd2,5'd1,3'b010,5'd3,7'b0101111},PRIV_M);
         check(id_done&&!decode_exception.valid&&id_exe_bus.mem_kind==MEM_AMO,
               "AMO accepts aq/rl annotations without extra stage state");

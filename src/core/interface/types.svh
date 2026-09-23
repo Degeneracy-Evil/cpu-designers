@@ -5,17 +5,17 @@
 `ifndef CORE_BUS_TYPES_SVH
 `define CORE_BUS_TYPES_SVH
 
-typedef enum logic [1:0] {
-    PRIV_U = 2'b00,
-    PRIV_S = 2'b01,
-    PRIV_M = 2'b11
-} priv_mode_t;
+// These interface values cross source-file compilation units in Vivado/XSim.
+// Keep their widths and encodings explicit without nominal enum typing.
+typedef logic [1:0] priv_mode_t;
+localparam priv_mode_t PRIV_U = 2'b00;
+localparam priv_mode_t PRIV_S = 2'b01;
+localparam priv_mode_t PRIV_M = 2'b11;
 
-typedef enum logic [1:0] {
-    RET_NONE = 2'd0,
-    RET_M    = 2'd1,
-    RET_S    = 2'd2
-} trap_return_kind_t;
+typedef logic [1:0] trap_return_kind_t;
+localparam trap_return_kind_t RET_NONE = 2'd0;
+localparam trap_return_kind_t RET_M    = 2'd1;
+localparam trap_return_kind_t RET_S    = 2'd2;
 
 function automatic logic priv_at_least(
     input priv_mode_t current,
@@ -32,20 +32,18 @@ function automatic logic priv_at_least(
     endcase
 endfunction
 
-typedef enum logic [2:0] {
-    MEM_NONE  = 3'd0,
-    MEM_LOAD  = 3'd1,
-    MEM_STORE = 3'd2,
-    MEM_LR    = 3'd3,
-    MEM_SC    = 3'd4,
-    MEM_AMO   = 3'd5
-} mem_kind_t;
+typedef logic [2:0] mem_kind_t;
+localparam mem_kind_t MEM_NONE  = 3'd0;
+localparam mem_kind_t MEM_LOAD  = 3'd1;
+localparam mem_kind_t MEM_STORE = 3'd2;
+localparam mem_kind_t MEM_LR    = 3'd3;
+localparam mem_kind_t MEM_SC    = 3'd4;
+localparam mem_kind_t MEM_AMO   = 3'd5;
 
-typedef enum logic [1:0] {
-    ACCESS_FETCH = 2'd0,
-    ACCESS_LOAD  = 2'd1,
-    ACCESS_STORE = 2'd2
-} access_class_t;
+typedef logic [1:0] access_class_t;
+localparam access_class_t ACCESS_FETCH = 2'd0;
+localparam access_class_t ACCESS_LOAD  = 2'd1;
+localparam access_class_t ACCESS_STORE = 2'd2;
 
 function automatic priv_mode_t effective_data_priv(
     input priv_mode_t current_priv,

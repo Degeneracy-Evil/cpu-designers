@@ -2,6 +2,9 @@
 `include "core/interface/types.svh"
 
 module tb_trap_router;
+    reg clk = 1'b0;
+    always #5 clk = ~clk;
+
     exception_t exception;
     reg         trap_return_valid;
     trap_return_kind_t trap_return_kind;

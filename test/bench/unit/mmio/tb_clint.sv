@@ -94,6 +94,7 @@ module tb_clint;
         reg aw_started;
         reg w_started;
         begin
+            @(negedge clk);
             awaddr = addr;
             awprot = 3'b000;
             wdata  = data;
@@ -125,14 +126,13 @@ module tb_clint;
 
             while (!aw_seen || !w_seen) begin
                 @(posedge clk);
-                if (!aw_seen && awvalid && awready) begin
+                if (!aw_seen && awvalid && awready)
                     aw_seen = 1'b1;
-                    awvalid = 1'b0;
-                end
-                if (!w_seen && wvalid && wready) begin
+                if (!w_seen && wvalid && wready)
                     w_seen = 1'b1;
-                    wvalid = 1'b0;
-                end
+                @(negedge clk);
+                if (aw_seen) awvalid = 1'b0;
+                if (w_seen) wvalid = 1'b0;
                 if ((order_mode == WR_AW_FIRST) && aw_seen && !w_started) begin
                     wvalid = 1'b1;
                     w_started = 1'b1;
@@ -145,8 +145,9 @@ module tb_clint;
 
             bready = 1'b1;
             while (!bvalid)
-                @(posedge clk);
+                @(negedge clk);
             @(posedge clk);
+            @(negedge clk);
             bready = 1'b0;
         end
     endtask
@@ -155,20 +156,26 @@ module tb_clint;
         input  [31:0] addr;
         output [31:0] data;
         begin
+            @(negedge clk);
             araddr = addr;
             arprot = 3'b000;
             arvalid = 1'b1;
-            rready = 1'b1;
-            while (!arready)
-                @(posedge clk);
-            @(posedge clk);
-            #1;
+            rready = 1'b0;
+            begin : wait_ar
+                forever begin
+                    @(posedge clk);
+                    if (arvalid && arready)
+                        disable wait_ar;
+                end
+            end
+            @(negedge clk);
             arvalid = 1'b0;
             while (!rvalid)
-                @(posedge clk);
-            #1;
+                @(negedge clk);
             data = rdata;
+            rready = 1'b1;
             @(posedge clk);
+            @(negedge clk);
             rready = 1'b0;
         end
     endtask

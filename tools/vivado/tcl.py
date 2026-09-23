@@ -64,6 +64,7 @@ def _simulation_body(hardware: Hardware, task: Simulation, runtime: str | None =
     if task.bench is None:
         raise ValueError(f"{task.name} is not a simulation task")
     actual_runtime = runtime or task.runtime
+    sim_log = hardware.project_dir / f"{hardware.project}.sim" / "sim_1" / "behav" / "xsim" / "simulate.log"
     return f"""
 catch {{close_sim -force}}
 set old_sim_files [get_files -quiet -of_objects [get_filesets sim_1]]
@@ -80,6 +81,12 @@ set_property xsim.simulate.log_all_signals false [get_filesets sim_1]
 update_compile_order -fileset sim_1
 launch_simulation -mode behavioral
 close_sim -force
+set sim_log {_q(sim_log)}
+if {{![file exists $sim_log]}} {{error "Simulation log missing: $sim_log"}}
+set sim_log_file [open $sim_log r]
+set sim_output [read $sim_log_file]
+close $sim_log_file
+if {{[regexp {{Fatal:|TEST FAILED}} $sim_output]}} {{error "Simulation reported a failure: $sim_log"}}
 """
 
 

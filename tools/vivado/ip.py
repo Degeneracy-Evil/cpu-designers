@@ -7,8 +7,9 @@ from .config import Hardware, ROOT
 
 def _bram(name: str, width: int, depth: int, clock_mhz: int) -> str:
     return f"""
+file mkdir "$ip_dir/{name}"
 create_ip -name blk_mem_gen -vendor xilinx.com -library ip -version 8.4 \\
-    -module_name {name} -dir {{$ip_dir/{name}}}
+    -module_name {name} -dir "$ip_dir/{name}"
 set_property -dict [list \\
     CONFIG.Memory_Type {{True_Dual_Port_RAM}} \\
     CONFIG.Write_Width_A {{{width}}} \\
@@ -42,8 +43,9 @@ def _clock(hardware: Hardware) -> str:
         ))
     property_text = " \\\n    ".join(properties)
     return f"""
+file mkdir "$ip_dir/{name}"
 create_ip -name clk_wiz -vendor xilinx.com -library ip -version {cfg.get('version', '6.0')} \\
-    -module_name {name} -dir {{$ip_dir/{name}}}
+    -module_name {name} -dir "$ip_dir/{name}"
 set_property -dict [list \\
     CONFIG.PRIM_IN_FREQ {{{float(cfg.get('input_mhz', 100.0)):.3f}}} \\
     CONFIG.MMCM_CLKIN1_PERIOD {{{1000.0 / float(cfg.get('input_mhz', 100.0)):.3f}}} \\
@@ -61,8 +63,9 @@ def _mig(hardware: Hardware) -> str:
     name = cfg.get("name", "mig_axi_32")
     project_file = (ROOT / str(cfg.get("project_file", "docs/Reference/mig/mig_a.prj"))).resolve()
     return f"""
+file mkdir "$ip_dir/{name}"
 create_ip -name mig_7series -vendor xilinx.com -library ip -version {cfg.get('version', '4.2')} \\
-    -module_name {name} -dir {{$ip_dir/{name}}}
+    -module_name {name} -dir "$ip_dir/{name}"
 set_property -dict [list \\
     CONFIG.XML_INPUT_FILE {{{project_file.as_posix()}}} \\
     CONFIG.RESET_BOARD_INTERFACE {{Custom}} \\

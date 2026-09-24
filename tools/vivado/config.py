@@ -76,6 +76,7 @@ def _find_bench(module: str) -> Path:
 
 def load_simulations() -> tuple[dict[str, Simulation], dict[str, list[str]]]:
     raw = _read_yaml(ROOT / "config" / "simulations.yaml")
+    defaults = raw.get("defaults", {})
     tasks: dict[str, Simulation] = {}
     for name, entry in raw.get("tasks", {}).items():
         bench_name = str(entry.get("tb", ""))
@@ -85,10 +86,10 @@ def load_simulations() -> tuple[dict[str, Simulation], dict[str, list[str]]]:
             top=str(entry.get("top", "")),
             bench=_find_bench(bench_name) if bench_name else None,
             runtime=str(entry.get("runtime", "1ms")),
-            boot_hex=_artifact(entry.get("blhex")),
+            boot_hex=_artifact(entry.get("blhex", defaults.get("blhex"))) if bench_name else None,
             program_hex=_artifact(entry.get("phex")),
             boot_coe=_artifact(entry.get("blcoe")),
-            ddr3=entry.get("sim_mode") == "ddr3",
+            ddr3=bool(bench_name) and defines.get("SIMU_USE_DDR") == "1",
             defines=defines,
         )
     groups = {

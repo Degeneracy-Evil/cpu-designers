@@ -575,6 +575,11 @@ task finish_framework_test;
     reg [31:0] passed;
     reg [31:0] total;
     reg [31:0] first_fail;
+    reg [31:0] debug_cause;
+    reg [31:0] debug_epc;
+    reg [31:0] debug_tval;
+    reg [31:0] debug_ptr;
+    reg [31:0] debug_data;
     begin
         pass_count = 0;
         fail_count = 0;
@@ -589,8 +594,16 @@ task finish_framework_test;
         $display("Framework result: passed=%0d total=%0d first_fail=%0d",
                  passed, total, first_fail);
 
-        if (passed !== total || first_fail !== 32'd0)
+        if (passed !== total || first_fail !== 32'd0) begin
+            read_reg(5'd22, debug_cause);
+            read_reg(5'd23, debug_epc);
+            read_reg(5'd24, debug_tval);
+            read_reg(5'd25, debug_ptr);
+            read_reg(5'd26, debug_data);
+            $display("Debug x22..x26: %08h %08h %08h %08h %08h",
+                     debug_cause, debug_epc, debug_tval, debug_ptr, debug_data);
             $fatal(1, "TEST FAILED");
+        end
 
         $display("ALL TESTS PASSED");
         $finish;

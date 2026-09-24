@@ -69,15 +69,15 @@ test_01_reload_after_evict:
     mret
 
 s_reload_check:
-    li x9, VA_WATCH
+    li x27, VA_WATCH
     li x10, VA_TARGET
-    sw x10, 0(x9)
+    sw x10, 0(x27)
     li x11, A5_VALUE
-    sw x11, 32(x9)
+    sw x11, 32(x27)
 
     jal x1, thrash_same_set
 
-    lw x12, 0(x9)
+    lw x12, 0(x27)
     add x25, x12, x0      # debug: reloaded pointer
     li x13, VA_TARGET
     bne x12, x13, s_fail
@@ -97,16 +97,16 @@ test_02_linux_like_store:
     mret
 
 s_linux_like:
-    li x9, VA_WATCH
+    li x27, VA_WATCH
     li x10, VA_TARGET
-    sw x10, 0(x9)
+    sw x10, 0(x27)
     li x11, A5_VALUE
-    sw x11, 32(x9)
+    sw x11, 32(x27)
 
     jal x1, thrash_same_set
 
-    lw x15, 32(x9)
-    lw x12, 0(x9)
+    lw x15, 32(x27)
+    lw x12, 0(x27)
     add x25, x12, x0      # debug: reloaded pointer
     li x13, VA_TARGET
     bne x12, x13, s_fail

@@ -42,6 +42,8 @@ _start:
     li x10, 0x1888
     csrw mstatus, x10
 
+    jal x1, test_init
+
     la x11, test_01_field_value_chain
     jal x1, test_run
 
@@ -61,13 +63,13 @@ test_01_field_value_chain:
     mret
 
 s_field_chain:
-    li x9, VA_WATCH
+    li x27, VA_WATCH
     li x10, VA_TARGET
-    sw x10, 0(x9)
+    sw x10, 0(x27)
 
     jal x1, thrash_same_set
 
-    lw x12, 0(x9)
+    lw x12, 0(x27)
     add x25, x12, x0
     bne x12, x10, s_fail
 

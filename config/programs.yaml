@@ -147,6 +147,11 @@ apps:
       - applications/led_marquee.s
     linker_script: null
 
+  led_marquee_sim:
+    src_files:
+      - applications/led_marquee_sim.s
+    linker_script: null
+
   uart_hello:
     src_files:
       - applications/uart_hello.s

@@ -36,16 +36,21 @@ m_trap_record:
     mret
 
 
-# m_trap_count: 递增 x23 (异常计数器) 并跳过
-# 适用: 需要统计异常发生次数的测试 (如中断测试)
+# m_trap_count: 递增 x23；中断返回原 mepc，同步异常跳过指令
+# 定时器中断是电平触发，返回前屏蔽 MTIE，避免反复进入处理器。
 .globl m_trap_count
 m_trap_count:
+    csrr x10, mcause
+    blt  x10, x0, 1f
     csrr x10, mepc
     addi x10, x10, 4
     csrw mepc, x10
+    j    2f
+1:
+    li   x10, 0x80
+    csrc mie, x10
+2:
     addi x23, x23, 1
-    li   x10, 0x1880          # 清除 MIE 防止嵌套
-    csrw mstatus, x10
     mret
 
 

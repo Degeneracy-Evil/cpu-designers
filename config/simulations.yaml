@@ -321,7 +321,7 @@ tasks:
 
   led_marquee:
     tb: tb_led_marquee
-    phex: app/led_marquee.hex
+    phex: app/led_marquee_sim.hex
     runtime: 2s
 
   # ── 单元仿真 ──

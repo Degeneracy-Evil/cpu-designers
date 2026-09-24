@@ -296,8 +296,6 @@ trap_handler:
     csrrs x21, mscratch, x0
     addi x21, x21, 1
     csrw mscratch, x21
-    li x10, 0x80
-    csrw mstatus, x10
     mret
 
 timer_handler:
@@ -305,10 +303,7 @@ timer_handler:
     csrrs x3, mepc, x0
     addi x4, x0, 1
 
-    lui x10, 0x02004        # mtimecmp base (0x02004000)
-    sw x0, 0(x10)           # mtimecmp_lo = 0
-    sw x0, 4(x10)           # mtimecmp_hi = 0
-
+    # Keep the level-triggered timer from immediately retrapping on mret.
     li x10, 0x80
-    csrw mstatus, x10
+    csrc mie, x10
     mret

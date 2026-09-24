@@ -63,7 +63,7 @@ Python 驱动的 Vivado 仿真/综合自动化系统，替代原有 `vivado_do.t
 - **仿真调试**：`--debug trace,trap,wave` 启用指令追踪/异常追踪/波形，`trace_analyzer.py` 分析日志
 - **双界面**：CLI（面向 agent/脚本）+ TUI（面向人类）
 
-详细用法见 `tools/README-vivado-orchestrator.md`。
+详细用法见 `docs/tools/README-vivado-orchestrator.md`。
 
 ### test_builder.py — 测试程序构建
 
@@ -84,7 +84,7 @@ python tools/test_builder.py --clean        # 清理产物
 
 ### rv2coe.py — RISC-V 编译器
 
-C 语言/汇编到 COE/HEX 文件编译程序，`test_builder.py` 的底层调用。详细用法见 `tools/README-rv2coe.md`。
+C 语言/汇编到 COE/HEX 文件编译程序，`test_builder.py` 的底层调用。详细用法见 `docs/tools/README-rv2coe.md`。
 
 ### run_regression — 回归测试
 

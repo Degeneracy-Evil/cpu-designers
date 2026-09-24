@@ -1316,7 +1316,7 @@ Vivado% vivado_do [-create] [-sim <tb>] [-runtime <t>] [-clear] [-bitstream] [-h
 - `riscv64-unknown-elf-objcopy`
 - `riscv64-unknown-elf-objdump`（仅 `--check-isa` 时需要）]
 
-详细用法见`tools\README-rv2coe.md`。
+详细用法见`docs\tools\README-rv2coe.md`。
 
 = 组员以及分工
 

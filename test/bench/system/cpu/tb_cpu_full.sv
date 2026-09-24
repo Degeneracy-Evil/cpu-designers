@@ -13,7 +13,7 @@ module tb_cpu_full;
         wait (u_soc.ddr_data_init);
         repeat (600000) @(posedge clk);
 `else
-        repeat (16000000) @(posedge clk);
+        repeat (400000) @(posedge clk);
 `endif
 
         check_reg(5'd1,  32'h00000008);

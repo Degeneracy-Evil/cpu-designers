@@ -11,7 +11,7 @@ tasks:
   cpu_full:
     tb: tb_cpu_full
     phex: test/integration/cpu_full.hex
-    runtime: 50s
+    runtime: 5ms
 
   # ── DDR3仿真 ──
 
@@ -239,9 +239,9 @@ tasks:
   mmio_clint:
     tb: tb_program
     phex: test/mmio/clint.hex
-    runtime: 160ms
+    runtime: 5ms
     verilog_defines:
-      TB_MAX_CYCLES: 15000000
+      TB_MAX_CYCLES: 400000
 
   mmio_plic:
     tb: tb_program

@@ -127,7 +127,7 @@ MULHSU/MULHU 修正原理：Booth 乘法器执行有符号乘法，无符号操�
 ```verilog
 module booth_multiplier(
     input         clk,
-    input         reset,
+    input         resetn,
     input  [31:0] multiplicand,
     input  [31:0] multiplier,
     input         start,
@@ -174,7 +174,7 @@ A/M 扩展至 33 位防止有符号乘法中累加器溢出（如 INT_MIN × 2 �
 ```verilog
 module non_restoring_divider(
     input         clk,
-    input         reset,
+    input         resetn,
     input  [31:0] dividend,
     input  [31:0] divisor,
     input         start,
@@ -225,8 +225,7 @@ module non_restoring_divider(
 ## 12. 调试入口
 
 ```bash
-python3 tools/mk.py --top src/tb/ALU/tb_mu_unit.v
-python3 tools/mk.py --top src/tb/ALU/tb_non_restoring_divider.v
+python3 -m tools.vivado sim isa_m_ext
 ```
 
 重点观察信号：`req_valid`、`mu_ready`、`mu_busy`、`result_valid`、`div_by_zero`、`mu_funct3`。

@@ -69,21 +69,12 @@ A - B = A + (-B)
 - ADD模式：加法器计算 `src1 + src2 + 0`
 - SUB/SLT/SLTU模式：加法器计算 `src1 + ~src2 + 1`
 
-### 2.2 实现
+### 2.2 实现机制（集成于 alu_32bit 顶层）
 
 ```verilog
-module subtractor(
-    input  [31:0] b,
-    output [31:0] b_neg,       // ~b, 送入共享加法器
-    input  [31:0] adder_sum,   // 共享加法器的和输出
-    input         adder_cout,  // 共享加法器的进位输出
-    output [31:0] result,
-    output        borrow
-);
-    // b_neg = ~b
-    // result = adder_sum  (当加法器配置为 a + ~b + 1 时)
-    // borrow = ~adder_cout
-endmodule
+// b_neg = ~b, 送入共享加法器
+// result = adder_sum  (当加法器配置为 a + ~b + 1 时)
+// borrow = ~adder_cout
 ```
 
 ## 3. 移位器
@@ -173,10 +164,10 @@ Booth算法是一种用于有符号数乘法的高效算法，通过检查乘数
 
 初始化：
 
-- A = 0 (32位)
+- A = 0 (33位，防有符号累加溢出)
 - Q = multiplier (32位)
 - Q₋₁ = 0 (1位)
-- M = multiplicand (32位)
+- M = {multiplicand[31], multiplicand} (33位符号扩展)
 
 对于每一位（共32次）：
 
@@ -187,7 +178,7 @@ Booth算法是一种用于有符号数乘法的高效算法，通过检查乘数
    - 10：A = A - M
 3. 算术右移{A, Q, Q₋₁}一位
 
-结果：{A, Q}为64位乘积
+结果：{A[31:0], Q}为64位乘积
 
 ### 6.3 状态机设计
 
@@ -204,7 +195,7 @@ IDLE -> COMPUTE -> FINISH -> IDLE
 ```verilog
 module booth_multiplier(
     input         clk,
-    input         reset,
+    input         resetn,
     input  [31:0] multiplicand,
     input  [31:0] multiplier,
     input         start,
@@ -213,38 +204,40 @@ module booth_multiplier(
 );
     // 状态机
     // Booth算法实现
-    // 32个周期完成
+    // 32拍迭代完成
 endmodule
 ```
 
 ## 7. 非恢复余数除法器
 
-### 7.1 Restoring Division算法
+### 7.1 非恢复余数（Non-Restoring）算法
 
-Restoring Division是一种用于整数除法的算法，通过移位和加减操作实现。
+与恢复余数除法（R<0时回加恢复）不同：余数为负时不恢复，下一拍改做加法（R + D），加减交替进行，最后用一次修正（FIX）收尾，省去每拍的恢复加法。
 
 ### 7.2 算法步骤
 
 初始化：
 
 - R = 0 (32位余数)
-- Q = dividend (32位被除数)
-- D = divisor (32位除数)
+- Q = |dividend| (被除数绝对值)
+- D = |divisor| (除数绝对值)
 
 对于每一位（共32次）：
 
 1. 左移{R, Q}一位
-2. R = R - D
-3. 如果R < 0：
-   - 恢复：R = R + D
-   - Q[0] = 0
-4. 如果R >= 0：
-   - Q[0] = 1
+2. 按当前R的符号选择操作：
+   - R >= 0：R = R - D
+   - R < 0：R = R + D
+3. 上商：新R >= 0 则 Q[0] = 1，否则 Q[0] = 0
+
+修正（FIX阶段）：
+
+- 若终态R < 0：R = R + D
 
 结果：
 
-- Q为商
-- R为余数
+- Q为商（绝对值）
+- R为余数（绝对值）
 
 ### 7.3 符号处理
 
@@ -256,117 +249,32 @@ Restoring Division是一种用于整数除法的算法，通过移位和加减�
 ### 7.4 状态机设计
 
 ```
-IDLE -> COMPUTE -> FINISH -> IDLE
+IDLE -> COMPUTE -> FIX -> FINISH -> IDLE
 ```
 
-- **IDLE**: 等待start信号，初始化
+- **IDLE**: 等待start信号，初始化；特殊情形直接出结果（除零、有符号溢出、无符号大除数）
 - **COMPUTE**: 执行32次迭代
-- **FINISH**: 调整符号，输出结果
+- **FIX**: 终态余数为负时修正 R = R + D
+- **FINISH**: 商/余数按符号取补，输出结果
 
-## 8. 顶层ALU模块（CPU集成版）
+## 8. 顶层集成（当前架构）
 
-### 8.1 端口与职责
+当前为「组合 ALU + 独立多周期 MU」双单元架构，二者职责分离：
 
-顶层ALU采用请求-响应握手协议，所有请求都需要显式驱动`req_valid`。
+- `alu_32bit`：纯组合逻辑，无时钟、无握手，`result` 同拍直出，CPU EX 阶段同拍采样。接口见 `ALU_INTERFACE.md`。
+- `mu_unit`：多周期乘除法单元，`mu_funct3` 直接对应 RV32M 指令 funct3。接口与时序见 `MU_INTERFACE.md`。
 
-关键信号如下：
+mu_unit 关键信号：
 
 | 信号 | 方向 | 说明 |
 |------|------|------|
-| req_valid | 输入 | 请求有效。协议模式下由CPU发起请求。 |
-| flush | 输入 | 取消当前顶层请求状态（例如分支冲刷）。 |
-| result_ready | 输入 | CPU已消费结果。用于清除`result_valid`保持。 |
-| alu_ready | 输出 | ALU可接收新请求。 |
-| alu_busy | 输出 | 多周期单元（乘/除）执行中。 |
-| result_valid | 输出 | 当前`result`有效。协议模式下应以此为准。 |
-| illegal_op | 输出 | 非法操作编码（非one-hot或空操作）。 |
-| div_by_zero | 输出 | 最近一次已接收除法请求是否为除零。 |
-
-### 8.2 控制编码约束
-
-`alu_control`保持16位one-hot编码（bit0保留未使用），合法操作要求：
-
-1. `alu_control[15:1]`中恰有1位为1。
-2. 在协议模式下，若请求有效但编码非法，`illegal_op=1`，请求不发射到多周期单元。
-
-### 8.3 使用模式
-
-#### 协议模式（唯一模式）
-
-CPU侧推荐仅依据以下握手：
-
-1. 发请求：`req_valid=1`且`alu_ready=1`。
-2. 取结果：等待`result_valid=1`，读取`result`。
-3. 消费确认：`result_ready=1`以释放保持状态。
-
-### 8.4 请求接收与执行规则
-
-#### 请求发射（req_fire）
-
-满足以下条件时，顶层接收请求：
-
-1. `req_valid=1`
-2. `alu_ready=1`
-3. `illegal_op=0`
-
-其中`alu_ready`在以下情况为0：
-
-1. 正在执行乘法/除法（`alu_busy=1`）
-2. 前一请求仍在保持（`req_hold=1`）
-3. 结果尚未被消费（`result_valid=1`且`result_ready=0`）
-
-#### 多周期请求（MUL/DIV）
-
-1. 仅在`req_fire`时产生单拍`start`脉冲。
-2. 输入操作数在启动时锁存，执行期间外部`src1/src2`变化不影响本次运算。
-3. 完成后锁存结果并拉高`result_valid`。
-
-#### 组合请求（ADD/SUB/LOGIC/SHIFT/LUI）
-
-1. 在请求拍采样组合结果并写入结果保持寄存器。
-2. 对外通过`result_valid`发布一次结果有效。
-
-### 8.5 flush语义
-
-`flush=1`时，顶层执行以下动作：
-
-1. 清除`mul_busy/div_busy`与活动标志。
-2. 清除`result_valid`与请求保持状态。
-3. 清除`div_by_zero`状态。
-
-说明：当前`flush`仅作用于顶层状态，不强制中止乘除法子模块内部迭代。顶层通过活动标志过滤迟到完成脉冲，避免冲刷后旧结果回灌。
-
-### 8.6 result与result_valid关系
-
-1. `result`由寄存器保持，只有`result_valid=1`时才表示新结果可用。
-2. `result_ready=1`后，下一拍清除`result_valid`。
-3. 对于非法编码请求，CPU应检查`illegal_op`，且不会发布新的`result_valid`。
-
-### 8.7 协议时序示意
-
-#### 组合指令（协议模式）
-
-```txt
-cycle N   : req_valid=1, alu_ready=1, alu_control=ADD
-cycle N+1 : result_valid=1, result稳定
-cycle N+1 : 若result_ready=1，则下一拍释放result_valid
-```
-
-#### 多周期指令（MUL/DIV）
-
-```txt
-cycle N      : req_valid=1, alu_ready=1, 发射start脉冲
-cycle N+1..K : alu_busy=1
-cycle K+1    : result_valid=1, result输出锁存值
-后续         : result_ready=1后清除result_valid
-```
-
-#### flush场景
-
-```txt
-执行中收到flush -> 顶层busy/result_valid清零
-子模块若后续完成脉冲到达 -> 顶层不发布result_valid
-```
+| req_valid | 输入 | 请求有效，CPU 发起运算请求 |
+| mu_ready | 输出 | MU 可接收新请求 |
+| result_valid | 输出 | 当前 result 为有效结果 |
+| result_got | 输入 | 下游已消费结果 |
+| mu_busy | 输出 | 乘法或除法执行中 |
+| flush | 输入 | 清空顶层请求状态 |
+| div_by_zero | 输出 | 最近一次已接收 DIV 请求是否为除零 |
 
 ## 9. 性能与资源分析（按当前实现）
 
@@ -374,9 +282,9 @@ cycle K+1    : result_valid=1, result输出锁存值
 
 | 运算类型 | 周期特性 |
 |----------|----------|
-| ADD/SUB/SLT/SLTU/AND/OR/XOR/NOR/SLL/SRL/SRA/LUI | 组合计算 + 1拍结果发布（协议模式） |
-| MUL | 32次迭代 + 完成发布 |
-| DIV | 32次迭代 + 修正阶段 + 完成发布 |
+| ADD/SUB/SLT/SLTU/AND/OR/XOR/NOR/SLL/SRL/SRA/LUI | 纯组合，同拍直出 |
+| MUL | 33拍（1 IDLE + 32 COMPUTE + 1 FINISH） |
+| DIV/REM | 34拍（1 IDLE + 32 COMPUTE + 1 FIX + 1 FINISH）；除零/溢出/大除数特殊路径 2 拍 |
 
 ### 9.2 关键优化点
 
@@ -387,62 +295,32 @@ cycle K+1    : result_valid=1, result输出锁存值
 
 ## 10. 边界行为与异常语义
 
-### 10.1 除零
+### 10.1 除零（RV32M 语义）
 
-1. 除法器约定：除零时`quotient=0`，`remainder=dividend`。
-2. 顶层在接收除零请求时置位`div_by_zero`。
-3. `div_by_zero`在下一次合法请求或`flush/reset`后清除。
+除数为0时（有符号/无符号）：`quotient = 0xFFFFFFFF`，`remainder = dividend`。顶层同时置位`div_by_zero`。
 
 ### 10.2 整数溢出边界
 
-除法器内显式处理`INT_MIN / -1`，返回二补码截断语义结果。
-
-### 10.3 非法操作编码
-
-当请求有效但`alu_control`不是合法one-hot：
-
-1. `illegal_op=1`
-2. 不启动乘除法单元
-3. 不发布新的`result_valid`
+有符号 `INT_MIN / -1`：`quotient = 0x80000000 (INT_MIN)`，`remainder = 0`（二补码截断语义）。
 
 ## 11. 测试与回归
 
-### 11.1 既有功能回归
+- `isa_alu`：ALU 全部指令
+- `isa_m_ext`：RV32M 全部乘除法指令（含除零、INT_MIN/-1 溢出边界）
 
-`tb_alu_cpu_integration.v`作为顶层回归入口，覆盖组合类运算与多周期请求在握手协议下的行为。
+```bash
+python3 -m tools.vivado sim isa_alu
+python3 -m tools.vivado sim isa_m_ext
+```
 
-### 11.2 CPU集成回归
+## 12. 设计约束与后续改进
 
-`tb_alu_cpu_integration.v`新增以下协议场景：
-
-1. `req_valid`持续高电平时，多周期请求不重复触发。
-2. 非法one-hot请求被拒绝且不产生执行。
-3. 执行中`flush`后，不发布旧结果。
-4. `div_by_zero`置位与清除路径验证。
-
-## 12. CPU接入建议
-
-### 12.1 EX阶段最小接线
-
-1. 发射：`ex_valid && alu_ready`时驱动`req_valid=1`。
-2. 停顿：`~alu_ready`时冻结发射级寄存器。
-3. 写回：`result_valid && wb_ready`时采样`result`。
-4. 冲刷：分支错误/异常时拉高`flush`一个周期。
-
-### 12.2 推荐判定优先级
-
-1. `flush`
-2. `illegal_op`
-3. `result_valid`
-
-## 13. 设计约束与后续改进
-
-### 13.1 当前约束
+### 12.1 当前约束
 
 1. 乘法器、除法器仍为迭代实现，吞吐率为“单发射、完成后再发射”。
-2. `flush`尚未下沉到乘除法子模块内部状态机。
+2. `flush` 仅作用于 mu_unit 顶层，不下沉到乘除法子模块内部状态机（迟到完成脉冲由顶层活动标志过滤）。
 
-### 13.2 后续建议
+### 12.2 后续建议
 
 1. 为多周期请求增加`req_id`或序号，支持更严格的结果匹配。
 2. 将`flush/kill`扩展到子模块以降低无效计算开销。

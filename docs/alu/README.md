@@ -4,6 +4,8 @@
 
 本项目实现了一个完整的32位算术逻辑单元（ALU），完全使用Verilog门级设计，不使用任何IP核或高级运算符。
 
+乘除法不在 `alu_32bit` 内——由独立的多周期单元 `mu_unit` 实现，见 `MU_INTERFACE.md`。
+
 ## 功能特性
 
 ### 已实现的功能
@@ -34,15 +36,15 @@
 5. **高位加载 (LUI)**
    - 将16位立即数加载到高16位
 
-6. **Booth乘法器**
-   - 支持32位有符号数乘法
+6. **Booth乘法器**（位于独立模块 `mu_unit`）
+   - 实现 RV32M 乘法指令（有符号/无符号/混合）
    - 32个时钟周期完成
    - Booth算法实现
 
-7. **非恢复余数除法器**
-   - 支持32位有符号数除法
+7. **非恢复余数除法器**（位于独立模块 `mu_unit`）
+   - 实现 RV32M 除法指令（有符号/无符号）
    - 32个时钟周期完成
-   - Restoring Division算法
+   - 非恢复余数（Non-Restoring）算法
 
 ## 操作符号性质说明
 
@@ -95,11 +97,10 @@
 
 ### 关键设计决策
 
-1. **为什么乘除法只支持有符号？**
-   - Booth算法天然支持有符号数乘法
-   - Restoring Division算法可以处理有符号数
-   - MIPS指令集中乘除法通常是有符号的
-   - 如需无符号乘除法，可扩展控制信号
+1. **为什么乘除法放在独立的 mu_unit？**
+   - 乘除法是 32 周期迭代状态机，与 ALU 单周期组合逻辑的时序特性完全不同
+   - mu_unit 实现全部 8 条 RV32M 指令（有符号/无符号/混合，MUL/DIV/REM 系列）
+   - 通过 `req_valid`/`mu_ready`/`result_valid` 握手与流水线交互，见 `MU_INTERFACE.md`
 
 2. **为什么移位操作区分有符号/无符号？**
    - SLL和SRL：移入0，不关心符号
@@ -114,106 +115,34 @@
 ## 文件结构
 
 ```
-.
-├── rtl/                        # RTL设计文件
-│   ├── basic_gates.v           # 基础门电路
-│   ├── cla_adder_4bit.v        # 4位超前进位加法器
-│   ├── cla_adder_16bit.v       # 16位超前进位加法器
-│   ├── cla_adder_32bit.v       # 32位超前进位加法器
-│   ├── subtractor.v            # 减法器
-│   ├── shifter.v               # 移位器
-│   ├── logic_unit.v            # 逻辑运算单元
-│   ├── lui.v                   # 高位加载
-│   ├── booth_multiplier.v      # Booth乘法器
-│   ├── non_restoring_divider.v # 非恢复余数除法器
-│   └── alu_32bit.v             # 顶层ALU模块
-├── tb/                         # 测试平台
-│   └── tb_alu_cpu_integration.v # ALU握手集成测试平台
-├── docs/                       # 文档
-│   ├── README.md               # 本文档
-│   ├── ALU_DESIGN.md           # 详细设计说明
-│   └── ALU_INTERFACE.md        # 顶层接口规范
-├── Makefile                    # 编译脚本
-└── AGENTS.md                   # 开发指南
+src/core/execution/alu/
+├── top.sv                # alu_32bit 顶层（纯组合逻辑）
+├── adder/                # CLA 加法器层级：cla_4bit → cla_16bit → cla_32bit
+├── logic.sv              # logic_unit：逻辑运算与比较
+├── shifter.sv            # 桶形移位器
+├── immediate.sv          # lui：高位加载
+├── mux.sv                # mux_2to1 / mux_4to1
+├── result_selector.sv    # alu_result_selector：one-hot 结果选择
+└── branch_comparator.sv  # 分支比较
+
+src/core/execution/muldiv/    # mu_unit 乘除法单元（booth_multiplier + non_restoring_divider）
 ```
 
 ## 快速开始
 
-### 编译和测试
+ALU/MU 无独立单元仿真任务，由指令级测试覆盖：
 
 ```bash
-# 显示帮助
-make help
-
-# 编译所有模块
-make compile
-
-# 运行测试
-make test
-
-# 清理
-make clean
-
-# 完整流程（默认）
-make all
-
-# 生成波形文件
-make wave
-
-# 查看波形（需要GTKWave）
-make view
-
-# 语法检查
-make check
-
-# 运行所有检查
-make check-all
-
-# 统计代码行数
-make count
-```
-
-### Makefile主要目标
-
-| 目标       | 说明                           |
-|------------|--------------------------------|
-| all        | 显示信息并运行测试（默认）     |
-| compile    | 编译所有模块                   |
-| run        | 运行测试（不重新编译）         |
-| test       | 编译并运行测试                 |
-| wave       | 生成波形文件                   |
-| view       | 用GTKWave查看波形              |
-| check      | 语法检查                       |
-| lint       | Lint检查                       |
-| clean      | 清理生成的文件                 |
-| distclean  | 深度清理（包括备份文件）       |
-| list       | 列出所有源文件                 |
-| count      | 统计代码行数                   |
-| check-all  | 运行所有检查                   |
-| help       | 显示帮助信息                   |
-
-### 测试结果
-
-```
-========================================
-Test Summary
-========================================
-Total tests: 30
-Passed:      30
-Failed:      0
-Pass rate:   100.0%
-========================================
-ALL TESTS PASSED!
+python3 -m tools.vivado sim isa_alu    # ALU 全部指令
+python3 -m tools.vivado sim isa_m_ext  # RV32M 全部乘除法指令
 ```
 
 ## ALU控制信号
 
-16位控制信号 `alu_control[15:0]`：
+16位控制信号 `alu_control[15:0]`（位定义见 `result_selector.sv`）：
 
 | Bit | 操作   | 说明                    | 符号性质       |
 |-----|--------|-------------------------|----------------|
-| 15  | MUL    | 乘法（Booth算法）       | 有符号         |
-| 14  | DIV    | 除法（Restoring算法）   | 有符号         |
 | 13  | NOT    | 按位取反                | 无符号（位运算）|
 | 12  | ADD    | 加法                    | 有符号         |
 | 11  | SUB    | 减法                    | 有符号         |
@@ -229,7 +158,11 @@ ALL TESTS PASSED!
 | 1   | LUI    | 高位加载                | 无符号（位操作）|
 | 0   | -      | 保留                    | -              |
 
-**注意：** 控制信号为one-hot编码，同一时间只有一位为1。
+**注意：**
+
+- 控制信号为one-hot编码，同一时间只有一位为1
+- bit 14/15（乘/除）不存在——乘除法由独立的 `mu_unit` 处理（`mu_funct3` 编码，见 `MU_INTERFACE.md`）
+- CPU 译码（decode.sv）仅产生 bit 1-6、8-12；bit 7（NOR）、13（NOT）为模块保留能力，当前指令集不使用
 
 ## 模块接口
 
@@ -326,155 +259,20 @@ req_valid = 1'b1;
 
 ## 测试覆盖
 
-测试平台包含30个测试用例，覆盖：
+- `isa_alu`：ALU 全部指令（加/减/移位/逻辑/比较/LUI）
+- `isa_m_ext`：RV32M 全部乘除法指令（含除零、溢出边界）
 
-- 所有运算类型
-- 正数和负数
-- 边界值（0, 最大值, 最小值）
-- 特殊情况（移位0位, 相同值相减等）
-
-## FPGA迁移指南
-
-### 1. 时钟和复位
-
-**注意事项：**
-
-- 本设计使用**高电平复位**（`reset`为1时复位）
-- Vivado默认通常使用**低电平复位**，需要调整：
-
-  ```verilog
-  // 方案1：修改设计使用低电平复位
-  always @(posedge clk or negedge reset_n) begin
-      if (!reset_n) ...
-  end
-  
-  // 方案2：在顶层添加复位反相器
-  wire reset;
-  assign reset = ~reset_n;
-  ```
-
-### 2. 时钟频率考虑
-
-**乘除法延迟：**
-
-- 乘法器需要32个时钟周期
-- 除法器需要32个时钟周期
-- 如果时钟频率为100MHz，则：
-  - 乘法延迟 = 32 × 10ns = 320ns
-  - 除法延迟 = 32 × 10ns = 320ns
-
-**建议：**
-
-- 根据FPGA时钟频率调整状态机周期数
-- 或使用流水线设计提高吞吐量
-
-### 3. 资源使用估算
-
-| 模块         | LUT估算  | FF估算   | 说明               |
-|--------------|----------|----------|--------------------|
-| CLA加法器    | ~200     | 0        | 纯组合逻辑(ADD/SUB共享) |
-| 减法器       | ~32      | 0        | 取反+借位推导      |
-| 移位器       | ~300     | 0        | 纯组合逻辑         |
-| 逻辑单元     | ~150     | 0        | 纯组合逻辑         |
-| 乘法器       | ~800     | ~100     | 32周期状态机       |
-| 除法器       | ~600     | ~100     | 32周期状态机       |
-| **总计**     | ~1882    | ~200     |                    |
-
-### 4. 综合约束
-
-**时序约束示例：**
-
-```tcl
-# 创建时钟
-create_clock -period 10 -name sys_clk [get_ports clk]
-
-# 设置输入延迟
-set_input_delay -clock sys_clk 2 [get_ports {src1[*] src2[*] alu_control[*]}]
-
-# 设置输出延迟
-set_output_delay -clock sys_clk 2 [get_ports {result[*] result_valid alu_ready alu_busy illegal_op div_by_zero}]
-```
-
-### 5. 门级设计注意事项
-
-**问题：** Vivado可能优化掉门级设计，使用DSP资源。
-
-**解决方案：**
-
-```tcl
-# 禁用DSP推断（保持门级设计）
-set_property USE_DSP48 none [get_cells -hierarchical *adder*]
-set_property USE_DSP48 none [get_cells -hierarchical *multiplier*]
-
-# 或在Verilog中使用综合属性
-(* use_dsp48 = "no" *) module cla_adder_32bit(...);
-```
-
-### 6. 仿真和验证
-
-**Vivado仿真步骤：**
-
-1. 添加所有RTL文件到项目
-2. 添加测试平台文件
-3. 设置仿真时间：`set_property -name {xsim.simulate.runtime} -value {10us} [get_simulation_properties]`
-4. 运行行为仿真
-5. 检查波形和结果
-
-### 7. 常见问题
-
-**问题1：乘除法结果不正确**
-
-- 检查复位信号极性
-- 检查是否按`alu_ready/req_valid/result_valid`握手发射与取数
-- 确认状态机状态转移
-
-**问题2：时序违例**
-
-- 降低时钟频率
-- 添加流水线寄存器
-- 使用时序优化指令
-
-**问题3：资源使用过高**
-
-- 检查是否使用了DSP资源
-- 添加综合属性禁用DSP
-- 优化状态机编码
-
-### 8. XDC约束示例
-
-```tcl
-# 时钟约束
-create_clock -period 10 -name sys_clk [get_ports clk]
-
-# 复位约束
-set_property PULLUP true [get_ports reset]
-
-# 输入输出延迟
-set_input_delay -clock sys_clk -max 2 [get_ports {src1[*] src2[*] alu_control[*]}]
-set_input_delay -clock sys_clk -min 0 [get_ports {src1[*] src2[*] alu_control[*]}]
-set_output_delay -clock sys_clk -max 2 [get_ports {result[*] result_valid alu_ready alu_busy illegal_op div_by_zero}]
-set_output_delay -clock sys_clk -min 0 [get_ports {result[*] result_valid alu_ready alu_busy illegal_op div_by_zero}]
-
-# 多周期路径（乘除法需要32周期）
-set_multicycle_path -setup 32 -from [get_cells -hierarchical *multiplier*] -to [get_cells -hierarchical *multiplier*]
-set_multicycle_path -setup 32 -from [get_cells -hierarchical *divider*] -to [get_cells -hierarchical *divider*]
-```
-
-## 开发环境
-
-- **仿真器**: Icarus Verilog (iverilog)
-- **编译**: iverilog
-- **运行**: vvp
-- **波形查看**: GTKWave (可选)
+详见 `docs/testing/test-system.md`。
 
 ## 参考资料
 
 - 计算机组成与设计：硬件/软件接口
 - 数字逻辑与计算机组成
 - Booth乘法算法
-- Restoring Division算法
+- 非恢复余数除法算法
 - 超前进位加法器原理
 
 ## 版本历史
 
-- v1.0 (2026-03-28): 初始设计，完成所有模块，所有测试通过
+- v1.0 (2026-03-28): 独立 ALU 项目初始设计
+- 2026-09-25: 对齐当前 RTL——乘除法归独立 mu_unit，修正控制信号表，删除独立项目时代的 Makefile/iverilog/FPGA 迁移内容

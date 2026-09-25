@@ -47,8 +47,7 @@ module alu_32bit(
 | 14 | 0x4000 | — | 保留（DIV 由 mu_unit 处理） | |
 | 15 | 0x8000 | — | 保留（MUL 由 mu_unit 处理） | |
 
-> 注：MUL(bit15) 和 DIV(bit14) 保留位仅用于 `QUICK_REF.md` 中的控制信号速查，
-> 实际乘除法由 `mu_unit` 模块通过 `mu_funct3` 编码执行，不经过 `alu_32bit`。
+> 注：bit14/bit15 为保留位；实际乘除法由 `mu_unit` 模块通过 `mu_funct3` 编码执行，不经过 `alu_32bit`。
 
 ## 5. 时序特性
 
@@ -59,5 +58,5 @@ module alu_32bit(
 ## 6. 调试入口
 
 ```bash
-python3 tools/mk.py --top src/tb/ALU/tb_alu_cpu_integration.v
+python3 -m tools.vivado sim isa_alu
 ```

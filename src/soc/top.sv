@@ -110,7 +110,7 @@ module system_top(
         wire clk_wiz_locked_local;
         clk_wiz_0 u_clk_wiz_0 (
             .clk_in1  (clk),
-            .clk_out1 (cpu_clk),     // 50MHz CPU core
+            .clk_out1 (cpu_clk),     // 40MHz CPU core
             .clk_out2 (sys_clk),     // 100MHz AXI interconnect
             .clk_out3 (ddr_clk_ref), // 200MHz DDR reference
             .resetn   (resetn),
@@ -142,7 +142,7 @@ module system_top(
         wire clk_wiz_locked_local;
         clk_wiz_0 u_clk_wiz_0 (
             .clk_in1  (clk),          // 100MHz external crystal
-            .clk_out1 (cpu_clk),      // 50MHz CPU core
+            .clk_out1 (cpu_clk),      // 40MHz CPU core
             .clk_out2 (sys_clk),      // 100MHz AXI interconnect
             .clk_out3 (ddr_clk_ref),  // 200MHz DDR reference
             .resetn   (resetn),

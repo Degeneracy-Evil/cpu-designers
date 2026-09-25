@@ -20,5 +20,5 @@ clock:
   input_mhz: 100.0
   feedback_multiplier: 10.0
   input_divider: 1
-  outputs_mhz: [50.0, 100.0, 200.0]
+  outputs_mhz: [40.0, 100.0, 200.0]
   reset_type: ACTIVE_LOW

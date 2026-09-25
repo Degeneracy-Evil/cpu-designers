@@ -1,3 +1,7 @@
+> **[历史归档 2026-09-25]** 本文为 2026-06~08 的调试/规划快照：文中工具命令（`tools/vivado_cli`）、目录路径（`src/rtl`、`src/tb`、`src/program_source`）、时钟（cpu_clk 50MHz）及部分架构描述已被 2026-09 重构取代（现行工具链 `python3 -m tools.vivado`，RTL 位于 `src/{common,core,soc}`）。仅作历史记录，勿作操作依据。
+>
+> 注意：本篇中心假设（假 ecall）已被 `trap-loop-analysis2.md` 推翻。
+
 # Trap-Loop Bug 调试交接文档
 
 > **用途**：本文档是新 AI session 的入口点，包含当前 bug 的完整状态、已完成的工作、待做的决策。

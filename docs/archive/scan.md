@@ -1,3 +1,7 @@
+> **[历史归档 2026-09-25]** 本文为 2026-06~08 的调试/规划快照：文中工具命令（`tools/vivado_cli`）、目录路径（`src/rtl`、`src/tb`、`src/program_source`）、时钟（cpu_clk 50MHz）及部分架构描述已被 2026-09 重构取代（现行工具链 `python3 -m tools.vivado`，RTL 位于 `src/{common,core,soc}`）。仅作历史记录，勿作操作依据。
+>
+> 地址映射快照当时准确，现行以 `src/common/address_map.svh` 为准。
+
 # RTL Code Audit Scan Report
 
 **Date**: 2026-06-21 (updated 2026-06-21: conflict resolution with Linux boot check report)

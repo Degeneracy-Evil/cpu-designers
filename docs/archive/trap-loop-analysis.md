@@ -1,3 +1,7 @@
+> **[历史归档 2026-09-25]** 本文为 2026-06~08 的调试/规划快照：文中工具命令（`tools/vivado_cli`）、目录路径（`src/rtl`、`src/tb`、`src/program_source`）、时钟（cpu_clk 50MHz）及部分架构描述已被 2026-09 重构取代（现行工具链 `python3 -m tools.vivado`，RTL 位于 `src/{common,core,soc}`）。仅作历史记录，勿作操作依据。
+>
+> 注意：本篇 cause=9 ecall 的结论已被 `trap-loop-analysis2.md` 修正——真实原因为 store page fault。
+
 # Trap-Loop Bug 分析推导
 
 > **日期**：2026-06-27 04:30

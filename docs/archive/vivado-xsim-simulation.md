@@ -1,3 +1,7 @@
+> **[历史归档 2026-09-25]** 本文为 2026-06~08 的调试/规划快照：文中工具命令（`tools/vivado_cli`）、目录路径（`src/rtl`、`src/tb`、`src/program_source`）、时钟（cpu_clk 50MHz）及部分架构描述已被 2026-09 重构取代（现行工具链 `python3 -m tools.vivado`，RTL 位于 `src/{common,core,soc}`）。仅作历史记录，勿作操作依据。
+>
+> `vivado_do.tcl` 工作流已历经两代替换（orchestrator → thin wrapper），文中通用 xsim 陷阱知识仍可参考。
+
 # Vivado XSim 仿真经验总结
 
 基于 `tb_bootloader`、`tb_simple_cpu_top` 等测试的实际调试过程，记录 Vivado xsim 行为级仿真的关键问题与解决方案。

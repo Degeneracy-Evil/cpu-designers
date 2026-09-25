@@ -1,3 +1,5 @@
+> **[历史归档 2026-09-25]** 本文为 2026-06-14 的 A 扩展实现计划快照，基于当时的 RV32IMAF 设计（commit bb4b3fb）。A 扩展已实现并通过回归（`isa_a_ext` 52 子测试），现行设计为 RV32IMASU，AMO/LR/SC 实现见 `../simpleCPU-design-report.md` §3.5。仅作历史记录，勿作操作依据。
+
 # A 扩展（原子指令）实现详细计划
 
 > 日期: 2026-06-14 | 基于设计报告 commit bb4b3fb + near-linux-bug-fix | 目标: RV32IMAF（在现有 RV32IMF 基础上增加 A 扩展）

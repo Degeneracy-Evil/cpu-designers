@@ -151,8 +151,8 @@ module uart_transmitter (
             end
             S_SEND_STOP: begin
                 if (~|counter) begin
-                    case ({lcr[`UART_LC_SB], lcr[`UART_LC_BITS]})
-                    3'b0xx:  counter <= 5'b01101;   // 1 stop bit
+                    casez ({lcr[`UART_LC_SB], lcr[`UART_LC_BITS]})
+                    3'b0??:  counter <= 5'b01101;   // 1 stop bit
                     3'b100:  counter <= 5'b10101;   // 1.5 stop bits (5-bit)
                     default: counter <= 5'b11101;   // 2 stop bits
                     endcase

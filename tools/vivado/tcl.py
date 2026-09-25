@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from .config import Hardware, ROOT, Simulation
-from .ip import create_ip_tcl
+from .ip import bram_ooc_fix, create_ip_tcl
 
 
 def _q(path: Path) -> str:
@@ -17,7 +17,7 @@ def _list(paths: list[Path]) -> str:
 def project(hardware: Hardware) -> str:
     sources = sorted(path for path in (ROOT / "src").rglob("*") if path.suffix in {".sv", ".svh"})
     headers = [path for path in sources if path.suffix == ".svh"]
-    ip_dir = hardware.project_dir / f"{hardware.project}.srcs" / "sources_1" / "ip"
+    ip_dir = hardware.ip_dir
     header_commands = "\n".join(
         f"set_property file_type {{Verilog Header}} [get_files {_q(path)}]" for path in headers
     )
@@ -122,11 +122,13 @@ set_property -dict [list CONFIG.Load_Init_File {{true}} CONFIG.Coe_File {_q(task
 generate_target all [get_ips ROM]
 """
     generated_bit = hardware.project_dir / f"{hardware.project}.runs" / "impl_1" / f"{task.top}.bit"
+    ooc_fix = bram_ooc_fix(hardware, hardware.ip_dir)
     return f"""
 open_project {_q(hardware.xpr)}
 set_property top {task.top} [get_filesets sources_1]
 set_property verilog_define {{{defines}}} [get_filesets sources_1]
 {coe}
+{ooc_fix}
 reset_run synth_1
 launch_runs synth_1 -jobs 8
 wait_on_run synth_1

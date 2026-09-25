@@ -5,6 +5,10 @@ from pathlib import Path
 from .config import Hardware, ROOT
 
 
+def _output_mhz(hardware: Hardware) -> list[float]:
+    return [float(f) for f in hardware.clock.get("outputs_mhz", [50.0, 100.0, 200.0])]
+
+
 def _bram(name: str, width: int, depth: int, clock_mhz: int) -> str:
     return f"""
 file mkdir "$ip_dir/{name}"
@@ -34,7 +38,7 @@ set_property -dict [list \\
 def _clock(hardware: Hardware) -> str:
     cfg = hardware.clock
     name = cfg.get("name", "clk_wiz_0")
-    outputs = list(cfg.get("outputs_mhz", [50.0, 100.0, 200.0]))
+    outputs = _output_mhz(hardware)
     properties = []
     for index, frequency in enumerate(outputs, start=1):
         properties.extend((
@@ -73,12 +77,21 @@ set_property -dict [list \\
 """
 
 
+def _bram_clock_mhz(hardware: Hardware) -> dict[str, float]:
+    """BRAM IP → its clock in MHz. clk_wiz outputs are [cpu_clk, sys_clk,
+    ddr_clk_ref] (config/vivado.yaml); the boot ROM hangs off sys_clk, the
+    CPU caches off cpu_clk (src/soc/top.sv)."""
+    outputs = _output_mhz(hardware)
+    return {"ROM": outputs[1], "icached": outputs[0], "dcached": outputs[0]}
+
+
 def create_ip_tcl(hardware: Hardware, ip_dir: Path) -> str:
+    clocks = _bram_clock_mhz(hardware)
     blocks = [
         f"set ip_dir {{{ip_dir.as_posix()}}}\nfile mkdir $ip_dir",
-        _bram("ROM", 32, 8192, 100),
-        _bram("icached", 256, 16, 50),
-        _bram("dcached", 256, 16, 50),
+        _bram("ROM", 32, 8192, int(clocks["ROM"])),
+        _bram("icached", 256, 16, int(clocks["icached"])),
+        _bram("dcached", 256, 16, int(clocks["dcached"])),
     ]
     names = ["ROM", "icached", "dcached"]
     if hardware.ddr3.get("enabled", True):
@@ -90,4 +103,23 @@ def create_ip_tcl(hardware: Hardware, ip_dir: Path) -> str:
             f"generate_target all [get_ips {name}]\n"
             f"export_ip_user_files -of_objects [get_ips {name}] -no_script -sync -force -quiet"
         )
+    return "\n".join(blocks)
+
+
+def bram_ooc_fix(hardware: Hardware, ip_dir: Path) -> str:
+    """blk_mem_gen's generated OOC XDC always carries a 20ns create_clock; the
+    Port_A_Clock parameter feeds power estimation only. Rewrite each BRAM's
+    OOC period to its real clock after generate_target, so out-of-context
+    synthesis sees the true clocks and Timing 38-316 stays quiet."""
+    blocks = []
+    for name, mhz in _bram_clock_mhz(hardware).items():
+        period = 1000.0 / mhz
+        xdc = (ip_dir / name / name / f"{name}_ooc.xdc").resolve().as_posix()
+        blocks.append(f"""set _fh [open {{{xdc}}} r]
+set _txt [read $_fh]
+close $_fh
+regsub -all -- {{-period 20\\.0}} $_txt {{-period {period:.1f}}} _txt
+set _fh [open {{{xdc}}} w]
+puts -nonewline $_fh $_txt
+close $_fh""")
     return "\n".join(blocks)

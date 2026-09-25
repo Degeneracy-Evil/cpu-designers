@@ -31,6 +31,10 @@ class Hardware:
     def xpr(self) -> Path:
         return self.project_dir / f"{self.project}.xpr"
 
+    @property
+    def ip_dir(self) -> Path:
+        return self.project_dir / f"{self.project}.srcs" / "sources_1" / "ip"
+
 
 @dataclass(frozen=True)
 class Simulation:

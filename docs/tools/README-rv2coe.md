@@ -17,8 +17,8 @@
 
 ```bash
 python3 tools/rv2coe.py \
-  -i tools/examples/phase1_prog.S \
-  -o src/program_source/icache_init.coe
+  -i software/baremetal/applications/uart_hello.s \
+  -o build/program/app/uart_hello.coe
 ```
 
 ### 指令/数据分离输出（Harvard 架构 / bootloader 烧录）
@@ -30,7 +30,7 @@ python3 tools/rv2coe.py \
   --data-bin app.data.bin
 ```
 
-分离输出的文件可直接用于 `bootloader/main.py` 烧录：
+分离输出的文件可用 `tools/uart_console.py` 烧录（`python3 -m tools.uart_console -p /dev/ttyUSB0 -f <file>`）：
 - `*.inst.bin` — 指令存储器（`.text` 段）
 - `*.data.bin` — 数据存储器（`.data` + `.rodata` + `.sdata` 段）
 
@@ -44,7 +44,7 @@ python3 tools/rv2coe.py \
 - `-I` / `--include`：添加头文件搜索路径（可多次指定）
 - `--linker-script FILE`：自定义链接脚本（`.ld`），多文件编译时推荐使用
 - `--entry`：链接入口符号，默认 `_start`
-- `--march`：目标 ISA，默认 `rv32i_zicsr_zifencei`（同时控制 GCC 编译和 ISA 白名单检查）
+- `--march`：目标 ISA，默认 `rv32im_zicsr_zifencei`（同时控制 GCC 编译和 ISA 白名单检查）
 - `--abi`：目标 ABI，默认 `ilp32`
 - `--no-check-isa`：关闭 ISA 白名单检查
 - `--depth N`：指令输出补齐到 N 条（默认不补齐）
@@ -52,6 +52,8 @@ python3 tools/rv2coe.py \
 - `--hex FILE`：同时输出 `$readmemh` 格式 hex 文件
 - `-v` / `--verbose`：打印完整工具链命令
 - `--text-base`：指定连接地址，默认`0x80000000`
+- `--gcc` / `--ld` / `--objcopy` / `--objdump`：指定工具链可执行文件（默认 `riscv64-unknown-elf-*`）
+- `--keep-temp`：保留中间文件（`.o`、ELF）
 
 ### 指令/数据分离输出
 
@@ -72,8 +74,8 @@ python3 tools/rv2coe.py \
 |---------|---------|
 | `rv32i` | 基硎整数指令集 |
 | `rv32i_zicsr` | + CSR 指令 |
-| `rv32i_zicsr_zifencei` | + 指令缓存刷新（**默认**） |
-| `rv32im*` | + 乘除法（M 扩展） |
+| `rv32i_zicsr_zifencei` | + 指令缓存刷新 |
+| `rv32im*` | + 乘除法（M 扩展），默认 `rv32im_zicsr_zifencei` |
 | `rv32imc*` | + 乘除法 + 压缩指令（C 扩展） |
 | `rv32imac*` | + 乘除法 + 原子 + 压缩 |
 | `rv32if*` | + 单精度浮点（F 扩展） |
@@ -94,16 +96,16 @@ python3 tools/rv2coe.py \
 `-i` 可多次指定，支持将多个源文件编译后链接为一个 ELF：
 
 ```bash
-# 多文件编译：start.S + uart.c + uart_echo.c → uart_echo.hex
+# 多文件编译：start.S + uart.c + uart_echo_c_lib.c → uart_echo_c_lib.hex
 python3 tools/rv2coe.py \
-  -i src/program_source/lib/start.S \
-  -i src/program_source/lib/uart.c \
-  -i src/program_source/uart_echo.c \
-  -I src/program_source/lib/include \
-  --linker-script src/program_source/link.ld \
+  -i software/baremetal/runtime/start.S \
+  -i software/baremetal/runtime/uart.c \
+  -i software/baremetal/applications/uart_echo_c_lib.c \
+  -I software/baremetal/runtime/include \
+  --linker-script software/baremetal/linker/ram.ld \
   --march rv32im_zicsr_zifencei \
-  --hex src/program_source/uart_echo.hex \
-  -o src/program_source/uart_echo.coe
+  --hex build/program/app/uart_echo_c_lib.hex \
+  -o build/program/app/uart_echo_c_lib.coe
 ```
 
 编译流程：
